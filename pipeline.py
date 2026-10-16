@@ -19,6 +19,7 @@ OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, 
            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
 MIN_CHARS = 80                # letras OCR para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
+ASR_WIN = 900                 # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
 LLM = ("Qwen3.5-4B-Q4_0.gguf", "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf")
 # ponytail: núcleos físicos = lógicos / 2 (SMT de 2 hilos, p. ej. i5-1135G7 4C/8T); con más hilos que núcleos llama.cpp
@@ -66,22 +67,45 @@ def duration(path):
 
 
 # ---------- ASR ----------
+def windowed(transcribe_win, dur, win, pad=30):
+    """Transcribe por ventanas para que la RAM no crezca con la duración. transcribe_win(inicio, largo) da segmentos
+    (s, e, texto) relativos a la ventana. Cada ventana lleva `pad` s de más: el segmento que empieza después de `win`
+    se descarta y la ventana siguiente arranca en él, así ninguna frase queda cortada por el borde."""
+    out, start = [], 0.0
+    while True:
+        final = start + win + pad >= dur
+        nxt = start + win
+        for s, e, txt in transcribe_win(start, win + pad):
+            if not final and s >= win:
+                nxt = start + s
+                break
+            out.append((start + s, start + e, txt))
+            nxt = max(nxt, start + e)
+        if final:
+            return out
+        start = nxt
+
+
 def transcribe(video, quality, threads, dur, cb):
     from faster_whisper import WhisperModel
     name = ASR_MODELS[quality]
     cb(0, f"Cargando modelo de voz ({name})…")
     model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
-    # audio vía ffmpeg (PyAV 19 rompe el decode_audio de faster-whisper 1.2.1)
-    # ponytail: todo el audio en RAM (~230 MB/h, float32 16 kHz, igual que faster-whisper); trocear si 8 GB no llegan
-    pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
-                         capture_output=True, check=True).stdout
-    segs, info = model.transcribe(np.frombuffer(pcm, np.float32), vad_filter=True, beam_size=1 if name == "small" else 5,
-                                  condition_on_previous_text=False)
-    out = []
-    for s in segs:
-        out.append({"s": round(s.start, 1), "e": round(s.end, 1), "text": s.text.strip()})
-        cb(min(s.end / dur, 1), f"Transcribiendo… {fmt(s.end)} / {fmt(dur)}")
-    return {"language": info.language, "segments": out}
+    lang = [None]  # se detecta en la primera ventana y se fija para las demás
+
+    def win(start, length):
+        # audio vía ffmpeg (PyAV 19 rompe el decode_audio de faster-whisper 1.2.1) y solo esta ventana en RAM:
+        # faster-whisper hace la STFT de todo lo que recibe de una vez; con la reunión entera eran 7 GB en 2 h 20
+        pcm = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{start:.2f}", "-t", str(length), "-i", str(video), "-vn",
+                              "-ac", "1", "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
+        segs, info = model.transcribe(np.frombuffer(pcm, np.float32), language=lang[0], vad_filter=True,
+                                      beam_size=1 if name == "small" else 5, condition_on_previous_text=False)
+        lang[0] = lang[0] or info.language
+        for s in segs:
+            cb(min((start + s.end) / dur, 1), f"Transcribiendo… {fmt(start + s.end)} / {fmt(dur)}")
+            yield s.start, s.end, s.text.strip()
+    segs = windowed(win, dur, ASR_WIN)
+    return {"language": lang[0], "segments": [{"s": round(s, 1), "e": round(e, 1), "text": t} for s, e, t in segs if t]}
 
 
 # ---------- Vídeo: cambios de pantalla ----------
@@ -516,6 +540,12 @@ def _selftest():
     # A A A(reloj) B B A A, con webcam cambiando en cada muestra -> tramos A y B; la vuelta a A no se repite
     segs = stable_segments(np.array([cam(f) for f in (a, a, noisy, b, b, a, a)]))
     assert segs == [(0, 2), (3, 4)], segs
+    # ASR por ventanas: ni huecos ni repetidos, marcas absolutas; una frase que cruza el borde se hace en la siguiente
+    truth = [(t, t + 8, f"s{t}") for t in range(0, 2500, 10)]
+    fake = lambda st, ln: ((s - st, min(e, st + ln) - st, x) for s, e, x in truth if st <= s < st + ln)
+    assert windowed(fake, 2508, 900) == truth
+    assert windowed(fake, 2508, 895) == truth  # borde en mitad de una frase
+
     kf = lambda t, txt: {"t": t, "screen": True, "text": txt}
     ks = dedupe_screens([kf(0, "Plan | Fase 1"), kf(9, "Plan | Fase 1 | Fase 2 beta"), kf(20, "Presupuesto total 200"),
                          kf(30, "Pestaña PLAN | fase 1 fase 2: beta")])
