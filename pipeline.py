@@ -1,5 +1,6 @@
 """Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local, CPU."""
 import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, time, unicodedata, urllib.request, zipfile
+from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -17,7 +18,7 @@ DUP = 0.75                    # palabras OCR compartidas / palabras de la pantal
 OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
-MIN_CHARS = 80                # letras OCR para considerar un frame "pantalla compartida"
+MIN_CHARS = 30                # letras OCR (sin interfaz ni nombres, ver screens) para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_WIN = 900                 # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
@@ -176,17 +177,35 @@ def words(t):
     return re.findall(r"[a-z0-9]+", "".join(c for c in t if not unicodedata.combining(c)))
 
 
-def dedupe_screens(kfs):
-    """Pantallas repetidas (mismo texto OCR, o una contiene a la otra: viñetas que van apareciendo, volver a una
-    pantalla ya vista): se queda la más completa, con la marca de tiempo de la primera aparición."""
+def screens(kfs):
+    """Marca qué frames son pantalla compartida (k["screen"]), deja en k["text"] solo su contenido y deduplica.
+    Antes de contar letras y comparar se quita la interfaz de la videollamada: líneas cuyas dos primeras palabras salen
+    en >= 30 % de los frames (barra de marcadores, "X está presentando", nombres de la columna de caras aunque el OCR los
+    corte distinto, paneles de la aplicación). Solo cuentan las líneas con >= 2 palabras y alguna en minúscula de >= 3
+    letras: los nombres bajo las caras de Meet/Zoom/Teams y los botones no, así que una cuadrícula de caras no es pantalla.
+    Repetidas (mismo texto, o una contiene a la otra: viñetas que van apareciendo, volver a una pantalla ya vista):
+    queda la más completa; hereda la marca de la primera aparición solo si su texto es casi igual (>= 90 %)."""
+    key = lambda line: " ".join(words(line)[:2])
+    lines = [[x for x in k["text"].split(" | ") if key(x)] for k in kfs]
+    freq = Counter(n for ls in lines for n in {key(x) for x in ls})
+    ui = {n for n, c in freq.items() if c >= max(5, 0.3 * len(kfs))}
     kept = []  # [(palabras, keyframe)]
-    for k in (k for k in kfs if k["screen"]):
+    for k, ls in zip(kfs, lines):
+        body = [x for x in ls if key(x) not in ui]
+        prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
+        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3), "")[:90],
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS)
+        if not k["screen"]:
+            continue
         w = words(k["text"])
         for n, (ow, o) in enumerate(kept):
-            m = sum(b.size for b in SequenceMatcher(None, ow, w, autojunk=False).get_matching_blocks())
+            sm = SequenceMatcher(None, ow, w, autojunk=False)
+            m = sum(b.size for b in sm.get_matching_blocks())
             if m >= DUP * min(len(ow), len(w)):
                 keep, drop = (k, o) if len(w) > len(ow) else (o, k)
-                keep["t"], drop["screen"] = min(k["t"], o["t"]), False
+                if m >= 0.9 * max(len(ow), len(w)):
+                    keep["t"] = min(k["t"], o["t"])
+                drop["screen"] = False
                 kept[n] = (max(w, ow, key=len), keep)
                 break
         else:
@@ -211,10 +230,8 @@ def keyframes(video, wd, threads, dur, cb):
         c = round(len(im) * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
         res, _ = ocr(im[c:len(im) - c])
         lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
-        # letras, no palabras: el modelo OCR (chino+inglés) a menudo pega las palabras latinas sin espacios
-        chars = sum(c.isalnum() for t in lines for c in t)
-        out.append({"t": a * STEP, "img": img.name, "screen": chars >= MIN_CHARS, "text": " | ".join(lines)})
-    return dedupe_screens(out)
+        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(lines)})
+    return out  # crudo; screens() clasifica y deduplica al cargar (barato, y así se puede ajustar sin repetir el OCR)
 
 
 # ---------- LLM (llama-server) ----------
@@ -478,12 +495,12 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         raise RuntimeError("No se ha detectado voz en el vídeo")
     lang = LANG.get(tr["language"], f"el idioma de la reunión ({tr['language']})")
 
-    kf = wd / "keyframes.json"
+    kf = wd / "frames.json"  # OCR crudo; screens() lo clasifica y deduplica en cada ejecución
     if not kf.exists():
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.45 + 0.15 * f, m)), ensure_ascii=False))
         stage("capturas+ocr", t0)
-    kfs = json.loads(kf.read_text())
+    kfs = screens(json.loads(kf.read_text()))
 
     chunks = chunk(tr["segments"])
     inputs = [map_input(c, kfs) for c in chunks]
@@ -546,10 +563,21 @@ def _selftest():
     assert windowed(fake, 2508, 900) == truth
     assert windowed(fake, 2508, 895) == truth  # borde en mitad de una frase
 
-    kf = lambda t, txt: {"t": t, "screen": True, "text": txt}
-    ks = dedupe_screens([kf(0, "Plan | Fase 1"), kf(9, "Plan | Fase 1 | Fase 2 beta"), kf(20, "Presupuesto total 200"),
-                         kf(30, "Pestaña PLAN | fase 1 fase 2: beta")])
-    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (0, False), (20, True), (0, True)], ks
+    # pantallas: la barra de marcadores y los nombres de la columna de caras (cortados distinto) son interfaz;
+    # la cuadrícula de caras no es pantalla; la diapositiva que crece conserva la marca solo si es casi igual
+    bar = "meet.google.com/abc | Otros marcadores | Ana Pérez está presentando"
+    kf = lambda t, txt: {"t": t, "img": f"k{t}.jpg", "text": f"{bar} | Luis Antonio Gar{'cía Díaz' if t % 2 else '...'} | {txt}"}
+    grid = "Miguel Ángel Calle | Ricardo Maldonado Reusens | Danny alexander Guevara"
+    ks = screens([kf(0, grid), kf(9, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas"),
+                  kf(20, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril"),
+                  kf(31, "Presupuesto total de doscientos mil euros para el año"),
+                  kf(40, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril | "
+                         "Fase 3 lanzamiento internacional con socios"),
+                  kf(51, grid), kf(60, "Presupuesto total de doscientos mil euros para el año 2025")])
+    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, False), (20, False), (31, False), (40, True),
+                                                   (51, False), (31, True)], ks
+    assert "marcadores" not in ks[6]["text"] and ks[6]["title"].startswith("Presupuesto total"), ks[6]
+
     assert len(chunk([{"s": i, "e": i + 1, "text": "x" * 991} for i in range(25)])) == 3
     pts = lambda *n: {"puntos": [{"importancia": i, "t": "00:0%d" % k, "texto": "p"} for k, i in enumerate(n)]}
     maps = [pts(5, 5, 4, 4), pts(5, 4, 4, 4, 4, 4)]  # todo 4-5: el presupuesto igualmente separa niveles
