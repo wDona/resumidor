@@ -6,7 +6,7 @@ import gradio as gr
 
 import pipeline
 
-THREADS = int(os.environ.get("ACTAS_THREADS", os.cpu_count()))
+THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
 
 
 def generar(video, nivel, asr, progress=gr.Progress()):

@@ -20,6 +20,10 @@ OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, 
 MIN_CHARS = 80                # letras OCR para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
+LLM = ("Qwen3.5-4B-Q4_0.gguf", "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf")
+# ponytail: núcleos físicos = lógicos / 2 (SMT de 2 hilos, p. ej. i5-1135G7 4C/8T); con más hilos que núcleos llama.cpp
+# genera a menos de la mitad de velocidad. Sin SMT se queda con la mitad: --threads / ACTAS_THREADS lo corrigen
+PHYS = max(1, (os.cpu_count() or 2) // 2)
 # keep = fracción de puntos (ranking global por importancia) que entra en el acta; shots = máx. de capturas (None = todas)
 # secs = secciones por tema; extra = cifras y citas. Decisiones y tareas siempre entran.
 LEVELS = {
@@ -190,10 +194,15 @@ def keyframes(video, wd, threads, dur, cb):
 
 
 # ---------- LLM (llama-server) ----------
+def llm_model():
+    p = ROOT / "models" / LLM[0]
+    return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
+
+
 @contextlib.contextmanager
 def llama(threads, ctx=8192):
     exe = next((p for p in ROOT.glob("bin/**/llama-server*") if p.is_file()), None)
-    model = next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
+    model = llm_model()
     if not exe or not model:
         raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
     with socket.socket() as s:
@@ -201,6 +210,10 @@ def llama(threads, ctx=8192):
         port = s.getsockname()[1]
     log = open(WORK / "llama-server.log", "w")
     proc = subprocess.Popen([str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1",
+                             # sin caché de prompts en RAM (8 GB por defecto) ni checkpoints (32 copias del estado en modelos híbridos:
+                             # +3 GB y aquí nunca se reutiliza el prompt), sin "thinking" y sin mmap: con mmap los pesos
+                             # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
+                             "-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none",
                              "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"
     try:
@@ -215,8 +228,7 @@ def llama(threads, ctx=8192):
 
         def chat(system, user, schema, max_tokens):
             body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    "temperature": 0.2, "max_tokens": max_tokens,
-                    "response_format": {"type": "json_schema", "json_schema": {"name": "r", "schema": schema}}}
+                    "temperature": 0.2, "max_tokens": max_tokens, "grammar": gbnf(schema)}
             req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                          {"Content-Type": "application/json"})
             r = json.load(urllib.request.urlopen(req, timeout=7200))
@@ -236,37 +248,53 @@ STR = {"type": "string"}
 TS = {"type": "string", "pattern": "^[0-9]{1,3}:[0-5][0-9]$"}
 arr = lambda item, n: {"type": "array", "items": item, "maxItems": n}
 TASK = obj(tarea=STR, responsable=STR, plazo=STR, t=TS)
-MAP_SCHEMA = obj(tema=STR, puntos=arr(obj(texto=STR, importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 15),
-                 datos=arr(obj(texto=STR, t=TS), 6), decisiones=arr(obj(texto=STR, t=TS), 8), tareas=arr(TASK, 8))
+MAP_SCHEMA = obj(tema=STR, puntos=arr(obj(texto=STR, importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 10),
+                 datos=arr(obj(texto=STR, t=TS), 4), decisiones=arr(obj(texto=STR, t=TS), 5), tareas=arr(TASK, 5))
 
 
 def reduce_schema(secs):
-    props = dict(resumen=STR, secciones=arr(obj(titulo=STR, t=TS, resumen=STR), 15)) if secs else dict(resumen=STR)
-    return obj(**props, decisiones=arr(obj(texto=STR, t=TS), 20), tareas=arr(TASK, 20))
+    return obj(resumen=STR, secciones=arr(obj(titulo=STR, t=TS, resumen=STR), 15)) if secs else obj(resumen=STR)
 
-MAP_PROMPT = """Eres un asistente que redacta actas de reuniones. Recibes un fragmento de la transcripción automática \
-(puede tener errores) con marcas [mm:ss] y, a veces, texto leído de la pantalla compartida.
-Extrae los puntos del fragmento, también los secundarios. Cada punto: una frase concisa y autocontenida (máx. 30 palabras); \
-t = marca [mm:ss] de la línea donde empieza.
-Importancia, con esta rúbrica estricta:
-5 = decisión, compromiso o cifra clave que cambia algo (plazo, presupuesto, cambio de rumbo, acuerdo cerrado)
-4 = información nueva y relevante para el tema
-3 = contexto útil que ayuda a entender
-2 = detalle, ejemplo o anécdota
-1 = relleno: saludos, bromas, logística, repeticiones
-Distribución obligatoria: como mucho 1 de cada 5 puntos puede ser un 5 y como mucho 2 de cada 5 un 4; la mayoría deben ser 2 o 3. \
-Sé exigente: ante la duda, pon la nota más baja.
-Lista los puntos ordenados de mayor a menor importancia.
-datos: cifras, nombres propios, fechas o citas textuales literales del fragmento (opcional, máx. 6).
-Lista también las decisiones tomadas y las tareas asignadas (tarea = qué hay que hacer, sin repetir responsable ni plazo; si no se mencionan, "—").
-Usa solo lo que aparece en el texto, no inventes. Escribe en {lang}."""
+
+def gbnf(schema):
+    """Esquema (solo obj/arr/STR/TS/enum de aquí) -> gramática GBNF compacta: sin saltos de línea ni sangría (menos tokens;
+    con json_schema Gemma se quedaba generando espacios hasta max_tokens) y con maxItems como límite duro."""
+    rules = {"sp": '" "?', "ts": r'"\"" [0-9] [0-9]? [0-9]? ":" [0-5] [0-9] "\""',
+             "str": r'"\"" ([^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}))* "\""'}
+    lit = lambda v: json.dumps(json.dumps(v) if not isinstance(v, str) else v)
+
+    def g(s):
+        if "enum" in s:
+            return "(" + " | ".join(lit(v) for v in s["enum"]) + ")"
+        if s.get("type") == "array":
+            it = g(s["items"])
+            return f'"[" sp ({it} ("," sp {it}){{0,{s["maxItems"] - 1}}})? sp "]"'
+        if s.get("type") == "object":
+            body = ' "," sp '.join(f'{lit(json.dumps(k) + ":")} sp {g(v)}' for k, v in s["properties"].items())
+            name = f"o{len(rules)}"
+            rules[name] = f'"{{" sp {body} sp "}}"'
+            return name
+        return "ts" if "pattern" in s else "str"
+    rules["root"] = g(schema)
+    return "\n".join(f"{k} ::= {v}" for k, v in rules.items())
+
+# Salida corta a propósito: generar es lo caro en CPU (~5-11 tok/s); 10 puntos de <= 20 palabras ≈ 500 tokens por bloque
+MAP_PROMPT = """Redactas actas de reuniones. Recibes un fragmento de transcripción automática (con errores) con marcas [mm:ss] \
+y, a veces, texto de la pantalla compartida.
+puntos: hasta 10 ideas del fragmento, de mayor a menor importancia; cada una, una frase autocontenida de máx. 20 palabras; \
+t = marca donde empieza.
+importancia: 5 = decisión, compromiso o cifra clave; 4 = información nueva relevante; 3 = contexto útil; 2 = detalle o ejemplo; \
+1 = relleno (saludos, logística). Como mucho un 5 y dos 4 por cada cinco puntos; la mayoría 2-3.
+datos: cifras, nombres, fechas o citas literales (máx. 4).
+decisiones y tareas: solo las acordadas o asignadas explícitamente; si no hay, lista vacía. En tareas, responsable y plazo \
+"—" si no se dicen.
+Solo lo que dice el texto; no inventes. Escribe en {lang}."""
 
 REDUCE_PROMPT = """Eres un asistente que redacta actas de reuniones. Recibes los puntos clave extraídos de cada bloque \
 de una reunión, en orden cronológico, con marcas [mm:ss].
 Redacta el acta final:
 - resumen: resumen general de {tldr}.
-{secs}- decisiones y tareas: fusiona duplicados, conserva la marca t más temprana; en tareas no repitas responsable ni plazo en el texto.
-Usa solo la información recibida, no inventes. Escribe en {lang}."""
+{secs}Usa solo la información recibida, no inventes. Escribe en {lang}."""
 
 
 def chunk(segments):
@@ -279,13 +307,22 @@ def chunk(segments):
     return out + [cur] if cur else out
 
 
-def map_chunk(chat, segs, kfs, lang):
+def map_input(segs, kfs):
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     text = "\n".join(f"[{fmt(s['s'])}] {s['text']}" for s in segs)
     screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
-    return chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, 2000)
+    return text
+
+
+def map_chunk(chat, segs, text, lang):
+    m = chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, 1000)
+    t0, t1 = segs[0]["s"], segs[-1]["e"]
+    for item in (x for k in ("puntos", "datos", "decisiones", "tareas") for x in m[k]):
+        if not t0 - 5 <= parse_ts(item["t"]) <= t1 + 5:  # marca inventada fuera del bloque: al inicio del bloque
+            item["t"] = fmt(t0)
+    return m
 
 
 def select_points(maps, keep):
@@ -315,7 +352,9 @@ def reduce_maps(chat, maps, level, lang):
             break
         keep *= 0.8
     secs = f"- secciones: agrupa por tema en orden cronológico; t = marca del primer punto de la sección; resumen de {cfg['sec']}.\n" if cfg["secs"] else ""
-    return chat(REDUCE_PROMPT.format(lang=lang, tldr=cfg["tldr"], secs=secs), text, reduce_schema(cfg["secs"]), 3000)
+    red = chat(REDUCE_PROMPT.format(lang=lang, tldr=cfg["tldr"], secs=secs), text, reduce_schema(cfg["secs"]), 2000)
+    # decisiones y tareas tal cual del map: reescribirlas con el LLM costaba cientos de tokens generados y no aportaba
+    return {**red, "decisiones": [d for m in maps for d in m["decisiones"]], "tareas": [t for m in maps for t in m["tareas"]]}
 
 
 def pick_shots(kfs, sel, n):
@@ -397,7 +436,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lambda f, m: None):
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None):
     video = Path(video)
     wd = WORK / video_id(video)
     wd.mkdir(parents=True, exist_ok=True)
@@ -423,8 +462,9 @@ def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lam
     kfs = json.loads(kf.read_text())
 
     chunks = chunk(tr["segments"])
-    # la caché lleva el hash de prompt+esquema: cambiar el prompt la invalida
-    mh = hashlib.sha1((MAP_PROMPT + json.dumps(MAP_SCHEMA) + str(CHUNK_CHARS)).encode()).hexdigest()[:8]
+    inputs = [map_input(c, kfs) for c in chunks]
+    # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
+    mh = hashlib.sha1("\0".join([MAP_PROMPT, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     rh = hashlib.sha1((mh + REDUCE_PROMPT + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
@@ -436,7 +476,7 @@ def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lam
             t0 = time.time()
             for i in range(len(maps), len(chunks)):
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
-                maps.append(map_chunk(chat, chunks[i], kfs, lang))
+                maps.append(map_chunk(chat, chunks[i], inputs[i], lang))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
@@ -486,6 +526,8 @@ def _selftest():
     n = [len(select_points(maps, LEVELS[lv]["keep"])) for lv in LEVELS]
     assert n == [2, 5, 10], n
     assert [x[2] for x in select_points(maps, 0.3)] == [5, 5, 5], "primero las notas altas"
+    g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS), 3)))
+    assert 'root ::= o4' in g and '"[" sp (o3 ("," sp o3){0,2})? sp "]"' in g and '("1" | "2")' in g, g
     print("ok")
 
 
@@ -495,7 +537,7 @@ if __name__ == "__main__":
     ap.add_argument("video", nargs="?")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
-    ap.add_argument("--threads", type=int, default=os.cpu_count())
+    ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest or not a.video:

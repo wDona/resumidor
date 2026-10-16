@@ -11,10 +11,11 @@ Requisitos: `ffmpeg`/`ffprobe` en el PATH y [uv](https://docs.astral.sh/uv/).
 uv sync                                   # Python 3.12 + dependencias
 # llama-server (binario CPU de https://github.com/ggml-org/llama.cpp/releases) en ./bin/
 curl -L https://github.com/ggml-org/llama.cpp/releases/download/b11690/llama-b11690-bin-ubuntu-x64.tar.gz | tar xz -C bin
-# modelo de lenguaje en ./models/ (cualquier .gguf; se usa el primero)
-curl -L -o models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
-  https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+# modelo de lenguaje en ./models/ (si falta Qwen3.5-4B-Q4_0 se usa el primer .gguf que haya)
+curl -L -o models/Qwen3.5-4B-Q4_0.gguf https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf
 ```
+
+En Windows, el zip `llama-bXXXXX-bin-win-cpu-x64.zip` de la misma página, descomprimido en `bin\`.
 
 Los modelos de whisper se descargan solos la primera vez (small ≈ 480 MB, large-v3-turbo ≈ 1,6 GB).
 
@@ -28,7 +29,14 @@ uv run pipeline.py --selftest
 ```
 
 El acta queda en `work/<hash>/acta_<nivel>_<asr>/index.html` (abrible sin servidor; el vídeo va enlazado al lado)
-y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). `ACTAS_THREADS` limita los hilos en la GUI.
+y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). Hilos por defecto: núcleos lógicos / 2
+(= físicos con hyperthreading; con más hilos que núcleos llama.cpp genera a menos de la mitad); `--threads` o
+`ACTAS_THREADS` (GUI) lo cambian.
+
+Referencia (reunión real de 30 min, 4 núcleos de un Ryzen 5500 con `taskset` emulando un HP ProBook 440 G8): ASR 124 s,
+capturas+OCR 88 s, map 379 s, reduce 13 s (breve) / 52 s (normal) / 95 s (detallado): ≈ 0,34× la duración. En el ProBook
+con RAM de un solo canal la generación va a la mitad: ≈ 0,45-0,5×. Pico de RAM: python 2,2 GB (ASR/OCR) y llama-server
+3,0 GB (no a la vez), cabe en 8 GB.
 
 ## Arquitectura
 
@@ -43,8 +51,14 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). `AC
    son caras y se descarta. Pantallas cuyo texto contiene ≥ 75 % del de otra se fusionan: queda la más completa con la
    marca de su primera aparición.
 6. La transcripción se trocea en bloques de ~3k tokens con el texto OCR de su intervalo.
-7. Map: Qwen3-4B (llama-server, JSON schema) → puntos con importancia 1-5 (rúbrica con distribución forzada, ordenados por nota), cifras/citas, decisiones, tareas (`map_<asr>_<hash>.json`; el hash del prompt invalida la caché). Se imprime el histograma de notas.
+7. Map: Qwen3.5-4B Q4_0 (llama-server, sin mmap ni caché de prompts) con gramática GBNF compacta generada del esquema
+   (`gbnf`: JSON sin sangría y con máximos duros) → hasta 10 puntos de ≤ 20 palabras con importancia 1-5 (rúbrica con
+   distribución forzada, ordenados por nota), ≤ 4 cifras/citas, decisiones y tareas solo explícitas. Lo caro en CPU es
+   generar, así que la salida es corta a propósito. Marcas fuera del bloque se llevan al inicio del bloque.
+   Caché `map_<asr>_<hash>.json`: el hash cubre prompt, esquema, modelo y entrada (transcripción + OCR). Se imprime el
+   histograma de notas.
 8. Selección por presupuesto: ranking global de puntos (nota, orden en el bloque); breve 20 %, normal 50 %, detallado 100 % (`LEVELS`). Decisiones y tareas entran siempre.
-9. Reduce: breve = resumen + decisiones + tareas; normal/detallado añaden secciones por tema.
+9. Reduce: breve = resumen; normal/detallado añaden secciones por tema. Decisiones y tareas pasan tal cual del map (sin
+   reescribirlas con el LLM).
 10. Render: breve = 3 capturas; normal = puntos por sección + capturas cercanas a los puntos elegidos (máx. 10); detallado = todos los puntos, cifras y citas, todas las capturas.
 11. `app.py` es solo la GUI: llama a `pipeline.run` y muestra el `index.html` en un iframe + zip de descarga.
