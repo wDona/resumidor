@@ -1,5 +1,5 @@
 """Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local, CPU."""
-import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, time, urllib.request, zipfile
+import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, time, unicodedata, urllib.request, zipfile
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -9,7 +9,14 @@ ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "work"
 STEP = 3                      # s entre muestras de vídeo
 THUMB_W, THUMB_H = 128, 72    # miniatura en gris para detectar cambios
-CUT = 0.03                    # fracción de píxeles cambiados que cuenta como "cambio de pantalla"
+CROP = 0.05                   # franjas de arriba/abajo ignoradas (barra de menús con reloj/batería, dock)
+BLOCK = 8                     # lado del bloque (px de miniatura) para comparar por zonas
+CUT = 0.05                    # fracción de bloques cambiados que cuenta como "cambio de pantalla"
+NOISY = 0.4                   # bloque que cambia en >= 40 % de las muestras vecinas (webcam superpuesta): se ignora
+DUP = 0.75                    # palabras OCR compartidas / palabras de la pantalla más corta para darla por repetida
+OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
+           "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
+           "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
 MIN_CHARS = 80                # letras OCR para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
@@ -89,43 +96,97 @@ def sample_thumbs(video, threads, dur, cb):
     return np.array(frames, np.int16)
 
 
-def stable_segments(thumbs, cut=CUT, min_len=2):
+def stable_segments(thumbs, cut=CUT, min_len=2, win=5):
     """[(inicio, fin)] en índices de muestra: tramos estables (>= min_len muestras) sin repetir pantallas ya vistas.
-    Se compara con el inicio del tramo (no con el frame anterior) para que un cambio gradual también corte."""
+    Se compara con el inicio del tramo (no con el frame anterior) para que un cambio gradual también corte.
+    Por bloques y sin las franjas CROP; los bloques que cambian casi siempre en ±win muestras (webcam superpuesta
+    o vídeo incrustado) no cuentan, así que solo corta un cambio que cubra > cut del área útil."""
     # dHash probado y descartado: en imágenes planas (diapositiva blanca vs. mosaico oscuro) apenas cambia.
-    diff = lambda i, j: (np.abs(thumbs[i] - thumbs[j]) > 32).mean()
+    c = round(THUMB_H * CROP)
+    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c:c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
+    n, h, w = t.shape
+    blk = lambda i, j: (np.abs(t[i] - t[j]) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
+    cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(i, i + 1) for i in range(n - 1)], 0)
+    lo, hi = np.maximum(np.arange(n) - win, 0), np.minimum(np.arange(n) + win, n - 1)
+    noisy = (cs[hi] - cs[lo]) / np.maximum(hi - lo, 1)[:, None, None] >= NOISY
+    noisy &= noisy.mean((1, 2), keepdims=True) < 0.25  # solo zonas pequeñas; si cambia media pantalla es contenido
+    diff = lambda i, j: (blk(i, j) & ~(noisy[i] | noisy[j])).mean()
     segs, start = [], 0
-    for i in range(1, len(thumbs) + 1):
-        if i == len(thumbs) or diff(i, start) > cut:
+    for i in range(1, n + 1):
+        if i == n or diff(i, start) > cut:
             if i - start >= min_len and all(diff(i - 1, e) > cut for _, e in segs):
                 segs.append((start, i - 1))
             start = i
     return segs
 
 
+def ocr_rec_model():
+    """Ruta del reconocedor latino; lo baja la primera vez. None (modelo chino/inglés de serie) si no hay red."""
+    name, url, sha = OCR_REC
+    p = ROOT / "models" / name
+    if not p.exists():
+        try:
+            data = urllib.request.urlopen(url, timeout=60).read()
+            if hashlib.sha256(data).hexdigest() != sha:
+                return None
+            p.parent.mkdir(exist_ok=True)
+            p.with_suffix(".part").write_bytes(data)
+            p.with_suffix(".part").rename(p)
+        except OSError:
+            return None
+    return p
+
+
+def clean_ocr(t):
+    """Quita CJK/ancho completo (basura del modelo chino) y deja la línea solo si le quedan >= 2 letras/cifras."""
+    t = re.sub(r"[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]", "", t).strip()
+    return t if sum(c.isalnum() for c in t) >= 2 else ""
+
+
+def words(t):
+    t = unicodedata.normalize("NFKD", t.lower())
+    return re.findall(r"[a-z0-9]+", "".join(c for c in t if not unicodedata.combining(c)))
+
+
+def dedupe_screens(kfs):
+    """Pantallas repetidas (mismo texto OCR, o una contiene a la otra: viñetas que van apareciendo, volver a una
+    pantalla ya vista): se queda la más completa, con la marca de tiempo de la primera aparición."""
+    kept = []  # [(palabras, keyframe)]
+    for k in (k for k in kfs if k["screen"]):
+        w = words(k["text"])
+        for n, (ow, o) in enumerate(kept):
+            m = sum(b.size for b in SequenceMatcher(None, ow, w, autojunk=False).get_matching_blocks())
+            if m >= DUP * min(len(ow), len(w)):
+                keep, drop = (k, o) if len(w) > len(ow) else (o, k)
+                keep["t"], drop["screen"] = min(k["t"], o["t"]), False
+                kept[n] = (max(w, ow, key=len), keep)
+                break
+        else:
+            kept.append((w, k))
+    return kfs
+
+
 def keyframes(video, wd, threads, dur, cb):
+    import cv2
     from rapidocr_onnxruntime import RapidOCR
     segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.5, m)))
     (wd / "frames").mkdir(exist_ok=True)
-    ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1)
+    rec = ocr_rec_model()
+    ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
     out = []
     for n, (a, b) in enumerate(segs):
         cb(0.5 + 0.5 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
         img = wd / "frames" / f"k{b * STEP:06d}.jpg"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1",
                         "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
-        res, _ = ocr(str(img))
-        lines = [t for _, t, sc in (res or []) if float(sc) > 0.6]
+        im = cv2.imread(str(img))
+        c = round(len(im) * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
+        res, _ = ocr(im[c:len(im) - c])
+        lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
         # letras, no palabras: el modelo OCR (chino+inglés) a menudo pega las palabras latinas sin espacios
         chars = sum(c.isalnum() for t in lines for c in t)
         out.append({"t": a * STEP, "img": img.name, "screen": chars >= MIN_CHARS, "text": " | ".join(lines)})
-    # pantallas que solo añaden texto (viñetas que van apareciendo): quedarse con la más completa
-    scr = [k for k in out if k["screen"]]
-    for k, nxt in zip(scr, scr[1:]):
-        a, b = k["text"].lower(), nxt["text"].lower()
-        if sum(m.size for m in SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()) >= 0.85 * len(a):
-            nxt["t"], k["screen"] = k["t"], False
-    return out
+    return dedupe_screens(out)
 
 
 # ---------- LLM (llama-server) ----------
@@ -409,11 +470,16 @@ def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lam
 def _selftest():
     assert fmt(3725) == "62:05" and parse_ts("62:05") == 3725 and parse_ts("1:02:05") == 3725
     rng = np.random.default_rng(0)
-    a, b = rng.integers(0, 255, 100), rng.integers(0, 255, 100)
-    noisy = a.copy(); noisy[:2] += 100
-    # A A A(ruido) B B A A -> tramos A y B; la vuelta a A no se repite
-    segs = stable_segments(np.array([a, a, noisy, b, b, a, a]))
+    a, b = rng.integers(0, 255, (2, THUMB_H, THUMB_W))
+    noisy = a.copy(); noisy[:2] += 100  # reloj en la barra de menús (franja CROP)
+    cam = lambda f: (lambda x: (x.__setitem__((slice(48, 64), slice(104, 128)), rng.integers(0, 255, (16, 24))), x)[1])(f.copy())
+    # A A A(reloj) B B A A, con webcam cambiando en cada muestra -> tramos A y B; la vuelta a A no se repite
+    segs = stable_segments(np.array([cam(f) for f in (a, a, noisy, b, b, a, a)]))
     assert segs == [(0, 2), (3, 4)], segs
+    kf = lambda t, txt: {"t": t, "screen": True, "text": txt}
+    ks = dedupe_screens([kf(0, "Plan | Fase 1"), kf(9, "Plan | Fase 1 | Fase 2 beta"), kf(20, "Presupuesto total 200"),
+                         kf(30, "Pestaña PLAN | fase 1 fase 2: beta")])
+    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (0, False), (20, True), (0, True)], ks
     assert len(chunk([{"s": i, "e": i + 1, "text": "x" * 991} for i in range(25)])) == 3
     pts = lambda *n: {"puntos": [{"importancia": i, "t": "00:0%d" % k, "texto": "p"} for k, i in enumerate(n)]}
     maps = [pts(5, 5, 4, 4), pts(5, 4, 4, 4, 4, 4)]  # todo 4-5: el presupuesto igualmente separa niveles

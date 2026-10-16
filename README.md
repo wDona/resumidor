@@ -34,9 +34,14 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). `AC
 
 1. `video_id`: hash rápido del vídeo → carpeta `work/<hash>/` con todas las cachés.
 2. ASR: faster-whisper int8 en CPU con VAD → `transcript_<asr>.json` (cambiar el nivel no repite el ASR).
-3. Vídeo: ffmpeg saca 1 miniatura gris cada 3 s; se corta cuando cambia >3 % de los píxeles respecto al inicio del tramo.
+3. Vídeo: ffmpeg saca 1 miniatura gris cada 3 s; se compara por bloques de 8×8 sin el 5 % de arriba/abajo (barra de menús,
+   reloj, dock) e ignorando bloques que cambian casi siempre en ±15 s (webcam superpuesta). Se corta cuando cambia >5 % de
+   los bloques respecto al inicio del tramo.
 4. De cada tramo estable (≥ 6 s) se guarda el último frame a resolución completa, descartando pantallas ya vistas.
-5. RapidOCR sobre esos frames: si hay ≥ 80 letras es "pantalla compartida"; si no, son caras y se descarta.
+5. RapidOCR (reconocedor latino PP-OCRv5, 7,5 MB, se baja solo a `models/`; sin red usa el chino/inglés de serie) sobre
+   esos frames sin las franjas de arriba/abajo; se quita basura CJK. Si hay ≥ 80 letras es "pantalla compartida"; si no,
+   son caras y se descarta. Pantallas cuyo texto contiene ≥ 75 % del de otra se fusionan: queda la más completa con la
+   marca de su primera aparición.
 6. La transcripción se trocea en bloques de ~3k tokens con el texto OCR de su intervalo.
 7. Map: Qwen3-4B (llama-server, JSON schema) → puntos con importancia 1-5 (rúbrica con distribución forzada, ordenados por nota), cifras/citas, decisiones, tareas (`map_<asr>_<hash>.json`; el hash del prompt invalida la caché). Se imprime el histograma de notas.
 8. Selección por presupuesto: ranking global de puntos (nota, orden en el bloque); breve 20 %, normal 50 %, detallado 100 % (`LEVELS`). Decisiones y tareas entran siempre.
