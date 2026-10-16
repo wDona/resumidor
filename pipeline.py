@@ -13,11 +13,14 @@ CUT = 0.03                    # fracción de píxeles cambiados que cuenta como 
 MIN_CHARS = 80                # letras OCR para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
+# keep = fracción de puntos (ranking global por importancia) que entra en el acta; shots = máx. de capturas (None = todas)
+# secs = secciones por tema; extra = cifras y citas. Decisiones y tareas siempre entran.
 LEVELS = {
-    "breve": dict(min_imp=5, tldr="2-3 frases", sec="1 frase"),
-    "normal": dict(min_imp=4, tldr="4-6 frases", sec="2-3 frases"),
-    "detallado": dict(min_imp=1, tldr="un párrafo de 6-10 frases", sec="3-5 frases"),
+    "breve": dict(keep=0.2, shots=3, secs=False, extra=False, tldr="2-3 frases", sec=""),
+    "normal": dict(keep=0.5, shots=10, secs=True, extra=False, tldr="4-6 frases", sec="2-3 frases"),
+    "detallado": dict(keep=1.0, shots=None, secs=True, extra=True, tldr="un párrafo de 6-10 frases", sec="3-5 frases"),
 }
+SHOT_WIN = (-10, 90)          # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
 LANG = {"es": "español", "en": "inglés (English)"}
 
 
@@ -173,15 +176,27 @@ TS = {"type": "string", "pattern": "^[0-9]{1,3}:[0-5][0-9]$"}
 arr = lambda item, n: {"type": "array", "items": item, "maxItems": n}
 TASK = obj(tarea=STR, responsable=STR, plazo=STR, t=TS)
 MAP_SCHEMA = obj(tema=STR, puntos=arr(obj(texto=STR, importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 15),
-                 decisiones=arr(obj(texto=STR, t=TS), 8), tareas=arr(TASK, 8))
-REDUCE_SCHEMA = obj(resumen=STR, secciones=arr(obj(titulo=STR, t=TS, resumen=STR), 15),
-                    decisiones=arr(obj(texto=STR, t=TS), 20), tareas=arr(TASK, 20))
+                 datos=arr(obj(texto=STR, t=TS), 6), decisiones=arr(obj(texto=STR, t=TS), 8), tareas=arr(TASK, 8))
+
+
+def reduce_schema(secs):
+    props = dict(resumen=STR, secciones=arr(obj(titulo=STR, t=TS, resumen=STR), 15)) if secs else dict(resumen=STR)
+    return obj(**props, decisiones=arr(obj(texto=STR, t=TS), 20), tareas=arr(TASK, 20))
 
 MAP_PROMPT = """Eres un asistente que redacta actas de reuniones. Recibes un fragmento de la transcripción automática \
 (puede tener errores) con marcas [mm:ss] y, a veces, texto leído de la pantalla compartida.
 Extrae los puntos del fragmento, también los secundarios. Cada punto: una frase concisa y autocontenida (máx. 30 palabras); \
-t = marca [mm:ss] de la línea donde empieza; importancia: 5 = decisión, compromiso o dato crítico; 4 = información importante; \
-3 = información útil; 2 = detalle secundario; 1 = charla, saludos, logística. Usa toda la escala: pocos puntos merecen un 5.
+t = marca [mm:ss] de la línea donde empieza.
+Importancia, con esta rúbrica estricta:
+5 = decisión, compromiso o cifra clave que cambia algo (plazo, presupuesto, cambio de rumbo, acuerdo cerrado)
+4 = información nueva y relevante para el tema
+3 = contexto útil que ayuda a entender
+2 = detalle, ejemplo o anécdota
+1 = relleno: saludos, bromas, logística, repeticiones
+Distribución obligatoria: como mucho 1 de cada 5 puntos puede ser un 5 y como mucho 2 de cada 5 un 4; la mayoría deben ser 2 o 3. \
+Sé exigente: ante la duda, pon la nota más baja.
+Lista los puntos ordenados de mayor a menor importancia.
+datos: cifras, nombres propios, fechas o citas textuales literales del fragmento (opcional, máx. 6).
 Lista también las decisiones tomadas y las tareas asignadas (tarea = qué hay que hacer, sin repetir responsable ni plazo; si no se mencionan, "—").
 Usa solo lo que aparece en el texto, no inventes. Escribe en {lang}."""
 
@@ -189,8 +204,7 @@ REDUCE_PROMPT = """Eres un asistente que redacta actas de reuniones. Recibes los
 de una reunión, en orden cronológico, con marcas [mm:ss].
 Redacta el acta final:
 - resumen: resumen general de {tldr}.
-- secciones: agrupa por tema en orden cronológico; t = marca del primer punto de la sección; resumen de {sec}.
-- decisiones y tareas: fusiona duplicados, conserva la marca t más temprana; en tareas no repitas responsable ni plazo en el texto.
+{secs}- decisiones y tareas: fusiona duplicados, conserva la marca t más temprana; en tareas no repitas responsable ni plazo en el texto.
 Usa solo la información recibida, no inventes. Escribe en {lang}."""
 
 
@@ -213,20 +227,43 @@ def map_chunk(chat, segs, kfs, lang):
     return chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, 2000)
 
 
+def select_points(maps, keep):
+    """Puntos [(t, texto, nota)] que entran en el acta: ranking global (nota, orden en el bloque), se queda `keep`.
+    Por presupuesto y no por umbral: aunque el modelo puntúe todo 4-5, cada nivel muestra un contenido distinto."""
+    allp = sorted(((-p["importancia"], n, parse_ts(p["t"]), p["texto"]) for m in maps for n, p in enumerate(m["puntos"])),
+                  key=lambda x: x[:2])
+    return sorted((t, txt, -neg) for neg, _, t, txt in allp[:max(1, round(keep * len(allp))) if allp else 0])
+
+
+def score_hist(maps):
+    c = [sum(p["importancia"] == k for m in maps for p in m["puntos"]) for k in range(1, 6)]
+    return "puntos por nota " + " ".join(f"{k}:{n}" for k, n in zip(range(1, 6), c)) + f" (total {sum(c)})"
+
+
 def reduce_maps(chat, maps, level, lang):
-    for min_imp in (3, 4, 5):  # ponytail: un solo reduce; si no cabe se sube el umbral. Reduce jerárquico si 3 h no caben
-        parts = []
-        for m in maps:
-            pts = "\n".join(f"- [{p['t']}] {p['texto']}" for p in m["puntos"] if p["importancia"] >= min_imp)
-            dec = "\n".join(f"- DECISIÓN [{d['t']}] {d['texto']}" for d in m["decisiones"])
-            tar = "\n".join(f"- TAREA [{t['t']}] {t['tarea']} (responsable: {t['responsable']}; plazo: {t['plazo']})"
-                            for t in m["tareas"])
-            parts.append(f"## {m['tema']}\n" + "\n".join(x for x in (pts, dec, tar) if x))
-        text = "\n\n".join(parts)
-        if len(text) < 16000:
-            break
     cfg = LEVELS[level]
-    return chat(REDUCE_PROMPT.format(lang=lang, tldr=cfg["tldr"], sec=cfg["sec"]), text, REDUCE_SCHEMA, 3000)
+    keep = cfg["keep"]
+    while True:  # ponytail: un solo reduce; si no cabe se reduce la fracción. Reduce jerárquico si 3 h no caben
+        sel = select_points(maps, keep)
+        text = "\n".join(f"- [{fmt(t)}] {x}" for t, x, _ in sel)
+        dec = "\n".join(f"- DECISIÓN [{d['t']}] {d['texto']}" for m in maps for d in m["decisiones"])
+        tar = "\n".join(f"- TAREA [{t['t']}] {t['tarea']} (responsable: {t['responsable']}; plazo: {t['plazo']})"
+                        for m in maps for t in m["tareas"])
+        text = "\n\n".join(x for x in (text, dec, tar) if x)
+        if len(text) < 16000 or keep < 0.05:
+            break
+        keep *= 0.8
+    secs = f"- secciones: agrupa por tema en orden cronológico; t = marca del primer punto de la sección; resumen de {cfg['sec']}.\n" if cfg["secs"] else ""
+    return chat(REDUCE_PROMPT.format(lang=lang, tldr=cfg["tldr"], secs=secs), text, reduce_schema(cfg["secs"]), 3000)
+
+
+def pick_shots(kfs, sel, n):
+    """Capturas relevantes: peso = suma de notas de los puntos elegidos cerca de la captura; las n de más peso (o todas)."""
+    scr = [k for k in kfs if k["screen"]]
+    if n is None:
+        return scr
+    w = lambda k: sum(sc for t, _, sc in sel if k["t"] + SHOT_WIN[0] <= t <= k["t"] + SHOT_WIN[1])
+    return sorted(sorted(scr, key=w, reverse=True)[:n], key=lambda k: k["t"])
 
 
 # ---------- Informe HTML ----------
@@ -255,16 +292,18 @@ def ts_link(t):
 
 
 def render(out, title, dur, lang, red, maps, kfs, segments, level):
+    cfg = LEVELS[level]
+    sel = select_points(maps, cfg["keep"])
+    shots = pick_shots(kfs, sel, cfg["shots"])
     esc = html.escape
-    sections = sorted(red["secciones"], key=lambda s: parse_ts(s["t"])) or [{"titulo": "Reunión", "t": "00:00", "resumen": ""}]
+    sections = sorted(red.get("secciones", []), key=lambda s: parse_ts(s["t"])) or [{"titulo": "Reunión", "t": "00:00", "resumen": ""}]
     starts = [0] + [parse_ts(s["t"]) for s in sections[1:]]
     # una diapositiva que aparece justo antes (<20 s) del primer punto de una sección abre esa sección
     starts = [min([st] + [k["t"] for k in kfs if k["screen"] and st - 20 <= k["t"] < st]) for st in starts]
-    items = [(parse_ts(p["t"]), f"<li>{ts_link(parse_ts(p['t']))}{esc(p['texto'])}</li>")
-             for m in maps for p in m["puntos"] if p["importancia"] >= LEVELS[level]["min_imp"]]
+    items = [(t, f"<li>{ts_link(t)}{esc(x)}</li>") for t, x, _ in sel]
     items += [(k["t"], f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
                        f'<figcaption>{ts_link(k["t"])}Pantalla compartida</figcaption></figure>')
-              for k in kfs if k["screen"]]
+              for k in shots]
     body = []
     for i, s in enumerate(sections):
         end = starts[i + 1] if i + 1 < len(sections) else 1e9
@@ -274,6 +313,12 @@ def render(out, title, dur, lang, red, maps, kfs, segments, level):
     dec = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}</li>" for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"]))) or "<li>—</li>"
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
+    figs = "".join(h for _, h in items if h.startswith("<figure>"))
+    datos = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}</li>" for m in maps for d in m["datos"])
+    if cfg["secs"]:
+        desarrollo = f"<h2>Desarrollo</h2>{''.join(body)}" + (f"<h2>Cifras y citas</h2><ul>{datos}</ul>" if cfg["extra"] and datos else "")
+    else:  # breve: sin desarrollo, solo las capturas más relevantes
+        desarrollo = f"<h2>Capturas</h2>{figs}" if figs else ""
     trans = "".join(f"<p>{ts_link(s['s'])}{esc(s['text'])}</p>" for s in segments)
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
@@ -284,7 +329,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 <h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
 <h2>Decisiones</h2><ul>{dec}</ul>
 <h2>Tareas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>
-<h2>Desarrollo</h2>{''.join(body)}
+{desarrollo}
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
 </div></main><script>{JS}</script></body></html>"""
     (out / "index.html").write_text(page, encoding="utf-8")
@@ -317,7 +362,10 @@ def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lam
     kfs = json.loads(kf.read_text())
 
     chunks = chunk(tr["segments"])
-    mf, rf = wd / f"map_{quality}.json", wd / f"reduce_{quality}_{level}.json"
+    # la caché lleva el hash de prompt+esquema: cambiar el prompt la invalida
+    mh = hashlib.sha1((MAP_PROMPT + json.dumps(MAP_SCHEMA) + str(CHUNK_CHARS)).encode()).hexdigest()[:8]
+    rh = hashlib.sha1((mh + REDUCE_PROMPT + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
+    mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     if len(maps) < len(chunks) or not rf.exists():
         t0 = time.time()
@@ -335,6 +383,7 @@ def run(video, level="normal", quality="rápido", threads=os.cpu_count(), cb=lam
             rf.write_text(json.dumps(reduce_maps(chat, maps, level, lang), ensure_ascii=False))
             stage("reduce", t0)
     red = json.loads(rf.read_text())
+    print(score_hist(maps), flush=True)
 
     out = wd / f"acta_{level}_{quality}"
     shutil.rmtree(out, ignore_errors=True)
@@ -366,6 +415,11 @@ def _selftest():
     segs = stable_segments(np.array([a, a, noisy, b, b, a, a]))
     assert segs == [(0, 2), (3, 4)], segs
     assert len(chunk([{"s": i, "e": i + 1, "text": "x" * 991} for i in range(25)])) == 3
+    pts = lambda *n: {"puntos": [{"importancia": i, "t": "00:0%d" % k, "texto": "p"} for k, i in enumerate(n)]}
+    maps = [pts(5, 5, 4, 4), pts(5, 4, 4, 4, 4, 4)]  # todo 4-5: el presupuesto igualmente separa niveles
+    n = [len(select_points(maps, LEVELS[lv]["keep"])) for lv in LEVELS]
+    assert n == [2, 5, 10], n
+    assert [x[2] for x in select_points(maps, 0.3)] == [5, 5, 5], "primero las notas altas"
     print("ok")
 
 

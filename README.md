@@ -38,7 +38,8 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). `AC
 4. De cada tramo estable (≥ 6 s) se guarda el último frame a resolución completa, descartando pantallas ya vistas.
 5. RapidOCR sobre esos frames: si hay ≥ 80 letras es "pantalla compartida"; si no, son caras y se descarta.
 6. La transcripción se trocea en bloques de ~3k tokens con el texto OCR de su intervalo.
-7. Map: Qwen3-4B (llama-server, JSON schema) → puntos con importancia 1-5 y marca, decisiones, tareas (`map_<asr>.json`).
-8. Reduce: resumen general, secciones por tema, decisiones y tareas fusionadas; longitud según nivel.
-9. Render: puntos (filtrados por importancia) y capturas se colocan por tiempo dentro de cada sección.
-10. `app.py` es solo la GUI: llama a `pipeline.run` y muestra el `index.html` en un iframe + zip de descarga.
+7. Map: Qwen3-4B (llama-server, JSON schema) → puntos con importancia 1-5 (rúbrica con distribución forzada, ordenados por nota), cifras/citas, decisiones, tareas (`map_<asr>_<hash>.json`; el hash del prompt invalida la caché). Se imprime el histograma de notas.
+8. Selección por presupuesto: ranking global de puntos (nota, orden en el bloque); breve 20 %, normal 50 %, detallado 100 % (`LEVELS`). Decisiones y tareas entran siempre.
+9. Reduce: breve = resumen + decisiones + tareas; normal/detallado añaden secciones por tema.
+10. Render: breve = 3 capturas; normal = puntos por sección + capturas cercanas a los puntos elegidos (máx. 10); detallado = todos los puntos, cifras y citas, todas las capturas.
+11. `app.py` es solo la GUI: llama a `pipeline.run` y muestra el `index.html` en un iframe + zip de descarga.
