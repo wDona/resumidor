@@ -47,7 +47,7 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
 
 ## Hablantes y vídeo condensado
 
-- **Hablantes** (siempre activo, ~0,7 % del tiempo total): sobre los segmentos del ASR (ya sin silencios), trozos de ≤ 5 s;
+- **Hablantes** (opcional y experimental, desactivado por defecto: casilla en la GUI o `--hablantes`; ~0,7 % del tiempo total): sobre los segmentos del ASR (ya sin silencios), trozos de ≤ 5 s;
   huella de voz con 3D-Speaker CAM++ (sherpa-onnx, 27 MB, se baja solo a `models/`) y agrupación por distancia coseno
   (`DIAR_THR`); los grupos con < 4 % del total se funden con el más parecido. El acta y el prompt del map llevan
   «Hablante N»; en la GUI, «Hablante 1=Ana, Hablante 2=Luis» los renombra al pintar (sin repetir nada). Con un solo

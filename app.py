@@ -15,13 +15,13 @@ import rag
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
 
 
-def generar(video, nivel, asr, nombres, progress=gr.Progress()):
+def generar(video, nivel, asr, hablantes, nombres, progress=gr.Progress()):
     if not video:
         raise gr.Error("Sube primero un vídeo")
     parar_llm()  # dos modelos de 3 GB a la vez no caben en 8 GB
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", nombres or "")}
     try:  # con todo en caché (p. ej. solo cambian los nombres) no se repite ni el ASR ni el LLM
-        out, zpath, _ = pipeline.run(video, nivel, asr, THREADS, lambda f, m: progress(f, desc=m), names)
+        out, zpath, _ = pipeline.run(video, nivel, asr, THREADS, lambda f, m: progress(f, desc=m), names, hablantes)
     except Exception as e:
         raise gr.Error(str(e))
     src = f"/gradio_api/file={quote((out / 'index.html').as_posix())}"
@@ -126,6 +126,7 @@ with gr.Blocks(title="Actas de reuniones") as demo:
                 nivel = gr.Dropdown(list(pipeline.LEVELS), value="normal", label="Nivel de detalle")
                 asr = gr.Dropdown(list(pipeline.ASR_MODELS), value="rápido", label="Calidad de transcripción",
                                   info="rápido = whisper small · calidad = large-v3-turbo (más lento)")
+                hablantes = gr.Checkbox(False, label="Separar quién habla (experimental)")
                 nombres = gr.Textbox(label="Nombres de los hablantes (opcional)", placeholder="Hablante 1=Ana, Hablante 2=Luis",
                                      info="Se aplican al acta sin repetir nada: cámbialos y vuelve a pulsar «Generar acta»")
                 boton = gr.Button("Generar acta", variant="primary")
@@ -138,7 +139,7 @@ with gr.Blocks(title="Actas de reuniones") as demo:
         condensado = gr.HTML(label="Vídeo condensado")
         bajar = gr.File(label="Descargar vídeo condensado")
         carpeta = gr.State("")
-        boton.click(generar, [video, nivel, asr, nombres], [informe, descarga, pct, carpeta])
+        boton.click(generar, [video, nivel, asr, hablantes, nombres], [informe, descarga, pct, carpeta])
         condensa.click(condensar, [carpeta, asr, pct], [condensado, bajar])
 
     with gr.Tab("Preguntar"):

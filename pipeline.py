@@ -1000,7 +1000,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None):
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False):
     video = Path(video)
     wd = WORK / video_id(video)
     wd.mkdir(parents=True, exist_ok=True)
@@ -1020,11 +1020,12 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
 
     dh = hashlib.sha1(repr((DIAR_EMB, DIAR_PIECE, DIAR_MIN)).encode()).hexdigest()[:8]
     sf = wd / f"hablantes_{dh}.json"
-    if not sf.exists():
+    if speakers and not sf.exists():  # opcional: con voces parecidas o mal audio se equivoca a menudo
         t0 = time.time()
         sf.write_text(json.dumps(diarize(video, tr["segments"], threads, lambda f, m: cb(0.45 + 0.05 * f, m))))
         stage("hablantes", t0)
-    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text())))):
+    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text()))) if speakers
+                    else []):
         if k:
             s["spk"] = k
 
@@ -1260,6 +1261,7 @@ if __name__ == "__main__":
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
     ap.add_argument("--threads", type=int, default=PHYS)
+    ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
@@ -1271,7 +1273,7 @@ if __name__ == "__main__":
         if time.time() - last[0] > 5 or f >= 1:
             last[0] = time.time()
             print(f"{f:5.0%} {m}", flush=True)
-    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb)
+    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes)
     print(out / "index.html", z, json.dumps(t), sep="\n")
     if a.condensar is not None:
         v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)
