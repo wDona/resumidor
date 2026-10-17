@@ -44,8 +44,10 @@ def score(acta, gold):
             if resp and m and not any(g.get("owner") and re.search(g["owner"], norm(resp)) for g in m):
                 res["resp"] = res.get("resp", 0) + 1
                 bad.append(f"responsable✗ {it[key]} | {it['responsable']}")
+        res[k] = tp / len(acta[k]) if acta[k] else None
+    for k in ("decisiones", "tareas"):  # recall al final: un gold "any" lo puede recoger una tarea o una decisión
         req = [g["id"] for g in gold[k] if g.get("req")]
-        res[k] = (tp / len(acta[k]) if acta[k] else None, sum(i in got for i in req) / len(req) if req else None)
+        res[k] = (res[k], sum(i in got for i in req) / len(req) if req else None)
     items = [(d["texto"], d) for d in acta["decisiones"]] + [(t["tarea"] + " " + t.get("responsable", ""), t)
                                                                for t in acta["tareas"]]
     content = " \n ".join([acta["resumen"]] + [p["texto"] for p in acta["puntos"]] +

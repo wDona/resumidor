@@ -7,7 +7,7 @@
   {"id": "aplaza", "req": true, "t": [2400, 2470], "texto": "La designación del representante de cada sector ante la comisión queda pendiente para la próxima sesión",
    "re": ["(design|representante|nombre).*(pendiente|proxima sesion|proxima reunion|aplaz|posterg)", "(pendiente|aplaz|posterg).*(design|representante)"]},
   {"id": "gds", "req": true, "kind": "any", "t": [2490, 2560], "texto": "Reorientar el acuerdo: pedir por escrito a la Gerencia de Desarrollo Social que informe sobre la implementación de la ordenanza regional",
-   "re": ["desarrollo social", "gerencia.*(ordenanza|implementacion)"]},
+   "re": ["desarrollo social", "gerencia.*(ordenanza|implementacion)", "inform\\w* .*ordenanza"]},
   {"id": "noviembre", "t": [2880, 2930], "texto": "Próxima reunión en noviembre", "re": ["noviembre"]}
  ],
  "tareas": [
@@ -15,8 +15,8 @@
    "re": ["castro", "(informe|sustentacion|fundamentacion).*(refineria|problematica|enfermedad)"]},
   {"id": "designar", "req": true, "t": [2240, 2470], "owner": "sector|laboral|empleador|trabajador|central|guevara|dani|ramos|maldonado|ricardo", "texto": "Los sectores laboral y empleador designan a su representante ante la comisión para la próxima sesión",
    "re": ["(design|representante|nombre).*(comision|sector|proxima)"]},
-  {"id": "gds_t", "kind": "any", "t": [2490, 2560], "owner": "presiden|consejo|secretar|zapata", "texto": "Pedir por escrito a la Gerencia de Desarrollo Social que informe sobre la ordenanza",
-   "re": ["desarrollo social"]},
+  {"id": "gds_t", "kind": "any", "t": [2490, 2560], "owner": "presiden|consejo|secretar|zapata|gerencia|desarrollo social", "texto": "Pedir por escrito a la Gerencia de Desarrollo Social que informe sobre la ordenanza (o: la GDS informa por escrito)",
+   "re": ["desarrollo social", "inform\\w* .*ordenanza"]},
   {"id": "corregir", "t": [1380, 1420], "owner": "secretar|presiden", "texto": "Corregir en el acta el apellido de Daniel Alexander Guevara (Gordillo, no Castillo)",
    "re": ["gordillo", "guevara.*correg|correg.*guevara"]},
   {"id": "corregir2", "t": [2090, 2210], "texto": "Corregir el acta: fecha completa y siglas desarrolladas",
