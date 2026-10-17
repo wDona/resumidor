@@ -1,0 +1,24 @@
+{
+ "video": "webinar_pmia", "hash": "5b19533c5266aca8", "dur": 4201,
+ "_nota": "Webinar formativo del PMI (ponente David López). No hay decisiones ni encargos: cualquier decisión/tarea es un falso positivo.",
+ "decisiones": [],
+ "tareas": [],
+ "prohibidos": [
+  {"where": "items", "texto": "Tarea = nombre del ponente (cita: 'no veo el chat…')", "re": "^david lopez$|chat"},
+  {"where": "items", "texto": "Contactar al ponente (cortesía de cierre)", "re": "contact"},
+  {"where": "items", "texto": "Revisar diapositivas de ejemplo (audiencia)", "re": "revisar"},
+  {"where": "items", "texto": "Responsable inventado: Audiencia / El orador", "re": "audiencia|orador"},
+  {"where": "all", "texto": "Resumen que inventa acuerdos/pendientes en una charla", "re": "queda(n)? pendiente|se acordo|se decidio|se determino"}
+ ],
+ "claves": [
+  {"t": 344, "texto": "Más de ~75 palabras por diapositiva: el público lee en vez de escuchar; visual frente a texto", "re": "75 palabras|palabras por diapositiva|mucho texto|leer.*escuch|escuch.*leer|visual"},
+  {"t": 756, "texto": "Plantillas corporativas y patrón de diapositivas", "re": "plantilla|patron|master|corporativ"},
+  {"t": 1620, "texto": "Tipos de gráfico (líneas, barras, tarta) y simplificar datos", "re": "grafico"},
+  {"t": 1953, "texto": "Storytelling visual / estructura de cuento", "re": "storytelling|historia|cuento|narrativ"},
+  {"t": 2078, "texto": "Contraste, jerarquía, regla de los tercios, proximidad, espacio en blanco", "re": "contraste|jerarquia|tercios|proximidad|espacio en blanco"},
+  {"t": 2807, "texto": "Errores comunes y atajos de PowerPoint", "re": "error|atajo|ctrl"},
+  {"t": 3407, "texto": "Pósters científicos: estructura clara, fuente legible de lejos", "re": "poster"},
+  {"t": 3632, "texto": "Pregunta: entorno cultural → ser breve y simple vale para cualquier cultura", "re": "cultur"},
+  {"t": 3836, "texto": "Pregunta: IA para resumir el texto y reducir palabras", "re": "inteligencia artificial|\\bia\\b"}
+ ]
+}

@@ -609,6 +609,14 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
 </div></main><script>{JS}</script></body></html>"""
     (out / "index.html").write_text(page, encoding="utf-8")
+    (out / "acta.json").write_text(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
+        "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
+        "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] for s in secs)],
+        "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
+        "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
+        "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
+        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in shots]}, ensure_ascii=False, indent=1),
+        encoding="utf-8")
     return shots
 
 

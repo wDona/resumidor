@@ -1,0 +1,23 @@
+{
+ "video": "real_clickmeeting", "hash": "c032b44545f8b5b2", "dur": 1790,
+ "_nota": "Tutorial en vídeo de ClickMeeting (un solo ponente). Todo es demostración: no hay decisiones ni encargos.",
+ "decisiones": [],
+ "tareas": [],
+ "prohibidos": [
+  {"where": "items", "texto": "Crear un webinar: es un paso de la demo", "re": "crea\\w* (un )?(webinar|evento)"},
+  {"where": "all", "texto": "'Mensual' no se dice del webinar (paga una mensualidad)", "re": "webinar mensual|mensual(es)? (de|para|sobre)|evento mensual"},
+  {"where": "all", "texto": "Al revés: el micrófono abierto es de las reuniones pequeñas, el webinar es para grupos grandes", "re": "(grupos? grandes?|webinar\\w*).{0,60}microfono\\w* abiert"},
+  {"where": "all", "texto": "Resumen que inventa acuerdos en una demo", "re": "se acordo|queda(n)? pendiente"}
+ ],
+ "claves": [
+  {"t": 90, "texto": "Prueba gratis/plan gratuito con límites (25 asistentes, 15 min)", "re": "gratu|prueba|gratis"},
+  {"t": 144, "texto": "Precios de los planes", "re": "precio|dolar|plan"},
+  {"t": 427, "texto": "Estadísticas por asistente (país, dispositivo, duración, calificación)", "re": "estadistic"},
+  {"t": 607, "texto": "Reunión (grupos pequeños, todos hablan) frente a webinar (grupos grandes)", "re": "reunion.*webinar|webinar.*reunion|grupos"},
+  {"t": 674, "texto": "Evento con hora programada (21 de abril, 18:00)", "re": "programad|21 de abril"},
+  {"t": 735, "texto": "Acceso con contraseña o token", "re": "token|contrasena"},
+  {"t": 1336, "texto": "Pizarra interactiva", "re": "pizarra"},
+  {"t": 1440, "texto": "Encuestas y preguntas y respuestas", "re": "encuesta|preguntas y respuestas"},
+  {"t": 1729, "texto": "Calificación del webinar por los asistentes", "re": "calific|estrella"}
+ ]
+}

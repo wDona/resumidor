@@ -1,0 +1,47 @@
+{
+ "video": "charla_comite", "hash": "431fb1878d45fd34", "dur": 3014,
+ "_nota": "re = regex sobre el texto normalizado (minúsculas, sin tildes, solo [a-z0-9] y espacios); t = ventana [s] donde ocurre (±60 s). req = la tiene que recoger; sin req = aceptable. kind any = vale como decisión o tarea.",
+ "decisiones": [
+  {"id": "acta", "req": true, "t": [2030, 2210], "texto": "Se aprueba el acta de la sesión del 23 de septiembre con las correcciones formales (fecha completa, siglas desarrolladas)",
+   "re": ["acta.*(aprob|aprueb|conform)|(aprob|aprueb).*acta"]},
+  {"id": "aplaza", "req": true, "t": [2400, 2470], "texto": "La designación del representante de cada sector ante la comisión queda pendiente para la próxima sesión",
+   "re": ["(design|representante|nombre).*(pendiente|proxima sesion|proxima reunion|aplaz|posterg)", "(pendiente|aplaz|posterg).*(design|representante)"]},
+  {"id": "gds", "req": true, "kind": "any", "t": [2490, 2560], "texto": "Reorientar el acuerdo: pedir por escrito a la Gerencia de Desarrollo Social que informe sobre la implementación de la ordenanza regional",
+   "re": ["desarrollo social", "gerencia.*(ordenanza|implementacion)"]},
+  {"id": "noviembre", "t": [2880, 2930], "texto": "Próxima reunión en noviembre", "re": ["noviembre"]}
+ ],
+ "tareas": [
+  {"id": "castro", "req": true, "t": [2555, 2620], "owner": "cac|cat|representantes|trabajador|laboral|castro", "texto": "Los representantes de la CAC coordinan con el Sr. Castro la sustentación/informe de la problemática para someterla al consejo",
+   "re": ["castro", "(informe|sustentacion|fundamentacion).*(refineria|problematica|enfermedad)"]},
+  {"id": "designar", "req": true, "t": [2240, 2470], "owner": "sector|laboral|empleador|trabajador|central|guevara|dani|ramos|maldonado|ricardo", "texto": "Los sectores laboral y empleador designan a su representante ante la comisión para la próxima sesión",
+   "re": ["(design|representante|nombre).*(comision|sector|proxima)"]},
+  {"id": "gds_t", "kind": "any", "t": [2490, 2560], "owner": "presiden|consejo|secretar|zapata", "texto": "Pedir por escrito a la Gerencia de Desarrollo Social que informe sobre la ordenanza",
+   "re": ["desarrollo social"]},
+  {"id": "corregir", "t": [1380, 1420], "owner": "secretar|presiden", "texto": "Corregir en el acta el apellido de Daniel Alexander Guevara (Gordillo, no Castillo)",
+   "re": ["gordillo", "guevara.*correg|correg.*guevara"]},
+  {"id": "corregir2", "t": [2090, 2210], "texto": "Corregir el acta: fecha completa y siglas desarrolladas",
+   "re": ["sigla", "acta.*correg|correg.*acta"]},
+  {"id": "seguimiento", "t": [1270, 1320], "owner": "presiden|consejo|secretar", "texto": "Hacer seguimiento para que solo asistan representantes acreditados",
+   "re": ["acreditad"]},
+  {"id": "convocar", "t": [2880, 2930], "owner": "presiden|consejo|secretar", "texto": "Convocar la próxima reunión en noviembre", "re": ["noviembre"]}
+ ],
+ "prohibidos": [
+  {"where": "items", "texto": "Comunicar a las instituciones que asista el titular y el alterno (lectura del acta anterior)", "re": "titular.*altern|altern.*titular"},
+  {"where": "items", "texto": "Designar al representante de MIMNO (acta anterior)", "re": "mimn|mimo\\b"},
+  {"where": "items", "texto": "SUNAFIL participará en la comisión (acta anterior)", "re": "(sunafil|una fil|nafil).*(miembro|particip)"},
+  {"where": "items", "texto": "Inspecciones en Ignacio Escudero (acta anterior)", "re": "escudero|olores"},
+  {"where": "items", "texto": "Capacitaciones en horario apropiado / 10 días de antelación (acta anterior)", "re": "horario|antelacion"},
+  {"where": "items", "texto": "Inspecciones de energía/minería por inspectores regionales como acuerdo (acta anterior)", "re": "inspector"},
+  {"where": "items", "texto": "Invitar a la zona naval/guardacostas: fue una sugerencia rechazada por ley", "re": "naval|guardacost|capitan|comandan"},
+  {"where": "items", "texto": "Paridad de género: memorando ya enviado, no acuerdo de hoy", "re": "paridad"},
+  {"where": "all", "texto": "Lectura del acta anterior contada como acuerdo de hoy", "re": "se acuerda que (la comision|las inspecciones|los consejeros|sunafil|los miembros)"}
+ ],
+ "claves": [
+  {"t": 1440, "texto": "Sugerencia de invitar a la primera zona naval; solo la ley fija los consejeros, el resto son invitados", "re": "naval|guardacost|capitan|invitad"},
+  {"t": 2040, "texto": "Aprobación del acta anterior con correcciones formales", "re": "acta.*(aprob|aprueb)|(aprob|aprueb).*acta"},
+  {"t": 2433, "texto": "Designación del representante aplazada a la próxima sesión", "re": "(design|representante).*(pendiente|proxima|aplaz|posterg)|(pendiente|aplaz|posterg).*(design|representante)"},
+  {"t": 2520, "texto": "Pedir informe a la Gerencia de Desarrollo Social sobre la ordenanza", "re": "desarrollo social"},
+  {"t": 2683, "texto": "Resolución 452-2022-SUNAFIL sobre competencia sancionadora territorial", "re": "452|sancionador"},
+  {"t": 2896, "texto": "Próxima sesión en noviembre", "re": "noviembre"}
+ ]
+}

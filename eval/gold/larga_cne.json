@@ -1,0 +1,37 @@
+{
+ "video": "larga_cne", "hash": "9c83ad3b4f3ea9ca", "dur": 8510,
+ "_nota": "Pleno CNE: ~26 informes de recalificación, todos aprobados 4 a favor y 1 abstención (Nájera). Hasta ~97 min aceptan parcialmente la recalificación; de 97 a 138 la niegan. 138:43 se suspende la sesión, presupuesto pendiente, se reanuda mañana a las 9:00. Cada aprobación individual cuenta como acierto del grupo correspondiente.",
+ "decisiones": [
+  {"id": "acepta", "req": true, "t": [900, 5810], "texto": "Se aprueban los informes que aceptan parcialmente la recalificación de los postulantes (4 votos a favor, 1 abstención)",
+   "re": ["(recalific|informe)(?!.*\\b(neg|niega|denieg|deneg|rechaz))"]},
+  {"id": "niega", "req": true, "t": [5800, 8330], "texto": "Se aprueban los informes que niegan la recalificación por no cumplir el artículo 39 del reglamento (4 a 1)",
+   "re": ["(neg|niega|denieg|deneg|rechaz).*recalific|recalific.*(neg|niega|denieg|deneg|rechaz)"]},
+  {"id": "suspende", "req": true, "t": [8300, 8510], "texto": "Se suspende la sesión; el presupuesto 2022 queda para la reanudación mañana a las 9:00",
+   "re": ["suspen|reanud"]},
+  {"id": "orden", "t": [780, 920], "texto": "Se aprueba el orden del día / se da por conocido el primer punto sin observaciones",
+   "re": ["orden del dia|primer punto"]}
+ ],
+ "tareas": [
+  {"id": "notificar", "req": true, "t": [960, 8330], "owner": "secretar", "texto": "La Secretaría General notifica cada resolución al correo del postulante en dos días",
+   "re": ["notific"]},
+  {"id": "presupuesto", "kind": "any", "t": [8300, 8510], "owner": "pleno|consejo|presiden", "texto": "Tratar el presupuesto 2022 al reanudar la sesión mañana",
+   "re": ["presupuesto|reanud"]},
+  {"id": "firma", "t": [960, 8330], "owner": "comision", "texto": "Firma de la resolución por la comisión técnica (texto del informe)", "re": ["firma"]}
+ ],
+ "prohibidos": [
+  {"where": "items", "texto": "Tomar votación no es una decisión", "re": "^se (toma|procede a tomar) votacion"},
+  {"where": "all", "texto": "La consejera Nájera presentada como postulante", "re": "(postulante|recalificacion de|ciudadan[oa]) (la |el )?(doctora |consejera )?(elena )?na[jg]i?[er]a|elena magira|magira"},
+  {"where": "all", "texto": "El jurista Roberto Dromi citado como postulante", "re": "dromi"},
+  {"where": "all", "texto": "José Cabrera no se abstuvo (votó a favor)", "re": "cabrera.{0,60}(abstenc|replaz|reemplaz)"},
+  {"where": "all", "texto": "Enrique Pita no se abstuvo", "re": "pita.{0,40}abstenc|abstenc.{0,30}pita"},
+  {"where": "all", "texto": "El argumento de Nájera dado como resolución", "re": "se rechaza la calificacion original|se determino que exist"},
+  {"where": "all", "texto": "La sesión no se trasladó: a Nájera se le negó el cambio y asistirá", "re": "traslad\\w* (de )?la sesion|sesion.{0,40}(trasladad|a la tarde|por la tarde)"}
+ ],
+ "claves": [
+  {"t": 2318, "texto": "Patrón de votación: 4 a favor y 1 abstención en todos los informes", "re": "(cuatro|4) votos? a favor|(una|1) abstencion|4 a 1|cuatro a uno"},
+  {"t": 2300, "texto": "Nájera se abstiene en todos (inseguridad jurídica)", "re": "na[jg]era.{0,120}absten|absten.{0,120}na[jg]era"},
+  {"t": 5826, "texto": "Desde ~97 min se niegan las recalificaciones (art. 39)", "re": "(neg|niega|denieg|deneg|rechaz).*recalific|recalific.*(neg|niega|denieg|deneg|rechaz)"},
+  {"t": 8323, "texto": "Se suspende la sesión", "re": "suspend|suspension"},
+  {"t": 8330, "texto": "El presupuesto 2022 queda pendiente para mañana", "re": "presupuesto"}
+ ]
+}
