@@ -25,6 +25,7 @@ DIAR_EMB = ("3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
             "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
             "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2")
 DIAR_THR, DIAR_PIECE, DIAR_MIN = 0.6, 5, 1.2  # umbral de distancia coseno (más alto = menos hablantes) / s máx. y mín. por trozo
+DIAR_MERGE = 0.2  # grupos con centroides a menos distancia coseno = la misma voz (medido: misma voz 0.01-0.12, voces distintas ≥ 0.42)
 MIN_CHARS = 30                # letras OCR (sin interfaz ni nombres, ver screens) para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_WIN = 900                 # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
@@ -170,6 +171,14 @@ def speaker_turns(turns, prints, thr=DIAR_THR, small=0.04):
     if big and len(big) < len(set(lab.tolist())):
         cen = np.array([X[lab == k].mean(0) for k in big])
         lab = np.array([big[int(np.argmax(cen @ x))] for x in X])
+    while len(ks := sorted(set(lab.tolist()))) > 1:  # el clustering parte a veces una sola voz en dos con el mismo centroide
+        cen = np.array([X[lab == k].mean(0) for k in ks])
+        cen /= np.linalg.norm(cen, axis=1, keepdims=True)
+        d = 1 - cen @ cen.T + 2 * np.eye(len(ks))
+        i, j = np.unravel_index(d.argmin(), d.shape)
+        if d[i, j] >= DIAR_MERGE:
+            break
+        lab[lab == ks[j]] = ks[i]
     return sorted((s, e, int(lab[k])) for s, e, k in turns)
 
 
@@ -1210,6 +1219,8 @@ def _selftest():
     u, v = [1.0, 0.0], [0.0, 1.0]  # dos voces, una con 5 trozos y la otra con 5, más un trozo suelto cercano a la segunda
     st = speaker_turns([(i, i + 1, i) for i in range(11)], [u] * 5 + [v] * 5 + [[0.1, 0.99]])
     assert [x[2] for x in st] == [st[0][2]] * 5 + [st[5][2]] * 6 and st[0][2] != st[5][2], st
+    w = [0.99, 0.1]  # casi la misma voz que u: se funde aunque el clustering la separe
+    assert len({x[2] for x in speaker_turns([(i, i + 1, i) for i in range(10)], [u] * 5 + [w] * 5, thr=0.001)}) == 1
     assert assign_speakers(sg, [(0, 20, 0)]) == [None] * 4 and assign_speakers(sg, []) == [None] * 4
     assert said("Hablante 2", "Hablante 2: me encargo yo") == "Hablante 2" and said("Hablante 3", "Hablante 2: yo") == "—"
     assert rename("Hablante 1 y el hablante 12 con Hablante 3", {"1": "Ana", "12": "Luis"}) == "Ana y el Luis con Hablante 3"
