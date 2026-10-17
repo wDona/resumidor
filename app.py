@@ -1,7 +1,9 @@
 """Interfaz Gradio: subir vídeo -> acta HTML con vídeo, capturas y marcas de tiempo."""
 import atexit
 import html
+import json
 import os
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -13,16 +15,29 @@ import rag
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
 
 
-def generar(video, nivel, asr, progress=gr.Progress()):
+def generar(video, nivel, asr, nombres, progress=gr.Progress()):
     if not video:
         raise gr.Error("Sube primero un vídeo")
     parar_llm()  # dos modelos de 3 GB a la vez no caben en 8 GB
-    try:
-        out, zpath, _ = pipeline.run(video, nivel, asr, THREADS, lambda f, m: progress(f, desc=m))
+    names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", nombres or "")}
+    try:  # con todo en caché (p. ej. solo cambian los nombres) no se repite ni el ASR ni el LLM
+        out, zpath, _ = pipeline.run(video, nivel, asr, THREADS, lambda f, m: progress(f, desc=m), names)
     except Exception as e:
         raise gr.Error(str(e))
     src = f"/gradio_api/file={quote((out / 'index.html').as_posix())}"
-    return f'<iframe src="{src}" style="width:100%;height:85vh;border:1px solid #ddd;border-radius:6px"></iframe>', str(zpath)
+    rec = pipeline.recommend_pct(json.loads((out.parent / f"cortes_{asr}.json").read_text()))
+    return (f'<iframe src="{src}" style="width:100%;height:85vh;border:1px solid #ddd;border-radius:6px"></iframe>',
+            str(zpath), gr.Slider(value=rec, label=f"% del vídeo a quitar (recomendado: {rec} %)"), str(out.parent))
+
+
+def condensar(wd, asr, pct, progress=gr.Progress()):
+    if not wd:
+        raise gr.Error("Genera primero el acta")
+    try:
+        out, _, _ = pipeline.condense(wd, asr, int(pct), THREADS, lambda f, m: progress(f, desc=m))
+    except Exception as e:
+        raise gr.Error(str(e))
+    return str(out), str(out)
 
 
 # ---------- Preguntar: una pregunta = una llamada independiente (sin historial; lo de abajo es solo visual) ----------
@@ -109,10 +124,20 @@ with gr.Blocks(title="Actas de reuniones") as demo:
                 nivel = gr.Dropdown(list(pipeline.LEVELS), value="normal", label="Nivel de detalle")
                 asr = gr.Dropdown(list(pipeline.ASR_MODELS), value="rápido", label="Calidad de transcripción",
                                   info="rápido = whisper small · calidad = large-v3-turbo (más lento)")
+                nombres = gr.Textbox(label="Nombres de los hablantes (opcional)", placeholder="Hablante 1=Ana, Hablante 2=Luis",
+                                     info="Se aplican al acta sin repetir nada: cámbialos y vuelve a pulsar «Generar acta»")
                 boton = gr.Button("Generar acta", variant="primary")
         informe = gr.HTML()
         descarga = gr.File(label="Descargar acta (.zip, sin el vídeo)")
-        boton.click(generar, [video, nivel, asr], [informe, descarga])
+        with gr.Row():
+            pct = gr.Slider(10, 90, value=40, step=1, label="% del vídeo a quitar",
+                            info="Primero los silencios largos, después lo menos importante según el acta")
+            condensa = gr.Button("Generar vídeo condensado")
+        condensado = gr.Video(label="Vídeo condensado")
+        bajar = gr.File(label="Descargar vídeo condensado")
+        carpeta = gr.State("")
+        boton.click(generar, [video, nivel, asr, nombres], [informe, descarga, pct, carpeta])
+        condensa.click(condensar, [carpeta, asr, pct], [condensado, bajar])
 
     with gr.Tab("Preguntar"):
         gr.Markdown("Pregunta sobre una reunión ya procesada. Solo se responde con lo dicho en ella, en estilo indirecto "

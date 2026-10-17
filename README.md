@@ -45,6 +45,19 @@ Referencia (4 núcleos de un Ryzen 5500 con `taskset` emulando un HP ProBook 440
 En el ProBook con RAM de un solo canal la generación puede ir bastante más lenta: medirlo allí. Pico de RAM: python
 ≈ 1,0-1,8 GB (ASR por ventanas: no crece con la duración) y llama-server 3,1 GB (no a la vez), cabe en 8 GB.
 
+## Hablantes y vídeo condensado
+
+- **Hablantes** (siempre activo, ~0,7 % del tiempo total): sobre los segmentos del ASR (ya sin silencios), trozos de ≤ 5 s;
+  huella de voz con 3D-Speaker CAM++ (sherpa-onnx, 27 MB, se baja solo a `models/`) y agrupación por distancia coseno
+  (`DIAR_THR`); los grupos con < 4 % del total se funden con el más parecido. El acta y el prompt del map llevan
+  «Hablante N»; en la GUI, «Hablante 1=Ana, Hablante 2=Luis» los renombra al pintar (sin repetir nada). Con un solo
+  hablante no se etiqueta. Se probó la segmentación pyannote de sherpa-onnx: 220 s para 30 min en el ProBook emulado, descartada
+  (ahora 12 s: reunión de 30 min; 20 s: comité de 49 min). Sin el modelo (sin red) se sigue sin hablantes.
+- **Vídeo condensado** (`--condensar PCT`, 0 = el recomendado; en la GUI, deslizador + botón): quita los silencios > 1,5 s
+  y después los segmentos de menos nota hasta PCT % (recomendado entre 20 y 70); una pasada de ffmpeg, h264_qsv si
+  funciona o libx264. Reunión de 30 min, 67 % recomendado: 9:49 de vídeo, 42 s de codificación (libx264, 4 hilos).
+  Se guarda en `work/<hash>/condensado_<pct>.mp4`.
+
 ## Arquitectura
 
 1. `video_id`: hash rápido del vídeo → carpeta `work/<hash>/` con todas las cachés.

@@ -1,6 +1,7 @@
 """Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local, CPU."""
-import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
+import bisect, contextlib, functools, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
 from collections import Counter
+from itertools import groupby
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -18,6 +19,12 @@ DUP = 0.75                    # palabras OCR compartidas / palabras de la pantal
 OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
+# quién habla: sherpa-onnx (huella de voz CAM++ de 3D-Speaker, 27 MB)
+DIAR_EMB = ("3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
+            "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+            "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2")
+DIAR_THR, DIAR_PIECE, DIAR_MIN = 0.6, 5, 1.2  # umbral de distancia coseno (más alto = menos hablantes) / s máx. y mín. por trozo
 MIN_CHARS = 30                # letras OCR (sin interfaz ni nombres, ver screens) para considerar un frame "pantalla compartida"
 CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
 ASR_WIN = 900                 # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
@@ -93,6 +100,14 @@ def windowed(transcribe_win, dur, win, pad=30):
         start = nxt
 
 
+def pcm16k(video, start, length):
+    """Audio mono 16 kHz de una ventana vía ffmpeg (PyAV 19 rompe el decode_audio de faster-whisper 1.2.1); solo esa ventana
+    en RAM: faster-whisper hace la STFT de todo lo que recibe de una vez; con la reunión entera eran 7 GB en 2 h 20."""
+    return np.frombuffer(subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{start:.2f}", "-t", str(length), "-i", str(video),
+                                         "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+                                        capture_output=True, check=True).stdout, np.float32)
+
+
 def transcribe(video, quality, threads, dur, cb):
     from faster_whisper import WhisperModel
     name = ASR_MODELS[quality]
@@ -101,11 +116,7 @@ def transcribe(video, quality, threads, dur, cb):
     lang = [None]  # se detecta en la primera ventana y se fija para las demás
 
     def win(start, length):
-        # audio vía ffmpeg (PyAV 19 rompe el decode_audio de faster-whisper 1.2.1) y solo esta ventana en RAM:
-        # faster-whisper hace la STFT de todo lo que recibe de una vez; con la reunión entera eran 7 GB en 2 h 20
-        pcm = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{start:.2f}", "-t", str(length), "-i", str(video), "-vn",
-                              "-ac", "1", "-ar", "16000", "-f", "f32le", "-"], capture_output=True, check=True).stdout
-        segs, info = model.transcribe(np.frombuffer(pcm, np.float32), language=lang[0], vad_filter=True,
+        segs, info = model.transcribe(pcm16k(video, start, length), language=lang[0], vad_filter=True,
                                       beam_size=1 if name == "small" else 5, condition_on_previous_text=False)
         lang[0] = lang[0] or info.language
         for s in segs:
@@ -113,6 +124,74 @@ def transcribe(video, quality, threads, dur, cb):
             yield s.start, s.end, s.text.strip()
     segs = windowed(win, dur, ASR_WIN)
     return {"language": lang[0], "segments": [{"s": round(s, 1), "e": round(e, 1), "text": t} for s, e, t in segs if t]}
+
+
+# ---------- Quién habla ----------
+def diarize(video, segments, threads, cb):
+    """{"turns": [(inicio, fin, huella)], "prints": huella de voz de cada trozo}; vacío sin modelos (sin red). Sin el modelo de
+    segmentación de sherpa-onnx (lo más caro, ~18 s por cada 5 min en el ProBook): se toma como unidad los segmentos del ASR
+    (ya sin silencios), partidos en trozos de <= DIAR_PIECE s, y de cada uno se saca la huella de voz con 3D-Speaker CAM++ (~0,007x
+    tiempo real). Por ventanas de ASR_WIN como el ASR (la RAM no crece con la duración). Los trozos se agrupan en speaker_turns."""
+    import sherpa_onnx as so
+    emb = model_file(DIAR_EMB)
+    if not emb:
+        return {"turns": [], "prints": []}
+    ex = so.SpeakerEmbeddingExtractor(so.SpeakerEmbeddingExtractorConfig(model=str(emb), num_threads=threads))
+    turns, prints = [], []
+    for w in range(0, int(segments[-1]["e"] // ASR_WIN) + 1):
+        cb(min(w * ASR_WIN / segments[-1]["e"], 1), f"Separando hablantes… {fmt(w * ASR_WIN)}")
+        pcm = pcm16k(video, w * ASR_WIN, ASR_WIN)
+        for sg in segments:
+            if not w * ASR_WIN <= sg["s"] < (w + 1) * ASR_WIN:
+                continue
+            n = max(1, round((sg["e"] - sg["s"]) / DIAR_PIECE))
+            step = (sg["e"] - sg["s"]) / n
+            for i in range(n):
+                a, b = sg["s"] + i * step, sg["s"] + (i + 1) * step
+                x = pcm[int((a - w * ASR_WIN) * 16000):int((b - w * ASR_WIN) * 16000)]
+                if b - a < DIAR_MIN or len(x) < 16000 * DIAR_MIN:
+                    continue
+                st = ex.create_stream()
+                st.accept_waveform(16000, x)
+                st.input_finished()
+                e = np.array(ex.compute(st))
+                prints.append([round(float(v), 4) for v in e / np.linalg.norm(e)])
+                turns.append((round(a, 2), round(b, 2), len(prints) - 1))
+    return {"turns": turns, "prints": prints}
+
+
+def speaker_turns(turns, prints, thr=DIAR_THR, small=0.04):
+    """Agrupa las huellas de todos los trozos (distancia coseno < thr = misma voz): turnos [(inicio, fin, hablante)]. Los
+    grupos con < small del total (ruido, una frase suelta) se funden con el hablante grande más parecido."""
+    import sherpa_onnx as so
+    X = np.array(prints)
+    lab = np.array(so.FastClustering(so.FastClusteringConfig(num_clusters=-1, threshold=thr))(X)) if len(X) > 1 else np.zeros(len(X), int)
+    big = [k for k, v in Counter(lab.tolist()).items() if v >= small * len(lab)]
+    if big and len(big) < len(set(lab.tolist())):
+        cen = np.array([X[lab == k].mean(0) for k in big])
+        lab = np.array([big[int(np.argmax(cen @ x))] for x in X])
+    return sorted((s, e, int(lab[k])) for s, e, k in turns)
+
+
+def assign_speakers(segments, turns):
+    """«Hablante N» de cada segmento: el turno con más solape (None si ninguno), numerados por orden de aparición. Con un
+    solo hablante, ninguno (no aporta nada)."""
+    if not turns:
+        return [None] * len(segments)
+    a, b, k = np.array(turns).T
+    out, names = [], {}
+    for s in segments:
+        ov = np.bincount(k.astype(int), np.clip(np.minimum(b, s["e"]) - np.maximum(a, s["s"]), 0, None))
+        out.append(names.setdefault(ov.argmax(), f"Hablante {len(names) + 1}") if ov.max() > 0 else None)
+    return out if len(names) > 1 else [None] * len(segments)
+
+
+who = lambda s: f"{s['spk']}: " if s.get("spk") else ""
+
+
+def rename(text, names):
+    """«Hablante 2» -> el nombre que le dé el usuario ({"2": "Luis"}); solo al pintar el acta, sin repetir nada."""
+    return re.sub(r"\b[Hh]ablante (\d+)\b", lambda m: names.get(m[1], m[0]), text) if names else text
 
 
 # ---------- Vídeo: cambios de pantalla ----------
@@ -155,9 +234,9 @@ def stable_segments(thumbs, cut=CUT, min_len=2, win=5):
     return segs
 
 
-def ocr_rec_model():
-    """Ruta del reconocedor latino; lo baja la primera vez. None (modelo chino/inglés de serie) si no hay red."""
-    name, url, sha = OCR_REC
+def model_file(spec):
+    """Ruta del modelo (nombre, url, sha256) en models/; lo baja la primera vez. None si no hay red."""
+    name, url, sha = spec
     p = ROOT / "models" / name
     if not p.exists():
         try:
@@ -232,7 +311,7 @@ def keyframes(video, wd, threads, dur, cb):
     from rapidocr_onnxruntime import RapidOCR
     segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.5, m)))
     (wd / "frames").mkdir(exist_ok=True)
-    rec = ocr_rec_model()
+    rec = model_file(OCR_REC)  # None: modelo chino/inglés de serie
     ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
     out = []
     for n, (a, b) in enumerate(segs):
@@ -372,7 +451,8 @@ importancia: 5 = decisión, compromiso o cifra clave; 4 = información nueva rel
 sus respuestas); 3 = contexto útil; 2 = detalle o ejemplo; 1 = saludos, presentaciones, agradecimientos, despedidas y \
 logística, siempre. Como mucho un 5 y dos 4 por cada cinco puntos; la mayoría 2-3.
 Fidelidad: las opiniones y propuestas no son hechos («X opina que…», «se propone…»); nombra a quien habla solo si el \
-texto lo deja claro, si no, en impersonal. No confundas a quien habla con a quien se nombra: los cargos de la reunión \
+texto lo deja claro, si no, en impersonal. «Hablante N:» al inicio de una línea es quien habla según la voz \
+(automático): úsalo para atribuir opiniones y como responsable de quien se compromete en primera persona («me encargo yo»). No confundas a quien habla con a quien se nombra: los cargos de la reunión \
 (consejera, secretario, presidenta) no son candidatos ni postulantes, y los autores o juristas citados no participan. En \
 comparaciones (A frente a B) no cambies qué va con cada uno. En una demostración o tutorial, «se muestra cómo…», nunca \
 «se propone» ni «se acuerda». No mezcles cifras ni nombres de partes distintas; votos, abstenciones y números solo si se \
@@ -438,7 +518,7 @@ def merge_segs(segs, span=15):
     segmentos de 2-3 palabras)."""
     out = []
     for s in segs:
-        if out and s["s"] - out[-1]["s"] < span:
+        if out and s["s"] - out[-1]["s"] < span and s.get("spk") == out[-1].get("spk"):
             out[-1] = {**out[-1], "e": s["e"], "text": out[-1]["text"] + " " + s["text"]}
         else:
             out.append(s)
@@ -450,7 +530,7 @@ def map_input(segs, kfs, allsegs=()):
     distingue por sí solo el acta anterior leída de los acuerdos de hoy)."""
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
-    text = "\n".join(f"[{fmt(s['s'])}] {'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
+    text = "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
     screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
@@ -589,6 +669,8 @@ def said(value, ctx, task=""):
     """Responsable/plazo solo si lo dice la transcripción de alrededor (>= la mitad de sus palabras) y no sale en la propia
     tarea («pedir a la gerencia…»: es a quien va dirigida); si no, "—". El map inventaba «Secretaría Técnica»,
     «Audiencia», «El orador»."""
+    if re.fullmatch(r"Hablante \d+", value):  # etiqueta de voz: solo si esa voz habla ahí
+        return value if re.search(rf"\b{value}\b", ctx) else "—"
     st = {w for w in words(value) if len(w) >= 4}  # palabras enteras: con raíces, «consejeros» casaba con «consejo»
     return value if st and len(st & set(words(ctx))) >= 0.5 * len(st) and not st <= set(words(task)) else "—"
 
@@ -619,7 +701,7 @@ def verify(chat, maps, segments, kfs, win=45):
                    f"leída de la pantalla ({f:.2f})" if f >= 0.25 else "")
             if not why:
                 text = (f"Tema: {maps[it['b']]['tema']}\n\nExtracto:\n" +
-                        "\n".join(f"[{fmt(s['s'])}] {'(lectura en voz alta) ' * (reading(s['s'] + 7, segments, kfs) >= 0.25)}"
+                        "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * (reading(s['s'] + 7, segments, kfs) >= 0.25)}"
                                   f"{s['text']}" for s in merge_segs(ctx)) +
                         f"\n\nPropuesta ({name[:-1].replace('decisione', 'decisión')}): {it[key]}\nCita: «{it['cita']}»")
                 tipo = chat(VERIFY_PROMPT, text, obj(tipo={"enum": TIPOS}), 30)["tipo"]
@@ -627,7 +709,7 @@ def verify(chat, maps, segments, kfs, win=45):
             if why:
                 print(f"  descartada ({why}): {it[key]}", flush=True)
             else:
-                ctext = " ".join(s["text"] for s in ctx)
+                ctext = " ".join(who(s) + s["text"] for s in ctx)
                 out[name].append({**it, **({"responsable": said(it["responsable"], ctext, it[key]),
                                             "plazo": said(it["plazo"], ctext)} if name == "tareas" else {})})
     return out
@@ -716,7 +798,7 @@ main{display:grid;grid-template-columns:minmax(320px,44%) 1fr;gap:24px;padding:1
 #side{position:sticky;top:16px;align-self:start}video{width:100%;background:#000;border-radius:6px}
 @media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#fafafa}}
 h1{font-size:1.4em;margin:.2em 0}h2{border-bottom:2px solid #ddd;padding-bottom:4px;margin-top:1.6em}
-a.ts{font:13px monospace;color:#06c;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
+.spk{font-size:13px;color:#c2185b;margin-right:6px}a.ts{font:13px monospace;color:#06c;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
 .meta{color:#666;font-size:14px}.tldr{background:#fff;border-left:4px solid #c2185b;padding:10px 14px}
 figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #ccc;border-radius:4px}
 figcaption{font-size:13px;color:#666}table{border-collapse:collapse;width:100%}
@@ -735,13 +817,16 @@ def ts_link(t):
     return f'<a class="ts" href="#" data-t="{int(t)}">[{fmt(t)}]</a>'
 
 
-def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4"):
-    """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/)."""
+def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None):
+    """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}."""
     cfg = LEVELS[level]
+    at = [s["s"] for s in segments]
+    spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
+        segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk"))
     sel = select_points(maps, cfg["keep"], cfg["pts"], cfg["pts"], not cfg["secs"])
     shots = pick_shots(kfs, sel, cfg["shots"])
     esc = html.escape
-    li = lambda t, x: f"<li>{ts_link(t)}{esc(x)}</li>"
+    li = lambda t, x: f"<li>{ts_link(t)}{spk(t, x)}{esc(x)}</li>"
     fig = lambda k: (f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
     more = "<p class=meta>Hay más decisiones y tareas en el nivel detallado.</p>" if red["mas"] else ""
@@ -763,7 +848,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     else:  # breve: unos pocos puntos clave con marca y las capturas más relevantes
         desarrollo = (f"<h2>Puntos clave</h2><ul>{''.join(li(t, x) for t, x, _, _ in sel)}</ul>"
                       + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots else ""))
-    trans = "".join(f"<p>{ts_link(s['s'])}{esc(s['text'])}</p>" for s in segments)
+    trans = "".join(f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}"
+                    f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><video id="v" src="video{vext}" controls preload="metadata"></video>
@@ -777,15 +863,15 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {desarrollo}
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
 </div></main><script>{JS}</script></body></html>"""
-    (out / "index.html").write_text(page, encoding="utf-8")
-    (out / "acta.json").write_text(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
+    (out / "index.html").write_text(rename(page, names), encoding="utf-8")
+    (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
         "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
         "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] for s in secs)],
         "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
         "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
         "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
         "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in shots]}, ensure_ascii=False, indent=1),
-        encoding="utf-8")
+        names), encoding="utf-8")
     return shots
 
 
@@ -799,8 +885,113 @@ def put_file(src, dst):
             return
 
 
+# ---------- Vídeo condensado ----------
+SIL_GAP, MERGE_GAP, MIN_KEEP, FADE = 1.5, 2.0, 3.0, 0.05  # s
+
+
+def seg_importance(segments, maps, valid):
+    """Nota de cada segmento: la más alta de los puntos del map que caen en él o empiezan hasta 45 s antes (un punto resume
+    lo que se dice a partir de su marca) y 5 en decisiones y tareas; 1 (relleno) si no hay ninguno."""
+    pts = [(parse_ts(p["t"]), p["importancia"]) for m in maps for p in m["puntos"]] + [
+        (parse_ts(x["t"]), 5) for k in ("decisiones", "tareas") for x in valid[k]]
+    return [max([n for t, n in pts if s["s"] - 45 <= t <= s["e"]], default=1) for s in segments]
+
+
+def timeline(segs, dur, gap=SIL_GAP, pad=0.25):
+    """Partición de [0, dur] en tramos [a, b, nota]: cada segmento (s, e, nota) con los silencios cortos pegados y los
+    silencios de más de `gap` s como tramos de nota 0 (con `pad` s de margen a cada lado para no cortar sílabas)."""
+    out, last = [], 0.0  # last = fin de la voz anterior
+    for s, e, n in [*segs, (dur, dur, None)]:
+        if s - last > gap:
+            if out:
+                out[-1][1] = last + pad
+            out.append([out[-1][1] if out else 0.0, s - pad if n is not None else dur, 0])
+        elif out:
+            out[-1][1] = max(s, out[-1][0])
+        if n is not None:
+            out.append([out[-1][1] if out else 0.0, e, n])
+            last = max(last, e)
+    return out
+
+
+def runs(flags, val):
+    return [[i for i, _ in g] for v, g in groupby(enumerate(flags), lambda x: x[1]) if v == val]
+
+
+def condense_plan(units, pct):
+    """Tramos (a, b) que se conservan para quitar ~pct % del vídeo: primero los silencios largos (los más largos antes) y
+    después los segmentos de menos nota. Cortes en bordes de segmento; un corte con voz de menos de MERGE_GAP s no compensa
+    el salto (se conserva) y lo conservado de menos de MIN_KEEP s se quita. Búsqueda binaria del nº de tramos quitados."""
+    total = units[-1][1]
+    span = lambda r: units[r[-1]][1] - units[r[0]][0]
+    order = sorted(range(len(units)), key=lambda i: (units[i][2], units[i][0] - units[i][1]))
+
+    def keeps(k):
+        cut = [False] * len(units)
+        for i in order[:k]:
+            cut[i] = True
+        for r in runs(cut, True):
+            if span(r) < MERGE_GAP and any(units[i][2] for i in r):
+                for i in r:
+                    cut[i] = False
+        for r in runs(cut, False):
+            if span(r) < MIN_KEEP:
+                for i in r:
+                    cut[i] = True
+        return [(units[r[0]][0], units[r[-1]][1]) for r in runs(cut, False)]
+    lo, hi = 0, len(units)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if 1 - sum(b - a for a, b in keeps(mid)) / total >= pct / 100 else (mid + 1, hi)
+    return keeps(lo)
+
+
+def recommend_pct(units):
+    """% a quitar recomendado: silencios largos + voz de nota <= 2, entre 20 y 70."""
+    return int(min(70, max(20, round(100 * sum(b - a for a, b, n in units if n <= 2) / units[-1][1]))))
+
+
+@functools.cache
+def h264(threads):
+    """QuickSync (h264_qsv, el ProBook lo tiene) si funciona de verdad; si no, libx264."""
+    qsv = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", "h264_qsv",
+                          "-f", "null", "-"], capture_output=True).returncode == 0
+    return (["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "26"] if qsv else
+            ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-threads", str(threads)])
+
+
+def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
+    """work/<hash>/condensado_<pct>.mp4 a partir de los tramos que guardó run(); pct = 0 usa el recomendado. Una pasada de
+    ffmpeg: trim/atrim por tramo (con fundido corto de audio en cada corte) + concat, en un guion de filtros (-/filter_complex:
+    sin límite de largo de la línea de órdenes de Windows)."""
+    wd = Path(wd)
+    units = json.loads((wd / f"cortes_{quality}.json").read_text())
+    pct = pct or recommend_pct(units)
+    keeps = condense_plan(units, pct)
+    if not keeps:
+        raise RuntimeError("No queda nada que conservar: baja el porcentaje")
+    video, out = next(wd.glob("video.*")), wd / f"condensado_{pct}.mp4"
+    graph = "".join(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];"
+                    f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
+                    f"afade=d={FADE},afade=t=out:st={b - a - FADE:.3f}:d={FADE}[a{i}];" for i, (a, b) in enumerate(keeps))
+    graph += "".join(f"[v{i}][a{i}]" for i in range(len(keeps))) + f"concat=n={len(keeps)}:v=1:a=1[v][a]"
+    script = wd / "condensado.ffgraph"
+    script.write_text(graph)
+    kept = sum(b - a for a, b in keeps)
+    t0 = time.time()
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-/filter_complex", str(script), "-map", "[v]",
+                          "-map", "[a]", *h264(threads), "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+                          "-progress", "pipe:1", "-nostats", str(out)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    for line in p.stdout:
+        if line.startswith("out_time_us=") and line[12:].strip().isdigit():
+            cb(min(int(line[12:]) / 1e6 / kept, 1), f"Codificando vídeo condensado… {fmt(int(line[12:]) / 1e6)} / {fmt(kept)}")
+    if p.wait():
+        raise RuntimeError("ffmpeg: " + p.stderr.read()[-500:])
+    return out, pct, {"tramos": len(keeps), "dur": round(units[-1][1]), "queda": round(kept), "s": round(time.time() - t0, 1)}
+
+
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None):
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None):
     video = Path(video)
     wd = WORK / video_id(video)
     wd.mkdir(parents=True, exist_ok=True)
@@ -818,10 +1009,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         raise RuntimeError("No se ha detectado voz en el vídeo")
     lang = LANG.get(tr["language"], f"el idioma de la reunión ({tr['language']})")
 
+    dh = hashlib.sha1(repr((DIAR_EMB, DIAR_PIECE, DIAR_MIN)).encode()).hexdigest()[:8]
+    sf = wd / f"hablantes_{dh}.json"
+    if not sf.exists():
+        t0 = time.time()
+        sf.write_text(json.dumps(diarize(video, tr["segments"], threads, lambda f, m: cb(0.45 + 0.05 * f, m))))
+        stage("hablantes", t0)
+    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text())))):
+        if k:
+            s["spk"] = k
+
     kf = wd / "frames.json"  # OCR crudo; screens() lo clasifica y deduplica en cada ejecución
     if not kf.exists():
         t0 = time.time()
-        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.45 + 0.15 * f, m)), ensure_ascii=False))
+        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.1 * f, m)), ensure_ascii=False))
         stage("capturas+ocr", t0)
     kfs = screens(json.loads(kf.read_text()), {w for s in tr["segments"] for w in words(s["text"])})
 
@@ -856,12 +1057,15 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             stage("reduce", t0)
     red = json.loads(rf.read_text())
     maps = mark_reading(maps, tr["segments"], kfs)
+    imp = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
+    (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp)], dur)))
     print(score_hist(maps), flush=True)
 
     out = wd / f"acta_{level}_{quality}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
-    for k in render(out, red.get("titulo") or video.stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"], level, video.suffix):
+    for k in render(out, red.get("titulo") or video.stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"], level, video.suffix,
+                    names):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
     zpath = wd / f"acta_{video.stem}_{level}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
@@ -999,6 +1203,42 @@ def _selftest():
         (Path(d) / "a.mp4").write_bytes(b"v")
         put_file(Path(d) / "a.mp4", Path(d) / "b.mp4")
         assert not (Path(d) / "b.mp4").is_symlink() and (Path(d) / "b.mp4").read_bytes() == b"v"
+
+    # quién habla: el turno con más solape, numerados por orden de aparición; sin solape, nadie; una sola voz, nadie
+    sg = [{"s": 1, "e": 9}, {"s": 8, "e": 15}, {"s": 16, "e": 19}, {"s": 30, "e": 31}]
+    assert assign_speakers(sg, [(0, 10, 5), (10, 20, 3)]) == ["Hablante 1", "Hablante 2", "Hablante 2", None]
+    u, v = [1.0, 0.0], [0.0, 1.0]  # dos voces, una con 5 trozos y la otra con 5, más un trozo suelto cercano a la segunda
+    st = speaker_turns([(i, i + 1, i) for i in range(11)], [u] * 5 + [v] * 5 + [[0.1, 0.99]])
+    assert [x[2] for x in st] == [st[0][2]] * 5 + [st[5][2]] * 6 and st[0][2] != st[5][2], st
+    assert assign_speakers(sg, [(0, 20, 0)]) == [None] * 4 and assign_speakers(sg, []) == [None] * 4
+    assert said("Hablante 2", "Hablante 2: me encargo yo") == "Hablante 2" and said("Hablante 3", "Hablante 2: yo") == "—"
+    assert rename("Hablante 1 y el hablante 12 con Hablante 3", {"1": "Ana", "12": "Luis"}) == "Ana y el Luis con Hablante 3"
+    assert merge_segs([{"s": 0, "e": 2, "text": "a", "spk": "Hablante 1"}, {"s": 3, "e": 4, "text": "b", "spk": "Hablante 2"}])[1]["text"] == "b"
+
+    # vídeo condensado: partición sin huecos, silencios largos primero, % pedido ±3, reglas de unión y de mínimo
+    segs, t = [], 0.0
+    for i in range(600):
+        t += rng.choice([0.2, 0.8, 1.2, 2.5, 6.0], p=[.4, .3, .1, .1, .1])  # pausas cortas y alguna larga
+        d = float(rng.uniform(1, 9))
+        segs.append((t, t + d, int(rng.choice([1, 2, 3, 4, 5], p=[.3, .3, .2, .1, .1]))))
+        t += d
+    u = timeline(segs, t + 4)
+    assert u[0][0] == 0 and u[-1][1] == t + 4 and all(x[1] == y[0] for x, y in zip(u, u[1:])) and all(x[0] < x[1] for x in u)
+    sil = sum(b - a for a, b, n in u if n == 0) / u[-1][1]
+    assert all(b - a > SIL_GAP - 0.5 for a, b, n in u if n == 0) and 0.05 < sil < 0.3, sil
+    edges = {x[0] for x in u} | {u[-1][1]}
+    for pct in (25, 40, 55, 70):
+        ks = condense_plan(u, pct)
+        got = 100 * (1 - sum(b - a for a, b in ks) / u[-1][1])
+        assert abs(got - pct) <= 3, (pct, got)
+        assert all(a in edges and b in edges for a, b in ks) and all(b - a >= MIN_KEEP for a, b in ks), "cortes en bordes"
+        for (_, b), (a, _) in zip(ks, ks[1:]):  # lo quitado con voz dura al menos MERGE_GAP
+            assert a - b >= MERGE_GAP or all(n == 0 for x, y, n in u if b <= x < a), (b, a)
+    ks = condense_plan(u, 100 * sil / 2)  # menos que los silencios: solo se quitan silencios
+    gone = lambda i: not any(a <= u[i][0] < b for a, b in ks)  # solo cae voz suelta de < MIN_KEEP entre silencios quitados
+    assert all(u[r[-1]][1] - u[r[0]][0] < MIN_KEEP for r in runs([n == 0 for *_, n in u], False) if any(map(gone, r))), "silencios primero"
+    assert recommend_pct([[0, 10, 0], [10, 100, 4]]) == 20 and recommend_pct([[0, 90, 2], [90, 100, 5]]) == 70
+    assert recommend_pct([[0, 20, 0], [20, 40, 1], [40, 100, 3]]) == 40
     print("ok")
 
 
@@ -1009,6 +1249,7 @@ if __name__ == "__main__":
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
     ap.add_argument("--threads", type=int, default=PHYS)
+    ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest or not a.video:
@@ -1021,3 +1262,6 @@ if __name__ == "__main__":
             print(f"{f:5.0%} {m}", flush=True)
     out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb)
     print(out / "index.html", z, json.dumps(t), sep="\n")
+    if a.condensar is not None:
+        v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)
+        print(v, f"quitado {pct} %", json.dumps(st), sep="\n")
