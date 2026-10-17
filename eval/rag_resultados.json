@@ -1,0 +1,1577 @@
+[
+ {
+  "m": "real_clickmeeting",
+  "type": "factual",
+  "q": "¿Cuánto cuesta el plan básico al mes si se paga anualmente?",
+  "recall": true,
+  "recuperacion": 1.243,
+  "cos": 0.897,
+  "prefill": 37.56,
+  "gen": 9.5,
+  "prompt_tok": 879,
+  "gen_tok": 49,
+  "primer_token": 37.57,
+  "total": 48.31,
+  "nada": null,
+  "frases": [
+   {
+    "i": 8,
+    "frase": "Se dijo que este plan que vale 25 dólares de una llega de almacenamiento.",
+    "ok": true,
+    "faltan": [],
+    "t": "02:24",
+    "hit": true,
+    "seg": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento."
+   },
+   {
+    "i": 14,
+    "frase": "Se dijo que si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares.",
+    "ok": true,
+    "faltan": [],
+    "t": "04:12",
+    "hit": true,
+    "seg": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "paraphrase",
+  "q": "¿Cuánto vale el plan si se abona mes a mes?",
+  "recall": true,
+  "recuperacion": 0.008,
+  "cos": 0.896,
+  "prefill": 38.28,
+  "gen": 3.3,
+  "prompt_tok": 877,
+  "gen_tok": 34,
+  "primer_token": 38.28,
+  "total": 41.59,
+  "nada": null,
+  "frases": [
+   {
+    "i": 14,
+    "frase": "Se dijo que si se paga mensual, el plan vale 30 dólares.",
+    "ok": true,
+    "faltan": [],
+    "t": "04:12",
+    "hit": true,
+    "seg": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de"
+   },
+   {
+    "i": 35,
+    "frase": "Se dijo que se paga una mensualidad.",
+    "ok": true,
+    "faltan": [],
+    "t": "10:43",
+    "hit": false,
+    "seg": "difícil de manejar el evento. Entonces voy a suponer que voy a crear un webinar le digo preparar webinar, yo pago acá una mensualidad pero tengo la posibilidad de crear cuántos eventos necesite durante un mes o durante el tiempo que tenga la membresía, acá me pido"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "paraphrase",
+  "q": "¿Los asistentes tienen que instalar algún programa?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.853,
+  "prefill": 34.58,
+  "gen": 9.15,
+  "prompt_tok": 837,
+  "gen_tok": 93,
+  "primer_token": 34.59,
+  "total": 43.74,
+  "nada": null,
+  "frases": [
+   {
+    "i": 6,
+    "frase": "Se dijo que no van a necesitar descargar ningún software, lo hacen directamente desde su computador en el navegador o desde el celular, incluso pueden acceder a una reunión por teléfono también si no tienen de pronto algún celular o",
+    "ok": true,
+    "faltan": [],
+    "t": "01:48",
+    "hit": true,
+    "seg": "línea no van a necesitar descargar ningún software, lo hacen directamente desde su computador en el navegador o desde el celular, incluso pueden acceder a una reunión por teléfono también si no tienen de pronto algún celular o algún computador."
+   },
+   {
+    "i": 44,
+    "frase": "Se dijo que un usuario se encuentra en Estados Unidos, principalmente puede elegir este país y acá me van a salir, bueno cuando yo le enví el correo le va a llegar un número telefónico por si llega.",
+    "ok": true,
+    "faltan": [],
+    "t": "13:48",
+    "hit": false,
+    "seg": "los teléfonos recomendados para cada asistente resulta que sí, yo sé que un usuario se encuentra en Estados Unidos, principalmente puede elegir este país y acá me van a salir, bueno cuando yo le enví el correo le va a llegar un número telefónico por si llega"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "factual",
+  "q": "¿Cuánto pueden durar los eventos de la prueba gratuita?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.881,
+  "prefill": 40.03,
+  "gen": 8.43,
+  "prompt_tok": 920,
+  "gen_tok": 44,
+  "primer_token": 40.03,
+  "total": 48.47,
+  "nada": null,
+  "frases": [
+   {
+    "i": 15,
+    "frase": "Se dijo que la prueba gratuita nos da 15 minutos para la conferencia.",
+    "ok": false,
+    "faltan": [
+     "prueba"
+    ],
+    "t": "04:32",
+    "hit": true,
+    "seg": "la audiencia que podamos tener, bueno, la versión gratuita ya vemos que podemos tener hasta 25 personas en un webinar, es decir, en una conferencia online, pero nos dan sólo 15 minutos para la conferencia, lo cual es muy corto obviamente. Entonces no le vamos a decir a los usuarios"
+   },
+   {
+    "i": 105,
+    "frase": "En pantalla se mostró que en la prueba gratuita se puede tener hasta 25 personas en un webinar.",
+    "ok": false,
+    "faltan": [
+     "personas",
+     "webinar"
+    ],
+    "t": "03:15",
+    "hit": false,
+    "seg": "· 25 · Seleccione el tamaño de su audiencia: · MÁS POPULARES · Elija su mejor plan. · Prueba gratuita · Live · Automated · Enterprise · $ 25 · $ 40 · Gratis · Personalizados · Al mes, facturados anualmente hasta · Al mes, facturados anualmente hasta · Para 7 días · cancelación · cancelación · PROBAR AHORA ·"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "factual",
+  "q": "¿Cuántas personas asistieron al evento que hizo hace poco?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.878,
+  "prefill": 35.93,
+  "gen": 3.77,
+  "prompt_tok": 837,
+  "gen_tok": 39,
+  "primer_token": 35.93,
+  "total": 39.71,
+  "nada": null,
+  "frases": [
+   {
+    "i": 20,
+    "frase": "Se dijo que asistieron 56 personas a ese evento.",
+    "ok": true,
+    "faltan": [],
+    "t": "06:00",
+    "hit": true,
+    "seg": "Entonces bueno acá ya me encuentro en mi cuenta, fíjense que yo hace poco hice un evento, bueno acá dice que asistieron 56 personas a ese evento y entonces les voy a mostrar acá arriba las posibilidades y las herramientas que tiene. Entonces aquí dice almacenamiento,"
+   },
+   {
+    "i": 23,
+    "frase": "Se dijo que me muestra qué personas asistieron cuando yo hago un evento.",
+    "ok": true,
+    "faltan": [],
+    "t": "06:58",
+    "hit": false,
+    "seg": "Entonces, bueno, yo en este momento puedo, si quiero descargar esto o subirlo a YouTube o publicarlo, en fin. También me da estadísticas, entonces me muestra cuando yo hago un evento, me muestra qué personas asistieron y vamos a ver por ejemplo en"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "factual",
+  "q": "¿Con qué plataforma de pagos viene integrado?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.868,
+  "prefill": 34.94,
+  "gen": 2.63,
+  "prompt_tok": 848,
+  "gen_tok": 27,
+  "primer_token": 34.95,
+  "total": 37.59,
+  "nada": null,
+  "frases": [
+   {
+    "i": 42,
+    "frase": "Se dijo que ya viene integrado con PayPal.",
+    "ok": true,
+    "faltan": [],
+    "t": "12:57",
+    "hit": true,
+    "seg": "y es que ya viene integrado con PayPal, ya viene integrado con PayPal, entonces por ejemplo si a mi se me ocurre hacer eventos en Estados Unidos o en Europa o en otros países de Latinoamérica, yo puedo poner como método de pago, PayPal, acá conecto mi cuenta, no lo voy a hacer en este momento, pero conecto la cuenta y cuando ellos hagan el pago, automáticamente el sistema les va a mandar un correo, les va a notificar la hora del evento, les va a dar un token de acceso, como decía acá."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "paraphrase",
+  "q": "¿Se puede emitir en vivo en redes sociales?",
+  "recall": true,
+  "recuperacion": 0.004,
+  "cos": 0.858,
+  "prefill": 40.35,
+  "gen": 8.28,
+  "prompt_tok": 938,
+  "gen_tok": 44,
+  "primer_token": 40.36,
+  "total": 48.64,
+  "nada": null,
+  "frases": [
+   {
+    "i": 13,
+    "frase": "Se dijo que también se puede compartir en línea en las redes sociales.",
+    "ok": true,
+    "faltan": [],
+    "t": "03:53",
+    "hit": true,
+    "seg": "sabrán a qué me refiero con esto. También se puede compartir en línea en las redes sociales, fíjense acá, tiene la opción. También puedo transmitir con el plan pago, el primero, y de ahí en adelante puedo transmitir en directo en Facebook o en YouTube o en las dos si yo deseo"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "paraphrase",
+  "q": "¿En qué ciudad dice estar el presentador?",
+  "recall": false,
+  "recuperacion": 0.005,
+  "cos": 0.826,
+  "prefill": 38.26,
+  "gen": 0.29,
+  "prompt_tok": 878,
+  "gen_tok": 4,
+  "primer_token": 38.26,
+  "total": 38.56,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": false,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "trap",
+  "q": "¿Es caro ClickMeeting?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.868,
+  "prefill": 34.84,
+  "gen": 4.53,
+  "prompt_tok": 841,
+  "gen_tok": 47,
+  "primer_token": 34.84,
+  "total": 39.38,
+  "nada": null,
+  "frases": [
+   {
+    "i": 14,
+    "frase": "Se dijo que si se paga por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares.",
+    "ok": true,
+    "faltan": [],
+    "t": "04:12",
+    "hit": true,
+    "seg": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "trap",
+  "q": "¿Recomienda el ponente usar ClickMeeting?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.871,
+  "prefill": 35.37,
+  "gen": 10.26,
+  "prompt_tok": 845,
+  "gen_tok": 54,
+  "primer_token": 35.37,
+  "total": 45.64,
+  "nada": null,
+  "frases": [
+   {
+    "i": 1,
+    "frase": "Se dijo que el ponente utiliza click meeting y que es el que más le gusta a él.",
+    "ok": false,
+    "faltan": [
+     "ponente"
+    ],
+    "t": "00:22",
+    "hit": true,
+    "seg": "de este software que hay en realidad bastantes, pero el que más me gusta a mí utilizar se llama click meeting en ese momento ya me encuentro en su página web. Entonces les voy a mostrar en qué consiste este software, cómo funciona, las diferentes alternativas que nos da y pues"
+   },
+   {
+    "i": 91,
+    "frase": "Se dijo que a los usuarios les dice que califiquen el web cuando ya acaban de participar en el evento.",
+    "ok": false,
+    "faltan": [
+     "califiquen"
+    ],
+    "t": "28:29",
+    "hit": true,
+    "seg": "quede mejor y comenzar a utilizarlo en la descripción del vídeo les voy a dejar la dirección de la plataforma para que se registren directamente lo pruden y si les gusta pues lo puedan comprar posteriormente. Fíjense que a los usuarios cuando ya acaban de participar en el evento les dice califique este web"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "trap",
+  "q": "¿Fue un éxito el evento del 31 de marzo?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.836,
+  "prefill": 41.37,
+  "gen": 3.98,
+  "prompt_tok": 972,
+  "gen_tok": 41,
+  "primer_token": 41.38,
+  "total": 45.37,
+  "nada": null,
+  "frases": [
+   {
+    "i": 29,
+    "frase": "Se dijo que una persona valoró el evento con cinco estrellas y dijo que fue excelente.",
+    "ok": true,
+    "faltan": [],
+    "t": "08:48",
+    "hit": false,
+    "seg": "dice yo puedo saber si una persona estuvo digamos que durante todo el evento o si abandonó porque tuvo un problema o se aburrió o no llenó las expectativas. En fin eso aparece acá, fíjense que puedo ver que esta persona valoró el evento con cinco estrellas, dijo que fue excelente,"
+   },
+   {
+    "i": 118,
+    "frase": "En pantalla se mostró que el número de asistentes fue de 38 personas.",
+    "ok": false,
+    "faltan": [
+     "personas"
+    ],
+    "t": "07:51",
+    "hit": false,
+    "seg": "C Archivo · · Duración del evento: · 4h 51 min · Comienzo de Mar 31, 2020 16:34 COT Mar 31, 2020 · 21:25 COT · Número de asistentes: · 38 · Web: 100% · Teléfono: 0% · Teléfono Celular: 0% · Teléfono Celular: · 1OS: 0% · Android: 0% · Sala del evento: · habilitada"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "trap",
+  "q": "¿De qué color es el botón para iniciar el evento?",
+  "recall": null,
+  "recuperacion": 0.004,
+  "cos": 0.873,
+  "prefill": 36.66,
+  "gen": 0.3,
+  "prompt_tok": 886,
+  "gen_tok": 4,
+  "primer_token": 36.66,
+  "total": 36.96,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "absent",
+  "q": "¿En qué año se fundó la empresa ClickMeeting?",
+  "recall": null,
+  "recuperacion": 0.005,
+  "cos": 0.828,
+  "prefill": 33.35,
+  "gen": 0.56,
+  "prompt_tok": 778,
+  "gen_tok": 4,
+  "primer_token": 33.36,
+  "total": 33.92,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "absent",
+  "q": "¿Cuántos empleados tiene la empresa?",
+  "recall": null,
+  "recuperacion": 0.006,
+  "cos": 0.848,
+  "prefill": 37.2,
+  "gen": 0.29,
+  "prompt_tok": 850,
+  "gen_tok": 4,
+  "primer_token": 37.2,
+  "total": 37.5,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "factual",
+  "q": "¿A quién se designó como directora regional de trabajo?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.885,
+  "prefill": 32.58,
+  "gen": 4.51,
+  "prompt_tok": 790,
+  "gen_tok": 46,
+  "primer_token": 32.59,
+  "total": 37.1,
+  "nada": null,
+  "frases": [
+   {
+    "i": 18,
+    "frase": "Se dijo que se designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez.",
+    "ok": true,
+    "faltan": [],
+    "t": "05:54",
+    "hit": true,
+    "seg": "designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez, como ustedes saben, en la sesión de trabajo el doctor Gabriel Facundo Peña entonces pongo en conocimiento a los miembros esta nueva"
+   },
+   {
+    "i": 16,
+    "frase": "Se dijo que en la actualidad contamos con nueva directora regional de.",
+    "ok": true,
+    "faltan": [],
+    "t": "05:19",
+    "hit": false,
+    "seg": "que en la actualidad contamos con nueva directora regional de"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "factual",
+  "q": "¿Qué número tiene la ordenanza regional sobre la implementación?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.868,
+  "prefill": 33.86,
+  "gen": 14.05,
+  "prompt_tok": 795,
+  "gen_tok": 72,
+  "primer_token": 33.86,
+  "total": 47.92,
+  "nada": null,
+  "frases": [
+   {
+    "i": 30,
+    "frase": "Se dijo que la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social.",
+    "ok": true,
+    "faltan": [],
+    "t": "09:52",
+    "hit": true,
+    "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
+   },
+   {
+    "i": 130,
+    "frase": "Se dijo que al revisar el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia.",
+    "ok": true,
+    "faltan": [],
+    "t": "41:56",
+    "hit": false,
+    "seg": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "paraphrase",
+  "q": "¿Por qué se cambió el día de la reunión?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.858,
+  "prefill": 29.76,
+  "gen": 6.66,
+  "prompt_tok": 670,
+  "gen_tok": 68,
+  "primer_token": 29.77,
+  "total": 36.43,
+  "nada": null,
+  "frases": [
+   {
+    "i": 20,
+    "frase": "Se dijo que la fecha inicialmente fijada para el miércoles próximo pasado fue cambiada para la fecha previa coordinación con ustedes.",
+    "ok": true,
+    "faltan": [],
+    "t": "06:34",
+    "hit": true,
+    "seg": "que tome el conocimiento pertinente, en razón, a esa motivación es que la fecha inicialmente fijada para el miércoles próximo pasado fue cambiada para la fecha previa coordinación con ustedes."
+   },
+   {
+    "i": 14,
+    "frase": "Se dijo que se había fijado previamente para la sesión una fecha, no sin antes dar cuenta de algunos aspectos importantes que han acontecido respecto al tema del cambio de fecha.",
+    "ok": true,
+    "faltan": [],
+    "t": "04:40",
+    "hit": true,
+    "seg": "sesión fijada para la fecha, no sin antes dar cuenta de algunos aspectos importantes que han acontecido respecto al tema del cambio de fecha que se había fijado previamente para"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "paraphrase",
+  "q": "¿Con cuánta anticipación piden recibir las invitaciones a las capacitaciones?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.901,
+  "prefill": 32.34,
+  "gen": 5.68,
+  "prompt_tok": 780,
+  "gen_tok": 51,
+  "primer_token": 32.35,
+  "total": 38.03,
+  "nada": null,
+  "frases": [
+   {
+    "i": 92,
+    "frase": "Se dijo que se les envíe la invitación con una antelación mayor a 10 días.",
+    "ok": true,
+    "faltan": [],
+    "t": "30:09",
+    "hit": true,
+    "seg": "incumpliendo los plazos previstos en la norma. Pide que las capacitaciones sean en horarios apropiados y se les envíe la invitación con una antelación mayor a 10 días. Se pide por la parte laboral que su representación en la"
+   },
+   {
+    "i": 162,
+    "frase": "En pantalla se mostró que se les envíe la invitación con una antelación mayor a 10 días.",
+    "ok": false,
+    "faltan": [
+     "envie",
+     "invitacion",
+     "antelacion",
+     "mayor",
+     "10",
+     "dias"
+    ],
+    "t": "29:06",
+    "hit": false,
+    "seg": "vienen realizando por la SDIT de la · DRTPE Piura en forma presencial, en coordinación con SUNAFIL en el marco del Programa · materias que deseen ser tratadas en capacitaciones futuras, se agradece el apoyo como · profesionales miembros del Consejo presentes para sucesivas capacitaciones. · SECTOR TRABAJADORES · La representación de la CATP informa y pide si existe la"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "paraphrase",
+  "q": "¿Qué se propuso respecto a la Marina de Guerra?",
+  "recall": true,
+  "recuperacion": 0.004,
+  "cos": 0.803,
+  "prefill": 28.6,
+  "gen": 9.1,
+  "prompt_tok": 683,
+  "gen_tok": 91,
+  "primer_token": 28.6,
+  "total": 37.71,
+  "nada": null,
+  "frases": [
+   {
+    "i": 72,
+    "frase": "Se dijo que se quería sugerir si se podría invitar a la primera zona naval para que acredite un personal en estas reuniones y sea miembro también.",
+    "ok": true,
+    "faltan": [],
+    "t": "23:54",
+    "hit": true,
+    "seg": "serie de convenios, entre ellos el convenio solas, que prioriza la seguridad y la vida humana en el mar. Por tanto nosotros queríamos sugerir si se podría invitar a la primera zona"
+   },
+   {
+    "i": 73,
+    "frase": "Se dijo que en este caso tenemos acá en Piura en la comandancia al comandante Díaz que es el director de capitánías y guardacostas de la zona norte de Tunes, de Ximbote a Tunes. Esa es sugerencia.",
+    "ok": false,
+    "faltan": [
+     "capitanias"
+    ],
+    "t": "24:09",
+    "hit": true,
+    "seg": "naval para que acredite un personal en estas reuniones y sea miembro también. En este caso tenemos acá en Piura en la comandancia al comandante Díaz que es el director de capitalías y guardacostas de la zona norte de Tunes, de Ximbote a Tunes. Esa es sugerencia"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "factual",
+  "q": "¿Cuándo será la próxima reunión?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.871,
+  "prefill": 29.01,
+  "gen": 4.7,
+  "prompt_tok": 697,
+  "gen_tok": 46,
+  "primer_token": 29.01,
+  "total": 33.72,
+  "nada": null,
+  "frases": [
+   {
+    "i": 150,
+    "frase": "Se dijo que se convocan a la próxima reunión para el mes de noviembre.",
+    "ok": false,
+    "faltan": [
+     "convocan"
+    ],
+    "t": "48:25",
+    "hit": true,
+    "seg": "este nuevamente convocándolos a la próxima reunión para el mes de noviembre. Gracias a todos. Buenas tardes. Buenos días todavía. Buenos días. Buenos días doctor. Ya este por favor si pudieran"
+   },
+   {
+    "i": 34,
+    "frase": "Se dijo que los avances de los acuerdos se refieren a la reunión del 16 de agosto.",
+    "ok": false,
+    "faltan": [
+     "refieren"
+    ],
+    "t": "11:09",
+    "hit": false,
+    "seg": "no corresponde entonces cursar documento al director regional de educación entonces en este sentido creo que este punto es amerita que se toque el día de hoy no eso es todo los avances de los acuerdos que se han adoptado en la reunión del 16 de agosto. Bien muchas gracias doctora Rosy"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "factual",
+  "q": "¿Qué institución debe encargarse de implementar la ordenanza?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.851,
+  "prefill": 32.99,
+  "gen": 6.36,
+  "prompt_tok": 766,
+  "gen_tok": 45,
+  "primer_token": 33.0,
+  "total": 39.36,
+  "nada": null,
+  "frases": [
+   {
+    "i": 30,
+    "frase": "Se dijo que la implementación de este documento está cargo de la Gerencia de Desarrollo Social.",
+    "ok": true,
+    "faltan": [],
+    "t": "09:52",
+    "hit": true,
+    "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
+   },
+   {
+    "i": 130,
+    "frase": "Se dijo que quien debe estar a cargo de la implementación es la gerencia desarrollo social.",
+    "ok": true,
+    "faltan": [],
+    "t": "41:56",
+    "hit": true,
+    "seg": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "paraphrase",
+  "q": "¿Quién pidió que se arreglara su apellido en el acta?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.836,
+  "prefill": 28.99,
+  "gen": 7.08,
+  "prompt_tok": 679,
+  "gen_tok": 72,
+  "primer_token": 29.0,
+  "total": 36.08,
+  "nada": null,
+  "frases": [
+   {
+    "i": 69,
+    "frase": "Se dijo que alguien de alguien que está en la plataforma pidió el uso de la palabra no puede no puede verificar quién fue.",
+    "ok": true,
+    "faltan": [],
+    "t": "23:06",
+    "hit": true,
+    "seg": "de la placa. Muchas gracias a Doctor Afani. Eh alguien de alguien que está en la plataforma pidió el uso de la palabra no puede no puede verificar quién fue. Que quiere intervenir. Sí doctor, buenos"
+   },
+   {
+    "i": 70,
+    "frase": "Se dijo que Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente.",
+    "ok": true,
+    "faltan": [],
+    "t": "23:21",
+    "hit": true,
+    "seg": "días. Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente. Buenos días compañeros, Doctor Lele me"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "trap",
+  "q": "¿Fue acertado no invitar al director regional de educación?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.898,
+  "prefill": 30.48,
+  "gen": 11.43,
+  "prompt_tok": 726,
+  "gen_tok": 110,
+  "primer_token": 30.48,
+  "total": 41.92,
+  "nada": null,
+  "frases": [
+   {
+    "i": 28,
+    "frase": "Se dijo que no se ha podido materializar lo siguiente, que es es el tema de cursar el documento de, perdón, de invitar al representante de la Dirección Regional de Educación, porque uno de los acuerdos era invitar al representante.",
+    "ok": true,
+    "faltan": [],
+    "t": "09:13",
+    "hit": false,
+    "seg": "directoral regional 031 2022. Del mismo modo se ha hecho la siguiente observación y es por eso que no se ha podido materializar lo siguiente, que es es el tema de cursar el documento de, perdón,"
+   },
+   {
+    "i": 30,
+    "frase": "Se dijo que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director regional.",
+    "ok": true,
+    "faltan": [],
+    "t": "09:52",
+    "hit": true,
+    "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "trap",
+  "q": "¿Estaba enfadada la doctora Fanny?",
+  "recall": null,
+  "recuperacion": 0.005,
+  "cos": 0.872,
+  "prefill": 30.27,
+  "gen": 0.63,
+  "prompt_tok": 726,
+  "gen_tok": 4,
+  "primer_token": 30.27,
+  "total": 30.91,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "absent",
+  "q": "¿Cuál es el presupuesto del consejo regional para 2023?",
+  "recall": null,
+  "recuperacion": 0.007,
+  "cos": 0.866,
+  "prefill": 31.95,
+  "gen": 0.29,
+  "prompt_tok": 747,
+  "gen_tok": 4,
+  "primer_token": 31.96,
+  "total": 32.25,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "absent",
+  "q": "¿Se habló de la vacunación contra el COVID?",
+  "recall": null,
+  "recuperacion": 0.004,
+  "cos": 0.854,
+  "prefill": 27.54,
+  "gen": 0.64,
+  "prompt_tok": 639,
+  "gen_tok": 4,
+  "primer_token": 27.55,
+  "total": 28.19,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "factual",
+  "q": "¿A partir de cuántas palabras por diapositiva la gente lee en vez de escuchar?",
+  "recall": true,
+  "recuperacion": 0.008,
+  "cos": 0.911,
+  "prefill": 34.76,
+  "gen": 10.66,
+  "prompt_tok": 808,
+  "gen_tok": 70,
+  "primer_token": 34.76,
+  "total": 45.43,
+  "nada": null,
+  "frases": [
+   {
+    "i": 21,
+    "frase": "Se dijo que cuando tú tienes más de 75 palabras en una diapositiva, la persona que está leyendo la presentación está leyendo el documento.",
+    "ok": true,
+    "faltan": [],
+    "t": "06:25",
+    "hit": true,
+    "seg": "Entonces, lo que ocurre en estos casos es que cuando tú tienes más de 75 palabras en una diapositiva, la persona que está leyendo la presentación está leyendo el documento. No te está escuchando."
+   },
+   {
+    "i": 198,
+    "frase": "Se dijo que donde ya ponemos mucho texto, ya la gente está intentando leer y a la vez está intentando escuchar a lo que dices.",
+    "ok": true,
+    "faltan": [],
+    "t": "59:41",
+    "hit": false,
+    "seg": "donde ya ponemos mucho texto, ya la gente está intentando leer y a la vez está intentando escuchar a lo que dices. Y en el extremo ya de la izquierda, directamente cuando tú pones un movillón de palabras en la de esta, mejor te callas, le das tiempo a las personas para leer y así ya continúas y das el argumento que tú vas hablando."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "paraphrase",
+  "q": "¿Qué resolución hace falta para imprimir en papel?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.848,
+  "prefill": 33.03,
+  "gen": 16.98,
+  "prompt_tok": 793,
+  "gen_tok": 85,
+  "primer_token": 33.04,
+  "total": 50.02,
+  "nada": null,
+  "frases": [
+   {
+    "i": 16,
+    "frase": "Se dijo que la diferencia entre 150 y 300 píxeles por pulgadas es que con 150 es suficiente para engañar al ojo de que los píxeles no se ven.",
+    "ok": true,
+    "faltan": [],
+    "t": "04:47",
+    "hit": true,
+    "seg": "Como un papel A4, como formato vertical y entre cientos píxeles por pulgadas y la diferencia entre 150 y 300 es que con 150 es suficiente para engañar al ojo de que los píxeles no se ven"
+   },
+   {
+    "i": 17,
+    "frase": "Se dijo que en un papel la medida de 300 píxeles por pulgadas es la medida necesaria para que la impresión salga sin problemas.",
+    "ok": true,
+    "faltan": [],
+    "t": "05:06",
+    "hit": true,
+    "seg": "y sin embargo en un papel la medida de 300 fíciles por pulgadas es la medida necesaria para que la impresión salga sin problemas Si queremos hacer una newsletter también podríamos hacer como un papel a 4 y en horizontal"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "factual",
+  "q": "¿Para qué se usan los gráficos de barras?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.884,
+  "prefill": 33.59,
+  "gen": 3.4,
+  "prompt_tok": 789,
+  "gen_tok": 35,
+  "primer_token": 33.6,
+  "total": 37.0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 90,
+    "frase": "Se dijo que los gráficos de barras se utilizan para comparar grupos.",
+    "ok": false,
+    "faltan": [
+     "utilizan"
+    ],
+    "t": "27:02",
+    "hit": true,
+    "seg": "y veis, pues cuando tú tienes una línea de una barra, un gráfico de líneas, estás utilizándolo o deberías utilizarlo para tendencias de todo tipo. En el caso de los gráficos de barra,"
+   },
+   {
+    "i": 249,
+    "frase": "En pantalla se mostró que los gráficos de barras se usan para comparar grupos.",
+    "ok": false,
+    "faltan": [
+     "usan"
+    ],
+    "t": "26:24",
+    "hit": false,
+    "seg": "Visualización de datos científicos y técnicos · Seleccionar gráficos adecuados, que · de Andalucí... · guíen al público hacia lo que se quiere · Resullado · Valor · resaltar, no a que sea vea bonito: · barras, líneas, pastel, dispersión. · Tiempo · Grupo · Usar para tendencias · Usar para comparar grupos · Respetar la paleta corporativa · Variable"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "paraphrase",
+  "q": "¿Cómo se puede aligerar el tamaño del archivo de la presentación?",
+  "recall": false,
+  "recuperacion": 0.006,
+  "cos": 0.861,
+  "prefill": 36.35,
+  "gen": 0.3,
+  "prompt_tok": 878,
+  "gen_tok": 4,
+  "primer_token": 36.36,
+  "total": 36.66,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "paraphrase",
+  "q": "¿Qué hay que tener en cuenta al trabajar con gente de Israel?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.867,
+  "prefill": 31.86,
+  "gen": 12.29,
+  "prompt_tok": 739,
+  "gen_tok": 63,
+  "primer_token": 31.87,
+  "total": 44.16,
+  "nada": null,
+  "frases": [
+   {
+    "i": 76,
+    "frase": "Se dijo que en Israel van al revés y tienen los caracteres al revés, lo cual para ellos a veces es más sencillo.",
+    "ok": true,
+    "faltan": [],
+    "t": "22:53",
+    "hit": true,
+    "seg": "Y si trabajas con Israel, acuérdate que en Israel van al revés. En Israel tienen los caracteres al revés. Entonces, hay veces que para ellos es más sencillo."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "factual",
+  "q": "¿Qué modo de presentación se aconseja en el entorno corporativo?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.87,
+  "prefill": 35.05,
+  "gen": 4.26,
+  "prompt_tok": 808,
+  "gen_tok": 43,
+  "primer_token": 35.05,
+  "total": 39.32,
+  "nada": null,
+  "frases": [
+   {
+    "i": 34,
+    "frase": "Se dijo que en el ambiente corporativo deberías ser utilizado siempre en modo de presentar en Teams.",
+    "ok": true,
+    "faltan": [],
+    "t": "10:13",
+    "hit": true,
+    "seg": "tu pantalla, pues la va a ver todo el mundo. Con lo cual, en el ambiente corporativo deberías ser utilizado siempre en modo de presentar en Teams, en este caso porque en mi empresa se utiliza Teams, pero si no se puede pues"
+   },
+   {
+    "i": 238,
+    "frase": "En pantalla se mostró que el modo de presentación recomendado es \"Present in Teams\".",
+    "ok": false,
+    "faltan": [
+     "recomendado"
+    ],
+    "t": "07:51",
+    "hit": false,
+    "seg": "¿Cómo debemos presentar en pantalla? · El equipo de Trey Research · Present in Teams · El equipo de Trey Research · Modo Present in Teams · eeting · Modo Slide Show · Modo Compartir Pantalla · Profesional. Limpio. Cursor laser. · 2 pantallas completas. Una para · Cómodo para visualizar distintas · Notas solo para el orador. · visualizacion,"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "trap",
+  "q": "¿Qué color hay que usar para las métricas financieras?",
+  "recall": true,
+  "recuperacion": 0.005,
+  "cos": 0.922,
+  "prefill": 32.45,
+  "gen": 3.79,
+  "prompt_tok": 785,
+  "gen_tok": 39,
+  "primer_token": 32.45,
+  "total": 36.25,
+  "nada": null,
+  "frases": [
+   {
+    "i": 96,
+    "frase": "Se dijo que en el caso de métricas financieras no se utiliza el color rojo.",
+    "ok": true,
+    "faltan": [],
+    "t": "28:50",
+    "hit": true,
+    "seg": "Y obviamente en el caso de métricas financieras no utiliza el color rojo, puesto que no quieres confundir. Cuando alguien está hablando de métrica financiera y se utiliza un color rojo, se entiende rápidamente que es una cosa negativa y no tiene por qué ser así."
+   },
+   {
+    "i": 250,
+    "frase": "En pantalla se mostró que hay que evitar usar rojo en métricas financieras.",
+    "ok": true,
+    "faltan": [],
+    "t": "26:24",
+    "hit": false,
+    "seg": "Y · Evitar usar rojo en métricas financieras. · Variable X · Usar para relaciones entre variables · Usar para proporciones simples"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "trap",
+  "q": "¿Qué versión de PowerPoint usa el ponente?",
+  "recall": null,
+  "recuperacion": 0.006,
+  "cos": 0.864,
+  "prefill": 31.67,
+  "gen": 0.59,
+  "prompt_tok": 730,
+  "gen_tok": 4,
+  "primer_token": 31.67,
+  "total": 32.27,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "absent",
+  "q": "¿Cómo se llama la empresa ficticia de la plantilla?",
+  "recall": null,
+  "recuperacion": 0.006,
+  "cos": 0.853,
+  "prefill": 36.73,
+  "gen": 0.58,
+  "prompt_tok": 821,
+  "gen_tok": 4,
+  "primer_token": 36.73,
+  "total": 37.32,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "absent",
+  "q": "¿Cuánto cuesta hacerse socio del PMI?",
+  "recall": null,
+  "recuperacion": 0.008,
+  "cos": 0.843,
+  "prefill": 32.41,
+  "gen": 0.29,
+  "prompt_tok": 780,
+  "gen_tok": 4,
+  "primer_token": 32.42,
+  "total": 32.72,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "factual",
+  "q": "¿Para qué día y hora se convocó la sesión ordinaria?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.88,
+  "prefill": 33.54,
+  "gen": 13.44,
+  "prompt_tok": 799,
+  "gen_tok": 68,
+  "primer_token": 33.54,
+  "total": 46.99,
+  "nada": null,
+  "frases": [
+   {
+    "i": 11,
+    "frase": "Se dijo que la sesión se realizaría por vía telemática el día martes 5 de octubre de 2021 a las 20 horas 30.",
+    "ok": false,
+    "faltan": [
+     "realizaria",
+     "via"
+    ],
+    "t": "13:32",
+    "hit": true,
+    "seg": "sesión ordinaria del Pleno del Consejo Nacional Electoral a realizarse por vida telemática el día martes 5 de octubre de 2021 a las 20 horas 30. La sesión se desarrollará utilizando los medios electrónicos del INCERRA mediante correo electrónico institucional con el"
+   },
+   {
+    "i": 9,
+    "frase": "Se dijo que la sesión ordinaria número setenta y uno PLS se realizaba en el dos mil veintiuno.",
+    "ok": false,
+    "faltan": [
+     "realizaba"
+    ],
+    "t": "13:00",
+    "hit": false,
+    "seg": "presentación proceda a la lectura de la convocatoria y respectivo orden del día. Con gusto señor presidente procedo conforme a su disposición. Convocatoria sesión ordinaria número setenta y uno PLS en el dos mil veintiuno por disposición de"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "factual",
+  "q": "¿A qué hora se suspendió la sesión?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.871,
+  "prefill": 35.5,
+  "gen": 5.94,
+  "prompt_tok": 794,
+  "gen_tok": 47,
+  "primer_token": 35.51,
+  "total": 41.46,
+  "nada": null,
+  "frases": [
+   {
+    "i": 467,
+    "frase": "Se dijo que se suspende la presencia siendo las 22 horas con 51 minutos.",
+    "ok": true,
+    "faltan": [],
+    "t": "140:43",
+    "hit": true,
+    "seg": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con"
+   },
+   {
+    "i": 468,
+    "frase": "En pantalla se mostró que la sesión se realizaba a las 20 horas 30.",
+    "ok": false,
+    "faltan": [
+     "realizaba",
+     "horas"
+    ],
+    "t": "00:00",
+    "hit": false,
+    "seg": "CONSEJO NACIONAL ELECTORAL · Sesión Ordinaria del Pleno Nro. 71 · Martes 5 de octubre de 2021 · 20:30"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "paraphrase",
+  "q": "¿Por qué pidió la consejera Nájera mover la sesión a la tarde?",
+  "recall": true,
+  "recuperacion": 0.008,
+  "cos": 0.866,
+  "prefill": 29.71,
+  "gen": 7.19,
+  "prompt_tok": 722,
+  "gen_tok": 74,
+  "primer_token": 29.71,
+  "total": 36.91,
+  "nada": null,
+  "frases": [
+   {
+    "i": 462,
+    "frase": "Se dijo que la consejera Nájera pidió mover la sesión a la tarde porque su hijo tenía un problema para trasladarse en la mañana.",
+    "ok": false,
+    "faltan": [
+     "pidio",
+     "mover",
+     "tenia",
+     "trasladarse"
+    ],
+    "t": "139:17",
+    "hit": true,
+    "seg": "Señora Presidenta, quiero hacer un pedido especial mañana, es el grado de maestría de mi hijo, en la mañana no sé si usted tiene alguna, no sé si le consulta también a los consejeros, algún problema en que se pueda trasladar en la tarde dicha sesión."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "factual",
+  "q": "¿Cuál es el tercer punto del orden del día?",
+  "recall": true,
+  "recuperacion": 0.006,
+  "cos": 0.836,
+  "prefill": 35.89,
+  "gen": 16.86,
+  "prompt_tok": 838,
+  "gen_tok": 86,
+  "primer_token": 35.89,
+  "total": 52.76,
+  "nada": null,
+  "frases": [
+   {
+    "i": 472,
+    "frase": "En pantalla se mostró que el tercer punto del orden del día es el Conocimiento y resolución respecto del Presupuesto Ordinario Anual 2022.",
+    "ok": false,
+    "faltan": [
+     "tercer",
+     "punto"
+    ],
+    "t": "00:42",
+    "hit": false,
+    "seg": "ORDEN DEL DÍA · 3º Conocimiento y resolución respecto del Presupuesto Ordinario · Anual 2022. · CONSEIO NACIONAL BLICTORAL · SESIÓN DEL · PLENO · ·LIVE · Ecuador"
+   },
+   {
+    "i": 17,
+    "frase": "Se dijo que el segundo punto del orden del día es el Conocimiento y resolución de los informes presentados por la Comisión Técnica, respecto de las peticiones de revisión o recalificación de los postulantes al Concurso Público de Mé",
+    "ok": true,
+    "faltan": [],
+    "t": "15:15",
+    "hit": false,
+    "seg": "del orden del día. Continúe, señor secretario. Gracias, señora presidenta. Continúe un segundo. Conocimiento y resolución de los informes presentados por la Comisión Técnica respecto de las peticiones de revisión o recalificación de los postulantes al concurso público de méritos de oposición al Consejo de Educación Superior CES y al Consejo de Aseguramiento"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "larga_cne",
+  "type": "paraphrase",
+  "q": "¿Por qué motivo se abstiene Elena Nájera en las votaciones?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.868,
+  "prefill": 31.59,
+  "gen": 7.09,
+  "prompt_tok": 705,
+  "gen_tok": 38,
+  "primer_token": 31.59,
+  "total": 38.69,
+  "nada": null,
+  "frases": [
+   {
+    "i": 220,
+    "frase": "Se dijo que no hay observaciones y procedió a tomar votación.",
+    "ok": false,
+    "faltan": [
+     "procedio"
+    ],
+    "t": "72:47",
+    "hit": false,
+    "seg": "de los que tenemos tiene la palabra. No hay observaciones señor secretario, procedo a tomar votación. Procedo. doctora Elena Najera, su voto por favor. Gracias señor"
+   },
+   {
+    "i": 232,
+    "frase": "Se dijo que con motivaciones expuestas su voto es abstención.",
+    "ok": true,
+    "faltan": [],
+    "t": "76:03",
+    "hit": false,
+    "seg": "observaciones señor secretario proceda a tomar votación. Procedo señora presidenta, doctora Elena Najera, su voto por favor. Con motivaciones expuestas mi voto es abstención. Gracias por favor. Gracias señor"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "larga_cne",
+  "type": "factual",
+  "q": "¿Qué puntuación total obtuvo Paúl Leonardo Medina Vázquez?",
+  "recall": true,
+  "recuperacion": 0.008,
+  "cos": 0.845,
+  "prefill": 33.61,
+  "gen": 8.08,
+  "prompt_tok": 788,
+  "gen_tok": 83,
+  "primer_token": 33.62,
+  "total": 41.71,
+  "nada": null,
+  "frases": [
+   {
+    "i": 309,
+    "frase": "Se dijo que la valoración de méritos fue de cuarenta y dos coma cero cero sobre cincuenta, con una prueba de oposición de veintiocho coma.",
+    "ok": true,
+    "faltan": [],
+    "t": "97:39",
+    "hit": true,
+    "seg": "conformidad con el siguiente cuadro expediente. Cínto setenta y nueve cédula diecisiete, veintidós, veintisiete, veintinueve, cinco, nombre, Medina, Pásquez, Paúl, y Leonardo, valoración de méritos, cuarenta y dos coma cero cero sobre cincuenta prueba de oposición veintiocho coma"
+   },
+   {
+    "i": 314,
+    "frase": "Se dijo que se incluye los resultados totales de la correspondiente solicitud de recalificación y se le niega la solicitud de recalificación presentada por el postulante, Paul Leonardo Medina Vázquez.",
+    "ok": false,
+    "faltan": [
+     "paul",
+     "leonardo",
+     "medina",
+     "vazquez"
+    ],
+    "t": "99:03",
+    "hit": false,
+    "seg": "que el postulante no cumple con lo determinado en el artículo 39 del reglamento para el concurso público de méritos y de los secretarios del CESPICAS. Por tal razón voto a favor del informe en el que se le niega la solicitud de recalificación y se incluye los resultados totales de la correspondiente"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "factual",
+  "q": "¿Cuántos consejeros estaban presentes al constatar el quórum?",
+  "recall": true,
+  "recuperacion": 0.007,
+  "cos": 0.855,
+  "prefill": 27.33,
+  "gen": 3.15,
+  "prompt_tok": 663,
+  "gen_tok": 33,
+  "primer_token": 27.34,
+  "total": 30.49,
+  "nada": null,
+  "frases": [
+   {
+    "i": 8,
+    "frase": "Se dijo que constituido con cinco consejeros presentes en esta sala habitual.",
+    "ok": true,
+    "faltan": [],
+    "t": "12:45",
+    "hit": true,
+    "seg": "constituido con cinco consejeros presentes en esta sala habitual. Consecuentemente contamos con el Cúrano de Leia la presentación que restala la"
+   },
+   {
+    "i": 16,
+    "frase": "Se dijo que de señores consejeros.",
+    "ok": true,
+    "faltan": [],
+    "t": "14:54",
+    "hit": false,
+    "seg": "de señores consejeros. Gracias señor secretario señores consejeros señores consejeras tienen en la palabra. No hay observaciones, señor secretario, será por conocido el primer punto"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "trap",
+  "q": "¿Fue justo el concurso de méritos?",
+  "recall": null,
+  "recuperacion": 0.006,
+  "cos": 0.861,
+  "prefill": 36.67,
+  "gen": 12.37,
+  "prompt_tok": 829,
+  "gen_tok": 64,
+  "primer_token": 36.67,
+  "total": 49.05,
+  "nada": null,
+  "frases": [
+   {
+    "i": 46,
+    "frase": "Se dijo que el concurso de méritos y oposición se ha llevado de manera transparente en los términos determinados en el reglamento emitido por este pleno.",
+    "ok": true,
+    "faltan": [],
+    "t": "24:00",
+    "hit": false,
+    "seg": "en la solicitud de cada postulante. En este sentido, con el fin de continuar con el concurso de méritos y oposición que se ha llevado de manera transparente en los términos determinados en el reglamento emitido por este pleno mi voto a favor del informe."
+   },
+   {
+    "i": 321,
+    "frase": "Se dijo que el concurso de méritos y oposición se ha llevado de manera transparente en los términos determinados en el reglamento.",
+    "ok": true,
+    "faltan": [],
+    "t": "101:04",
+    "hit": false,
+    "seg": "realizadas por el postulante no proceden. En ese sentido, con el fin de continuar con el proceso, con el concurso de méritos y oposición que se ha llevado de manera transparente en los términos determinados en el"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "trap",
+  "q": "¿Cuánto dinero tiene el presupuesto 2022 del CNE?",
+  "recall": null,
+  "recuperacion": 0.007,
+  "cos": 0.859,
+  "prefill": 35.04,
+  "gen": 0.3,
+  "prompt_tok": 790,
+  "gen_tok": 4,
+  "primer_token": 35.05,
+  "total": 35.35,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "trap",
+  "q": "¿Estaba molesta la presidenta por el pedido de Nájera?",
+  "recall": null,
+  "recuperacion": 0.005,
+  "cos": 0.859,
+  "prefill": 29.92,
+  "gen": 0.3,
+  "prompt_tok": 726,
+  "gen_tok": 4,
+  "primer_token": 29.92,
+  "total": 30.22,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "absent",
+  "q": "¿Se habló de las elecciones seccionales de 2023?",
+  "recall": null,
+  "recuperacion": 0.004,
+  "cos": 0.842,
+  "prefill": 29.33,
+  "gen": 0.29,
+  "prompt_tok": 710,
+  "gen_tok": 4,
+  "primer_token": 29.33,
+  "total": 29.63,
+  "nada": "llm",
+  "frases": [],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ }
+]

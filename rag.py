@@ -1,0 +1,350 @@
+"""Preguntas sobre UNA reunión ya procesada. Recupera tramos de 15 s (y textos de pantalla) con BM25 + e5-small
+fusionados por RRF; el LLM solo elige tramos y escribe una frase en estilo indirecto con sus palabras; el código
+comprueba que cada palabra de contenido de la frase está en el tramo citado (o sus vecinos) y si no, la cambia por la
+cita literal. Cada pregunta es independiente: ni historial ni caché de prompt."""
+import json, os, re, socket, subprocess, sys, time, urllib.request
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+
+import pipeline as P
+
+E5 = ("intfloat/multilingual-e5-small", "onnx/model_qint8_avx512_vnni.onnx", "onnx/tokenizer.json")
+TOPK, RRF_K, POOL, MAX_SCREEN = 8, 60, 30, 2  # como mucho 2 trozos de pantalla en el top: si no, tapan la voz
+MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.78))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
+MAX_LINES = 2  # la 3.ª línea casi siempre era relleno de un fragmento que no responde (y +5 s)
+NOT_SAID = "No se menciona en la reunión."
+
+STOP = set("""a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
+cuales cuando de del desde donde dos el ella ellas ello ellos en entre era eran es esa esas ese eso esos esta estas este
+esto estos fue fueron ha han hasta hay la las le les lo los mas me mi mis mucho muchos muy nada ni nos nosotros o os otra
+otras otro otros para pero poco por porque pues que quien quienes se sea segun ser si sido sin sobre solo su sus tal
+tambien tan tanto te ti todo todos toda todas tu tus un una uno unos unas usted ustedes y ya yo el eh bueno entonces
+digamos fijense aca alli ahi decir dice dijo dicen dijeron dicho menciona menciono mencionan comenta comento explica
+explico indica indico senala senalo afirma afirmo habla hablo cuenta conto comentaron explicaron senalaron mencionaron
+pantalla mostro muestra muestran mostraron puede pueden podemos puedo podria poder tiene tienen tengo tenemos tener
+hace hacen hacer hago hecho va van vamos voy ir esta estan estoy estamos estar estaba son soy somos eres hubo habia
+haber he hemos sera seran estara estaran habra""".split())
+NUM = dict(zip("""cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis
+diecisiete dieciocho diecinueve veinte""".split(), map(str, range(21))))
+NUM.update(treinta="30", cuarenta="40", cincuenta="50", sesenta="60", setenta="70", ochenta="80", noventa="90",
+           cien="100", ciento="100", mil="1000")
+NEG = {"no", "ni", "nunca", "sin", "ningun", "ninguna", "ninguno"}
+SUF = sorted("""amientos imientos amiento imiento aciones uciones acion ucion mente ables ibles able ible ando iendo
+ados idos adas idas ado ido ada ida ar er ir es os as a o e s""".split(), key=len, reverse=True)
+
+
+def stem(w):
+    """Raíz pobre en español (pliegue de tildes ya hecho por P.words): número en letra -> cifra, sin sufijos comunes."""
+    w = NUM.get(w, w)
+    if w.isdigit():
+        return w
+    for s in SUF:
+        if w.endswith(s) and len(w) - len(s) >= 3:
+            return w[:-len(s)]
+    return w
+
+
+# Valoraciones que casi nunca se dicen tal cual: se busca también el dato del que saldrían («¿es caro?» -> el precio).
+# El LLM no ve esta expansión, solo la recuperación.
+EXPAND = {("caro", "cara", "barato", "barata", "costoso", "economico", "precio", "cuesta", "vale"): "precio cuesta vale dólares pagar plan",
+          ("antiguo", "antigua", "viejo", "vieja", "nuevo", "nueva", "moderno", "reciente"): "año fecha creado",
+          ("largo", "larga", "corto", "corta", "dura", "duracion"): "duración horas minutos tiempo",
+          ("grande", "pequeno", "pequena", "enorme"): "tamaño número cantidad"}
+
+
+def expand(q):
+    w = set(P.words(q))
+    return " ".join([q, *(v for k, v in EXPAND.items() if w & set(k))])
+
+
+def terms(text):
+    return [stem(w) for w in P.words(text) if w not in STOP or w in NUM]
+
+
+# ---------- índice ----------
+def units(wd, quality="rápido"):
+    """Tramos de voz de ~15 s (marcas del ASR) y, aparte, el texto de cada pantalla compartida en trozos de 60 palabras."""
+    tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text())
+    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz"} for x in P.merge_segs(tr["segments"])]
+    kf = Path(wd) / "frames.json"
+    for k in P.screens(json.loads(kf.read_text())) if kf.exists() else []:
+        # sin URLs ni tokens kilométricos (barra de direcciones): solo meten ruido en BM25 y en el embedding
+        w = [x for x in k["text"].replace(" | ", " · ").split() if len(x) < 25 and "/" not in x and "=" not in x] \
+            if k["screen"] else []
+        segs += [{"s": k["t"], "e": k["t"], "text": " ".join(w[i:i + 60]), "kind": "pantalla"} for i in range(0, len(w), 60)]
+    return segs
+
+
+_enc = None
+
+
+def embed(texts, prefix, threads=2):
+    global _enc
+    if _enc is None:
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from tokenizers import Tokenizer
+        d = P.ROOT / "models" / "e5-small"
+        tok = Tokenizer.from_file(hf_hub_download(E5[0], E5[2], local_dir=d))
+        tok.enable_truncation(512)
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = threads
+        _enc = tok, ort.InferenceSession(hf_hub_download(E5[0], E5[1], local_dir=d), so, providers=["CPUExecutionProvider"])
+    tok, sess = _enc
+    names = {i.name for i in sess.get_inputs()}
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    out = np.zeros((len(texts), 384), np.float32)
+    for b in range(0, len(order), 16):  # lotes de longitud parecida: poco relleno
+        ids = order[b:b + 16]
+        tok.enable_padding()
+        enc = tok.encode_batch([prefix + texts[i] for i in ids])
+        m = np.array([e.attention_mask for e in enc], np.int64)
+        feed = {"input_ids": np.array([e.ids for e in enc], np.int64), "attention_mask": m}
+        if "token_type_ids" in names:
+            feed["token_type_ids"] = np.zeros_like(m)
+        h = sess.run(None, feed)[0]
+        v = (h * m[..., None]).sum(1) / m.sum(1, keepdims=True)  # media sobre tokens reales
+        out[ids] = v / np.linalg.norm(v, axis=1, keepdims=True)
+    return out
+
+
+class Index:
+    def __init__(self, wd, quality="rápido", threads=2):
+        self.segs = units(wd, quality)
+        texts = [s["text"] for s in self.segs]
+        import hashlib
+        h = hashlib.sha1("\0".join([E5[1], *texts]).encode()).hexdigest()[:8]
+        f = Path(wd) / f"rag_{quality}_{h}.npy"
+        self.emb = np.load(f) if f.exists() else embed(texts, "passage: ", threads)
+        if not f.exists():
+            np.save(f, self.emb)
+        self.threads = threads
+        self.docs = [Counter(terms(t)) for t in texts]
+        self.df = Counter(w for d in self.docs for w in d)
+        self.len = np.array([sum(d.values()) for d in self.docs], float)
+        self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
+
+    def bm25(self, q, k1=1.5, b=0.75):
+        n, sc = len(self.docs), np.zeros(len(self.docs))
+        norm = k1 * (1 - b + b * self.len / max(1, self.len.mean()))
+        for w in set(terms(q)):
+            if self.df[w]:
+                idf = np.log(1 + (n - self.df[w] + 0.5) / (self.df[w] + 0.5))
+                tf = np.array([d[w] for d in self.docs], float)
+                sc += idf * tf * (k1 + 1) / (tf + norm)
+        return sc
+
+    def search(self, q, k=TOPK):
+        """-> (índices de los k mejores por RRF, coseno denso máximo)."""
+        q = expand(q)
+        dense = self.emb @ embed([q], "query: ", self.threads)[0]
+        rrf = Counter()
+        for sc in (dense, self.bm25(q)):
+            for r, i in enumerate(np.argsort(-sc)[:POOL]):
+                if sc[i] > 0:
+                    rrf[int(i)] += 1 / (RRF_K + r + 1)
+        out, nscr = [], 0
+        for i, _ in rrf.most_common():
+            nscr += self.segs[i]["kind"] == "pantalla"
+            if self.segs[i]["kind"] == "voz" or nscr <= MAX_SCREEN:
+                out.append(i)
+        return out[:k], float(dense.max())
+
+    def window(self, i):
+        """El tramo y sus vecinos ±1 de voz (contexto al desplegar y margen de la verificación)."""
+        if self.segs[i]["kind"] != "voz":
+            return [i]
+        j = self.voz.index(i)
+        return self.voz[max(0, j - 1):j + 2]
+
+
+# ---------- verificación ----------
+def verify(frase, allowed_text):
+    """-> palabras de contenido de la frase que NO están en el texto permitido (vacío = verificada). Compara raíces sin
+    tildes; las cifras (también las dichas en letra) tienen que coincidir exactas."""
+    ok = set(terms(allowed_text))
+    body = re.sub(r"^\s*(se dijo que|en pantalla se mostr[oó] que)\s*", "", frase, flags=re.I)
+    keep = lambda w: w in NUM or w.isdigit() or w == "no" or (len(w) > 2 and w not in STOP)  # "da", "un"… no cuentan
+    fw, src = P.words(body), P.words(allowed_text)
+    bad = [w for w in dict.fromkeys(fw) if keep(w) and stem(w) not in ok]
+    # cifra que en el original siempre va negada («ya no vale 25 sino 30») y en la frase no: dato invertido.
+    # ponytail: solo cifras y negación a <= 3 palabras; un análisis sintáctico cubriría el resto
+    neg = lambda ws, k: any(x in NEG for x in ws[max(0, k - 3):k])
+    for k, w in enumerate(fw):
+        occ = [j for j, x in enumerate(src) if stem(x) == stem(w)] if stem(w).isdigit() else []
+        if occ and all(neg(src, j) for j in occ) and not neg(fw, k):
+            bad.append("no " + w)
+    return bad
+
+
+# ---------- LLM ----------
+SYSTEM = """Respondes preguntas sobre una reunión usando SOLO los fragmentos numerados de su transcripción.
+Por cada fragmento que responda directamente a la pregunta, escribe una línea:
+[n] Se dijo que <frase>.
+<frase>: lo que dice ese fragmento sobre lo preguntado, en estilo indirecto y copiando sus palabras, lo más literal \
+posible. Prohibido: sinónimos, palabras de la pregunta que no estén en el fragmento, añadir o corregir datos, \
+conclusiones, opiniones o valoraciones tuyas. Si se pregunta \
+por una valoración (caro, bueno, antiguo…) o un dato que no se dijo, escribe solo lo que sí se dijo.
+Ejemplo: fragmento «la torre fue creada en 1843», pregunta «¿es antigua la torre?» -> [n] Se dijo que la torre fue \
+creada en 1843.
+Cada fragmento, una sola vez; solo los que responden, máximo 2 líneas. Si alguno responde aunque sea en parte, úsalo; solo si ninguno trata lo preguntado, escribe solo: \
+NINGUNO"""
+
+
+def grammar(n):
+    ids = " | ".join(f'"{i}"' for i in range(1, n + 1))
+    return (f'root ::= "NINGUNO" | line{{1,{MAX_LINES}}}\nline ::= "[" id "] Se dijo que " txt "\\n"\n'
+            f'id ::= {ids}\ntxt ::= [^\\n\\[\\]]{{3,220}}')
+
+
+def prompt(idx, ids, q):
+    rows = [f"[{n}] ({P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
+            f"{idx.segs[i]['text']}" for n, i in enumerate(ids, 1)]
+    return "Fragmentos:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
+
+
+def server(threads, ctx=4096):
+    """llama-server propio (puerto libre) o el de ACTAS_LLM_URL. -> (url, proceso o None).
+    ponytail: copia de los argumentos de P.llama; unificar si P.llama devolviera también la url."""
+    if os.environ.get("ACTAS_LLM_URL"):
+        return os.environ["ACTAS_LLM_URL"], None
+    exe = next((p for p in P.ROOT.glob("bin/**/llama-server*") if p.is_file()), None)
+    if not exe or not P.llm_model():
+        raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    P.WORK.mkdir(exist_ok=True)
+    proc = subprocess.Popen([str(exe), "-m", str(P.llm_model()), "-c", str(ctx), "-t", str(threads), "-np", "1",
+                             "-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none", "--host", "127.0.0.1",
+                             "--port", str(port)], stdout=open(P.WORK / "llama-server-rag.log", "w"),
+                            stderr=subprocess.STDOUT)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(600):
+        if proc.poll() is not None:
+            raise RuntimeError("llama-server terminó (ver work/llama-server-rag.log)")
+        try:
+            if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
+                return url, proc
+        except OSError:
+            time.sleep(0.5)
+    proc.terminate()
+    raise RuntimeError("llama-server no arranca")
+
+
+def stream(url, user, n):
+    """Genera los trozos de texto del LLM; el último elemento es el dict de tiempos de llama-server."""
+    body = {"messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
+            "temperature": 0, "max_tokens": 80 * MAX_LINES, "grammar": grammar(n), "stream": True,
+            "cache_prompt": False, "chat_template_kwargs": {"enable_thinking": False}}
+    req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
+                                 {"Content-Type": "application/json"})
+    timings = {}
+    with urllib.request.urlopen(req, timeout=600) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if not line.startswith("data: ") or line == "data: [DONE]":
+                continue
+            d = json.loads(line[6:])
+            timings = d.get("timings", timings)
+            for c in d.get("choices", []):
+                if c.get("delta", {}).get("content"):
+                    yield c["delta"]["content"]
+    yield timings
+
+
+def answer(idx, q, url):
+    """Eventos: ("candidatos", [i...]) al instante; luego ("frase", dict) por cada línea del LLM o ("nada", motivo);
+    al final ("fin", tiempos). Una pregunta = una llamada sin historial."""
+    t0 = time.time()
+    ids, cos = idx.search(q)
+    st = {"recuperacion": round(time.time() - t0, 3), "cos": round(cos, 3)}
+    yield "candidatos", ids
+    if cos < MIN_COS:
+        yield "nada", "umbral"
+        yield "fin", {**st, "total": round(time.time() - t0, 2)}
+        return
+    order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))  # cronológico: más legible
+    buf, n_out, t1, first, seen = "", 0, time.time(), None, set()
+    for ch in stream(url, prompt(idx, order, q), len(order)):
+        if isinstance(ch, dict):
+            st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
+                      prompt_tok=ch.get("prompt_n"), gen_tok=ch.get("predicted_n"))
+            break
+        first = first or round(time.time() - t1, 2)
+        buf += ch
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            m = re.match(r"\[(\d+)\] (.+)", line.strip())
+            if m and order[int(m[1]) - 1] not in seen:
+                i, frase = order[int(m[1]) - 1], m[2].strip()
+                win = lambda i: " ".join(idx.segs[j]["text"] for j in idx.window(i))
+                miss = verify(frase, win(i))
+                if miss:  # a veces el LLM copia bien la frase pero se equivoca de número: si sale entera de otro, es de ese
+                    i = next((j for j in order if j not in seen and not verify(frase, win(j))), i)
+                    miss = verify(frase, win(i))
+                seen.add(i)
+                if idx.segs[i]["kind"] == "pantalla":
+                    frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
+                n_out += 1
+                yield "frase", {"i": i, "frase": frase, "ok": not miss, "faltan": miss}
+    if not n_out:
+        yield "nada", "llm"
+    yield "fin", {**st, "primer_token": first, "total": round(time.time() - t0, 2)}
+
+
+def resolve(arg):
+    """Carpeta work/<hash> a partir del vídeo, del hash o de la ruta."""
+    p = Path(arg)
+    if p.is_dir():
+        return p
+    return P.WORK / (arg if (P.WORK / arg).is_dir() else P.video_id(p))
+
+
+def _selftest():
+    seg = "la torre fue creada en 1843 y la pintaron de un color femenino, el plan vale veinticinco dólares al mes"
+    assert verify("Se dijo que la torre fue creada en 1843.", seg) == []
+    assert verify("Se dijo que la torre es antigua.", seg) == ["antigua"]
+    assert verify("Se dijo que la pintaron de color rosa.", seg) == ["rosa"]
+    assert verify("Se dijo que la pintaron de un color femenino.", seg) == []
+    assert verify("Se dijo que la torre fue creada en 1834.", seg) == ["1834"]
+    assert verify("Se dijo que el plan vale 25 dólares al mes.", "el plan vale 25 dolares al mes") == []
+    assert verify("Se dijo que el plan vale 26 dólares.", "el plan vale 25 dolares") == ["26"]
+    assert verify("Se dijo que cuesta cinco dólares.", "cuesta 5 dólares") == []  # cifra en letra = en dígitos
+    assert verify("Se dijo que es caro.", seg) == ["caro"]
+    assert verify("Se dijo que no se puede grabar.", "se puede grabar") == ["no"]  # negación inventada
+    assert verify("Se dijo que nos da 15 minutos.", "nos dan solo 15 minutos") == []
+    mes = "si pago mensual este plan ya no vale 25 sino vale 30 dólares"
+    assert verify("Se dijo que el plan mensual vale 25 dólares.", mes) == ["no 25"]  # recombinación con negación perdida
+    assert verify("Se dijo que si paga mensual el plan ya no vale 25 sino 30 dólares.", mes) == []
+    g = grammar(3)
+    assert '"1" | "2" | "3"' in g and "NINGUNO" in g
+    print("selftest ok")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["--selftest"]:
+        _selftest()
+        sys.exit()
+    if len(sys.argv) != 3:
+        sys.exit('uso: rag.py <vídeo|hash> "pregunta"   ·   rag.py --selftest')
+    idx = Index(resolve(sys.argv[1]), threads=int(os.environ.get("ACTAS_THREADS", P.PHYS)))
+    url, proc = server(int(os.environ.get("ACTAS_THREADS", P.PHYS)))
+    try:
+        for kind, v in answer(idx, sys.argv[2], url):
+            if kind == "candidatos":
+                for i in v:
+                    print(f"  cand [{P.fmt(idx.segs[i]['s'])}] {idx.segs[i]['text'][:110]}")
+            elif kind == "frase":
+                s = idx.segs[v["i"]]
+                print(f"[{P.fmt(s['s'])}] {v['frase'] if v['ok'] else 'Se dijo: «' + s['text'] + '»'}"
+                      + ("" if v["ok"] else f"  (frase descartada: {v['faltan']})"))
+            elif kind == "nada":
+                print(NOT_SAID, f"({v})")
+            else:
+                print(v)
+    finally:
+        if proc:
+            proc.terminate()
