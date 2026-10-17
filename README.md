@@ -71,7 +71,7 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
    (menos tokens de entrada; leer el prompt va a ~45 tok/s en el ProBook).
 7. Map: Qwen3.5-4B Q4_0 (llama-server sin mmap; `-ctxcp 2`: el prompt de sistema, igual en todas las llamadas de una fase,
    se lee una vez, −11 s por llamada, +100 MB; `seed` fija: misma entrada, misma acta) con gramática GBNF compacta generada
-   del esquema (`gbnf`: JSON sin sangría, máximos duros y solo caracteres latinos: ni CJK ni `\uXXXX`) → tema + hasta 10 puntos de ≤ 20 palabras con importancia 1-5 (rúbrica
+   del esquema (`gbnf`: JSON sin sangría, máximos duros y solo caracteres latinos: ni CJK ni `\uXXXX`) → tema + de 6 a 10 puntos (mínimo en la gramática: el último bloque ya no se queda en 5) de ≤ 20 palabras con importancia 1-5 (rúbrica
    con distribución forzada; saludos, despedidas, agradecimientos y logística siempre 1) + decisiones y tareas. El prompt
    lleva reglas con contraejemplos: no son decisiones lo leído de un acta anterior, los pasos de una demo, opiniones ni
    propuestas sin aprobar; las opiniones se atribuyen solo si está claro quién habla (un cargo no es un postulante, un
@@ -82,20 +82,27 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
    histograma de notas y los tokens de cada llamada.
 8. Selección por presupuesto (breve 20 %, normal 50 %, detallado 100 %, `LEVELS`; sin las notas 1) con cuotas por tiempo:
    los bloques se agrupan en g = min(k, bloques) tramos y cada uno aporta k // g puntos (los mejores suyos); el resto por
-   ranking global. Así breve no se queda con la primera mitad cuando hay muchas notas 5.
+   ranking global. Así breve no se queda con la primera mitad cuando hay muchas notas 5. En breve se salta el punto con
+   el mismo esqueleto (palabras en minúscula, ≥ 75 %) que uno ya elegido: 26 «se aprueba la recalificación de X» no llenan
+   los puntos clave.
 9. Decisiones y tareas se deduplican entre bloques (≥ 78 % de palabras en orden; las tareas también si comparten la mitad
    de las raíces). Después `verify`, una vez por candidata (se cachea: los tres niveles muestran las mismas):
    - fuera sin LLM: cita condicional («deberíamos», «se podría»…), tarea = responsable, y lectura de la pantalla (los pares
      de palabras de la transcripción a ±45 s están ≥ 25 % en el texto de la pantalla visible entonces: leer el acta
      anterior da 0,3-0,6, hablar sobre una diapositiva ≤ 0,15);
    - el resto, una llamada corta (cita + transcripción a ±45 s, gramática con un solo enum) que la clasifica con una
-     rúbrica: acuerdo, encargo, lectura, demostración, consejo, propuesta, cortesía o trámite. Solo quedan acuerdo y encargo
-     (un modelo pequeño dice «sí» a todo; eligiendo categoría acierta mucho más);
+     rúbrica: acuerdo, encargo, hecho, lectura, demostración, consejo, propuesta, cortesía o trámite. Solo quedan acuerdo y
+     encargo (un modelo pequeño dice «sí» a todo; eligiendo categoría acierta mucho más). La rúbrica dice expresamente que
+     aprobar hoy el acta anterior, aplazar un punto o suspender la sesión son acuerdos y que lo que manda hacer una
+     resolución votada hoy («disponer que la Secretaría notifique…») es encargo, no hecho; en el extracto van marcadas las
+     líneas «(lectura en voz alta)». Una decisión leída de la pantalla se reancla a la última aprobación con sus palabras
+     en los 5 min siguientes (la primera suele ser el anuncio «se les preguntará si aprueban…»);
    - responsable y plazo solo si los dice la transcripción de alrededor; si no, «—».
 10. Reduce jerárquico (nunca se pasa de contexto ni recorta): en normal/detallado una sección por bloque del map, con su
    `tema` de título y sus puntos elegidos de viñetas; el LLM solo redacta el resumen de la sección a partir de esas viñetas.
-   El título y el resumen global salen de los resúmenes de sección (breve: de los puntos elegidos); sin decisiones ni
-   tareas, el prompt prohíbe «se acordó / queda pendiente». En breve/normal las decisiones repetitivas se agrupan («… y 14
+   El título y el resumen global salen de los resúmenes de sección (breve: de los temas de cada bloque + los puntos
+   elegidos, para que recorra toda la reunión); sin decisiones ni
+   tareas, el prompt prohíbe «se acordó / queda pendiente». En breve/normal las decisiones repetitivas (esqueleto ≥ 75 %) se agrupan («… y 14
    más parecidas») y, si aún hay más que el tope, el LLM elige las clave por número (breve 5/5, normal 12/10). Largo pedido
    en caracteres, tope duro un 50 % mayor y recorte en la última frase completa: nunca a mitad de palabra.
 11. Render: breve = resumen + 8 puntos clave con marca + decisiones/tareas clave + 3 capturas; normal = secciones con sus
