@@ -41,12 +41,15 @@ PHYS = max(1, (os.cpu_count() or 2) // 2)
 # 50 % más (un modelo pequeño a veces entra en bucle y agotaría max_tokens) y, si se alcanza, se recorta en la última frase
 # completa (sentences): nunca a mitad de palabra
 LEVELS = {
-    "breve": dict(keep=0.2, pts=8, shots=3, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
-    "normal": dict(keep=0.5, pts=None, shots=10, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
+    "breve": dict(keep=0.2, pts=8, shots=3, hshots=None, nshots=6, rel=1, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
+    "normal": dict(keep=0.5, pts=None, shots=10, hshots=None, nshots=12, rel=2, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
                    sec=("2-3 frases", 350)),
-    "detallado": dict(keep=1.0, pts=None, shots=None, dec=None, tar=None, secs=True,
+    "detallado": dict(keep=1.0, pts=None, shots=None, hshots=None, nshots=20, rel=2, dec=None, tar=None, secs=True,
                       tldr=("un párrafo de 6-10 frases", 1200), sec=("3-5 frases", 600)),
 }
+# rel = frases máx. de cada párrafo del relato; nshots = capturas máx. del relato; hshots = capturas de la parte literal (None = todas) si el
+# vídeo es de pantalla (>= HEAVY cambios de pantalla distintos: demos, tutoriales)
+HEAVY = 20
 SHOT_WIN = (-10, 90)          # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
 LANG = {"es": "español", "en": "inglés (English)"}
 
@@ -412,9 +415,11 @@ def sentences(s, cap):
 
 
 PT_MAX = 160
-MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 10, 6),
-                 decisiones=arr(obj(cita=S(100), texto=S(160), t=TS), 5), tareas=arr(TASK, 5))
-MAP_MAX = 1600  # peor caso con todos los topes llenos (≈ 1500 tokens); lo normal son 500-900
+REL_MAX = 190   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
+MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 9, 6),
+                 decisiones=arr(obj(cita=S(100), texto=S(160), t=TS), 5), tareas=arr(TASK, 5),
+                 relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1))  # al final: decisiones y tareas se generan con el mismo contexto de siempre
+MAP_MAX = 1800  # peor caso con todos los topes llenos (≈ 1700 tokens); lo normal son 500-900
 
 
 def gbnf(schema):
@@ -454,7 +459,7 @@ MAP_PROMPT = """Redactas actas de reuniones. Recibes un fragmento de transcripci
 y, a veces, texto de la pantalla compartida. Lo marcado «(lectura en voz alta)» es alguien leyendo el documento que se ve \
 en pantalla (p. ej. el acta anterior): es lectura, nunca una decisión ni una tarea de hoy.
 tema: título breve del fragmento.
-puntos: de 6 a 10 ideas, de mayor a menor importancia, repartidas por todo el fragmento (principio, mitad y final); cada \
+puntos: de 6 a 9 ideas, de mayor a menor importancia, repartidas por todo el fragmento (principio, mitad y final); cada \
 una, una frase autocontenida de máx. 20 palabras, sin repetir ideas; t = marca donde empieza.
 importancia: 5 = decisión, compromiso o cifra clave; 4 = información nueva relevante (también preguntas del público y \
 sus respuestas); 3 = contexto útil; 2 = detalle o ejemplo; 1 = saludos, presentaciones, agradecimientos, despedidas y \
@@ -477,6 +482,10 @@ ofrecimientos de cortesía («podéis contactarme»). Sin repetir: una acción q
 resolución) es una sola tarea. responsable: quien la hará (no a quien va dirigida), solo si el texto lo nombra; plazo: \
 solo si se dice; si no, "—".
 cita: copia literal de la transcripción (máx. 12 palabras) que prueba la decisión o tarea; si no la hay, no la incluyas.
+relato: 2 párrafos que cuentan en orden lo ocurrido en el fragmento, en lenguaje llano y con tus palabras (no copies \
+frases): de qué se habló, qué se explicó o concluyó y por qué importa. Cada uno, 1-2 frases de máx. 28 palabras; t = marca \
+donde empieza; el segundo empieza hacia la mitad del fragmento. Solo lo dicho o mostrado: ni hechos, ni nombres, ni cifras \
+nuevos. En un tutorial, cuenta qué se enseña y cómo.
 Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."""
 
 FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras, votos ni abstenciones. Atribuye las opiniones a quien las dice."
@@ -607,6 +616,11 @@ def map_chunk(chat, segs, text, lang, kfs=()):
         p["texto"] = sentences(p["texto"], PT_MAX)
         if not t0 - 5 <= parse_ts(p["t"]) <= t1 + 5:  # marca inventada fuera del bloque: al inicio del bloque
             p["t"] = fmt(t0)
+    for r in m.get("relato", []):
+        r["texto"] = sentences(r["texto"], REL_MAX)
+        if not t0 - 5 <= parse_ts(r["t"]) <= t1 + 5:
+            r["t"] = fmt(t0)
+    m["relato"] = sorted(m.get("relato", []), key=lambda r: parse_ts(r["t"]))
     seen = set()  # el modelo a veces repite el mismo punto tal cual
     m["puntos"] = [p for p in m["puntos"] if not (k := " ".join(words(p["texto"]))) in seen and not seen.add(k)]
     sw = [words(s["text"]) for s in segs]
@@ -785,6 +799,11 @@ def reduce_maps(chat, maps, valid, starts, level, lang):
             "mas": bool(cfg["dec"] and len(dec) > cfg["dec"] or cfg["tar"] and len(tar) > cfg["tar"])}
 
 
+def first_sentences(s, n):
+    """Las n primeras frases de un párrafo."""
+    return " ".join(re.split(r"(?<=[.!?…])\s+", s.strip())[:n])
+
+
 def pick_shots(kfs, sel, n):
     """Capturas relevantes: peso = suma de notas de los puntos elegidos cerca de la captura; las n de más peso (o todas)."""
     scr = [k for k in kfs if k["screen"]]
@@ -812,7 +831,7 @@ h1{font-size:1.4em;margin:.2em 0}h2{border-bottom:2px solid #ddd;padding-bottom:
 figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #ccc;border-radius:4px}
 figcaption{font-size:13px;color:#666}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
-details p{margin:2px 0;font-size:14px}"""
+details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
 
 JS = """const v=document.getElementById('v');
 document.addEventListener('click',e=>{const a=e.target.closest('[data-t]');if(!a)return;e.preventDefault();
@@ -833,7 +852,15 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
         segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk"))
     sel = select_points(maps, cfg["keep"], cfg["pts"], cfg["pts"], not cfg["secs"])
-    shots = pick_shots(kfs, sel, cfg["shots"])
+    scr = [k for k in kfs if k["screen"]]
+    shots = pick_shots(kfs, sel, cfg["hshots"] if len(scr) >= HEAVY else cfg["shots"])
+    # relato: párrafos de todos los bloques en orden; cada uno con la captura más relevante de su tramo (como mucho nshots)
+    rel = sorted((parse_ts(r["t"]), first_sentences(r["texto"], cfg["rel"])) for m in maps for r in m.get("relato", []))
+    w = lambda k: sum(p[2] for p in sel if k["t"] + SHOT_WIN[0] <= p[0] <= k["t"] + SHOT_WIN[1])
+    nxt = lambda i: rel[i + 1][0] if i + 1 < len(rel) else 1e9
+    cand = {i: max(c, key=w) for i, (t, _) in enumerate(rel) if (c := [k for k in scr if t <= k["t"] < nxt(i)])}
+    keep = sorted(cand, key=lambda i: -w(cand[i]))[:cfg["nshots"]]
+    nshots = {i: cand[i] for i in keep}
     esc = html.escape
     li = lambda t, x: f"<li>{ts_link(t)}{spk(t, x)}{esc(x)}</li>"
     fig = lambda k: (f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
@@ -852,11 +879,13 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                   for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
+    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}</div>"
+                   for i, (t, x) in enumerate(rel))
     if cfg["secs"]:
-        desarrollo = f"<h2>Desarrollo</h2>{''.join(body)}"
+        desarrollo = f"<h2>Detalle por secciones</h2>{''.join(body)}"
     else:  # breve: unos pocos puntos clave con marca y las capturas más relevantes
         desarrollo = (f"<h2>Puntos clave</h2><ul>{''.join(li(t, x) for t, x, _, _ in sel)}</ul>"
-                      + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots else ""))
+                      + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else ""))
     trans = "".join(f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}"
                     f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
@@ -866,22 +895,25 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
 <div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 <h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
-<h2>Decisiones</h2><ul>{dec or "<li>—</li>"}</ul>
-<h2>Tareas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks or "<tr><td colspan=3>—</td></tr>"}</table>
+{f"<h2>Desarrollo de la reunión</h2>{narr}" if narr else ""}
+{f"<h2>Decisiones</h2><ul>{dec}</ul>" if dec else ""}
+{f"<h2>Tareas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else ""}
 {more}
 {desarrollo}
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
 </div></main><script>{JS}</script></body></html>"""
+    allshots = sorted({k["img"]: k for k in [*shots, *nshots.values()]}.values(), key=lambda k: k["t"])
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
         "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
+        "relato": [{"t": t, "texto": x} for t, x in rel],
         "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] for s in secs)],
         "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
         "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
         "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
-        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in shots]}, ensure_ascii=False, indent=1),
+        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in allshots]}, ensure_ascii=False, indent=1),
         names), encoding="utf-8")
-    return shots
+    return allshots
 
 
 def put_file(src, dst):
@@ -1204,6 +1236,13 @@ def _selftest():
                                     tk("59:28", "Notificar las resoluciones adoptadas por el pleno al correo del postulante."),
                                     tk("138:56", "Reanudar la sesión el día siguiente a las 9:00 h.")], "tarea", True)] == [
         "25:51", "138:56"]
+    with tempfile.TemporaryDirectory() as d:  # sin decisiones ni tareas, sus secciones no salen; el relato sí, recortado por nivel
+        mp = [{"tema": "a", "puntos": [{"texto": "x", "importancia": 3, "t": "00:05"}],
+               "relato": [{"t": "00:00", "texto": "Uno. Dos. Tres."}]}]
+        render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
+               [{"s": 0, "e": 5, "text": "hola"}], "breve")
+        h = (Path(d) / "index.html").read_text()
+        assert "<h2>Decisiones" not in h and "<h2>Tareas" not in h and "Desarrollo de la reunión" in h and "Uno." in h and "Dos." not in h, h
     g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS, c=S(9)), 3)))
     assert 'root ::= o6' in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g
     assert '("," sp ("1")){1,4}) sp "]"' in gbnf(obj(p=arr({"enum": [1]}, 5, 2))), "minItems sin ? final"

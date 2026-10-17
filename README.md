@@ -84,7 +84,7 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
    (menos tokens de entrada; leer el prompt va a ~45 tok/s en el ProBook).
 7. Map: Qwen3.5-4B Q4_0 (llama-server sin mmap; `-ctxcp 2`: el prompt de sistema, igual en todas las llamadas de una fase,
    se lee una vez, −11 s por llamada, +100 MB; `seed` fija: misma entrada, misma acta) con gramática GBNF compacta generada
-   del esquema (`gbnf`: JSON sin sangría, máximos duros y solo caracteres latinos: ni CJK ni `\uXXXX`) → tema + de 6 a 10 puntos (mínimo en la gramática: el último bloque ya no se queda en 5) de ≤ 20 palabras con importancia 1-5 (rúbrica
+   del esquema (`gbnf`: JSON sin sangría, máximos duros y solo caracteres latinos: ni CJK ni `\uXXXX`) → tema + de 6 a 9 puntos (mínimo en la gramática: el último bloque ya no se queda en 5) de ≤ 20 palabras con importancia 1-5 (rúbrica
    con distribución forzada; saludos, despedidas, agradecimientos y logística siempre 1) + decisiones y tareas. El prompt
    lleva reglas con contraejemplos: no son decisiones lo leído de un acta anterior, los pasos de una demo, opiniones ni
    propuestas sin aprobar; las opiniones se atribuyen solo si está claro quién habla (un cargo no es un postulante, un
@@ -123,6 +123,10 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
     `img/` las capturas mostradas; en breve/normal no se repiten casi iguales (≥ 50 % de palabras) a menos de 3 min. El
     vídeo se enlaza (o se copia una sola vez por vídeo en `work/<hash>/`; una subida en un temporal nunca con enlace
     simbólico, que moría al reiniciar). Junto a `index.html` va `acta.json` (lo mismo, para `eval/score.py`).
+    Orden de la página: resumen, **Desarrollo de la reunión** (relato digerido: el map genera en la misma llamada 2 párrafos
+    por bloque, en lenguaje llano y con `[mm:ss]`; se recortan a 1/2/2 frases por nivel, y cada párrafo lleva la captura más
+    relevante de su tramo, máx. 6/12/20), decisiones, tareas y el detalle literal. Decisiones y Tareas sin elementos no salen.
+    En vídeos de pantalla (≥ 20 pantallas distintas) la parte literal muestra todas, sin tope (lazy-load).
 12. `app.py` es solo la GUI: llama a `pipeline.run` y muestra el `index.html` en un iframe + zip de descarga.
 
 ## Windows (ProBook)
