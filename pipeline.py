@@ -1,5 +1,5 @@
 """Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local, CPU."""
-import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, time, unicodedata, urllib.request, zipfile
+import contextlib, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
 from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -26,17 +26,18 @@ LLM = ("Qwen3.5-4B-Q4_0.gguf", "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/r
 # ponytail: núcleos físicos = lógicos / 2 (SMT de 2 hilos, p. ej. i5-1135G7 4C/8T); con más hilos que núcleos llama.cpp
 # genera a menos de la mitad de velocidad. Sin SMT se queda con la mitad: --threads / ACTAS_THREADS lo corrigen
 PHYS = max(1, (os.cpu_count() or 2) // 2)
-# keep = fracción de puntos (ranking global por importancia) que entra en el acta; pts = máx. de puntos a la vista (breve:
-# "puntos clave"); shots = máx. de capturas; dec/tar = máx. de decisiones/tareas (las elige el LLM); None = todas.
+# keep = fracción de puntos (ranking global por importancia) que entra en el acta; pts = puntos a la vista (breve: los
+# "puntos clave", siempre esos si los hay, aunque keep diera menos); shots = máx. de capturas; dec/tar = máx. de decisiones/tareas (las elige el LLM); None = todas.
 # secs = una sección por bloque del map con su resumen.
-# tldr/sec = largo pedido del resumen global/de sección, con su tope duro en caracteres (un modelo pequeño a veces entra en
-# bucle y agotaría max_tokens con el JSON a medias)
+# tldr/sec = largo pedido del resumen global/de sección y los caracteres que se le piden; el tope duro de la gramática es un
+# 50 % más (un modelo pequeño a veces entra en bucle y agotaría max_tokens) y, si se alcanza, se recorta en la última frase
+# completa (sentences): nunca a mitad de palabra
 LEVELS = {
-    "breve": dict(keep=0.2, pts=8, shots=3, dec=5, tar=5, secs=False, tldr=("2-3 frases", 600), sec=None),
-    "normal": dict(keep=0.5, pts=None, shots=10, dec=12, tar=10, secs=True, tldr=("4-6 frases", 1000),
-                   sec=("2-3 frases", 500)),
+    "breve": dict(keep=0.2, pts=8, shots=3, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
+    "normal": dict(keep=0.5, pts=None, shots=10, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
+                   sec=("2-3 frases", 350)),
     "detallado": dict(keep=1.0, pts=None, shots=None, dec=None, tar=None, secs=True,
-                      tldr=("un párrafo de 6-10 frases", 1600), sec=("3-5 frases", 800)),
+                      tldr=("un párrafo de 6-10 frases", 1200), sec=("3-5 frases", 600)),
 }
 SHOT_WIN = (-10, 90)          # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
 LANG = {"es": "español", "en": "inglés (English)"}
@@ -182,39 +183,47 @@ def words(t):
     return re.findall(r"[a-z0-9]+", "".join(c for c in t if not unicodedata.combining(c)))
 
 
-def screens(kfs):
+def screens(kfs, vocab=None):
     """Marca qué frames son pantalla compartida (k["screen"]), deja en k["text"] solo su contenido y deduplica.
     Antes de contar letras y comparar se quita la interfaz de la videollamada: líneas cuyas dos primeras palabras salen
     en >= 30 % de los frames (barra de marcadores, "X está presentando", nombres de la columna de caras aunque el OCR los
     corte distinto, paneles de la aplicación). Solo cuentan las líneas con >= 2 palabras y alguna en minúscula de >= 3
     letras: los nombres bajo las caras de Meet/Zoom/Teams y los botones no, así que una cuadrícula de caras no es pantalla.
     Repetidas (mismo texto, o una contiene a la otra: viñetas que van apareciendo, volver a una pantalla ya vista):
-    queda la más completa; hereda la marca de la primera aparición solo si su texto es casi igual (>= 90 %)."""
+    queda la más completa; hereda la marca de la primera aparición solo si su texto es casi igual (>= 90 %). También si
+    es la misma página desplazada (scroll): las >= 3 últimas líneas de una son las primeras de la otra.
+    Pie de captura (title) = primera línea de texto, solo si >= 70 % de sus palabras salen en `vocab` (la transcripción):
+    en vídeos de baja resolución el OCR da basura («aal fngora oe egunad») y es mejor el pie genérico."""
     key = lambda line: " ".join(words(line)[:2])
     lines = [[x for x in k["text"].split(" | ") if key(x)] for k in kfs]
     freq = Counter(n for ls in lines for n in {key(x) for x in ls})
     ui = {n for n, c in freq.items() if c >= max(5, 0.3 * len(kfs))}
-    kept = []  # [(palabras, keyframe)]
+    def real(line):
+        w = [v for v in words(line) if len(v) >= 3]
+        return not vocab or sum(v in vocab for v in w) >= 0.7 * len(w)
+    kept = []  # [(palabras, líneas, keyframe)]
     for k, ls in zip(kfs, lines):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
-        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS)
+        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS,
+                 end=int(re.search(r"\d+", k["img"])[0]))
         if not k["screen"]:
             continue
-        w = words(k["text"])
-        for n, (ow, o) in enumerate(kept):
+        w, ln = words(k["text"]), [" ".join(words(x)) for x in body]
+        scroll = lambda a, b: any(a[-n:] == b[:n] for n in range(3, min(len(a), len(b)) + 1))
+        for n, (ow, ol, o) in enumerate(kept):
             sm = SequenceMatcher(None, ow, w, autojunk=False)
             m = sum(b.size for b in sm.get_matching_blocks())
-            if m >= DUP * min(len(ow), len(w)):
+            if m >= DUP * min(len(ow), len(w)) or scroll(ol, ln) or scroll(ln, ol):
                 keep, drop = (k, o) if len(w) > len(ow) else (o, k)
                 if m >= 0.9 * max(len(ow), len(w)):
                     keep["t"] = min(k["t"], o["t"])
                 drop["screen"] = False
-                kept[n] = (max(w, ow, key=len), keep)
+                kept[n] = (max(w, ow, key=len), max(ln, ol, key=len), keep)
                 break
         else:
-            kept.append((w, k))
+            kept.append((w, ln, k))
     return kfs
 
 
@@ -256,10 +265,12 @@ def llama(threads, ctx=8192):
         port = s.getsockname()[1]
     log = open(WORK / "llama-server.log", "w")
     proc = subprocess.Popen([str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1",
-                             # sin caché de prompts en RAM (8 GB por defecto) ni checkpoints (32 copias del estado en modelos híbridos:
-                             # +3 GB y aquí nunca se reutiliza el prompt), sin "thinking" y sin mmap: con mmap los pesos
+                             # sin caché de prompts en RAM (8 GB por defecto); 2 checkpoints del estado (modelo híbrido: sin ellos
+                             # no se reutiliza nada; cada uno ≈ 50 MB, los 32 de serie eran +3 GB): así el prompt de sistema,
+                             # igual en todos los bloques del map y en cada verificación, se lee una sola vez (-11 s por llamada
+                             # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
                              # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
-                             "-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none",
+                             "-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none",
                              "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"
     try:
@@ -274,7 +285,7 @@ def llama(threads, ctx=8192):
 
         def chat(system, user, schema, max_tokens, repeat_penalty=1.0):
             body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    "temperature": 0.2, "max_tokens": max_tokens, "grammar": gbnf(schema),
+                    "temperature": 0.2, "seed": 0, "max_tokens": max_tokens, "grammar": gbnf(schema),
                     "repeat_penalty": repeat_penalty}
             req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                          {"Content-Type": "application/json"})
@@ -300,7 +311,20 @@ TS = {"type": "string", "pattern": "^[0-9]{1,3}:[0-5][0-9]$"}
 arr = lambda item, n: {"type": "array", "items": item, "maxItems": n}
 # la cita va antes que el texto: el modelo primero copia la frase que lo prueba y luego redacta a partir de ella
 TASK = obj(cita=S(100), tarea=S(160), responsable=S(60), plazo=S(60), t=TS)
-MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(160), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 10),
+def sentences(s, cap):
+    """Texto que llegó al tope `cap` de la gramática: se recorta en la última frase completa (si queda al menos la mitad)
+    o en la última palabra completa con «…». Nunca a mitad de palabra."""
+    s = s.strip()
+    if len(s) < cap or s[-1] in ".!?…»)\"”":
+        return s
+    i = max(s.rfind(c) for c in ".!?…")
+    if i >= len(s) // 2:
+        return s[:i + 1]
+    return s.rsplit(" ", 1)[0].rstrip(",;: ") + "…"
+
+
+PT_MAX = 160
+MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 10),
                  decisiones=arr(obj(cita=S(100), texto=S(160), t=TS), 5), tareas=arr(TASK, 5))
 MAP_MAX = 1600  # peor caso con todos los topes llenos (≈ 1500 tokens); lo normal son 500-900
 
@@ -308,13 +332,16 @@ MAP_MAX = 1600  # peor caso con todos los topes llenos (≈ 1500 tokens); lo nor
 def gbnf(schema):
     """Esquema (solo obj/arr/STR/S/TS/enum de aquí) -> gramática GBNF compacta: sin saltos de línea ni sangría (menos
     tokens; con json_schema Gemma se quedaba generando espacios hasta max_tokens) y con maxItems/maxLength como límite duro."""
+    # ch: solo ASCII imprimible (sin " ni \), latín (tildes, ñ, ¿¡, «») y comillas/rayas/… tipográficas; sin \uXXXX: el
+    # 4B a veces cerraba una cadena con un carácter chino
     rules = {"sp": '" "?', "ts": r'"\"" [0-9] [0-9]? [0-9]? ":" [0-5] [0-9] "\""',
-             "ch": r'[^"\\\x7F\x00-\x1F] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4})', "str": r'"\"" ch* "\""'}
-    lit = lambda v: json.dumps(json.dumps(v) if not isinstance(v, str) else v)
+             "ch": r'[\x20\x21\x23-\x5B\x5D-\x7E¡-ſ–—‘-”…€] | "\\" ["\\/nt]',
+             "str": r'"\"" ch* "\""'}
+    lit = json.dumps
 
     def g(s):
         if "enum" in s:
-            return "(" + " | ".join(lit(v) for v in s["enum"]) + ")"
+            return "(" + " | ".join(json.dumps(json.dumps(v)) for v in s["enum"]) + ")"
         if s.get("type") == "array":
             if not s["maxItems"]:
                 return '"[" sp "]"'
@@ -335,55 +362,71 @@ def gbnf(schema):
 # Salida corta a propósito: generar es lo caro en CPU (~12 tok/s); 10 puntos de <= 20 palabras ≈ 400 tokens por bloque.
 # Leer tampoco es gratis (~45 tok/s): el prompt de sistema se procesa en cada bloque, así que va escueto.
 MAP_PROMPT = """Redactas actas de reuniones. Recibes un fragmento de transcripción automática (con errores) con marcas [mm:ss] \
-y, a veces, texto de la pantalla compartida.
+y, a veces, texto de la pantalla compartida. Lo marcado «(lectura en voz alta)» es alguien leyendo el documento que se ve \
+en pantalla (p. ej. el acta anterior): es lectura, nunca una decisión ni una tarea de hoy.
 tema: título breve del fragmento.
-puntos: hasta 10 ideas, de mayor a menor importancia; cada una, una frase autocontenida de máx. 20 palabras, sin repetir \
-ideas; t = marca donde empieza.
+puntos: hasta 10 ideas, de mayor a menor importancia, repartidas por todo el fragmento (principio, mitad y final); cada \
+una, una frase autocontenida de máx. 20 palabras, sin repetir ideas; t = marca donde empieza.
 importancia: 5 = decisión, compromiso o cifra clave; 4 = información nueva relevante (también preguntas del público y \
 sus respuestas); 3 = contexto útil; 2 = detalle o ejemplo; 1 = saludos, presentaciones, agradecimientos, despedidas y \
 logística, siempre. Como mucho un 5 y dos 4 por cada cinco puntos; la mayoría 2-3.
-Fidelidad: atribuye opiniones y propuestas a quien las dice («X opina que…», «Y propone…»), no las des como hechos; \
-no mezcles cifras ni nombres de partes distintas; votos, abstenciones y números solo si se dicen; lo leído de un acta \
-anterior se cuenta como lectura («el acta anterior recoge…»), no como acuerdo de hoy.
+Fidelidad: las opiniones y propuestas no son hechos («X opina que…», «se propone…»); nombra a quien habla solo si el \
+texto lo deja claro, si no, en impersonal. No confundas a quien habla con a quien se nombra: los cargos de la reunión \
+(consejera, secretario, presidenta) no son candidatos ni postulantes, y los autores o juristas citados no participan. En \
+comparaciones (A frente a B) no cambies qué va con cada uno. En una demostración o tutorial, «se muestra cómo…», nunca \
+«se propone» ni «se acuerda». No mezcles cifras ni nombres de partes distintas; votos, abstenciones y números solo si se \
+dicen; lo leído de un acta anterior se cuenta como lectura («el acta anterior recoge…»), no como acuerdo de hoy.
 decisiones: solo acuerdos tomados en esta reunión («se aprueba…», «acordamos…», votación con resultado). NO son \
-decisiones: lo que se lee en voz alta de un acta anterior (aunque diga «Acuerdos»), los pasos de una demostración o \
-ejemplo («ahora creo un webinar…»), opiniones, observaciones ni propuestas sin aprobar.
+decisiones: lo que se lee en voz alta de un acta anterior (aunque diga «Acuerdos» o «queda aprobada»: el acta se aprueba \
+hoy cuando los presentes la votan o dicen estar de acuerdo), los pasos de una demostración o ejemplo («ahora creo un \
+webinar…»), opiniones, observaciones ni propuestas sin aprobar («deberíamos», «se podría»).
 tareas: solo encargos o compromisos explícitos de alguien para después de la reunión (quién hará qué); no lo son \
-consejos o recomendaciones generales, pasos de una demostración ni ofrecimientos de cortesía («podéis contactarme»). Sin repetir: una acción que se repite (p. ej. notificar cada resolución) \
-es una sola tarea. responsable y plazo "—" si no se dicen.
+consejos o recomendaciones generales, lo que ya se hizo («se ha cursado un oficio»), pasos de una demostración ni \
+ofrecimientos de cortesía («podéis contactarme»). Sin repetir: una acción que se repite (p. ej. notificar cada \
+resolución) es una sola tarea. responsable: quien la hará (no a quien va dirigida), solo si el texto lo nombra; plazo: \
+solo si se dice; si no, "—".
 cita: copia literal de la transcripción (máx. 12 palabras) que prueba la decisión o tarea; si no la hay, no la incluyas.
 Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."""
 
 FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras, votos ni abstenciones. Atribuye las opiniones a quien las dice."
 SEC_PROMPT = """Redactas una sección del acta de una reunión. Recibes sus puntos clave con marcas [mm:ss].
-resumen: {n} que los sinteticen. {faithful} Escribe en {lang}."""
-VALID_PROMPT = """Revisas el borrador de un acta. Recibes los temas de la reunión en orden y las decisiones y tareas \
-numeradas que propuso un primer borrador, que solo veía un fragmento cada vez.
-decisiones: números de las que de verdad se acordaron en esta reunión. tareas: números de los encargos reales a alguien \
-para después de la reunión. No lo son: consejos o contenido de una charla o curso, pasos de una demostración, lo leído de \
-un acta anterior, opiniones ni ofrecimientos de cortesía. Si ninguna lo es, lista vacía."""
+resumen: {n} que los sinteticen. {faithful} No digas que se acordó o decidió algo si la viñeta no lo dice. Escribe en {lang}."""
+# Verificación de cada decisión/tarea candidata: una llamada corta por candidata con la cita y la transcripción de alrededor
+# (el map ve 3k tokens y no distingue bien un acuerdo de hoy de un acta leída, un consejo de charla o una cortesía).
+# Clasificar en vez de sí/no: un modelo pequeño dice «sí» a casi todo, pero elige bien la categoría.
+VERIFY_PROMPT = """Revisas una decisión o tarea propuesta para el acta de una reunión. Recibes el tema, un extracto de la \
+transcripción automática (con errores) alrededor del momento, con marcas [mm:ss], y la propuesta con su cita literal.
+tipo: qué es de verdad la cita dentro del extracto:
+acuerdo = la reunión decide o aprueba algo hoy («se aprueba», «estamos de acuerdo», votación con resultado, se deja un \
+punto para la próxima sesión);
+encargo = alguien recibe el encargo o se compromete a hacer algo después de la reunión;
+hecho = se cuenta algo ya hecho o pasado («se ha cursado», «se envió», «se informó»);
+lectura = se lee en voz alta un documento o el acta de otra sesión, aunque diga «se acuerda»;
+demostracion = pasos de una demostración, tutorial o ejemplo;
+consejo = explicación, consejo o recomendación general de una charla o curso;
+propuesta = sugerencia, opinión o hipótesis que nadie aprueba («deberíamos», «se podría», «queríamos sugerir»);
+cortesia = saludo, agradecimiento, ofrecimiento («podéis contactarme») o algo sobre la propia llamada (micro, chat, cámara);
+tramite = paso de procedimiento sin contenido (pasar lista, tomar votación, leer el orden del día)."""
+TIPOS = ["acuerdo", "encargo", "hecho", "lectura", "demostracion", "consejo", "propuesta", "cortesia", "tramite"]
 FINAL_PROMPT = """Redactas el acta de una reunión. Recibes, en orden cronológico, {src} con marcas [mm:ss], y las \
 decisiones y tareas numeradas.
-{pick}resumen: resumen general de {tldr}: de qué trata, qué se decidió y qué queda pendiente. Las decisiones parecidas, juntas \
-en una frase y sin inventar cuántas. Nada de saludos, agradecimientos ni despedidas.
+titulo: título del acta (máx. 10 palabras) según el contenido: tipo de reunión y tema principal.
+{pick}resumen: resumen general de {tldr}: de qué trata, {what}. Las decisiones parecidas, juntas en una frase y sin \
+inventar cuántas. Nada de saludos, agradecimientos ni despedidas.
 {faithful} Escribe en {lang}."""
 
 
 def chunk(segments):
-    """Bloques de ~CHUNK_CHARS; un resto pequeño (< 40 %) se une al anterior: un bloque de cola diminuto solo trae la
-    despedida, y la rúbrica le obligaría a dar notas altas."""
-    size = lambda c: sum(len(x["text"]) + 9 for x in c)
-    out, cur = [], []
-    for s in segments:
-        cur.append(s)
-        if size(cur) > CHUNK_CHARS:
-            out.append(cur)
-            cur = []
-    if cur and out and size(cur) < 0.4 * CHUNK_CHARS:
-        out[-1] += cur
-    elif cur:
-        out.append(cur)
-    return out
+    """Bloques del mismo tamaño, como mucho ~CHUNK_CHARS: n = ceil(total / CHUNK_CHARS) y se corta cada total / n. Ni
+    bloque de cola diminuto (solo traería la despedida) ni uno gigante (la cola unida al anterior dejaba sin puntos los
+    últimos 14 min de una reunión: el map da como mucho 10 por bloque)."""
+    size = [len(x["text"]) + 9 for x in segments]
+    n = max(1, -(-sum(size) // CHUNK_CHARS))
+    out, acc = [[] for _ in range(n)], 0
+    for s, z in zip(segments, size):
+        out[min(n - 1, int(acc + z / 2) * n // sum(size))].append(s)
+        acc += z
+    return [c for c in out if c]
 
 
 def merge_segs(segs, span=15):
@@ -398,37 +441,77 @@ def merge_segs(segs, span=15):
     return out
 
 
-def map_input(segs, kfs):
+def map_input(segs, kfs, allsegs=()):
+    """Texto del bloque para el map; los tramos en que se lee en voz alta lo que hay en pantalla van marcados (el 4B no
+    distingue por sí solo el acta anterior leída de los acuerdos de hoy)."""
     t0, t1 = segs[0]["s"], segs[-1]["e"]
-    text = "\n".join(f"[{fmt(s['s'])}] {s['text']}" for s in merge_segs(segs))
+    rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
+    text = "\n".join(f"[{fmt(s['s'])}] {'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
     screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
     return text
 
 
-def find_quote(quote, segs, sw=None):
+def find_quote(quote, segs, sw=None, near=None):
     """(fracción de pares de palabras de la cita que están en la transcripción, inicio del segmento donde empieza).
-    Comprobación barata de que la decisión/tarea sale del fragmento; de paso da su marca exacta."""
+    Comprobación barata de que la decisión/tarea sale del fragmento; de paso da su marca exacta. Si la cita sale varias
+    veces («se aprueba el presente informe»), la más cercana a `near` (la marca que propuso el modelo)."""
     q = words(quote)
     qb = set(zip(q, q[1:]))
     sw = sw or [words(s["text"]) for s in segs]
-    best = (0, segs[0]["s"])
+    best, key = (0, segs[0]["s"]), (0, 0)
     for i in range(len(segs) if qb else 0):
         w = sw[i] + [x for s in sw[i + 1:i + 8] for x in s][:len(q)]  # la cita puede cruzar segmentos cortos
         f = len(qb & set(zip(w, w[1:]))) / len(qb)
-        if f and f >= best[0]:  # >=: la última ventana que la contiene entera empieza en su segmento
-            best = (f, segs[i]["s"])
+        k = (round(f, 2), -abs(segs[i]["s"] - near) if near is not None else i)  # empate: la última / la más cercana
+        if f and k >= key:
+            best, key = (f, segs[i]["s"]), k
     return best
 
 
+def content_pairs(t):
+    w = [x for x in words(t) if len(x) >= 4]
+    return set(zip(w, w[1:]))
+
+
+def reading(t, segs, kfs, win=45):
+    """¿Se está leyendo en voz alta lo que hay en pantalla en el momento t? Fracción de pares de palabras con contenido
+    (>= 4 letras) de la transcripción a ±win s que salen en el texto de las pantallas visibles entonces. Leer el acta
+    anterior compartida da 0,3-0,6 sostenido; hablar sobre una diapositiva, <= 0,15."""
+    said = content_pairs(" ".join(s["text"] for s in segs if t - win <= s["s"] <= t + win))
+    shown = content_pairs(" ".join(k["text"] for k in kfs if k["t"] <= t + win and k.get("end", k["t"]) + STEP >= t - win))
+    return len(said & shown) / len(said) if len(said) >= 20 else 0.0
+
+
+READ_NOTE = "Lectura del documento en pantalla: "
+
+
+def mark_reading(maps, segments, kfs):
+    """Puntos dichos mientras se lee en voz alta lo que hay en pantalla (p. ej. el acta anterior): nota <= 2 (casi nunca
+    entran en breve) y, si suenan a acuerdo, con READ_NOTE delante para que no pasen por acuerdos de hoy."""
+    for m in maps:
+        for p in m["puntos"]:
+            if reading(parse_ts(p["t"]), segments, kfs) >= 0.25:
+                p["importancia"] = min(p["importancia"], 2)
+                if re.search(r"acuerd|acord|aprueb|aprob|design", p["texto"], re.I) and not p["texto"].startswith(READ_NOTE):
+                    p["texto"] = READ_NOTE + p["texto"][:1].lower() + p["texto"][1:]
+    return maps
+
+
+COURTESY = re.compile(r"contact|alguna duda|cualquier (duda|consulta|pregunta)|no dud[eé]is|escr[ií]b(an|idme|irme)", re.I)
+APPROVE = re.compile(r"\b(de acuerdo|aprob|aprueb|conform|unanimidad)", re.I)
+COND = re.compile(r"\b(deber[ií]amos|habr[ií]a que|podr[ií]amos|se podr[ií]a|ser[ií]a (bueno|conveniente|importante)|"
+                  r"propongo|sugiero|sugerir|quer[ií]amos|ojal[aá])\b", re.I)
+
+
 def map_chunk(chat, segs, text, lang, kfs=()):
-    """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas), y también las que
-    se leen de un documento en pantalla (acta anterior compartida y leída en voz alta: no son acuerdos de hoy)."""
+    """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
+    la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
     m = chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, MAP_MAX)
     t0, t1 = segs[0]["s"], segs[-1]["e"]
-    shown = [{"s": k["t"], "text": k["text"]} for k in kfs if t0 - 60 <= k["t"] <= t1 and k["text"]]
     for p in m["puntos"]:
+        p["texto"] = sentences(p["texto"], PT_MAX)
         if not t0 - 5 <= parse_ts(p["t"]) <= t1 + 5:  # marca inventada fuera del bloque: al inicio del bloque
             p["t"] = fmt(t0)
     seen = set()  # el modelo a veces repite el mismo punto tal cual
@@ -437,27 +520,29 @@ def map_chunk(chat, segs, text, lang, kfs=()):
     for k in ("decisiones", "tareas"):
         keep = []
         for it in m[k]:
-            f, t = find_quote(it["cita"], segs, sw)
-            why = ("cita no está en el bloque" if f < 0.5 else
-                   "leída de la pantalla" if shown and find_quote(it["cita"], shown)[0] >= 0.25 else "")
-            if why:
-                print(f"  descartada ({why}): {it.get('texto') or it['tarea']}", flush=True)
-            else:  # marca = la de la cita, salvo que otra del bloque ya la use (citas iguales: "se aprueba el informe")
-                own = parse_ts(it["t"])
-                used = any(parse_ts(x["t"]) == t for x in keep)
-                keep.append({**it, "t": fmt(own if used and t0 - 5 <= own <= t1 + 5 else t)})
+            own = parse_ts(it["t"])
+            f, t = find_quote(it["cita"], segs, sw, own if t0 - 5 <= own <= t1 + 5 else None)
+            if f < 0.5:
+                print(f"  descartada (cita no está en el bloque): {it.get('texto') or it['tarea']}", flush=True)
+            else:
+                keep.append({**it, "t": fmt(t)})
         m[k] = keep
     return m
 
 
-def select_points(maps, keep, cap=None):
-    """Puntos [(t, texto, nota, bloque)] que entran en el acta: ranking global (nota, orden en el bloque), se queda `keep`
-    (y como mucho `cap`). Por presupuesto y no por umbral: aunque el modelo puntúe todo 4-5, cada nivel muestra un
-    contenido distinto. Las notas 1 (saludos, despedidas, logística) no entran nunca."""
-    allp = sorted(((-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps)
-                   for n, p in enumerate(m["puntos"]) if p["importancia"] > 1), key=lambda x: x[:2])
-    k = min(max(1, round(keep * len(allp))), cap or len(allp)) if allp else 0
-    return sorted((t, txt, -neg, b) for neg, _, t, txt, b in allp[:k])
+def select_points(maps, keep, cap=None, floor=0):
+    """Puntos [(t, texto, nota, bloque)] que entran en el acta: `keep` del total (y como mucho `cap`), por presupuesto y no
+    por umbral: aunque el modelo puntúe todo 4-5, cada nivel muestra un contenido distinto. Cuotas por tiempo: los bloques
+    (del mismo tamaño) se agrupan en g = min(k, bloques) tramos seguidos y cada tramo aporta k // g puntos, los mejores suyos
+    (nota, orden en el bloque); el resto, y lo que un tramo no llene, por ranking global. Sin cuotas, con muchas notas 5 el
+    desempate elegía los primeros bloques y breve perdía la segunda mitad. Las notas 1 (saludos, logística) nunca entran."""
+    allp = sorted((-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps)
+                  for n, p in enumerate(m["puntos"]) if p["importancia"] > 1)
+    k = min(max(1, floor or 0, round(keep * len(allp))), cap or len(allp)) if allp else 0
+    g = min(k, len(maps))
+    pick = [x for j in range(g) for x in [x for x in allp if x[4] * g // len(maps) == j][:k // g]]
+    pick += [x for x in allp if x not in pick][:k - len(pick)]
+    return sorted((t, txt, -neg, b) for neg, _, t, txt, b in pick)
 
 
 def score_hist(maps):
@@ -480,56 +565,111 @@ def dedupe(items, key, loose=False):
     return out
 
 
-def validate(chat, maps, starts):
-    """Decisiones y tareas deduplicadas que el LLM, ya con la reunión entera a la vista (temas en orden), da por buenas:
-    el map, que ve un bloque, confunde consejos de una charla, pasos de una demo o cortesías con encargos. Una sola vez por
-    map (caché), así todos los niveles muestran las mismas."""
-    dec = dedupe([{**d, "b": b} for b, m in enumerate(maps) for d in m["decisiones"]], "texto")
-    tar = dedupe([{**t, "b": b} for b, m in enumerate(maps) for t in m["tareas"]], "tarea", loose=True)
-    if not dec and not tar:
-        return {"decisiones": [], "tareas": []}
-    text = "Temas:\n" + "\n".join(f"[{fmt(t)}] {m['tema']}" for t, m in zip(starts, maps))
-    fields = {}
-    for name, items, key in (("decisiones", dec, "texto"), ("tareas", tar, "tarea")):
-        text += f"\n\n{name.capitalize()}:\n" + ("\n".join(f"{i}. [{x['t']}] {x[key]}" for i, x in enumerate(items, 1)) or "—")
-        fields[name] = arr({"enum": list(range(1, len(items) + 1))}, len(items)) if items else arr(STR, 0)
-    ok = chat(VALID_PROMPT, text, obj(**fields), 400)
-    return {name: [items[i - 1] for i in sorted(set(ok[name]))] for name, items in (("decisiones", dec), ("tareas", tar))}
+def said(value, ctx, task=""):
+    """Responsable/plazo solo si lo dice la transcripción de alrededor (>= la mitad de sus palabras) y no sale en la propia
+    tarea («pedir a la gerencia…»: es a quien va dirigida); si no, "—". El map inventaba «Secretaría Técnica»,
+    «Audiencia», «El orador»."""
+    st = {w for w in words(value) if len(w) >= 4}  # palabras enteras: con raíces, «consejeros» casaba con «consejo»
+    return value if st and len(st & set(words(ctx))) >= 0.5 * len(st) and not st <= set(words(task)) else "—"
+
+
+def verify(chat, maps, segments, kfs, win=45):
+    """Decisiones y tareas deduplicadas que de verdad lo son. El map ve un bloque y confunde el acta anterior leída en voz
+    alta, consejos de una charla, pasos de una demo o cortesías con acuerdos y encargos. Filtros baratos primero (cita
+    condicional, tarea = responsable, lectura de la pantalla visible en ese momento) y después una llamada corta por
+    candidata: cita + transcripción a ±win s, clasificada con una rúbrica (VERIFY_PROMPT); solo quedan acuerdo/encargo.
+    Una sola vez por map (caché), así todos los niveles muestran las mismas."""
+    out = {}
+    for name, key, loose in (("decisiones", "texto", False), ("tareas", "tarea", True)):
+        out[name] = []
+        for it in dedupe([{**x, "b": b} for b, m in enumerate(maps) for x in m[name]], key, loose):
+            t = parse_ts(it["t"])
+            ctx = [s for s in segments if t - win <= s["s"] <= t + win]
+            f = reading(t, segments, kfs, win)
+            if f >= 0.25 and name == "decisiones":  # lo leído («el acta anterior queda aprobada») se suele votar justo después:
+                kw = {w for w in words(it[key]) if len(w) >= 4}  # si a <= 5 min se aprueba algo con sus palabras, va ahí
+                later = next((s for s in segments if t < s["s"] <= t + 300 and APPROVE.search(s["text"]) and
+                              kw & set(words(s["text"])) and reading(s["s"], segments, kfs, win) < 0.25), None)
+                if later:
+                    t, f, it = later["s"], 0.0, {**it, "t": fmt(later["s"]), "cita": later["text"][:100]}
+                    ctx = [s for s in segments if t - win <= s["s"] <= t + win]
+            why = ("condicional" if COND.search(it["cita"]) and not re.search(r"aprob|aprueb|acord", it["cita"], re.I) else
+                   "tarea = responsable" if name == "tareas" and set(words(it[key])) <= set(words(it["responsable"])) else
+                   "cortesía" if name == "tareas" and COURTESY.search(it["cita"] + " " + it[key]) else
+                   f"leída de la pantalla ({f:.2f})" if f >= 0.25 else "")
+            if not why:
+                text = (f"Tema: {maps[it['b']]['tema']}\n\nExtracto:\n" +
+                        "\n".join(f"[{fmt(s['s'])}] {s['text']}" for s in merge_segs(ctx)) +
+                        f"\n\nPropuesta ({name[:-1].replace('decisione', 'decisión')}): {it[key]}\nCita: «{it['cita']}»")
+                tipo = chat(VERIFY_PROMPT, text, obj(tipo={"enum": TIPOS}), 30)["tipo"]
+                why = "" if tipo in ("acuerdo", "encargo") else tipo
+            if why:
+                print(f"  descartada ({why}): {it[key]}", flush=True)
+            else:
+                ctext = " ".join(s["text"] for s in ctx)
+                out[name].append({**it, **({"responsable": said(it["responsable"], ctext, it[key]),
+                                            "plazo": said(it["plazo"], ctext)} if name == "tareas" else {})})
+    return out
+
+
+def group(items, key):
+    """Decisiones repetitivas en una (la primera, con n = cuántas): «se aprueba parcialmente la recalificación de X / de Y…»
+    se distinguen solo por el nombre propio. Esqueleto = palabras en minúscula; iguales al 85 % y >= 3 palabras."""
+    skel = lambda x: [w for w in x.split()[1:] if w[:1].islower()]
+    out = []
+    for it in items:
+        sk = skel(it[key])
+        for o in out:
+            if len(sk) >= 3 and SequenceMatcher(None, skel(o[key]), sk, autojunk=False).ratio() >= 0.85:
+                o["n"] += 1
+                break
+        else:
+            out.append({**it, "n": 1})
+    return out
 
 
 def reduce_maps(chat, maps, valid, starts, level, lang):
     """Reduce jerárquico, nunca se pasa de contexto ni recorta: (1) una sección por bloque del map (título = su tema,
-    viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el resumen global sale de
-    los resúmenes de sección (breve: de los puntos elegidos) y, si hay más decisiones/tareas (ya validadas) que el tope
-    del nivel, el LLM elige las más importantes."""
+    viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el título y el resumen
+    global salen de los resúmenes de sección (breve: de los puntos elegidos). En los niveles con tope, las decisiones
+    repetitivas se agrupan y, si aún hay más que el tope, el LLM elige las más importantes."""
     cfg = LEVELS[level]
-    dec, tar = valid["decisiones"], valid["tareas"]
-    sel = select_points(maps, cfg["keep"])
+    dec = group(valid["decisiones"], "texto") if cfg["dec"] else valid["decisiones"]
+    tar = valid["tareas"]
+    sel = select_points(maps, cfg["keep"], floor=cfg["pts"])
     bullets = lambda pts: "\n".join(f"- [{fmt(t)}] {x}" for t, x, _, _ in pts)
+    ask = lambda n, c: f"{n} (como mucho unos {c} caracteres)"
     secs = []
     for b, m in enumerate(maps if cfg["secs"] else []):
         pts = [p for p in sel if p[3] == b]
         if pts:
-            res = chat(SEC_PROMPT.format(n=cfg["sec"][0], faithful=FAITHFUL, lang=lang), bullets(pts),
-                       obj(resumen=S(cfg["sec"][1])), 500, 1.1)["resumen"] if len(pts) > 1 else pts[0][1]
+            n, c = cfg["sec"]
+            res = sentences(chat(SEC_PROMPT.format(n=ask(n, c), faithful=FAITHFUL, lang=lang), bullets(pts),
+                                 obj(resumen=S(c * 3 // 2)), 500, 1.1)["resumen"], c * 3 // 2) if len(pts) > 1 else pts[0][1]
             secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res})
     if secs:
         src, text = "los resúmenes de cada parte", "\n\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {s['resumen']}" for s in secs)
     else:
         src, text = "los puntos clave", bullets(sel)
-    fields, pick = {}, ""
+    fields, pick = {"titulo": S(80)}, ""
     for name, items, n, what, key in (("decisiones", dec, cfg["dec"], "decisiones", "texto"),
                                       ("tareas", tar, cfg["tar"], "tareas", "tarea")):
         if items:
-            text += f"\n\n{what.capitalize()}:\n" + "\n".join(f"{i}. [{x['t']}] {x[key]}" for i, x in enumerate(items, 1))
+            text += f"\n\n{what.capitalize()}:\n" + "\n".join(
+                f"{i}. [{x['t']}] {x[key]}" + (f" (y {x['n'] - 1} más parecidas)" if x.get("n", 1) > 1 else "")
+                for i, x in enumerate(items, 1))
         if n and len(items) > n:
             fields[name] = arr({"enum": list(range(1, len(items) + 1))}, n)
             pick += f"{name}: números de las {n} {what} más importantes.\n"
-    fields["resumen"] = S(cfg["tldr"][1])
-    red = chat(FINAL_PROMPT.format(src=src, tldr=cfg["tldr"][0], pick=pick, faithful=FAITHFUL, lang=lang), text,
-               obj(**fields), 1000, 1.1)
+    c = cfg["tldr"][1]
+    fields["resumen"] = S(c * 3 // 2)
+    what = ("qué se decidió y qué queda pendiente" if dec or tar else
+            "sin decir que se acordó, decidió o quedó pendiente nada: no hay decisiones ni tareas")
+    red = chat(FINAL_PROMPT.format(src=src, tldr=ask(cfg["tldr"][0], c), pick=pick, what=what, faithful=FAITHFUL,
+                                   lang=lang), text, obj(**fields), 1000, 1.1)
     top = lambda items, name: [items[i - 1] for i in sorted(set(red[name]))] if name in red else items
-    return {"resumen": red["resumen"], "secciones": secs, "decisiones": top(dec, "decisiones"), "tareas": top(tar, "tareas"),
+    return {"titulo": sentences(red["titulo"], 80).rstrip("."), "resumen": sentences(red["resumen"], c * 3 // 2),
+            "secciones": secs, "decisiones": top(dec, "decisiones"), "tareas": top(tar, "tareas"),
             "mas": bool(cfg["dec"] and len(dec) > cfg["dec"] or cfg["tar"] and len(tar) > cfg["tar"])}
 
 
@@ -539,7 +679,14 @@ def pick_shots(kfs, sel, n):
     if n is None:
         return scr
     w = lambda k: sum(p[2] for p in sel if k["t"] + SHOT_WIN[0] <= p[0] <= k["t"] + SHOT_WIN[1])
-    return sorted(sorted(scr, key=w, reverse=True)[:n], key=lambda k: k["t"])
+    ws = lambda k: set(words(k["text"]))
+    # casi repetidas (la misma tabla de precios con otro detalle): como mucho una cada 3 min si comparten >= la mitad
+    near = lambda a, b: abs(a["t"] - b["t"]) < 180 and len(ws(a) & ws(b)) >= 0.5 * min(len(ws(a)), len(ws(b)))
+    out = []
+    for k in sorted(scr, key=w, reverse=True):
+        if len(out) < n and not any(near(k, o) for o in out):
+            out.append(k)
+    return sorted(out, key=lambda k: k["t"])
 
 
 # ---------- Informe HTML ----------
@@ -567,10 +714,10 @@ def ts_link(t):
     return f'<a class="ts" href="#" data-t="{int(t)}">[{fmt(t)}]</a>'
 
 
-def render(out, title, dur, lang, red, maps, kfs, starts, segments, level):
+def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4"):
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/)."""
     cfg = LEVELS[level]
-    sel = select_points(maps, cfg["keep"], cfg["pts"])
+    sel = select_points(maps, cfg["keep"], cfg["pts"], cfg["pts"])
     shots = pick_shots(kfs, sel, cfg["shots"])
     esc = html.escape
     li = lambda t, x: f"<li>{ts_link(t)}{esc(x)}</li>"
@@ -586,7 +733,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level):
                        [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1])
         body.append(f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p>"
                     f"<ul>{''.join(h for _, h in inner)}</ul>")
-    dec = "".join(li(parse_ts(d["t"]), d["texto"]) for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
+    dec = "".join(li(parse_ts(d["t"]), d["texto"] + (f" (y {d['n'] - 1} más parecidas)" if d.get("n", 1) > 1 else ""))
+                  for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
     if cfg["secs"]:
@@ -597,9 +745,9 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level):
     trans = "".join(f"<p>{ts_link(s['s'])}{esc(s['text'])}</p>" for s in segments)
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
-<body><main><div id="side"><video id="v" src="video{Path(title).suffix}" controls preload="metadata"></video>
+<body><main><div id="side"><video id="v" src="video{vext}" controls preload="metadata"></video>
 <p id="pick" hidden>No se encuentra el vídeo junto al informe. Ábrelo: <input type="file" accept="video/*"></p></div>
-<div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(lang)} · nivel {level} ·
+<div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 <h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
 <h2>Decisiones</h2><ul>{dec or "<li>—</li>"}</ul>
@@ -621,8 +769,10 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 
 
 def put_file(src, dst):
-    """Enlace duro, si no simbólico, si no copia (Windows: entre unidades no hay enlace duro y el simbólico pide permisos)."""
-    for put in (os.link, os.symlink, shutil.copy):
+    """Enlace duro, si no simbólico, si no copia (Windows: entre unidades no hay enlace duro y el simbólico pide permisos).
+    Nunca simbólico a un temporal (la subida de Gradio vive en /tmp: tras reiniciar, el acta perdía el vídeo)."""
+    tmp = Path(src).resolve().is_relative_to(Path(tempfile.gettempdir()).resolve())
+    for put in (os.link, shutil.copy) if tmp else (os.link, os.symlink, shutil.copy):
         with contextlib.suppress(OSError):
             put(src, dst)
             return
@@ -652,15 +802,15 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.45 + 0.15 * f, m)), ensure_ascii=False))
         stage("capturas+ocr", t0)
-    kfs = screens(json.loads(kf.read_text()))
+    kfs = screens(json.loads(kf.read_text()), {w for s in tr["segments"] for w in words(s["text"])})
 
     chunks = chunk(tr["segments"])
     starts = [c[0]["s"] for c in chunks]
-    inputs = [map_input(c, kfs) for c in chunks]
+    inputs = [map_input(c, kfs, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
-    vh = hashlib.sha1((mh + VALID_PROMPT).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
+    vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
+    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
@@ -677,18 +827,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             stage("map", t0)
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
+            maps = mark_reading(maps, tr["segments"], kfs)  # tras guardar la caché: es barato y así se puede ajustar
             if not vf.exists():
-                vf.write_text(json.dumps(validate(chat, maps, starts), ensure_ascii=False))
+                vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfs), ensure_ascii=False))
             valid = json.loads(vf.read_text())
             rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
     red = json.loads(rf.read_text())
+    maps = mark_reading(maps, tr["segments"], kfs)
     print(score_hist(maps), flush=True)
 
     out = wd / f"acta_{level}_{quality}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
-    for k in render(out, video.name, dur, tr["language"], red, maps, kfs, starts, tr["segments"], level):
+    for k in render(out, red.get("titulo") or video.stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"], level, video.suffix):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
     zpath = wd / f"acta_{video.stem}_{level}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
@@ -696,6 +848,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             z.write(f, f.relative_to(out))
     # vídeo junto al informe para el reproductor: como mucho una copia por vídeo (en wd), y de ahí enlace a cada nivel
     src = wd / f"video{video.suffix}"
+    if src.is_symlink() and not src.exists():  # enlace roto (temporal ya borrado): se rehace
+        src.unlink()
     if not src.exists():
         put_file(video.resolve(), src)
     put_file(src, out / src.name)
@@ -735,14 +889,18 @@ def _selftest():
                                                    (51, False), (31, True)], ks
     assert "marcadores" not in ks[6]["text"] and ks[6]["title"].startswith("Presupuesto total"), ks[6]
 
-    assert len(chunk([{"s": i, "e": i + 1, "text": "x" * 991} for i in range(30)])) == 3
-    assert [len(c) for c in chunk([{"s": i, "e": i + 1, "text": "x" * 991} for i in range(23)])] == [11, 12]  # cola unida
+    for n, want in ((30, [10, 10, 10]), (23, [8, 7, 8]), (3, [3])):  # mismo tamaño, sin cola ni bloque gigante
+        segs = [{"s": i, "e": i + 1, "text": "x" * 991} for i in range(n)]
+        ch = chunk(segs)
+        assert [len(c) for c in ch] == want and [x for c in ch for x in c] == segs, [len(c) for c in ch]  # nada se pierde
     pts = lambda *n: {"puntos": [{"importancia": i, "t": "00:0%d" % k, "texto": "p"} for k, i in enumerate(n)]}
     maps = [pts(5, 5, 4, 4), pts(5, 4, 4, 4, 4, 4, 1, 1)]  # todo 4-5: el presupuesto igualmente separa niveles
     n = [len(select_points(maps, LEVELS[lv]["keep"])) for lv in LEVELS]
     assert n == [2, 5, 10], n
     assert [x[2] for x in select_points(maps, 0.3)] == [5, 5, 5], "primero las notas altas"
     assert len(select_points(maps, 1.0, 4)) == 4 and min(x[2] for x in select_points(maps, 1.0)) == 4, "1 = relleno, fuera"
+    many = [pts(5, 5, 5, 3)] * 14  # 42 notas 5: breve reparte por tiempo, no se queda con los 8 primeros bloques
+    assert sorted({x[3] for x in select_points(many, 0.2, 8)}) == [0, 2, 4, 6, 7, 9, 11, 13]
 
     sg = [{"s": 0, "text": "Hola a todos."}, {"s": 10, "text": "Bueno, pues se aprueba el"},
           {"s": 14, "text": "acta por unanimidad"}, {"s": 20, "text": "de los presentes."}]
@@ -752,13 +910,50 @@ def _selftest():
     fake = lambda *a: {"tema": "", "puntos": [], "tareas": [], "decisiones": [
         dd("se aprueba el acta por unanimidad"), dd("contratar a dos personas"), dd("hola a todos"),
         {**dd("se aprueba el acta por unanimidad"), "t": "00:20"}]}
-    m = map_chunk(fake, [{**s, "e": s["s"] + 4} for s in sg], "", "español", [{"t": 5, "text": "Acuerdos: | Hola a todos y bienvenidos"}])
-    assert [d["t"] for d in m["decisiones"]] == ["00:10", "00:20"], m  # inventada y leída de la pantalla: fuera
-    mp = [{"tema": "a", "decisiones": [dd("x uno"), dd("y dos tres")], "tareas": [], "puntos": [pts(3)["puntos"][0]]}]
-    v = validate(lambda *a: {"decisiones": [2], "tareas": []}, mp, [0])
-    assert [d["texto"] for d in v["decisiones"]] == ["y dos tres"] and v["tareas"] == [], v
-    r = reduce_maps(lambda *a: {"resumen": "r"}, mp, v, [0], "normal", "español")
-    assert r["decisiones"] == v["decisiones"] and r["secciones"][0]["resumen"] == "p" and not r["mas"], r
+    m = map_chunk(fake, [{**s, "e": s["s"] + 4} for s in sg], "", "español")
+    assert [d["t"] for d in m["decisiones"]] == ["00:10", "00:00", "00:10"], m  # inventada fuera; marca = la de la cita
+    assert find_quote("se aprueba el presente informe", [{"s": t, "text": "se aprueba el presente informe"}
+                                                         for t in (100, 200, 300)], near=210) == (1.0, 200)
+    # lectura de la pantalla: leer en voz alta el texto visible entonces sí; lo mismo con otra pantalla, no
+    doc = ("Acuerdos del consejo regional: comunicar a las instituciones integrantes que asistirán titular y alterno; "
+           "solicitar inspecciones sobre emanación de fuertes olores siempre que previamente existan resultados médicos")
+    rd = [{"s": t, "text": doc} for t in range(0, 90, 10)]
+    assert reading(40, rd, [{"t": 0, "end": 90, "text": doc}]) > 0.9
+    assert reading(40, rd, [{"t": 200, "end": 300, "text": doc}]) == 0
+    mk = mark_reading([{"puntos": [{"t": "00:40", "importancia": 5, "texto": "Se acuerda comunicar a las instituciones"},
+                                   {"t": "05:00", "importancia": 5, "texto": "Se acuerda otra cosa"}]}],
+                      rd, [{"t": 0, "end": 90, "text": doc}])[0]["puntos"]
+    assert [(p["importancia"], p["texto"][:21]) for p in mk] == [(2, READ_NOTE[:21]), (5, "Se acuerda otra cosa")], mk
+    # verify: condicional, tarea = responsable y leída de la pantalla sin llamar al LLM; el resto lo clasifica el LLM;
+    # responsable solo si lo dice la transcripción
+    seg = [{"s": 0, "e": 9, "text": "Bien, se aprueba el acta. María Gómez enviará el informe el lunes."},
+           {"s": 100, "e": 109, "text": "Deberíamos invitar a la zona naval. No veo el chat."}]
+    tsk = lambda c, x, r, t: {"cita": c, "tarea": x, "responsable": r, "plazo": "—", "t": t}
+    mp = [{"tema": "a", "puntos": [], "decisiones": [{"cita": "se aprueba el acta", "texto": "Se aprueba el acta", "t": "00:00"},
+                                                     {"cita": "deberíamos invitar a la zona naval", "texto": "Invitar a la zona naval", "t": "01:40"}],
+           "tareas": [tsk("María Gómez enviará el informe", "Enviar el informe", "María Gómez", "00:00"),
+                      tsk("enviará el informe el lunes", "Preparar el presupuesto anual", "Secretaría Técnica", "00:00"),
+                      tsk("No veo el chat", "David López", "David López", "01:40"),
+                      tsk("invitar a la zona naval", "Contactar al ponente si hay dudas", "—", "01:40")]}]
+    calls = []
+    v = verify(lambda sy, u, *a: calls.append(u) or {"tipo": "acuerdo" if "Se aprueba" in u else "encargo"}, mp, seg, [])
+    assert [d["texto"] for d in v["decisiones"]] == ["Se aprueba el acta"] and len(calls) == 3, (v, calls)
+    assert [(t["tarea"], t["responsable"]) for t in v["tareas"]] == [("Enviar el informe", "María Gómez"),
+                                                                 ("Preparar el presupuesto anual", "—")], v
+    dc = lambda t, x: {"t": t, "texto": x}
+    rdoc = [{"s": t, "e": t + 9, "text": doc} for t in range(0, 90, 10)] + [
+        {"s": 200, "e": 209, "text": "¿Estamos de acuerdo con el acta? Sí, de acuerdo, queda aprobada."}]
+    mp2 = [{"tema": "a", "puntos": [], "tareas": [], "decisiones": [
+        {"cita": "comunicar a las instituciones integrantes", "texto": "Comunicar a las instituciones", "t": "00:40"},
+        {"cita": "solicitar inspecciones", "texto": "Se aprueba el acta anterior con correcciones", "t": "00:40"}]}]
+    v2 = verify(lambda *a: {"tipo": "acuerdo"}, mp2, rdoc, [{"t": 0, "end": 90, "text": doc}])
+    assert [(d["texto"][:15], d["t"]) for d in v2["decisiones"]] == [("Se aprueba el a", "03:20")], v2  # leída: fuera / re-anclada
+    rp = [dc("10:00", f"Se aprueba parcialmente la recalificación de {x}") for x in ("Ana Ruiz", "Luis Mera", "Eva Paz")]
+    assert [x["n"] for x in group(rp + [dc("99:00", "Se suspende la sesión hasta mañana")], "texto")] == [3, 1]
+    r = reduce_maps(lambda *a: {"resumen": "r", "titulo": "Pleno"}, mp, v, [0], "normal", "español")
+    assert r["decisiones"][0]["texto"] == "Se aprueba el acta" and r["titulo"] == "Pleno" and not r["mas"], r
+    assert sentences("Uno dos tres. Cuatro cin", 24) == "Uno dos tres." and sentences("a" * 5 + " bb cc", 11) == "aaaaa bb…"
+    assert sentences("Frase corta sin punto", 100) == "Frase corta sin punto"
     d = lambda t, x: {"t": t, "texto": x}
     assert [x["t"] for x in dedupe([
         d("44:59", "Notificar la resolución adoptada al correo electrónico del postulante."),
@@ -773,7 +968,12 @@ def _selftest():
         "25:51", "138:56"]
     g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS, c=S(9)), 3)))
     assert 'root ::= o6' in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g
-    assert 's9 ::= "\\"" ch{0,9} "\\""' in g, g
+    assert '("\\"si\\"" | "\\"no\\"")' in gbnf(obj(x={"enum": ["si", "no"]})), "enum de cadenas con comillas JSON"
+    assert 's9 ::= "\\"" ch{0,9} "\\""' in g and "¡-ſ" in g and "u\" [0-9" not in g, g  # sin CJK ni \\uXXXX
+    with tempfile.TemporaryDirectory() as d:  # el vídeo subido a un temporal se enlaza duro o se copia, nunca simbólico
+        (Path(d) / "a.mp4").write_bytes(b"v")
+        put_file(Path(d) / "a.mp4", Path(d) / "b.mp4")
+        assert not (Path(d) / "b.mp4").is_symlink() and (Path(d) / "b.mp4").read_bytes() == b"v"
     print("ok")
 
 

@@ -26,6 +26,7 @@ uv run app.py                                         # interfaz web (Gradio)
 uv run pipeline.py video.mp4 --nivel breve --asr rápido --threads 4   # línea de comandos
 uv run make_sample.py                                 # vídeo de prueba sintético en samples/
 uv run pipeline.py --selftest
+uv run eval/score.py -v                               # actas de work/ contra eval/gold/*.json
 ```
 
 El acta queda en `work/<hash>/acta_<nivel>_<asr>/index.html` (abrible sin servidor; el vídeo va enlazado al lado)
@@ -62,32 +63,87 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
    barra de marcadores, "X está presentando", nombres de la columna de caras, paneles) y solo cuenta líneas de ≥ 2
    palabras con alguna en minúscula (los nombres bajo las caras y los botones no). Con ≥ 30 letras así es "pantalla
    compartida"; una cuadrícula de caras no. Pantallas cuyo texto contiene ≥ 75 % del de otra se fusionan: queda la más
-   completa, con la marca de la primera aparición solo si el texto es ≥ 90 % igual. Pie de captura = primera línea de
-   texto de la pantalla.
-6. La transcripción se trocea en bloques de ~3k tokens (un resto < 40 % se une al anterior: si no, el bloque de cola solo
-   trae la despedida) con el texto OCR de su intervalo. Los segmentos se funden en tramos de 15 s antes de poner `[mm:ss]`
+   completa, con la marca de la primera aparición solo si el texto es ≥ 90 % igual; también si es la misma página
+   desplazada (las ≥ 3 últimas líneas de una son las primeras de la otra). Pie de captura = primera línea de texto, solo si
+   ≥ 70 % de sus palabras salen en la transcripción (en vídeos de 480p el OCR da basura: entonces «Pantalla compartida»).
+6. La transcripción se trocea en n = ⌈total / 10 000 caracteres⌉ bloques del mismo tamaño (~3k tokens; ni cola diminuta
+   con solo la despedida ni un último bloque gigante con solo 10 puntos para 20 min) con el texto OCR de su intervalo. Los segmentos se funden en tramos de 15 s antes de poner `[mm:ss]`
    (menos tokens de entrada; leer el prompt va a ~45 tok/s en el ProBook).
-7. Map: Qwen3.5-4B Q4_0 (llama-server, sin mmap ni caché de prompts) con gramática GBNF compacta generada del esquema
-   (`gbnf`: JSON sin sangría y con máximos duros) → tema + hasta 10 puntos de ≤ 20 palabras con importancia 1-5 (rúbrica
+7. Map: Qwen3.5-4B Q4_0 (llama-server sin mmap; `-ctxcp 2`: el prompt de sistema, igual en todas las llamadas de una fase,
+   se lee una vez, −11 s por llamada, +100 MB; `seed` fija: misma entrada, misma acta) con gramática GBNF compacta generada
+   del esquema (`gbnf`: JSON sin sangría, máximos duros y solo caracteres latinos: ni CJK ni `\uXXXX`) → tema + hasta 10 puntos de ≤ 20 palabras con importancia 1-5 (rúbrica
    con distribución forzada; saludos, despedidas, agradecimientos y logística siempre 1) + decisiones y tareas. El prompt
    lleva reglas con contraejemplos: no son decisiones lo leído de un acta anterior, los pasos de una demo, opiniones ni
-   propuestas sin aprobar; las opiniones se atribuyen; votos y cifras solo si se dicen. Cada decisión/tarea trae una
-   `cita` literal: si sus pares de palabras no están (≥ 50 %) en la transcripción del bloque se descarta (inventada); si
-   están (≥ 25 %) en el texto de la pantalla de ese intervalo, también (es un documento leído en voz alta, p. ej. el acta
-   anterior); si no, su marca pasa a ser la del segmento de la cita. Cadenas con tope duro de longitud en la gramática. Lo caro en CPU es generar, así que la salida es corta a propósito.
+   propuestas sin aprobar; las opiniones se atribuyen solo si está claro quién habla (un cargo no es un postulante, un
+   jurista citado no participa); en demos «se muestra», nunca «se propone». Cada decisión/tarea trae una `cita` literal: si
+   sus pares de palabras no están (≥ 50 %) en la transcripción del bloque se descarta (inventada); si no, su marca pasa a
+   ser la del segmento de la cita (la aparición más cercana a la marca propuesta). Cadenas con tope duro de longitud en la gramática. Lo caro en CPU es generar, así que la salida es corta a propósito.
    Caché `map_<asr>_<hash>.json`: el hash cubre prompt, esquema, modelo y entrada (transcripción + OCR). Se imprime el
    histograma de notas y los tokens de cada llamada.
-8. Selección por presupuesto: ranking global de puntos (nota, orden en el bloque), sin las notas 1; breve 20 %, normal
-   50 %, detallado 100 % (`LEVELS`).
+8. Selección por presupuesto (breve 20 %, normal 50 %, detallado 100 %, `LEVELS`; sin las notas 1) con cuotas por tiempo:
+   los bloques se agrupan en g = min(k, bloques) tramos y cada uno aporta k // g puntos (los mejores suyos); el resto por
+   ranking global. Así breve no se queda con la primera mitad cuando hay muchas notas 5.
 9. Decisiones y tareas se deduplican entre bloques (≥ 78 % de palabras en orden; las tareas también si comparten la mitad
-   de las raíces: la misma acción rutinaria redactada distinto). Después una llamada con los temas de toda la reunión se
-   queda con las que de verdad lo son (el map solo ve un bloque y confunde consejos de una charla o cortesías con
-   encargos); se cachea, así los tres niveles muestran las mismas.
+   de las raíces). Después `verify`, una vez por candidata (se cachea: los tres niveles muestran las mismas):
+   - fuera sin LLM: cita condicional («deberíamos», «se podría»…), tarea = responsable, y lectura de la pantalla (los pares
+     de palabras de la transcripción a ±45 s están ≥ 25 % en el texto de la pantalla visible entonces: leer el acta
+     anterior da 0,3-0,6, hablar sobre una diapositiva ≤ 0,15);
+   - el resto, una llamada corta (cita + transcripción a ±45 s, gramática con un solo enum) que la clasifica con una
+     rúbrica: acuerdo, encargo, lectura, demostración, consejo, propuesta, cortesía o trámite. Solo quedan acuerdo y encargo
+     (un modelo pequeño dice «sí» a todo; eligiendo categoría acierta mucho más);
+   - responsable y plazo solo si los dice la transcripción de alrededor; si no, «—».
 10. Reduce jerárquico (nunca se pasa de contexto ni recorta): en normal/detallado una sección por bloque del map, con su
    `tema` de título y sus puntos elegidos de viñetas; el LLM solo redacta el resumen de la sección a partir de esas viñetas.
-   El resumen global sale de los resúmenes de sección (breve: de los puntos elegidos) y, si hay más decisiones/tareas que
-   el tope del nivel, el LLM elige las clave por número (breve 5/5, normal 12/10, detallado todas).
+   El título y el resumen global salen de los resúmenes de sección (breve: de los puntos elegidos); sin decisiones ni
+   tareas, el prompt prohíbe «se acordó / queda pendiente». En breve/normal las decisiones repetitivas se agrupan («… y 14
+   más parecidas») y, si aún hay más que el tope, el LLM elige las clave por número (breve 5/5, normal 12/10). Largo pedido
+   en caracteres, tope duro un 50 % mayor y recorte en la última frase completa: nunca a mitad de palabra.
 11. Render: breve = resumen + 8 puntos clave con marca + decisiones/tareas clave + 3 capturas; normal = secciones con sus
     viñetas y las capturas más relevantes (máx. 10); detallado = todos los puntos y todas las capturas. Solo se copian a
-    `img/` las capturas mostradas. El vídeo se enlaza (o se copia una sola vez por vídeo en `work/<hash>/`).
+    `img/` las capturas mostradas; en breve/normal no se repiten casi iguales (≥ 50 % de palabras) a menos de 3 min. El
+    vídeo se enlaza (o se copia una sola vez por vídeo en `work/<hash>/`; una subida en un temporal nunca con enlace
+    simbólico, que moría al reiniciar). Junto a `index.html` va `acta.json` (lo mismo, para `eval/score.py`).
 12. `app.py` es solo la GUI: llama a `pipeline.run` y muestra el `index.html` en un iframe + zip de descarga.
+
+## Windows (ProBook)
+
+- Enchufado y con el plan de energía «Alto rendimiento»: en batería el i5-1135G7 baja a 15 W y la generación cae.
+- Que ni python ni llama-server estén en «modo eficiencia» (Administrador de tareas): lanzar la GUI desde una ventana en
+  primer plano.
+- Exclusión de Defender para `bin\`, `models\` y `work\` (si no, escanea el modelo de 2,4 GB en cada arranque).
+
+## Preguntas sobre una reunión (pestaña «Preguntar», `rag.py`)
+
+```sh
+uv run rag.py work/<hash> "¿Cuánto cuesta el plan?"   # o el vídeo; ACTAS_LLM_URL reutiliza un llama-server ya arrancado
+uv run rag.py --selftest                              # verificación: rosa/femenino, 1843/antigua, cifras, negación
+uv run eval/rag_score.py                              # eval/rag_preguntas.json (47 preguntas, 4 reuniones)
+```
+
+Responde solo con lo dicho, en estilo indirecto («Se dijo que…»), cada frase con su `[mm:ss]` (salta al vídeo) y la cita
+literal desplegable con los tramos vecinos; si no se dijo: «No se menciona en la reunión». Cada pregunta es una llamada
+independiente: sin historial, sin caché de respuestas y con `cache_prompt: false` (lo anterior en pantalla es solo visual).
+
+1. Índice (en la primera pregunta, ~4 s; caché `work/<hash>/rag_<asr>_<h>.npy`): tramos de voz de 15 s (`merge_segs`) y el
+   texto de las pantallas compartidas (sin URLs, trozos de 60 palabras). BM25 propio (raíces pobres sin tildes, sin
+   stopwords) + `intfloat/multilingual-e5-small` int8 en ONNX (118 MB, se baja solo a `models/e5-small/`; onnxruntime y
+   tokenizers ya venían con faster-whisper/RapidOCR: cero dependencias nuevas), fusionados por RRF (k = 60) → 8 tramos, como
+   mucho 2 de pantalla. Las valoraciones amplían la búsqueda con el dato del que saldrían (`EXPAND`: «¿es caro?» → precio).
+   EmbeddingGemma-300m dio 94 % frente a 92 % de recall@8 pero indexa 10× más lento (47 s frente a 4 s en la reunión de
+   2 h 22 con 2 hilos): se queda e5.
+2. Umbral de coseno (`MIN_COS` = 0,78): por debajo, «No se menciona» sin LLM. Con e5 las preguntas sin respuesta
+   (0,83-0,87) se solapan con las que sí la tienen (0,80-0,91), así que solo corta preguntas totalmente ajenas; el «No se
+   menciona» real lo decide el LLM (NINGUNO).
+3. LLM: el mismo Qwen3.5-4B en un llama-server propio (ctx 4096, sin thinking) que arranca con la primera pregunta y se
+   para al generar un acta (dos modelos de 3 GB no caben en 8 GB). Prompt: instrucciones fijas → tramos numerados en orden
+   cronológico → pregunta. Gramática GBNF por pregunta: `NINGUNO` o hasta 2 líneas `[id] Se dijo que …` con `id` ∈ tramos
+   recuperados.
+4. Verificación en código (`verify`): cada palabra de contenido de la frase (raíz sin tildes; fuera stopwords y palabras de
+   ≤ 2 letras) tiene que estar en el tramo citado o en sus vecinos ±1; las cifras exactas (también dichas en letra:
+   «cinco» = 5), y una cifra que en el original va negada («ya no vale 25 sino 30») no puede salir sin negar. Si falla y la
+   frase sale entera de otro tramo recuperado, se le atribuye a ese (el LLM a veces se equivoca de número); si no, se
+   descarta y se muestra la cita literal del tramo. Sobre texto de pantalla: «En pantalla se mostró que…».
+
+Limitaciones: la verificación es por palabras, no por sentido: una frase que reordena palabras del mismo tramo (o quita
+una negación que no va pegada a una cifra) pasa; por eso la cita literal va siempre al lado. Se cita el ASR tal cual
+(con sus errores). Preguntas de síntesis («¿cuántas votaciones hubo?») no encajan: responde con tramos sueltos.
