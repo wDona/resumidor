@@ -37,7 +37,9 @@ def condensar(wd, asr, pct, progress=gr.Progress()):
         out, _, _ = pipeline.condense(wd, asr, int(pct), THREADS, lambda f, m: progress(f, desc=m))
     except Exception as e:
         raise gr.Error(str(e))
-    return str(out), str(out)
+    # <video> nativo: el reproductor de gr.Video reaplica "muted" en cada repintado y el botón de silencio no responde
+    src = f"/gradio_api/file={quote(Path(out).as_posix())}"
+    return f'<video src="{src}" controls preload="metadata" style="width:100%;max-height:70vh"></video>', str(out)
 
 
 # ---------- Preguntar: una pregunta = una llamada independiente (sin historial; lo de abajo es solo visual) ----------
@@ -133,7 +135,7 @@ with gr.Blocks(title="Actas de reuniones") as demo:
             pct = gr.Slider(10, 90, value=40, step=1, label="% del vídeo a quitar",
                             info="Primero los silencios largos, después lo menos importante según el acta")
             condensa = gr.Button("Generar vídeo condensado")
-        condensado = gr.Video(label="Vídeo condensado")
+        condensado = gr.HTML(label="Vídeo condensado")
         bajar = gr.File(label="Descargar vídeo condensado")
         carpeta = gr.State("")
         boton.click(generar, [video, nivel, asr, nombres], [informe, descarga, pct, carpeta])
