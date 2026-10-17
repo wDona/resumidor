@@ -99,7 +99,7 @@ def preguntar(sel, q, hist):
             cands = "".join(f"<li>{ts(idx.segs[i]['s'])} {html.escape(idx.segs[i]['text'][:200])}</li>" for i in v)
         elif kind == "frase":
             s = idx.segs[v["i"]]
-            txt = html.escape(v["frase"]) if v["ok"] else (f"Se dijo: «{html.escape(s['text'])}» <small style='opacity:.6'>"
+            txt = html.escape(v["frase"]) if v["ok"] else (f"Se dijo: «{html.escape(v['cita'])}» <small style='opacity:.6'>"
                                                            "(texto literal: la frase del modelo no se pudo verificar)</small>")
             lines.append(f"<p>{txt} {ts(s['s'])}{cita(idx, v['i'])}</p>")
         elif kind == "nada":

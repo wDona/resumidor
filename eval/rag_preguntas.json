@@ -50,5 +50,9 @@
   {"m": "larga_cne", "type": "trap", "q": "¿Fue justo el concurso de méritos?", "gold": [], "forbid": ["justo", "injust"]},
   {"m": "larga_cne", "type": "trap", "q": "¿Cuánto dinero tiene el presupuesto 2022 del CNE?", "gold": [], "forbid": ["millon", "dolar"]},
   {"m": "larga_cne", "type": "trap", "q": "¿Estaba molesta la presidenta por el pedido de Nájera?", "gold": [], "forbid": ["molest", "enfad"]},
-  {"m": "larga_cne", "type": "absent", "q": "¿Se habló de las elecciones seccionales de 2023?"}
+  {"m": "larga_cne", "type": "absent", "q": "¿Se habló de las elecciones seccionales de 2023?"},
+  {"m": "real_clickmeeting", "type": "factual", "q": "Que es clickmeeting?", "gold": ["00:22", "01:48"], "must": ["click meeting|clickmeeting"]},
+  {"m": "real_clickmeeting", "type": "paraphrase", "q": "¿Para qué sirve la herramienta que muestra el ponente?", "gold": ["00:22", "01:48"]},
+  {"m": "webinar_pmia", "type": "factual", "q": "¿Qué es la regla de los tercios?", "gold": ["37:18"], "must": ["fotograf|imagen"]},
+  {"m": "webinar_pmia", "type": "factual", "q": "¿Qué es el modo cameo?", "gold": ["11:07"], "must": ["cameo"]}
  ]}

@@ -12,7 +12,8 @@ import pipeline as P
 
 TOPK, RRF_K, POOL, MAX_SCREEN = 8, 60, 30, 2  # como mucho 2 trozos de pantalla en el top: si no, tapan la voz
 MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.35))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
-MAX_LINES = 2  # la 3.ª línea casi siempre era relleno de un fragmento que no responde (y +5 s)
+MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificación descarta (medido: +10 pts de descartes)
+CTX_WORDS = 20  # palabras de contexto de cada vecino ±1 que se enseñan al LLM junto a cada fragmento
 NOT_SAID = "No se menciona en la reunión."
 
 STOP = set("""a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
@@ -30,7 +31,7 @@ diecisiete dieciocho diecinueve veinte""".split(), map(str, range(21))))
 NUM.update(treinta="30", cuarenta="40", cincuenta="50", sesenta="60", setenta="70", ochenta="80", noventa="90",
            cien="100", ciento="100", mil="1000")
 NEG = {"no", "ni", "nunca", "sin", "ningun", "ninguna", "ninguno"}
-SUF = sorted("""amientos imientos amiento imiento aciones uciones acion ucion mente ables ibles able ible ando iendo
+SUF = sorted("""arian erian irian aria eria iria rian ria ian aban aran eran ara era ira an en ia amientos imientos amiento imiento aciones uciones acion ucion mente ables ibles able ible ando iendo
 ados idos adas idas ado ido ada ida ar er ir es os as a o e s""".split(), key=len, reverse=True)
 
 
@@ -58,8 +59,19 @@ def expand(q):
     return " ".join([q, *(v for k, v in EXPAND.items() if w & set(k))])
 
 
+SCREEN_Q = re.compile(r"pantalla|bot[oó]n|men[uú]|ventana|icono|diapositiva|\bse ven?\b|captura", re.I)
+
+
+# Preguntas de definición: el contexto ±1 solo ayuda ahí (la definición suele continuar en el tramo vecino); en el resto
+# alargaba el prompt (+10 s) y el LLM parafraseaba más (paráfrasis 93% -> 71% medido).
+DEF_Q = re.compile(r"\bqu[eé] (es|son|significa|signific[oa]n)\b|\ben qu[eé] consiste|\bpara qu[eé] (sirve|sirven|se usa|se usan|se utiliza)", re.I)
+
+
 def terms(text):
-    return [stem(w) for w in P.words(text) if w not in STOP or w in NUM]
+    ws = P.words(text)
+    # además, pares pegados: el ASR dice «click meeting» y la pregunta (o la pantalla) «clickmeeting»
+    return [stem(w) for w in ws if w not in STOP or w in NUM] + \
+           [a + b for a, b in zip(ws, ws[1:]) if a not in STOP and b not in STOP and len(a) > 2 and len(b) > 2]
 
 
 # ---------- índice ----------
@@ -134,19 +146,31 @@ class Index:
 
     def search(self, q, k=TOPK):
         """-> (índices de los k mejores por RRF, coseno denso máximo)."""
-        q = expand(q)
+        q0, q = q, expand(q)
         dense = self.emb @ embed([q], True, self.threads)[0]
         rrf = Counter()
         for sc in (dense, self.bm25(q)):
             for r, i in enumerate(np.argsort(-sc)[:POOL]):
                 if sc[i] > 0:
                     rrf[int(i)] += 1 / (RRF_K + r + 1)
-        out, nscr = [], 0
-        for i, _ in rrf.most_common():
-            nscr += self.segs[i]["kind"] == "pantalla"
-            if self.segs[i]["kind"] == "voz" or nscr <= MAX_SCREEN:
-                out.append(i)
+        ranked = [i for i, _ in rrf.most_common()]
+        scr = [i for i in ranked if self.segs[i]["kind"] == "pantalla"][:MAX_SCREEN]
+        # el texto de pantalla (OCR) es secundario: solo si se pregunta por lo que se ve o si ninguna voz se parece
+        if SCREEN_Q.search(q0) or not self.voz or dense[self.voz].max() < MIN_COS:
+            out = [i for i in ranked if self.segs[i]["kind"] == "voz" or i in scr]
+        else:
+            out = [i for i in ranked if self.segs[i]["kind"] == "voz"]
         return out[:k], float(dense.max())
+
+    def cita(self, i, q):
+        """Texto literal que se enseña si la frase no se verifica: el tramo de voz entero; de una pantalla, solo el
+        pasaje (~25 palabras) donde está lo preguntado, no el volcado de OCR."""
+        t = self.segs[i]["text"]
+        if self.segs[i]["kind"] == "voz":
+            return t
+        w, qs = t.split(), {stem(x) for x in P.words(q) if x not in STOP}
+        c = next((k for k, x in enumerate(w) if qs & {stem(y) for y in P.words(x)}), 0)
+        return ("… " if c > 8 else "") + " ".join(w[max(0, c - 8):c + 17]) + (" …" if c + 17 < len(w) else "")
 
     def window(self, i):
         """El tramo y sus vecinos ±1 de voz (contexto al desplegar y margen de la verificación)."""
@@ -196,9 +220,18 @@ def grammar(n):
 
 
 def prompt(idx, ids, q):
+    def ctx(i):  # final del tramo anterior y principio del siguiente (solo voz)
+        w = idx.window(i)
+        if len(w) == 1 or not DEF_Q.search(q):
+            return ""
+        a = [j for j in w if j < i]
+        b = [j for j in w if j > i]
+        return " ‖ " + " ".join(([" ".join(idx.segs[a[0]]["text"].split()[-CTX_WORDS:])] if a else [])
+                               + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else []))
     rows = [f"[{n}] ({P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
-            f"{idx.segs[i]['text']}" for n, i in enumerate(ids, 1)]
-    return "Fragmentos:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
+            f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
+    nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if DEF_Q.search(q) else ""
+    return f"Fragmentos{nota}:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
 
 
 def server(threads, ctx=4096):
@@ -281,11 +314,13 @@ def answer(idx, q, url):
                 if miss:  # a veces el LLM copia bien la frase pero se equivoca de número: si sale entera de otro, es de ese
                     i = next((j for j in order if j not in seen and not verify(frase, win(j))), i)
                     miss = verify(frase, win(i))
+                if idx.segs[i]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
+                    continue  # un volcado de OCR nunca es la cita de una pregunta que no es sobre lo que se ve
                 seen.add(i)
                 if idx.segs[i]["kind"] == "pantalla":
                     frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
                 n_out += 1
-                yield "frase", {"i": i, "frase": frase, "ok": not miss, "faltan": miss}
+                yield "frase", {"i": i, "frase": frase, "ok": not miss, "faltan": miss, "cita": idx.cita(i, q)}
     if not n_out:
         yield "nada", "llm"
     yield "fin", {**st, "primer_token": first, "total": round(time.time() - t0, 2)}
@@ -315,6 +350,9 @@ def _selftest():
     mes = "si pago mensual este plan ya no vale 25 sino vale 30 dólares"
     assert verify("Se dijo que el plan mensual vale 25 dólares.", mes) == ["no 25"]  # recombinación con negación perdida
     assert verify("Se dijo que si paga mensual el plan ya no vale 25 sino 30 dólares.", mes) == []
+    assert verify("Se dijo que se convocan a la próxima reunión.", "se convoca a la próxima reunión") == []  # conjugación
+    assert verify("Se dijo que se reanudaría el martes.", "se reanudará el martes") == []
+    assert verify("Se dijo que el plan vale 25 dólares.", "el plan valía 30 dólares") == ["25"]
     g = grammar(3)
     assert '"1" | "2" | "3"' in g and "NINGUNO" in g
     print("selftest ok")
@@ -335,7 +373,7 @@ if __name__ == "__main__":
                     print(f"  cand [{P.fmt(idx.segs[i]['s'])}] {idx.segs[i]['text'][:110]}")
             elif kind == "frase":
                 s = idx.segs[v["i"]]
-                print(f"[{P.fmt(s['s'])}] {v['frase'] if v['ok'] else 'Se dijo: «' + s['text'] + '»'}"
+                print(f"[{P.fmt(s['s'])}] {v['frase'] if v['ok'] else 'Se dijo: «' + v['cita'] + '»'}"
                       + ("" if v["ok"] else f"  (frase descartada: {v['faltan']})"))
             elif kind == "nada":
                 print(NOT_SAID, f"({v})")

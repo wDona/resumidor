@@ -38,7 +38,7 @@ try:
             if kind == "candidatos":
                 r["recall"] = any(hit(i) for i in v) if gold else None
             elif kind == "frase":
-                frases.append({**v, "t": P.fmt(idx.segs[v["i"]]["s"]), "hit": hit(v["i"]), "seg": idx.segs[v["i"]]["text"]})
+                frases.append({**v, "t": P.fmt(idx.segs[v["i"]]["s"]), "hit": hit(v["i"]), "seg": v["cita"]})
             elif kind == "nada":
                 nada = v
             else:
