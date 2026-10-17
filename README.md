@@ -154,3 +154,6 @@ independiente: sin historial, sin caché de respuestas y con `cache_prompt: fals
 Limitaciones: la verificación es por palabras, no por sentido: una frase que reordena palabras del mismo tramo (o quita
 una negación que no va pegada a una cifra) pasa; por eso la cita literal va siempre al lado. Se cita el ASR tal cual
 (con sus errores). Preguntas de síntesis («¿cuántas votaciones hubo?») no encajan: responde con tramos sueltos.
+
+Medido (47 preguntas, 4 reuniones, emulando ProBook: `taskset -c 0-3,6-9`, llama `-t 4`): recall@8 94 %, ausentes 100 %,
+trampas 91 %, paráfrasis 77 %, factuales 88 %; latencia por pregunta p50 21,8 s / p90 25,8 s (prefill ~18 s de ~790 tokens + gen ~3,5 s).
