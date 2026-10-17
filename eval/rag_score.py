@@ -65,6 +65,8 @@ finally:
     if proc:
         proc.terminate()
 
+import resource
+print("RAM pico MB:", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)
 pct = lambda xs: f"{100 * sum(xs) / len(xs):.0f}% ({sum(xs)}/{len(xs)})" if xs else "–"
 rec = [r["recall"] for r in rows if r.get("recall") is not None]
 print("\nrecall@8:", pct(rec))

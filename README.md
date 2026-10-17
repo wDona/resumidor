@@ -133,14 +133,15 @@ independiente: sin historial, sin caché de respuestas y con `cache_prompt: fals
 
 1. Índice (en la primera pregunta, ~4 s; caché `work/<hash>/rag_<asr>_<h>.npy`): tramos de voz de 15 s (`merge_segs`) y el
    texto de las pantallas compartidas (sin URLs, trozos de 60 palabras). BM25 propio (raíces pobres sin tildes, sin
-   stopwords) + `intfloat/multilingual-e5-small` int8 en ONNX (118 MB, se baja solo a `models/e5-small/`; onnxruntime y
-   tokenizers ya venían con faster-whisper/RapidOCR: cero dependencias nuevas), fusionados por RRF (k = 60) → 8 tramos, como
-   mucho 2 de pantalla. Las valoraciones amplían la búsqueda con el dato del que saldrían (`EXPAND`: «¿es caro?» → precio).
-   EmbeddingGemma-300m dio 94 % frente a 92 % de recall@8 pero indexa 10× más lento (47 s frente a 4 s en la reunión de
-   2 h 22 con 2 hilos): se queda e5.
-2. Umbral de coseno (`MIN_COS` = 0,78): por debajo, «No se menciona» sin LLM. Con e5 las preguntas sin respuesta
-   (0,83-0,87) se solapan con las que sí la tienen (0,80-0,91), así que solo corta preguntas totalmente ajenas; el «No se
-   menciona» real lo decide el LLM (NINGUNO).
+   stopwords) + `google/embeddinggemma-300m` int8 en ONNX (295 MB, se baja solo a `models/gemma-emb/`; usa su `sentence_embedding`
+   y los prompts oficiales de consulta/documento; onnxruntime y tokenizers ya venían con faster-whisper/RapidOCR: cero
+   dependencias nuevas), fusionados por RRF (k = 60) → 8 tramos, como mucho 2 de pantalla. Las valoraciones amplían la
+   búsqueda con el dato del que saldrían (`EXPAND`: «¿es caro?» → precio). Frente a multilingual-e5-small: paráfrasis 77 → 85 %,
+   mismo recall@8 (94 %) pero indexa ~8× más lento (36 s frente a 4 s en la reunión de 2 h 22) y 1,6 GB de RAM pico frente
+   a 0,6. Qwen3-Embedding-0.6B (int8, 613 MB) quedó peor: recall@8 88 %, índice 96 s, 1,9 GB.
+2. Umbral de coseno (`MIN_COS` = 0,35): por debajo, «No se menciona» sin LLM. Con Gemma las preguntas sin respuesta
+   (0,27-0,54) se separan bastante mejor de las respondibles (≥ 0,36), pero se solapan: el umbral solo corta las más ajenas
+   y el «No se menciona» real lo decide el LLM (NINGUNO).
 3. LLM: el mismo Qwen3.5-4B en un llama-server propio (ctx 4096, sin thinking) que arranca con la primera pregunta y se
    para al generar un acta (dos modelos de 3 GB no caben en 8 GB). Prompt: instrucciones fijas → tramos numerados en orden
    cronológico → pregunta. Gramática GBNF por pregunta: `NINGUNO` o hasta 2 líneas `[id] Se dijo que …` con `id` ∈ tramos

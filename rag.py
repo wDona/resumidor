@@ -1,4 +1,4 @@
-"""Preguntas sobre UNA reunión ya procesada. Recupera tramos de 15 s (y textos de pantalla) con BM25 + e5-small
+"""Preguntas sobre UNA reunión ya procesada. Recupera tramos de 15 s (y textos de pantalla) con BM25 + embeddinggemma-300m
 fusionados por RRF; el LLM solo elige tramos y escribe una frase en estilo indirecto con sus palabras; el código
 comprueba que cada palabra de contenido de la frase está en el tramo citado (o sus vecinos) y si no, la cambia por la
 cita literal. Cada pregunta es independiente: ni historial ni caché de prompt."""
@@ -10,9 +10,8 @@ import numpy as np
 
 import pipeline as P
 
-E5 = ("intfloat/multilingual-e5-small", "onnx/model_qint8_avx512_vnni.onnx", "onnx/tokenizer.json")
 TOPK, RRF_K, POOL, MAX_SCREEN = 8, 60, 30, 2  # como mucho 2 trozos de pantalla en el top: si no, tapan la voz
-MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.78))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
+MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.35))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
 MAX_LINES = 2  # la 3.ª línea casi siempre era relleno de un fragmento que no responde (y +5 s)
 NOT_SAID = "No se menciona en la reunión."
 
@@ -78,34 +77,31 @@ def units(wd, quality="rápido"):
 
 
 _enc = None
+REPO, ONNX = "onnx-community/embeddinggemma-300m-ONNX", "onnx/model_quantized.onnx"
+QP, DP = "task: search result | query: ", "title: none | text: "  # prompts oficiales de EmbeddingGemma
 
 
-def embed(texts, prefix, threads=2):
+def embed(texts, query=False, threads=2):
     global _enc
     if _enc is None:
         import onnxruntime as ort
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
-        d = P.ROOT / "models" / "e5-small"
-        tok = Tokenizer.from_file(hf_hub_download(E5[0], E5[2], local_dir=d))
+        d = P.ROOT / "models" / "gemma-emb"
+        tok = Tokenizer.from_file(hf_hub_download(REPO, "tokenizer.json", local_dir=d))
         tok.enable_truncation(512)
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
-        _enc = tok, ort.InferenceSession(hf_hub_download(E5[0], E5[1], local_dir=d), so, providers=["CPUExecutionProvider"])
+        _enc = tok, ort.InferenceSession(hf_hub_download(REPO, ONNX, local_dir=d), so, providers=["CPUExecutionProvider"])
     tok, sess = _enc
-    names = {i.name for i in sess.get_inputs()}
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-    out = np.zeros((len(texts), 384), np.float32)
+    out = np.zeros((len(texts), 768), np.float32)
     for b in range(0, len(order), 16):  # lotes de longitud parecida: poco relleno
         ids = order[b:b + 16]
         tok.enable_padding()
-        enc = tok.encode_batch([prefix + texts[i] for i in ids])
-        m = np.array([e.attention_mask for e in enc], np.int64)
-        feed = {"input_ids": np.array([e.ids for e in enc], np.int64), "attention_mask": m}
-        if "token_type_ids" in names:
-            feed["token_type_ids"] = np.zeros_like(m)
-        h = sess.run(None, feed)[0]
-        v = (h * m[..., None]).sum(1) / m.sum(1, keepdims=True)  # media sobre tokens reales
+        enc = tok.encode_batch([(QP if query else DP) + texts[i] for i in ids])
+        feed = {"input_ids": np.array([e.ids for e in enc], np.int64), "attention_mask": np.array([e.attention_mask for e in enc], np.int64)}
+        v = sess.run(["sentence_embedding"], feed)[0]  # ya agrupado y proyectado por el propio modelo
         out[ids] = v / np.linalg.norm(v, axis=1, keepdims=True)
     return out
 
@@ -115,9 +111,9 @@ class Index:
         self.segs = units(wd, quality)
         texts = [s["text"] for s in self.segs]
         import hashlib
-        h = hashlib.sha1("\0".join([E5[1], *texts]).encode()).hexdigest()[:8]
+        h = hashlib.sha1("\0".join([ONNX, *texts]).encode()).hexdigest()[:8]
         f = Path(wd) / f"rag_{quality}_{h}.npy"
-        self.emb = np.load(f) if f.exists() else embed(texts, "passage: ", threads)
+        self.emb = np.load(f) if f.exists() else embed(texts, False, threads)
         if not f.exists():
             np.save(f, self.emb)
         self.threads = threads
@@ -139,7 +135,7 @@ class Index:
     def search(self, q, k=TOPK):
         """-> (índices de los k mejores por RRF, coseno denso máximo)."""
         q = expand(q)
-        dense = self.emb @ embed([q], "query: ", self.threads)[0]
+        dense = self.emb @ embed([q], True, self.threads)[0]
         rrf = Counter()
         for sc in (dense, self.bm25(q)):
             for r, i in enumerate(np.argsort(-sc)[:POOL]):
