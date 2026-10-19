@@ -11,6 +11,7 @@ LLAMA_ASSET = {"win-x64": "win-cpu-x64.zip", "linux-x64": "ubuntu-x64.tar.gz", "
 # Linux = estático de johnvansickle. macOS: sin descarga fiable verificada -> ffmpeg del sistema (brew install ffmpeg).
 FFMPEG = {"win-x64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
           "linux-x64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"}
+PY = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.12.15%2B20261013-x86_64-pc-windows-msvc-install_only.tar.gz"
 UV = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
 KEEP = {"ffmpeg", "ffmpeg.exe", "ffprobe", "ffprobe.exe", "uv.exe", "LICENSE", "LICENSE.txt", "GPLv3.txt", "README.txt"}
 
@@ -63,7 +64,11 @@ def main():
             extract(get(FFMPEG[t]), FFMPEG[t], BIN / "ffmpeg", KEEP)
         elif not shutil.which("ffmpeg"):
             sys.exit("macOS: instala ffmpeg del sistema (brew install ffmpeg)")
-    if a.uv:
+    if a.uv:  # Windows: CPython empaquetado (uv no instala el suyo: evita las uniones de directorio que RedirectionGuard bloquea, error 448)
+        if not (BIN / "python" / "python.exe").exists():
+            extract(get(PY), PY, BIN / "_py")
+            (BIN / "_py" / "python").rename(BIN / "python")
+            (BIN / "_py").rmdir()
         extract(get(UV), UV, BIN / "uv", {"uv.exe"})
     for p in sorted(BIN.glob("*/*server*")) + sorted(BIN.glob("*/ffmpeg*")) + sorted(BIN.glob("*/uv*")):
         print("ok", p.relative_to(BIN))

@@ -29,7 +29,7 @@ jobs:
         with: {python-version: '3.12'}
 
       - name: ffmpeg + llama.cpp + uv
-        run: python tools/fetch_bins.py --target ${{ matrix.target }} --uv
+        run: python tools/fetch_bins.py --target ${{ matrix.target }} --uv  # incluye CPython empaquetado
 
       - name: Compilar instalador
         run: |
@@ -50,6 +50,11 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 30; Get-Content "$env:APPDIR\instalacion.log" -Tail 30 -ErrorAction SilentlyContinue; exit $p.ExitCode }
           Get-ChildItem $env:APPDIR | % Name; Get-Content "$env:APPDIR\instalacion.log" -Tail 20 -ErrorAction SilentlyContinue; Get-Content install.log -Tail 25
           Get-ChildItem "$env:APPDIR\.venv\Scripts\pythonw.exe", "$env:APPDIR\bin" -Recurse -Include pythonw.exe,llama-server.exe,ffmpeg.exe | Select FullName
+
+      - name: Sin uniones ni enlaces (RedirectionGuard, error 448)
+        run: |
+          $r = Get-ChildItem $env:APPDIR -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue
+          if ($r) { $r | % FullName; throw 'hay puntos de reanálisis en la instalación' }
 
       - name: Vídeo de prueba (voz SAPI + imagen)
         run: |

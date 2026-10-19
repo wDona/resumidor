@@ -1,5 +1,5 @@
 ﻿; Instalador por usuario (sin administrador). Compilar desde la raíz: iscc /DAppVersion=0.1.0 installer\actas.iss
-; Antes: python tools/fetch_bins.py --uv   (deja bin\ffmpeg, bin\llama-*, bin\uv)
+; Antes: python tools/fetch_bins.py --uv   (deja bin\ffmpeg, bin\llama-*, bin\uv, bin\python)
 #ifndef AppVersion
 #define AppVersion "0.1.0"
 #endif
@@ -40,6 +40,7 @@ Source: "..\README.md"; DestDir: "{app}"
 Source: "..\static\*"; DestDir: "{app}\static"; Flags: recursesubdirs
 Source: "..\bin\ffmpeg\*"; DestDir: "{app}\bin\ffmpeg"
 Source: "..\bin\llama-b11690\*"; DestDir: "{app}\bin\llama-b11690"; Flags: recursesubdirs
+Source: "..\bin\python\*"; DestDir: "{app}\python"; Flags: recursesubdirs
 Source: "..\bin\uv\uv.exe"; DestDir: "{app}\tools"
 
 [Icons]
