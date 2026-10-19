@@ -15,10 +15,7 @@ jobs:
       matrix:
         include:
           - {os: windows-latest, target: win-x64}
-          # Pendiente (mismos pasos con tools/fetch_bins.py --target <target>, empaquetado propio):
-          # - {os: ubuntu-latest, target: linux-x64}
-          # - {os: macos-14, target: macos-arm64}   # Apple Silicon
-          # - {os: macos-13, target: macos-x64}     # Intel
+          # Pendiente: - {os: ubuntu-latest, target: linux-x64}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -102,12 +99,93 @@ jobs:
             install.log
             logs
 
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-14, target: macos-arm64, arch: arm64}        # Apple Silicon
+          - {os: macos-15-intel, target: macos-x64, arch: x64}      # Intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      SUP: ~/Library/Application Support/Actas
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ffmpeg + llama.cpp + uv + CPython
+        timeout-minutes: 10
+        run: python3 tools/fetch_bins.py --target ${{ matrix.target }} --uv
+
+      - name: Compilar .dmg
+        timeout-minutes: 10
+        run: installer/macos/build.sh ${{ matrix.arch }} "${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: installer/Output/Actas-${{ matrix.arch }}.dmg
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Application Support/Actas/app/models
+          key: modelos-mac-${{ hashFiles('models.py') }}
+
+      - name: Montar .dmg, copiar la app y primer arranque (sin navegador)
+        timeout-minutes: 15
+        run: |
+          hdiutil attach installer/Output/Actas-${{ matrix.arch }}.dmg -mountpoint /Volumes/Actas -nobrowse
+          mkdir -p "$HOME/Applications" && cp -R /Volumes/Actas/Actas.app "$HOME/Applications/"
+          hdiutil detach /Volumes/Actas
+          ACTAS_NO_BROWSER=1 ACTAS_SETUP_ONLY=1 "$HOME/Applications/Actas.app/Contents/MacOS/Actas"
+          tail -5 "$HOME/Library/Application Support/Actas/instalacion.log"
+          ls "$HOME/Library/Application Support/Actas/app/.venv/bin/python" "$HOME/Library/Application Support/Actas/app/bin"
+
+      - name: Vídeo de prueba (voz de macOS + imagen)
+        run: |
+          T='Buenos días a todos. Hoy revisamos el presupuesto del proyecto. El plan cuesta veinticinco euros al mes. Decidimos lanzar la versión nueva el martes. Laura se encarga de enviar el informe final. Gracias y hasta la próxima reunión.'
+          say -v '?' | grep -i es_ | head -5 || true
+          say -v Monica -o voz.aiff "$T $T $T" || say -v Paulina -o voz.aiff "$T $T $T" || say -o voz.aiff "$T $T $T"
+          FF="$HOME/Library/Application Support/Actas/app/bin/ffmpeg"
+          "$FF/ffmpeg" -v error -y -f lavfi -i testsrc2=s=1280x720:r=5 -i voz.aiff -shortest -c:v libx264 -pix_fmt yuv420p muestra.mp4
+          "$FF/ffmpeg" -v error -encoders | grep -i videotoolbox || true
+          ls -l muestra.mp4
+
+      - name: rag selftest
+        run: cd "$HOME/Library/Application Support/Actas/app" && .venv/bin/python -X utf8 rag.py --selftest
+
+      - name: Humo (ping, modelos, acta, preguntar) con Metal / por defecto
+        timeout-minutes: 40
+        run: |
+          D="$HOME/Library/Application Support/Actas/app"
+          "$D/.venv/bin/python" -X utf8 tools/smoke.py "$D" "$PWD/muestra.mp4"
+
+      - name: Humo solo CPU (ACTAS_CPU=1, para comparar tiempos)
+        if: matrix.arch == 'arm64'
+        timeout-minutes: 20
+        run: |
+          D="$HOME/Library/Application Support/Actas/app"
+          rm -rf "$D/work"
+          ACTAS_CPU=1 "$D/.venv/bin/python" -X utf8 tools/smoke.py "$D" "$PWD/muestra.mp4"
+
+      - name: Reunir logs
+        if: always()
+        run: |
+          mkdir -p logs
+          cp "$HOME/Library/Application Support/Actas/"*.log logs/ || true
+          cp "$HOME/Library/Application Support/Actas/app/work/"*.log logs/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ matrix.target }}
+          path: logs
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
-        with: {name: instalador-win-x64}
-      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes Actas-setup.exe
+        with: {pattern: '{instalador,dmg}-*', merge-multiple: true}
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes Actas-setup.exe Actas-arm64.dmg Actas-x64.dmg
         env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
