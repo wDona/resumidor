@@ -45,11 +45,12 @@ try:
     print("ping ok", flush=True)
     call("/api/modelos", {})
     wait("/api/modelos", "state", "done", "modelos", 3600)
+    t0 = time.time()
     call("/api/generar", {"video": video, "nivel": "normal", "asr": "rápido"})
     j = wait("/api/job", "state", "done", "acta", 3600)
     acta = app / "work" / j["result"]["id"] / j["result"]["acta"] / "index.html"
     assert acta.is_file() and acta.stat().st_size > 500, acta
-    print("acta ok", acta, flush=True)
+    print(f"acta ok {acta} ({time.time() - t0:.0f} s)", flush=True)
     r = urllib.request.urlopen(urllib.request.Request(base + "/api/preguntar", data=json.dumps(
         {"sel": f"{j['result']['id']}|rápido", "q": "¿De qué se habló?"}).encode(), headers={"Content-Type": "application/json"}), timeout=900).read().decode()
     print("preguntar:", r[:300], flush=True)

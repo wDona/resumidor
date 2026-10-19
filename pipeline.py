@@ -1,5 +1,5 @@
-"""Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local, CPU."""
-import bisect, contextlib, functools, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
+"""Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local (CPU; Metal para el LLM en Apple Silicon)."""
+import bisect, platform, contextlib, functools, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
 from collections import Counter
 from itertools import groupby
 from difflib import SequenceMatcher
@@ -54,6 +54,7 @@ def _phys():
 
 
 PHYS = _phys()
+GPU = ["-ngl", "99"] if sys.platform == "darwin" and platform.machine() == "arm64" and not os.environ.get("ACTAS_CPU") else []  # Metal solo en Apple Silicon (ACTAS_CPU=1 lo desactiva); Intel y el resto, CPU
 if os.name == "nt":  # ffmpeg/llama-server/Tk sin ventana de consola (la app se lanza con pythonw)
     _Popen = subprocess.Popen
 
@@ -399,7 +400,7 @@ def llama(threads, ctx=8192):
                              # igual en todos los bloques del map y en cada verificación, se lee una sola vez (-11 s por llamada
                              # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
                              # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
-                             "-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none",
+                             "-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none", *GPU,
                              "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
     url = f"http://127.0.0.1:{port}"
     try:
@@ -1053,10 +1054,11 @@ def recommend_pct(units):
 
 @functools.cache
 def h264(threads):
-    """QuickSync (h264_qsv, el ProBook lo tiene) si funciona de verdad; si no, libx264."""
-    qsv = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", "h264_qsv",
-                          "-f", "null", "-"], capture_output=True).returncode == 0
-    return (["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "26"] if qsv else
+    """Codificador por hardware si funciona de verdad (macOS: VideoToolbox; si no, QuickSync, el ProBook lo tiene); si no, libx264."""
+    enc, opts = ("h264_videotoolbox", ["-b:v", "3M"]) if sys.platform == "darwin" else ("h264_qsv", ["-preset", "veryfast", "-global_quality", "26"])
+    hw = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", enc,
+                         "-f", "null", "-"], capture_output=True).returncode == 0
+    return (["-c:v", enc, *opts] if hw else
             ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-threads", str(threads)])
 
 

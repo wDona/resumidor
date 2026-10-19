@@ -1,0 +1,25 @@
+#!/bin/bash
+# Lanzador de Actas.app. Los datos (código copiado, entorno, modelos, reuniones) viven en ~/Library/Application Support/Actas
+# porque la app puede estar en solo lectura (o "trasladada" por Gatekeeper a una ruta distinta en cada arranque).
+R="$(cd "$(dirname "$0")/../Resources" && pwd)"
+S="$HOME/Library/Application Support/Actas"
+A="$S/app"
+LOG="$S/instalacion.log"
+mkdir -p "$A"
+aviso() { echo "$1"; [ -n "$ACTAS_NO_BROWSER" ] || osascript -e "display notification \"$1\" with title \"Actas\"" >/dev/null 2>&1; }
+falla() { echo "$1" >&2; [ -n "$ACTAS_NO_BROWSER" ] || osascript -e "display dialog \"$1\" with title \"Actas\" buttons {\"Aceptar\"} with icon stop" >/dev/null 2>&1; exit 1; }
+
+V="$(cat "$R/VERSION")"
+if [ "$(cat "$S/.version" 2>/dev/null)" != "$V" ] || [ ! -x "$A/.venv/bin/python" ]; then
+  aviso "Preparando Actas (solo la primera vez; necesita internet y tarda unos minutos)…"
+  rm -f "$S/.version"
+  rsync -a --exclude work --exclude models --exclude uploads --exclude .venv --exclude .actas.lock "$R/app/" "$A/" || falla "No se pudo copiar Actas a $A"
+  rsync -a --delete "$R/python/" "$S/python/" || falla "No se pudo copiar Python a $S/python"
+  rm -rf "$A/.venv"
+  ( cd "$A" && UV_PYTHON_DOWNLOADS=never UV_CACHE_DIR="$S/uv-cache" "$R/uv" sync --frozen --python "$S/python/bin/python3" ) >"$LOG" 2>&1 \
+    || falla "No se pudieron descargar las librerías. Comprueba la conexión a internet y vuelve a abrir Actas. Detalles: $LOG"
+  xattr -dr com.apple.quarantine "$S" 2>/dev/null
+  echo "$V" >"$S/.version"
+fi
+[ -n "$ACTAS_SETUP_ONLY" ] && exit 0
+cd "$A" && exec "$A/.venv/bin/python" -X utf8 app.py >>"$S/app.log" 2>&1

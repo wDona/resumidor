@@ -13,3 +13,7 @@ dependencies = [
     "sherpa-onnx-core==1.13.8",
     "uvicorn>=0.54.0",
 ]
+
+[tool.uv]
+# onnxruntime dejó de publicar ruedas para macOS Intel tras la 1.23.2
+override-dependencies = ["onnxruntime>=1.20 ; sys_platform != 'darwin' or platform_machine != 'x86_64'", "onnxruntime==1.23.2 ; sys_platform == 'darwin' and platform_machine == 'x86_64'"]

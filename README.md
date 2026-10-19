@@ -193,3 +193,15 @@ Descarga `Actas-setup.exe` de la sección Releases y ejecútalo (no pide adminis
 El instalador no está firmado: Windows SmartScreen mostrará «Windows protegió su PC». Pulsa **Más información → Ejecutar de todos modos**. La primera vez, Windows Defender analiza los ficheros nuevos y el arranque y el primer acta pueden tardar más; es normal. No se añaden exclusiones a Defender.
 
 Para construirlo: `python tools/fetch_bins.py --uv` y `iscc installer\actas.iss` (Inno Setup 6). `tools/fetch_bins.py` también deja `bin/` listo (ffmpeg + llama.cpp) en Linux/macOS. Licencia de ffmpeg (GPL, build de gyan.dev): se incluye `LICENSE` en `bin\ffmpeg`; fuentes en https://ffmpeg.org y https://www.gyan.dev/ffmpeg/builds/.
+
+## macOS (Apple Silicon e Intel)
+
+Descarga `Actas-arm64.dmg` (Apple Silicon: M1 o posterior) o `Actas-x64.dmg` (Intel) de Releases, ábrelo y arrastra **Actas** a Aplicaciones. Necesita macOS 14 o posterior.
+
+La app no está firmada ni notarizada (solo firma ad hoc), así que la primera vez macOS la bloqueará: **clic derecho en Actas → Abrir → Abrir**, o bien Ajustes del Sistema → Privacidad y seguridad → **Abrir igualmente**. Si aun así no abre: `xattr -dr com.apple.quarantine /Applications/Actas.app`.
+
+El primer arranque prepara el entorno en `~/Library/Application Support/Actas` (necesita internet; unos minutos, avisa con una notificación y, si falla, con un diálogo; detalles en `instalacion.log`) y luego baja los modelos (~3,3 GB) con la pantalla de progreso de siempre. Reuniones y modelos quedan también ahí; para desinstalar, borra la app y esa carpeta.
+
+Aceleración: el LLM usa Metal en Apple Silicon (`ACTAS_CPU=1` lo desactiva); el vídeo condensado se codifica con VideoToolbox. El ASR (faster-whisper) y todo en Intel van por CPU. En Intel, `onnxruntime` queda fijado a 1.23.2 (última con ruedas para macOS Intel; ver `pyproject.toml`).
+
+Construir (en un Mac): `python3 tools/fetch_bins.py --uv && installer/macos/build.sh arm64|x64 <versión>`. ffmpeg/ffprobe: builds estáticos GPL de https://ffmpeg.martin-riedl.de (fuentes enlazadas allí).
