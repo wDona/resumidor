@@ -1,0 +1,20 @@
+{"video": "reunion_sintetica", "hash": "c8f5001c5e212d71", "dur": 533,
+ "_nota": "Vídeo sintético (make_sample.py, texto conocido). Mismo formato que los demás gold.",
+ "decisiones": [
+  {"id": "correo", "req": true, "t": [300, 400], "texto": "La campaña de correo electrónico se lanzará en la fase de beta abierta", "re": ["(campana|correo).*(beta abierta|fase)", "beta abierta.*(correo|campana)"]},
+  {"id": "infra", "req": true, "t": [440, 470], "texto": "Infraestructura sube a 30.000 € y la reserva baja a 10.000 €", "re": ["infraestructura.*(30|treinta)", "reserva.*(10|diez)"]}],
+ "tareas": [
+  {"id": "busqueda", "req": true, "t": [250, 500], "owner": "javier", "texto": "Javier arregla el rendimiento de la búsqueda para el viernes de la semana que viene", "re": ["busqueda|rendimiento"]},
+  {"id": "proveedor", "req": true, "t": [470, 495], "owner": "carlos", "texto": "Carlos confirma con el proveedor de pagos la fecha del 15 de noviembre", "re": ["proveedor|pagos|15 de noviembre"]},
+  {"id": "plan", "req": true, "t": [480, 500], "owner": "marta", "texto": "Marta actualiza el plan de lanzamiento (correo en la beta abierta) antes del lunes", "re": ["plan de lanzamiento|actualiz"]},
+  {"id": "convoca", "req": true, "t": [495, 505], "owner": "laura", "texto": "Laura prepara la convocatoria de la beta cerrada", "re": ["convocatoria"]},
+  {"id": "faq", "req": true, "t": [505, 520], "owner": "carlos", "texto": "Carlos redacta las preguntas frecuentes para la beta a final de mes", "re": ["preguntas frecuentes|faq"]}],
+ "prohibidos": [
+  {"where": "all", "texto": "Presupuesto total inventado", "re": "(300|trescientos) mil"},
+  {"where": "items", "texto": "Decisión inventada sobre los pagos móviles", "re": "pagos moviles.*(resuelt|solucionad)"}],
+ "claves": [
+  {"t": 60, "texto": "Usuarios activos 42.000 (+18 %)", "re": "42 ?000|cuarenta y dos mil|18"},
+  {"t": 100, "texto": "Pagos móviles retrasan los ingresos", "re": "pagos moviles"},
+  {"t": 290, "texto": "Plan de lanzamiento en tres fases (beta cerrada 1 de diciembre)", "re": "beta cerrada|fases|1 de diciembre"},
+  {"t": 400, "texto": "Presupuesto de 200.000 € del semestre", "re": "200 ?000|doscientos mil|presupuesto"},
+  {"t": 480, "texto": "Próxima reunión el martes", "re": "martes|proxima reunion"}]}

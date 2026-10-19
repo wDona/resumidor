@@ -51,6 +51,16 @@ try:
     acta = app / "work" / j["result"]["id"] / j["result"]["acta"] / "index.html"
     assert acta.is_file() and acta.stat().st_size > 500, acta
     print(f"acta ok {acta} ({time.time() - t0:.0f} s)", flush=True)
+    vtt = app / "work" / "smoke.vtt"  # transcripción importada sin vídeo: sin ASR ni capturas, solo el LLM
+    vtt.write_text("WEBVTT\n\n" + "".join(f"{i}\n00:00:{5 * i:02d}.000 --> 00:00:{5 * i + 4:02d}.000\n<v {n}>{t}</v>\n\n" for i, (n, t) in enumerate(
+        [("Laura", "Buenos días a todos. Hoy revisamos el presupuesto del proyecto."), ("Carlos", "El plan cuesta veinticinco euros al mes."),
+         ("Laura", "Decidimos lanzar la versión nueva el martes."), ("Carlos", "Yo me encargo de enviar el informe final."),
+         ("Laura", "Gracias y hasta la próxima reunión.")]) ), encoding="utf-8")
+    call("/api/generar", {"transcripcion": str(vtt), "nivel": "breve"})
+    j2 = wait("/api/job", "state", "done", "acta (transcripción)", 3600)
+    h = (app / "work" / j2["result"]["id"] / j2["result"]["acta"] / "index.html").read_text(encoding="utf-8")
+    assert "Participantes: Laura, Carlos" in h and "<video" not in h, h[:2000]
+    print("acta importada ok", flush=True)
     r = urllib.request.urlopen(urllib.request.Request(base + "/api/preguntar", data=json.dumps(
         {"sel": f"{j['result']['id']}|rápido", "q": "¿De qué se habló?"}).encode(), headers={"Content-Type": "application/json"}), timeout=900).read().decode()
     print("preguntar:", r[:300], flush=True)

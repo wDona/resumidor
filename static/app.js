@@ -12,29 +12,43 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 });
 const vista = v => ["nuevo", "job", "res"].forEach(n => $("v-" + n).hidden = n !== v);
 
-// ---- elegir vídeo ----
-let ruta = "";
+// ---- elegir vídeo y transcripción ----
+let ruta = "", rutaTr = "", hablaTr = false;
 const setRuta = p => { ruta = p; $("ruta").value = p; };
-$("elegir").onclick = async e => {
-  e.target.disabled = true;
-  try { const r = (await post("/api/pick")).path; if (r) setRuta(r); } finally { e.target.disabled = false; }
+const setTr = async p => {
+  rutaTr = ""; hablaTr = false; $("ruta-tr").value = p; $("quitar-tr").hidden = !p;
+  try {
+    if (p) {
+      const r = await post("/api/transcripcion", {path: p}); rutaTr = p; hablaTr = r.hablantes.length > 0;
+      $("info-tr").textContent = r.formato + " · " + r.segmentos + " segmentos · " + (hablaTr ? r.hablantes.length + " hablantes con nombre" : "sin nombres de hablantes");
+    }
+  } catch (err) { $("ruta-tr").value = ""; $("quitar-tr").hidden = true; $("info-tr").textContent = err.message; }
+  $("hablantes").disabled = hablaTr; if (hablaTr) $("hablantes").checked = false; $("hint-hab").hidden = !hablaTr;
 };
-const drop = $("drop");
-drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-drop.ondragleave = () => drop.classList.remove("over");
-drop.ondrop = async e => {
-  e.preventDefault(); drop.classList.remove("over");
-  const f = e.dataTransfer.files[0]; if (!f) return;
-  $("subida").textContent = "Copiando " + f.name + "…";
-  try { setRuta((await api("/api/upload?name=" + encodeURIComponent(f.name), {method: "PUT", body: f})).path); $("subida").textContent = ""; }
-  catch (err) { $("subida").textContent = err.message; }
+$("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor."; };
+const elegir = (btn, tipo, set) => btn.onclick = async () => {
+  btn.disabled = true;
+  try { const r = (await post("/api/pick", {tipo})).path; if (r) set(r); } finally { btn.disabled = false; }
 };
+elegir($("elegir"), "video", setRuta); elegir($("elegir-tr"), "transcripcion", setTr);
+const soltar = (zona, set, msg) => {
+  zona.ondragover = e => { e.preventDefault(); zona.classList.add("over"); };
+  zona.ondragleave = () => zona.classList.remove("over");
+  zona.ondrop = async e => {
+    e.preventDefault(); zona.classList.remove("over");
+    const f = e.dataTransfer.files[0]; if (!f) return;
+    $(msg).textContent = "Copiando " + f.name + "…";
+    try { set((await api("/api/upload?name=" + encodeURIComponent(f.name), {method: "PUT", body: f})).path); $(msg).textContent = ""; }
+    catch (err) { $(msg).textContent = err.message; }
+  };
+};
+soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p), "subida"); soltar($("drop-tr"), setTr, "info-tr");
 
 // ---- generar / condensar ----
-const params = () => ({video: ruta, nivel: $("nivel").value, asr: $("asr").value, hablantes: $("hablantes").checked, nombres: $("nombres").value});
+const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, asr: $("asr").value, hablantes: $("hablantes").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
-  if (!ruta) { $("subida").textContent = "Elige primero un vídeo"; return; }
+  if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }
   try { await post("/api/generar", params()); seguir(); } catch (err) { $("subida").textContent = err.message; }
 };
 $("condensar").onclick = async () => {
@@ -80,6 +94,10 @@ async function abrir(id, acta) {
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === $("sel-acta").value);
   $("acta-frame").src = a.url; $("dl-zip").hidden = !a.zip; if (a.zip) $("dl-zip").href = a.zip;
+  const imp = cur.importadas[a.asr];
+  $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
+    (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : " · sin vídeo: sin capturas ni reproductor") + (imp.aviso ? ". " + imp.aviso : "") : "";
+  $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("cond").hidden = !cur.video;
   const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }
 }
 $("sel-acta").onchange = cambiarActa;

@@ -50,7 +50,7 @@ details{margin:4px 0;color:var(--mut)}summary{cursor:pointer;font-size:13px}
 blockquote{margin:6px 0;padding-left:12px;border-left:3px solid var(--line);color:var(--ink)}
 blockquote span.o{opacity:.55}
 .sr{position:absolute;left:-9999px}
-#drop.over input{border-color:var(--acc);background:#eef4fe}
+#drop.over input,#drop-tr.over input{border-color:var(--acc);background:#eef4fe}
 [hidden]{display:none!important}
 @media(max-width:860px){.grid,.cols{grid-template-columns:1fr}}
 #qlayout{display:grid;gap:20px;align-items:start}

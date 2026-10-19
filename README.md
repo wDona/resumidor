@@ -51,6 +51,26 @@ Referencia (4 núcleos de un Ryzen 5500 con `taskset` emulando un HP ProBook 440
 En el ProBook con RAM de un solo canal la generación puede ir bastante más lenta: medirlo allí. Pico de RAM: python
 ≈ 1,0-1,8 GB (ASR por ventanas: no crece con la duración) y llama-server 3,1 GB (no a la vez), cabe en 8 GB.
 
+## Transcripción importada (Teams, Zoom, Meet, Otter…)
+
+Una transcripción exportada **sustituye al ASR** (`transcripts.py`, solo biblioteca estándar; `--transcripcion FICHERO` en la línea
+de órdenes o «Transcripción (opcional)» en la GUI, con diálogo o arrastrando el fichero). Formatos: WebVTT (Teams `<v Nombre>`, Zoom
+`Nombre: texto`, ids tipo GUID, marcas `0:0:0.0`), SRT, TXT con cabeceras (`[hh:mm:ss] Nombre:`, `Nombre  0:05`, `Nombre (00:01:02)`:
+Otter, Meet, Fireflies, tl;dv) y DOCX (Teams/Meet, se lee `word/document.xml`). Se limpian etiquetas y entidades, se funden los cues
+seguidos del mismo hablante (≤ 20 s) y «Unknown»/«Desconocido»/teléfonos no cuentan como hablante.
+
+- **Con vídeo**: no se ejecuta whisper sobre toda la reunión; se transcribe una muestra de 150 s (desde el minuto 1) y se busca el
+  desfase (±10 min) que más palabras comunes alinea. Si hay certeza se aplica; si no, se usa 0 y queda un aviso en el acta y en la GUI.
+  Capturas, OCR y vídeo condensado como siempre.
+- **Sin vídeo**: acta sin capturas ni reproductor (marcas visibles, no enlaces); Preguntar también funciona.
+- **Hablantes**: si el fichero trae nombres se usan en lugar de la diarización (la casilla se desactiva), aparecen como «Participantes»,
+  llegan al map/tareas y a las citas de Preguntar. No se inventa ninguno.
+- Caché: `transcript_imp<hash del fichero>.json` (no choca con `rápido`/`calidad`).
+- Prueba: VTT estilo Teams generado desde el ASR de `reunion_sintetica` y desplazado +7 s: desfase recuperado -7,0 s; acta breve/normal
+  con `eval/gold/reunion_sintetica.json`: decisiones 1,00/1,00, tareas 1,00/1,00 (ASR: 1,00/1,00 y 1,00/0,80), prohibidos 0.
+
+Límites: un desfase que no sea constante (cortes, pausas) no se corrige; sin voz en la muestra no hay alineación.
+
 ## Hablantes y vídeo condensado
 
 - **Hablantes** (opcional y experimental, desactivado por defecto: casilla en la GUI o `--hablantes`; ~0,7 % del tiempo total): sobre los segmentos del ASR (ya sin silencios), trozos de ≤ 5 s;

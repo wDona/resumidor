@@ -39,6 +39,15 @@
             </div>
             <small id="subida"></small>
           </div>
+          <div class="field">
+            <label for="ruta-tr">Transcripción (opcional)</label>
+            <div class="row" id="drop-tr">
+              <input id="ruta-tr" readonly placeholder="Teams, Zoom, Meet, Otter… (.vtt .srt .txt .docx)">
+              <button type="button" id="elegir-tr" class="sec">Elegir transcripción</button>
+              <button type="button" id="quitar-tr" class="sec" hidden aria-label="Quitar transcripción">&times;</button>
+            </div>
+            <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor.</small>
+          </div>
           <div class="cols">
             <div class="field"><label for="nivel">Nivel de detalle</label>
               <select id="nivel"><option>breve</option><option selected>normal</option><option>detallado</option></select></div>
@@ -47,6 +56,7 @@
               <small>rápido = whisper small · calidad = large-v3-turbo (más lento)</small></div>
           </div>
           <label class="check"><input type="checkbox" id="hablantes"> Separar quién habla (experimental)</label>
+          <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
           <div class="field"><label for="nombres">Nombres de los hablantes (opcional)</label>
             <input id="nombres" placeholder="Hablante 1=Ana, Hablante 2=Luis">
             <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
@@ -74,8 +84,9 @@
         <label for="sel-acta">Acta</label><select id="sel-acta"></select>
         <a class="btn sec" id="dl-zip" download>Descargar acta (.zip)</a>
       </div>
+      <p class="muted" id="imp-info"></p>
       <iframe id="acta-frame" title="Acta"></iframe>
-      <div class="card cond">
+      <div class="card cond" id="cond">
         <h2>Vídeo condensado</h2>
         <div class="row">
           <label for="pct">% del vídeo a quitar</label>

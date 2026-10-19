@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -20,10 +21,12 @@ from fastapi.staticfiles import StaticFiles
 import models
 import pipeline
 import rag
+import transcripts
 
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
 STATIC, LOCK, JOBF = pipeline.ROOT / "static", pipeline.ROOT / ".actas.lock", pipeline.WORK / "job.json"
 UPLOADS = pipeline.ROOT / "uploads"
+TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
 app = FastAPI()
 beat = [time.time()]
@@ -93,18 +96,21 @@ def get_job():
 
 @app.post("/api/generar")
 def generar(d: dict):
-    video = Path(d.get("video", ""))
-    if not video.is_file():
-        raise HTTPException(400, "Elige primero un vídeo")
+    video, tr = Path(d.get("video") or ""), d.get("transcripcion") or ""
+    if tr and (Path(tr).suffix.lower() not in TR_EXT or not Path(tr).is_file()):
+        raise HTTPException(400, "La transcripción debe ser un fichero .vtt, .srt, .txt o .docx")
+    if not (video.is_file() or tr):
+        raise HTTPException(400, "Elige un vídeo o una transcripción")
+    video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
     nivel, asr = d.get("nivel", "normal"), d.get("asr", "rápido")
     if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS:
         raise HTTPException(400, "Opción no válida")
 
     def fn(cb):
-        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")))
+        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None)
         return {"id": out.parent.name, "acta": out.name}
-    start("acta", fn, video=video.name)
+    start("acta", fn, video=(video or Path(tr)).name)
 
 
 @app.post("/api/condensar")
@@ -121,12 +127,28 @@ def condensar(d: dict):
 
 # ---------- Vídeo de entrada ----------
 @app.post("/api/pick")
-def pick():
-    """Diálogo nativo de Tk en un subproceso (Tk no admite hilos ajenos al principal): devuelve la ruta real, sin copiar."""
+def pick(d: dict = None):
+    """Diálogo nativo de Tk en un subproceso (Tk no admite hilos ajenos al principal): devuelve la ruta real, sin copiar.
+    {"tipo": "transcripcion"} elige una transcripción en vez de un vídeo."""
+    tipo = ("Transcripción", "*" + " *".join(TR_EXT)) if (d or {}).get("tipo") == "transcripcion" else \
+        ("Vídeo", "*.mp4 *.mkv *.webm *.mov *.avi *.m4v")
     code = ("import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-            "print(f.askopenfilename(title='Elegir vídeo', filetypes=[('Vídeo', '*.mp4 *.mkv *.webm *.mov *.avi *.m4v'), ('Todos', '*')]))")
+            f"print(f.askopenfilename(title='Elegir {tipo[0].lower()}', filetypes=[{tipo!r}, ('Todos', '*')]))")
     p = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, text=True, encoding="utf-8")
     return {"path": p.stdout.strip()}
+
+
+@app.post("/api/transcripcion")
+def transcripcion(d: dict):
+    """Vista previa de una transcripción elegida: formato, nº de segmentos y de hablantes con nombre."""
+    p = Path(d.get("path", ""))
+    if p.suffix.lower() not in TR_EXT or not p.is_file():
+        raise HTTPException(400, "Elige un fichero .vtt, .srt, .txt o .docx")
+    try:
+        r = transcripts.parse(p)
+    except (ValueError, OSError, zipfile.BadZipFile) as e:
+        raise HTTPException(400, str(e))
+    return {"formato": r["formato"], "segmentos": len(r["segments"]), "hablantes": r["speakers"]}
 
 
 @app.put("/api/upload")
@@ -146,8 +168,10 @@ def meetings():
     for tf in sorted(pipeline.WORK.glob("*/transcript_*.json"), key=os.path.getmtime, reverse=True):
         v = next(tf.parent.glob("video.*"), None)
         asr = tf.stem.split("_", 1)[1]
+        imp = json.loads(tf.read_text()).get("importada") if asr.startswith("imp") else None
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
-                    "name": (v.resolve().name if v else tf.parent.name) + ("" if asr == "rápido" else " (calidad)"),
+                    "name": (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name) +
+                            (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
     return out
 
@@ -167,7 +191,8 @@ def meeting(mid: str):
         raise HTTPException(404, "Sin actas")
     rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text())) for c in wd.glob("cortes_*.json")}
     conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*.mp4"))]
-    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds}
+    imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text())["importada"] for f in wd.glob("transcript_imp*.json")}
+    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "importadas": imp}
 
 
 @app.get("/files/{mid}/{path:path}")
@@ -181,6 +206,9 @@ def files(mid: str, path: str):
 
 
 # ---------- Preguntar ----------
+who = lambda s: (s["spk"] + ": " if s.get("spk") else "") + s["text"]  # con nombres (transcripción importada) las citas dicen quién habla
+
+
 @app.post("/api/preguntar")
 def preguntar(d: dict):
     sel, q = d.get("sel"), (d.get("q") or "").strip()
@@ -202,11 +230,11 @@ def preguntar(d: dict):
                 _llm["url"], _llm["proc"] = rag.server(THREADS)
             for kind, v in rag.answer(idx, q, _llm["url"]):
                 if kind == "candidatos":
-                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": idx.segs[i]["text"][:200]} for i in v])
+                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200]} for i in v])
                 elif kind == "frase":
                     s = idx.segs[v["i"]]
                     yield line(k="frase", t=s["s"], ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"],
-                               cita=[{"t": idx.segs[j]["s"], "text": idx.segs[j]["text"], "main": j == v["i"]} for j in idx.window(v["i"])])
+                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j == v["i"]} for j in idx.window(v["i"])])
                 elif kind == "nada":
                     yield line(k="nada", text=rag.NOT_SAID)
         except Exception as e:
