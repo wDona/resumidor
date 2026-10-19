@@ -125,7 +125,7 @@ def pick():
     """Diálogo nativo de Tk en un subproceso (Tk no admite hilos ajenos al principal): devuelve la ruta real, sin copiar."""
     code = ("import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
             "print(f.askopenfilename(title='Elegir vídeo', filetypes=[('Vídeo', '*.mp4 *.mkv *.webm *.mov *.avi *.m4v'), ('Todos', '*')]))")
-    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8")
+    p = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, text=True, encoding="utf-8")
     return {"path": p.stdout.strip()}
 
 
