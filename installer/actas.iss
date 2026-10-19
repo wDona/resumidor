@@ -39,7 +39,7 @@ Source: "..\.python-version"; DestDir: "{app}"
 Source: "..\README.md"; DestDir: "{app}"
 Source: "..\static\*"; DestDir: "{app}\static"; Flags: recursesubdirs
 Source: "..\bin\ffmpeg\*"; DestDir: "{app}\bin\ffmpeg"
-Source: "..\bin\llama-*\*"; DestDir: "{app}\bin"; Flags: recursesubdirs
+Source: "..\bin\llama-b11690\*"; DestDir: "{app}\bin\llama-b11690"; Flags: recursesubdirs
 Source: "..\bin\uv\uv.exe"; DestDir: "{app}\tools"
 
 [Icons]
