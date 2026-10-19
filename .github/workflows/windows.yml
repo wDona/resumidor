@@ -46,7 +46,7 @@ jobs:
         run: |
           $p = Start-Process installer\Output\Actas-setup.exe -Wait -PassThru -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$env:APPDIR`"","/LOG=`"$PWD\install.log`""
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 30; Get-Content "$env:APPDIR\instalacion.log" -Tail 30 -ErrorAction SilentlyContinue; exit $p.ExitCode }
-          Get-ChildItem $env:APPDIR | Select Name; Get-Content "$env:APPDIR\instalacion.log" -Tail 20 -ErrorAction SilentlyContinue; Select-String -Path install.log -Pattern 'uv|instalar|Exec|Running|Abort' | Select -Last 15 | % Line
+          Get-ChildItem $env:APPDIR | % Name; Get-Content "$env:APPDIR\instalacion.log" -Tail 20 -ErrorAction SilentlyContinue; Get-Content install.log -Tail 25
           Get-ChildItem "$env:APPDIR\.venv\Scripts\pythonw.exe", "$env:APPDIR\bin" -Recurse -Include pythonw.exe,llama-server.exe,ffmpeg.exe | Select FullName
 
       - name: Vídeo de prueba (voz SAPI + imagen)
