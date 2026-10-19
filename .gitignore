@@ -4,3 +4,5 @@ bin/
 models/
 samples
 work/
+uploads/
+.actas.lock

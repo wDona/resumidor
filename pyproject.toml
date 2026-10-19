@@ -4,11 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.147.0",
     "faster-whisper>=1.2.1",
-    "gradio>=6.30.0",
     "numpy>=2.5.4",
     "pillow>=12.3.0",
     "rapidocr-onnxruntime>=1.4.4",
     "sherpa-onnx>=1.13.8",
     "sherpa-onnx-core==1.13.8",
+    "uvicorn>=0.54.0",
 ]

@@ -22,12 +22,18 @@ Los modelos de whisper se descargan solos la primera vez (small ≈ 480 MB, larg
 ## Uso
 
 ```sh
-uv run app.py                                         # interfaz web (Gradio)
+uv run app.py                                         # interfaz web local (se abre sola en el navegador)
 uv run pipeline.py video.mp4 --nivel breve --asr rápido --threads 4   # línea de comandos
 uv run make_sample.py                                 # vídeo de prueba sintético en samples/
 uv run pipeline.py --selftest
 uv run eval/score.py -v                               # actas de work/ contra eval/gold/*.json
 ```
+
+La interfaz (`app.py`: FastAPI + `static/` en JS puro, sin CDN ni build) escucha solo en 127.0.0.1 en un puerto libre y abre el
+navegador. «Elegir vídeo» abre el diálogo nativo del sistema (no copia el vídeo; también se puede soltar un fichero, que se guarda
+en `uploads/`). El trabajo largo avanza en segundo plano con progreso y tiempo restante, y sobrevive a recargar la página
+(`work/job.json`). Una segunda ejecución de `uv run app.py` solo abre la ventana ya existente (`.actas.lock`); el servidor se
+cierra solo ~60 s después de cerrar la pestaña y apaga el modelo de lenguaje.
 
 El acta queda en `work/<hash>/acta_<nivel>_<asr>/index.html` (abrible sin servidor; el vídeo va enlazado al lado)
 y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). Hilos por defecto: núcleos lógicos / 2
