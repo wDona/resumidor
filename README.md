@@ -175,3 +175,7 @@ una negación que no va pegada a una cifra) pasa; por eso la cita literal va sie
 
 Medido (47 preguntas, 4 reuniones, emulando ProBook: `taskset -c 0-3,6-9`, llama `-t 4`): recall@8 94 %, ausentes 100 %,
 trampas 91 %, paráfrasis 77 %, factuales 88 %; latencia por pregunta p50 21,8 s / p90 25,8 s (prefill ~18 s de ~790 tokens + gen ~3,5 s).
+
+LLM más fuerte para RAG (probado, no adoptado; 38 preguntas con gold, todos los hilos): 4B Q4_0 (actual) factual 95 / paráfrasis 93 /
+trampas 91 / ausentes 100 %, descartes 18 %, p50 19,6 s; 4B Q8_0 (4,5 GB) 95 / 86 / 91 / 100 %, descartes 14 %, p50 22,5 s;
+9B Q4_0 (5,1 GB) 89 / 93 / 100 / 86 %, descartes 6 %, p50 29,2 s (≈ 2× en el ProBook). Mismo nº de aciertos con más latencia y RAM: se queda el 4B Q4_0.
