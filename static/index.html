@@ -81,14 +81,18 @@
 
   <section id="preguntar" hidden>
     <p class="lead">Pregunta sobre una reunión ya procesada. Solo se responde con lo dicho en ella y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
-    <div class="card">
-      <div class="row"><label for="reunion">Reunión</label><select id="reunion"></select>
-        <button class="sec" id="refrescar" title="Actualizar lista" aria-label="Actualizar lista">&#8635;</button></div>
-      <video id="qav" controls preload="metadata"></video>
-      <form class="row" id="qform"><label for="pregunta" class="sr">Pregunta</label>
-        <input id="pregunta" placeholder="Escribe tu pregunta…"><button class="pri" id="preguntar-b">Preguntar</button></form>
+    <div id="qlayout">
+      <div class="card" id="qside">
+        <div class="row"><label for="reunion">Reunión</label><select id="reunion"></select>
+          <button class="sec" id="refrescar" title="Actualizar lista" aria-label="Actualizar lista">&#8635;</button></div>
+        <video id="qav" controls preload="metadata"></video>
+      </div>
+      <div>
+        <form class="card row" id="qform"><label for="pregunta" class="sr">Pregunta</label>
+          <input id="pregunta" placeholder="Escribe tu pregunta…"><button class="pri" id="preguntar-b">Preguntar</button></form>
+        <div id="respuestas"></div>
+      </div>
     </div>
-    <div id="respuestas"></div>
   </section>
 </main>
 <script src="app.js"></script>

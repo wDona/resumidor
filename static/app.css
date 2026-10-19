@@ -42,7 +42,7 @@ iframe{width:100%;height:78vh;border:1px solid var(--line);border-radius:8px;bac
 .cond input[type=range]{flex:1;accent-color:var(--acc)}
 .cond .row{margin-bottom:6px}
 video{width:100%;max-height:48vh;background:#000;border-radius:6px;margin:12px 0}
-#qform{margin-top:4px}
+
 .resp h3{margin:0 0 10px;font-size:16px}
 .resp p{margin:8px 0}
 a.ts{color:var(--acc);font-weight:600;text-decoration:none;font-variant-numeric:tabular-nums}a.ts:hover{text-decoration:underline}
@@ -53,4 +53,7 @@ blockquote span.o{opacity:.55}
 #drop.over input{border-color:var(--acc);background:#eef4fe}
 [hidden]{display:none!important}
 @media(max-width:860px){.grid,.cols{grid-template-columns:1fr}}
-#qav{max-height:36vh}
+#qlayout{display:grid;gap:20px;align-items:start}
+#qside{position:sticky;top:76px}
+#qav{margin:12px 0 0;max-height:40vh}
+@media(min-width:1000px){#qlayout{grid-template-columns:minmax(0,5fr) minmax(0,6fr)}#qav{max-height:none}}

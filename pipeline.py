@@ -842,16 +842,16 @@ def pick_shots(kfs, sel, n):
 
 
 # ---------- Informe HTML ----------
-CSS = """body{font:16px/1.5 system-ui,sans-serif;margin:0;color:#222;background:#fafafa}
+CSS = """body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;color:#1f2933;background:#f4f5f7}
 main{display:grid;grid-template-columns:minmax(320px,44%) 1fr;gap:24px;padding:16px;max-width:1500px;margin:auto}
 #side{position:sticky;top:16px;align-self:start}video{width:100%;background:#000;border-radius:6px}
-@media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#fafafa}}
-h1{font-size:1.4em;margin:.2em 0}h2{border-bottom:2px solid #ddd;padding-bottom:4px;margin-top:1.6em}
-.spk{font-size:13px;color:#c2185b;margin-right:6px}a.ts{font:13px monospace;color:#06c;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
-.meta{color:#666;font-size:14px}.tldr{background:#fff;border-left:4px solid #c2185b;padding:10px 14px}
-figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #ccc;border-radius:4px}
-figcaption{font-size:13px;color:#666}table{border-collapse:collapse;width:100%}
-td,th{border:1px solid #ddd;padding:4px 8px;text-align:left;vertical-align:top}
+@media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#f4f5f7}}
+h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9dee4;padding-bottom:4px;margin-top:1.6em}
+.spk{font-size:13px;color:#616e7c;margin-right:6px}a.ts{font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#1d5fd1;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
+.meta{color:#616e7c;font-size:14px}.tldr{background:#fff;border:1px solid #d9dee4;border-left:4px solid #1d5fd1;border-radius:6px;padding:10px 14px}
+figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #d9dee4;border-radius:6px}
+figcaption{font-size:13px;color:#616e7c}table{border-collapse:collapse;width:100%}
+td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:top}
 details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
 
 JS = """const v=document.getElementById('v');
