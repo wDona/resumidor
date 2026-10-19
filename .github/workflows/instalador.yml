@@ -145,7 +145,7 @@ jobs:
         run: |
           T='Buenos días a todos. Hoy revisamos el presupuesto del proyecto. El plan cuesta veinticinco euros al mes. Decidimos lanzar la versión nueva el martes. Laura se encarga de enviar el informe final. Gracias y hasta la próxima reunión.'
           say -v '?' | grep -i es_ | head -5 || true
-          say -v Monica -o voz.aiff "$T $T $T" || say -v Paulina -o voz.aiff "$T $T $T" || say -o voz.aiff "$T $T $T"
+          say -v Eddy -o voz.aiff "$T $T $T" || say -v Monica -o voz.aiff "$T $T $T" || say -v Paulina -o voz.aiff "$T $T $T" || say -o voz.aiff "$T $T $T"
           FF="$HOME/Library/Application Support/Actas/app/bin/ffmpeg"
           "$FF/ffmpeg" -v error -y -f lavfi -i testsrc2=s=1280x720:r=5 -i voz.aiff -shortest -c:v libx264 -pix_fmt yuv420p muestra.mp4
           "$FF/ffmpeg" -v error -encoders | grep -i videotoolbox || true
