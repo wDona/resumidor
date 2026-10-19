@@ -20,6 +20,7 @@ jobs:
           # - {os: macos-14, target: macos-arm64}   # Apple Silicon
           # - {os: macos-13, target: macos-x64}     # Intel
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       APPDIR: C:\Pérez y Cía\Actas   # ruta con espacios y tilde a propósito
     steps:
@@ -43,6 +44,7 @@ jobs:
           key: modelos-${{ hashFiles('models.py') }}
 
       - name: Instalación silenciosa
+        timeout-minutes: 15
         run: |
           $p = Start-Process installer\Output\Actas-setup.exe -Wait -PassThru -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$env:APPDIR`"","/LOG=`"$PWD\install.log`""
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 30; Get-Content "$env:APPDIR\instalacion.log" -Tail 30 -ErrorAction SilentlyContinue; exit $p.ExitCode }
@@ -64,12 +66,17 @@ jobs:
         run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 "$env:APPDIR\rag.py" --selftest'
 
       - name: Humo (ping, modelos, acta, preguntar)
+        timeout-minutes: 45
         run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 tools\smoke.py "$env:APPDIR" "$PWD\muestra.mp4"'
 
       - name: Desinstalar (conservando datos)
+        timeout-minutes: 5
         run: |
+          Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
           $u = Get-ChildItem $env:APPDIR -Filter 'unins*.exe' | Select -First 1
-          Start-Process $u.FullName -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES'
+          $p = Start-Process $u.FullName -PassThru -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw 'el desinstalador no termina' }
+          Start-Sleep 5  # el desinstalador real es una copia temporal que sigue un momento
           if (Test-Path "$env:APPDIR\.venv") { throw 'queda .venv' }
           if (-not (Test-Path "$env:APPDIR\models")) { throw 'se borraron los modelos' }
 

@@ -55,4 +55,7 @@ try:
     print("preguntar:", r[:300], flush=True)
     assert '"k": "error"' not in r, r
 finally:
-    proc.terminate()
+    if os.name == "nt":  # terminate() no mata al llama-server hijo y bloquearía la desinstalación
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.terminate()
