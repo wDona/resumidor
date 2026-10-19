@@ -24,8 +24,28 @@ st = {"state": "idle", "done": 0, "total": sum(f[3] for f in FILES), "msg": ""} 
 _lock = threading.Lock()
 
 
+def adopt(f):
+    """Si el fichero ya está en la caché de Hugging Face (faster-whisper, hf_hub), lo enlaza en models/ sin copiar ni bajar."""
+    import os, re
+    m = re.match(HF + r"([^/]+)/([^/]+)/resolve/main/(.+)$", f[1])
+    if not m:
+        return
+    hub = Path(os.environ.get("HF_HUB_CACHE") or Path(os.environ.get("HF_HOME") or Path.home() / ".cache/huggingface") / "hub")
+    for src in sorted((hub / f"models--{m[1]}--{m[2]}" / "snapshots").glob(f"*/{m[3]}")):
+        if src.is_file() and src.stat().st_size > 0:
+            p = M / f[0]
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.symlink_to(src.resolve())
+            except OSError:  # Windows sin permiso de enlaces: se baja
+                p.unlink(missing_ok=True)
+            return
+
+
 def ok(f):
     p = M / f[0]
+    if not p.exists():
+        adopt(f)
     return p.is_file() and p.stat().st_size > 0 and not p.with_name(p.name + ".part").exists()
 
 
