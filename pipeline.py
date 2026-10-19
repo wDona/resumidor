@@ -415,7 +415,7 @@ def sentences(s, cap):
 
 
 PT_MAX = 160
-REL_MAX = 190   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
+REL_MAX = 230   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
 MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 9, 6),
                  decisiones=arr(obj(cita=S(100), texto=S(160), t=TS), 5), tareas=arr(TASK, 5),
                  relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1))  # al final: decisiones y tareas se generan con el mismo contexto de siempre
@@ -472,7 +472,9 @@ comparaciones (A frente a B) no cambies qué va con cada uno. En una demostraci�
 «se propone» ni «se acuerda». No mezcles cifras ni nombres de partes distintas; votos, abstenciones y números solo si se \
 dicen; lo leído de un acta anterior se cuenta como lectura («el acta anterior recoge…»), no como acuerdo de hoy.
 decisiones: solo acuerdos tomados en esta reunión («se aprueba…», «acordamos…», votación con resultado, aplazar un \
-punto a la próxima sesión, suspender la sesión). NO son \
+punto a la próxima sesión, suspender la sesión); también cuando alguien pide dejar algo «pendiente para la \
+próxima reunión» y quien dirige lo acepta, o cuando se designa, se reorienta o se fija algo («se aplaza…», «se designa \
+a…», «la próxima reunión será en…»). NO son \
 decisiones: lo que se lee en voz alta de un acta anterior (aunque diga «Acuerdos» o «queda aprobada»: el acta se aprueba \
 hoy cuando los presentes la votan o dicen estar de acuerdo), los pasos de una demostración o ejemplo («ahora creo un \
 webinar…»), opiniones, observaciones ni propuestas sin aprobar («deberíamos», «se podría»).
@@ -483,7 +485,7 @@ resolución) es una sola tarea. responsable: quien la hará (no a quien va dirig
 solo si se dice; si no, "—".
 cita: copia literal de la transcripción (máx. 12 palabras) que prueba la decisión o tarea; si no la hay, no la incluyas.
 relato: 2 párrafos que cuentan en orden lo ocurrido en el fragmento, en lenguaje llano y con tus palabras (no copies \
-frases): de qué se habló, qué se explicó o concluyó y por qué importa. Cada uno, 1-2 frases de máx. 28 palabras; t = marca \
+frases): de qué se habló, qué se explicó o concluyó y por qué importa. Cada uno, 1-2 frases COMPLETAS de máx. 22 palabras en total; t = marca \
 donde empieza; el segundo empieza hacia la mitad del fragmento. Solo lo dicho o mostrado: ni hechos, ni nombres, ni cifras \
 nuevos. En un tutorial, cuenta qué se enseña y cómo.
 Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."""
@@ -607,6 +609,11 @@ COND = re.compile(r"\b(deber[ií]amos|habr[ií]a que|podr[ií]amos|se podr[ií]a
                   r"propongo|sugiero|sugerir|quer[ií]amos|ojal[aá])\b", re.I)
 
 
+RESCUE = re.compile(r"pendiente.{0,60}pr[oó]xima|aplaz|se designa|se nombra", re.I)
+RESCUE_PROMPT = ("Fragmento de una reunión (transcripción con errores). Redacta en una frase, en impersonal, la decisión que se "
+                 "toma ahí (qué se aplaza, designa o fija). Solo lo dicho.")
+
+
 def map_chunk(chat, segs, text, lang, kfs=()):
     """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
     la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
@@ -616,6 +623,10 @@ def map_chunk(chat, segs, text, lang, kfs=()):
         p["texto"] = sentences(p["texto"], PT_MAX)
         if not t0 - 5 <= parse_ts(p["t"]) <= t1 + 5:  # marca inventada fuera del bloque: al inicio del bloque
             p["t"] = fmt(t0)
+    ts = [p["t"] for p in m["puntos"]]
+    for p in m["puntos"]:  # marcas repetidas (el modelo pone la misma a varios): cada punto a donde se dice de verdad
+        if ts.count(p["t"]) > 1 and (r := find_quote(p["texto"], segs, near=parse_ts(p["t"])))[0] >= 0.2:
+            p["t"] = fmt(r[1])
     for r in m.get("relato", []):
         r["texto"] = sentences(r["texto"], REL_MAX)
         if not t0 - 5 <= parse_ts(r["t"]) <= t1 + 5:
@@ -624,6 +635,11 @@ def map_chunk(chat, segs, text, lang, kfs=()):
     seen = set()  # el modelo a veces repite el mismo punto tal cual
     m["puntos"] = [p for p in m["puntos"] if not (k := " ".join(words(p["texto"]))) in seen and not seen.add(k)]
     sw = [words(s["text"]) for s in segs]
+    for i, s in enumerate(segs):  # el 4B se deja decisiones de aplazar/designar: el texto manda y verify() decide si lo son
+        w = " ".join(x["text"] for x in segs[i:i + 3])
+        if RESCUE.search(w) and len(m["decisiones"]) < 5 and not any(abs(parse_ts(d["t"]) - s["s"]) < 90 for d in m["decisiones"]):
+            ctx = "\n".join(f"[{fmt(x['s'])}] {x['text']}" for x in segs if s["s"] - 40 <= x["s"] <= s["s"] + 40)
+            m["decisiones"].append({"cita": w[:100], "texto": chat(RESCUE_PROMPT, ctx, obj(texto=S(160)), 80)["texto"], "t": fmt(s["s"])})
     for k in ("decisiones", "tareas"):
         keep = []
         for it in m[k]:
@@ -655,15 +671,20 @@ def select_points(maps, keep, cap=None, floor=0, uniq=False):
     g = min(k, len(maps))
     pick = []
 
-    def take(cands, n):
+    ts = [x[2] for x in allp]
+    gap = (max(ts) - min(ts)) / (2 * k) if uniq and allp else 0  # breve: dos puntos elegidos no pegados en el tiempo
+
+    def take(cands, n, gap=0):
         for x in cands:
             if n <= 0:
                 return
-            if x not in pick and not (uniq and any(same(p[3], x[3], 0.75) for p in pick)):
+            if x not in pick and not (uniq and any(same(p[3], x[3], 0.75) for p in pick)) and \
+                    all(abs(p[2] - x[2]) >= gap for p in pick):
                 pick.append(x)
                 n -= 1
     for j in range(g):
-        take([x for x in allp if x[4] * g // len(maps) == j], k // g)
+        take([x for x in allp if x[4] * g // len(maps) == j], k // g, gap)
+    take(allp, k - len(pick), gap)
     take(allp, k - len(pick))
     return sorted((t, txt, -neg, b) for neg, _, t, txt, b in pick)
 
@@ -711,7 +732,7 @@ def verify(chat, maps, segments, kfs, win=45):
             t = parse_ts(it["t"])
             ctx = [s for s in segments if t - win <= s["s"] <= t + win]
             f = reading(t, segments, kfs, win)
-            if f >= 0.25 and name == "decisiones":  # lo leído («el acta anterior queda aprobada») se suele votar justo después:
+            if f >= 0.25 and name == "decisiones" and re.search(r"\bacta\b", it[key] + it["cita"], re.I):  # lo leído («el acta anterior queda aprobada») se suele votar justo después:
                 kw = {w for w in words(it[key]) if len(w) >= 4}  # si a <= 5 min se aprueba algo con sus palabras, va ahí
                 later = ([s for s in segments if t < s["s"] <= t + 300 and APPROVE.search(s["text"]) and  # la última:
                           kw & set(words(s["text"])) and reading(s["s"], segments, kfs, win) < 0.25] or [None])[-1]  # antes se anuncia
@@ -1072,7 +1093,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     starts = [c[0]["s"] for c in chunks]
     inputs = [map_input(c, kfs, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
-    mh = hashlib.sha1("\0".join([MAP_PROMPT, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
+    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}_{rh}.json"
