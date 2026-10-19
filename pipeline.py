@@ -41,7 +41,7 @@ PHYS = max(1, (os.cpu_count() or 2) // 2)
 # 50 % más (un modelo pequeño a veces entra en bucle y agotaría max_tokens) y, si se alcanza, se recorta en la última frase
 # completa (sentences): nunca a mitad de palabra
 LEVELS = {
-    "breve": dict(keep=0.2, pts=8, shots=3, hshots=None, nshots=6, rel=1, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
+    "breve": dict(keep=0.2, pts=10, shots=3, hshots=None, nshots=6, rel=1, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
     "normal": dict(keep=0.5, pts=None, shots=10, hshots=None, nshots=12, rel=2, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
                    sec=("2-3 frases", 350)),
     "detallado": dict(keep=1.0, pts=None, shots=None, hshots=None, nshots=20, rel=2, dec=None, tar=None, secs=True,

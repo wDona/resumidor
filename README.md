@@ -118,7 +118,7 @@ En el ProBook con RAM de un solo canal la generación puede ir bastante más len
    tareas, el prompt prohíbe «se acordó / queda pendiente». En breve/normal las decisiones repetitivas (esqueleto ≥ 75 %) se agrupan («… y 14
    más parecidas») y, si aún hay más que el tope, el LLM elige las clave por número (breve 5/5, normal 12/10). Largo pedido
    en caracteres, tope duro un 50 % mayor y recorte en la última frase completa: nunca a mitad de palabra.
-11. Render: breve = resumen + 8 puntos clave con marca + decisiones/tareas clave + 3 capturas; normal = secciones con sus
+11. Render: breve = resumen + 10 puntos clave con marca + decisiones/tareas clave + 3 capturas; normal = secciones con sus
     viñetas y las capturas más relevantes (máx. 10); detallado = todos los puntos y todas las capturas. Solo se copian a
     `img/` las capturas mostradas; en breve/normal no se repiten casi iguales (≥ 50 % de palabras) a menos de 3 min. El
     vídeo se enlaza (o se copia una sola vez por vídeo en `work/<hash>/`; una subida en un temporal nunca con enlace
