@@ -240,7 +240,7 @@ def server(threads, ctx=4096):
     ponytail: copia de los argumentos de P.llama; unificar si P.llama devolviera también la url."""
     if os.environ.get("ACTAS_LLM_URL"):
         return os.environ["ACTAS_LLM_URL"], None
-    exe = next((p for p in P.ROOT.glob("bin/**/llama-server*") if p.is_file()), None)
+    exe = P.llama_exe()
     if not exe or not P.llm_model():
         raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
     with socket.socket() as s:

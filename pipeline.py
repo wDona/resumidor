@@ -378,9 +378,14 @@ def llm_model():
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
 
 
+def llama_exe():
+    """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb."""
+    return next((p for p in ROOT.glob("bin/**/llama-server*") if p.is_file() and p.suffix in ("", ".exe")), None)
+
+
 @contextlib.contextmanager
 def llama(threads, ctx=8192):
-    exe = next((p for p in ROOT.glob("bin/**/llama-server*") if p.is_file()), None)
+    exe = llama_exe()
     model = llm_model()
     if not exe or not model:
         raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
