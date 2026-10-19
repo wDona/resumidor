@@ -137,3 +137,18 @@ function evento(ev, cuerpo, frag, estado) {
 // ---- arranque: retomar un trabajo en marcha ----
 cargarLista();
 api("/api/job").then(j => { if (j.state === "running") seguir(); });
+
+// ---- primera vez: descarga de modelos (bloquea la página hasta terminar) ----
+async function modelos() {
+  let m = await api("/api/modelos").catch(() => null);
+  if (!m || (!m.need && m.state !== "running")) return $("modelos").hidden = true;
+  $("modelos").hidden = false; $("mod-reint").hidden = true;
+  if (m.state === "idle") m = await post("/api/modelos");
+  const p = Math.min(100, Math.round(m.done / m.total * 100));
+  $("mod-msg").textContent = m.msg; $("mod-bar").style.width = p + "%";
+  $("mod-pct").textContent = p + " % · " + (m.done / 1e9).toFixed(2) + " de " + (m.total / 1e9).toFixed(2) + " GB";
+  if (m.state === "error") { $("mod-reint").hidden = false; return; }
+  setTimeout(modelos, 1000);
+}
+$("mod-reint").onclick = async () => { await post("/api/modelos"); modelos(); };
+modelos();

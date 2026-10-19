@@ -7,6 +7,16 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<div id="modelos" hidden>
+  <div class="card narrow">
+    <h2>Primer arranque: descargando modelos</h2>
+    <p>La aplicación necesita descargar unos 3,3 GB (voz, resumen y búsqueda) una sola vez. Después funciona sin internet. Si se corta, vuelve a abrirla: sigue donde se quedó.</p>
+    <p id="mod-msg" aria-live="polite"></p>
+    <div class="bar"><div id="mod-bar"></div></div>
+    <p class="muted" id="mod-pct"></p>
+    <button class="pri" id="mod-reint" hidden>Reintentar</button>
+  </div>
+</div>
 <header>
   <h1>Actas de reuniones</h1>
   <nav role="tablist">

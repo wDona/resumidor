@@ -33,7 +33,39 @@ ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
 LLM = ("Qwen3.5-4B-Q4_0.gguf", "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf")
 # ponytail: núcleos físicos = lógicos / 2 (SMT de 2 hilos, p. ej. i5-1135G7 4C/8T); con más hilos que núcleos llama.cpp
 # genera a menos de la mitad de velocidad. Sin SMT se queda con la mitad: --threads / ACTAS_THREADS lo corrigen
-PHYS = max(1, (os.cpu_count() or 2) // 2)
+def _phys():
+    """Núcleos físicos: Windows (API del sistema), macOS (sysctl, solo los de rendimiento si los hay), Linux = lógicos / 2."""
+    try:
+        if os.name == "nt":
+            import ctypes, struct
+            n = ctypes.c_ulong(0)
+            ctypes.windll.kernel32.GetLogicalProcessorInformation(None, ctypes.byref(n))
+            buf = ctypes.create_string_buffer(n.value)
+            ctypes.windll.kernel32.GetLogicalProcessorInformation(buf, ctypes.byref(n))
+            return max(1, sum(struct.unpack_from("<I", buf, o + 8)[0] == 0 for o in range(0, n.value, 32)))  # 0 = RelationProcessorCore
+        if sys.platform == "darwin":
+            for k in ("hw.perflevel0.physicalcpu", "hw.physicalcpu"):
+                p = subprocess.run(["sysctl", "-n", k], capture_output=True, text=True)
+                if p.returncode == 0:
+                    return max(1, int(p.stdout))
+    except Exception:
+        pass
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+PHYS = _phys()
+if os.name == "nt":  # ffmpeg/llama-server/Tk sin ventana de consola (la app se lanza con pythonw)
+    _Popen = subprocess.Popen
+
+    class _NoWin(_Popen):
+        def __init__(self, *a, **k):
+            k["creationflags"] = k.get("creationflags", 0) | 0x08000000  # CREATE_NO_WINDOW
+            super().__init__(*a, **k)
+    subprocess.Popen = _NoWin
+# ffmpeg/ffprobe empaquetados (bin/**/, ver tools/fetch_bins.py) delante del PATH; si no hay, se usan los del sistema
+for _f in ROOT.glob("bin/**/ffmpeg*"):
+    if _f.is_file() and _f.stem == "ffmpeg":
+        os.environ["PATH"] = str(_f.parent) + os.pathsep + os.environ.get("PATH", "")
 # keep = fracción de puntos (ranking global por importancia) que entra en el acta; pts = puntos a la vista (breve: los
 # "puntos clave", siempre esos si los hay, aunque keep diera menos); shots = máx. de capturas; dec/tar = máx. de decisiones/tareas (las elige el LLM); None = todas.
 # secs = una sección por bloque del map con su resumen.
@@ -116,7 +148,8 @@ def transcribe(video, quality, threads, dur, cb):
     from faster_whisper import WhisperModel
     name = ASR_MODELS[quality]
     cb(0, f"Cargando modelo de voz ({name})…")
-    model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
+    local = ROOT / "models" / f"whisper-{name}"  # lo deja models.py; si no está, faster-whisper lo baja de Hugging Face
+    model = WhisperModel(str(local) if (local / "model.bin").exists() else name, device="cpu", compute_type="int8", cpu_threads=threads)
     lang = [None]  # se detecta en la primera ventana y se fija para las demás
 
     def win(start, length):

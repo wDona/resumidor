@@ -57,3 +57,5 @@ blockquote span.o{opacity:.55}
 #qside{position:sticky;top:76px}
 #qav{margin:12px 0 0;max-height:40vh}
 @media(min-width:1000px){#qlayout{grid-template-columns:minmax(0,5fr) minmax(0,6fr)}#qav{max-height:none}}
+
+#modelos{position:fixed;inset:0;z-index:9;background:var(--bg);overflow:auto}#modelos[hidden]{display:none}

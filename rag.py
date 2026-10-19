@@ -100,11 +100,12 @@ def embed(texts, query=False, threads=2):
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
         d = P.ROOT / "models" / "gemma-emb"
-        tok = Tokenizer.from_file(hf_hub_download(REPO, "tokenizer.json", local_dir=d))
+        get = lambda f: str(d / f) if (d / f).is_file() else hf_hub_download(REPO, f, local_dir=d)  # local (models.py) o Hugging Face
+        tok = Tokenizer.from_file(get("tokenizer.json"))
         tok.enable_truncation(512)
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
-        _enc = tok, ort.InferenceSession(hf_hub_download(REPO, ONNX, local_dir=d), so, providers=["CPUExecutionProvider"])
+        _enc = tok, ort.InferenceSession(get(ONNX), so, providers=["CPUExecutionProvider"])
     tok, sess = _enc
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
     out = np.zeros((len(texts), 768), np.float32)

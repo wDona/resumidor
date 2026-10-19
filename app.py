@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import models
 import pipeline
 import rag
 
@@ -220,6 +221,17 @@ def latido():
     beat[0] = time.time()
 
 
+@app.get("/api/modelos")
+def get_modelos():
+    return models.status()
+
+
+@app.post("/api/modelos")
+def bajar_modelos():
+    models.start()
+    return models.status()
+
+
 @app.get("/api/ping")
 def ping():
     return "actas"
@@ -239,8 +251,10 @@ def vivo():
 
 if __name__ == "__main__":
     pipeline.WORK.mkdir(exist_ok=True)
+    if sys.stdout is None:  # pythonw (Windows, sin consola): uvicorn y print necesitan un destino
+        sys.stdout = sys.stderr = open(pipeline.WORK / "app.log", "a", encoding="utf-8")
     if url := vivo():
-        webbrowser.open(url)
+        os.environ.get("ACTAS_NO_BROWSER") or webbrowser.open(url)
         sys.exit()
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -254,5 +268,6 @@ if __name__ == "__main__":
             time.sleep(2)
         srv.should_exit = True
     threading.Thread(target=vigila, daemon=True).start()
-    threading.Timer(1, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
+    if not os.environ.get("ACTAS_NO_BROWSER"):  # CI/pruebas sin navegador
+        threading.Timer(1, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
     srv.run()
