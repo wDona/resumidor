@@ -147,7 +147,7 @@ with gr.Blocks(title="Actas de reuniones") as demo:
                     "y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es "
                     "independiente (no recuerda las anteriores).")
         with gr.Row():
-            reunion = gr.Dropdown(reuniones(), label="Reunión", scale=3)
+            reunion = gr.Dropdown(reuniones(), value=next((v for _, v in reuniones()), None), label="Reunión", scale=3)
             refrescar = gr.Button("↻", scale=0)
         reproductor = gr.HTML()
         with gr.Row():
