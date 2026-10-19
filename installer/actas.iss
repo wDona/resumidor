@@ -73,7 +73,6 @@ begin
   Pg := CreateOutputMarqueeProgressPage('Instalando componentes', 'Descargando Python y las librerías (necesita internet; puede tardar varios minutos)…');
   Pg.Show;
   try
-    Pg.SetProgress(0, 0);
     Exec(ExpandConstant('{app}\instalar.cmd'), '', ExpandConstant('{app}'), SW_HIDE, ewNoWait, Code);
     I := 0;
     while (not FileExists(Done)) and (I < 36000) do begin
