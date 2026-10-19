@@ -78,7 +78,7 @@ def terms(text):
 def units(wd, quality="rápido"):
     """Tramos de voz de ~15 s (marcas del ASR) y, aparte, el texto de cada pantalla compartida en trozos de 60 palabras."""
     tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text())
-    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz"} for x in P.merge_segs(tr["segments"])]
+    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk")} for x in P.merge_segs(tr["segments"])]
     kf = Path(wd) / "frames.json"
     for k in P.screens(json.loads(kf.read_text())) if kf.exists() else []:
         # sin URLs ni tokens kilométricos (barra de direcciones): solo meten ruido en BM25 y en el embedding

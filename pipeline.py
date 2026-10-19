@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+import transcripts
+
 ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "work"
 STEP = 3                      # s entre muestras de vídeo
@@ -145,23 +147,48 @@ def pcm16k(video, start, length):
                                         capture_output=True, check=True).stdout, np.float32)
 
 
-def transcribe(video, quality, threads, dur, cb):
+def transcribe(video, quality, threads, dur, cb, t0=0):
     from faster_whisper import WhisperModel
     name = ASR_MODELS[quality]
     cb(0, f"Cargando modelo de voz ({name})…")
+    # t0: solo un trozo del vídeo (muestra para alinear una transcripción importada), dur = su largo; marcas absolutas
     local = ROOT / "models" / f"whisper-{name}"  # lo deja models.py; si no está, faster-whisper lo baja de Hugging Face
     model = WhisperModel(str(local) if (local / "model.bin").exists() else name, device="cpu", compute_type="int8", cpu_threads=threads)
     lang = [None]  # se detecta en la primera ventana y se fija para las demás
 
     def win(start, length):
-        segs, info = model.transcribe(pcm16k(video, start, length), language=lang[0], vad_filter=True,
+        segs, info = model.transcribe(pcm16k(video, t0 + start, length), language=lang[0], vad_filter=True,
                                       beam_size=1 if name == "small" else 5, condition_on_previous_text=False)
         lang[0] = lang[0] or info.language
         for s in segs:
             cb(min((start + s.end) / dur, 1), f"Transcribiendo… {fmt(start + s.end)} / {fmt(dur)}")
             yield s.start, s.end, s.text.strip()
     segs = windowed(win, dur, ASR_WIN)
-    return {"language": lang[0], "segments": [{"s": round(s, 1), "e": round(e, 1), "text": t} for s, e, t in segs if t]}
+    return {"language": lang[0], "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t} for s, e, t in segs if t]}
+
+
+# ---------- Transcripción importada ----------
+SAMPLE = 150  # s del vídeo que se transcriben para alinear la transcripción importada (desde el minuto 1: sin la charla inicial)
+
+
+def import_transcript(path, video, threads, dur, cb):
+    """Transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR. Con vídeo, desfase automático: se transcribe una muestra
+    con whisper y se busca el desfase (±10 min) que más palabras comunes alinea; si no hay certeza, 0 y un aviso."""
+    r = transcripts.parse(path)
+    segs, info = r["segments"], {"fuente": Path(path).name, "formato": r["formato"], "segmentos": len(r["segments"]),
+                                 "hablantes": r["speakers"], "desfase": 0, "aviso": None}
+    if video:
+        t0 = min(60, max(0, dur - SAMPLE))
+        sample = transcribe(video, "rápido", threads, min(SAMPLE, dur - t0), lambda f, m: cb(f, "Alineando la transcripción… " + m), t0)
+        d, ok = transcripts.align(sample["segments"], segs)
+        if ok:
+            info["desfase"] = d
+            segs = [{**s, "s": max(0, round(s["s"] + d, 1)), "e": round(s["e"] + d, 1)} for s in segs if s["e"] + d > 0 and s["s"] + d < dur]
+        else:
+            info["aviso"] = "No se pudo alinear la transcripción con el vídeo (se usa sin desfase): las marcas pueden no coincidir."
+    if not segs:
+        raise RuntimeError("La transcripción no tiene nada dentro de la duración del vídeo")
+    return {"language": transcripts.language(segs), "segments": segs, "importada": info}
 
 
 # ---------- Quién habla ----------
@@ -886,7 +913,7 @@ main{display:grid;grid-template-columns:minmax(320px,44%) 1fr;gap:24px;padding:1
 #side{position:sticky;top:16px;align-self:start}video{width:100%;background:#000;border-radius:6px}
 @media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#f4f5f7}}
 h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9dee4;padding-bottom:4px;margin-top:1.6em}
-.spk{font-size:13px;color:#616e7c;margin-right:6px}a.ts{font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#1d5fd1;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
+.spk{font-size:13px;color:#616e7c;margin-right:6px}a.ts{font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#1d5fd1;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}span.ts{font:600 13px system-ui,sans-serif;color:#616e7c;margin-right:6px}
 .meta{color:#616e7c;font-size:14px}.tldr{background:#fff;border:1px solid #d9dee4;border-left:4px solid #1d5fd1;border-radius:6px;padding:10px 14px}
 figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #d9dee4;border-radius:6px}
 figcaption{font-size:13px;color:#616e7c}table{border-collapse:collapse;width:100%}
@@ -905,8 +932,9 @@ def ts_link(t):
     return f'<a class="ts" href="#" data-t="{int(t)}">[{fmt(t)}]</a>'
 
 
-def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None):
-    """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}."""
+def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None):
+    """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
+    vídeo (las marcas no son enlaces). imp: datos de la transcripción importada (nota y participantes)."""
     cfg = LEVELS[level]
     at = [s["s"] for s in segments]
     spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
@@ -948,13 +976,19 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                       + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else ""))
     trans = "".join(f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}"
                     f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
+    nota = ""
+    if imp:
+        nota = (f'<p class="meta">Transcripción importada: {esc(imp["fuente"])} ({imp["formato"]}, {imp["segmentos"]} segmentos'
+                + (f", desfase aplicado {imp['desfase']:+.0f} s" if vext and not imp["aviso"] else "") + ")."
+                + (f" <b>{esc(imp['aviso'])}</b>" if imp["aviso"] else "") + "</p>"
+                + (f'<p class="meta">Participantes: {esc(", ".join(imp["hablantes"]))}.</p>' if imp["hablantes"] else ""))
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><video id="v" src="video{vext}" controls preload="metadata"></video>
 <p id="pick" hidden>No se encuentra el vídeo junto al informe. Ábrelo: <input type="file" accept="video/*"></p></div>
 <div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
-<h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
+{nota}<h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
 {f"<h2>Desarrollo de la reunión</h2>{narr}" if narr else ""}
 {f"<h2>Decisiones</h2><ul>{dec}</ul>" if dec else ""}
 {f"<h2>Tareas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else ""}
@@ -962,6 +996,10 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {desarrollo}
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
 </div></main><script>{JS}</script></body></html>"""
+    if not vext:  # sin vídeo: ni reproductor ni enlaces
+        page = re.sub(r'<div id="side">.*?</p></div>', "", page, flags=re.S).replace(f"<script>{JS}</script>", "")
+        page = page.replace("<main>", '<main style="display:block;max-width:900px">', 1)
+        page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
     allshots = sorted({k["img"]: k for k in [*shots, *nshots.values()]}.values(), key=lambda k: k["t"])
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
@@ -1093,22 +1131,35 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False):
-    video = Path(video)
-    wd = WORK / video_id(video)
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None):
+    """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor."""
+    video = Path(video) if video else None
+    if not (video or transcript):
+        raise RuntimeError("Falta el vídeo o la transcripción")
+    if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
+        th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
+        quality = "imp" + th[:8]
+    wd = WORK / (video_id(video) if video else "t" + th[:16])
     wd.mkdir(parents=True, exist_ok=True)
     timings = {}
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
-    dur = duration(video)
-
     tf = wd / f"transcript_{quality}.json"
+    dur = duration(video) if video else json.loads(tf.read_text())["segments"][-1]["e"] if tf.exists() else 0
+
     if not tf.exists():
         t0 = time.time()
-        tf.write_text(json.dumps(transcribe(video, quality, threads, dur, lambda f, m: cb(0.45 * f, m)), ensure_ascii=False))
-        stage("asr", t0)
+        tr = (import_transcript(transcript, video, threads, dur, lambda f, m: cb(0.45 * f, m)) if transcript else
+              transcribe(video, quality, threads, dur, lambda f, m: cb(0.45 * f, m)))
+        tf.write_text(json.dumps(tr, ensure_ascii=False))
+        stage("transcripción" if transcript else "asr", t0)
     tr = json.loads(tf.read_text())
     if not tr["segments"]:
         raise RuntimeError("No se ha detectado voz en el vídeo")
+    imp = tr.get("importada")
+    dur = dur or tr["segments"][-1]["e"]
+    speakers = speakers and video and not (imp and imp["hablantes"])  # con nombres en el fichero no hace falta separar voces
+    if imp:
+        timings["importada"] = imp
     lang = LANG.get(tr["language"], f"el idioma de la reunión ({tr['language']})")
 
     dh = hashlib.sha1(repr((DIAR_EMB, DIAR_PIECE, DIAR_MIN)).encode()).hexdigest()[:8]
@@ -1123,11 +1174,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             s["spk"] = k
 
     kf = wd / "frames.json"  # OCR crudo; screens() lo clasifica y deduplica en cada ejecución
-    if not kf.exists():
+    if video and not kf.exists():
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.1 * f, m)), ensure_ascii=False))
         stage("capturas+ocr", t0)
-    kfs = screens(json.loads(kf.read_text()), {w for s in tr["segments"] for w in words(s["text"])})
+    kfs = screens(json.loads(kf.read_text()), {w for s in tr["segments"] for w in words(s["text"])}) if video else []
 
     chunks = chunk(tr["segments"])
     starts = [c[0]["s"] for c in chunks]
@@ -1160,33 +1211,36 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             stage("reduce", t0)
     red = json.loads(rf.read_text())
     maps = mark_reading(maps, tr["segments"], kfs)
-    imp = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
-    (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp)], dur)))
+    imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
+    if video:  # el vídeo condensado necesita vídeo
+        (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
     print(score_hist(maps), flush=True)
 
     out = wd / f"acta_{level}_{quality}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
-    for k in render(out, red.get("titulo") or video.stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"], level, video.suffix,
-                    names):
+    for k in render(out, red.get("titulo") or (video or Path(transcript)).stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
+                    level, video.suffix if video else None, names, imp):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
-    zpath = wd / f"acta_{video.stem}_{level}.zip"
+    zpath = wd / f"acta_{(video or Path(transcript)).stem}_{level}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
             z.write(f, f.relative_to(out))
     # vídeo junto al informe para el reproductor: como mucho una copia por vídeo (en wd), y de ahí enlace a cada nivel
-    src = wd / f"video{video.suffix}"
-    if src.is_symlink() and not src.exists():  # enlace roto (temporal ya borrado): se rehace
-        src.unlink()
-    if not src.exists():
-        put_file(video.resolve(), src)
-    put_file(src, out / src.name)
+    if video:
+        src = wd / f"video{video.suffix}"
+        if src.is_symlink() and not src.exists():  # enlace roto (temporal ya borrado): se rehace
+            src.unlink()
+        if not src.exists():
+            put_file(video.resolve(), src)
+        put_file(src, out / src.name)
     (wd / f"timings_{quality}_{level}.json").write_text(json.dumps(timings))
     cb(1, "Listo")
     return out, zpath, timings
 
 
 def _selftest():
+    transcripts._selftest()
     assert fmt(3725) == "62:05" and parse_ts("62:05") == 3725 and parse_ts("1:02:05") == 3725
     rng = np.random.default_rng(0)
     a, b = rng.integers(0, 255, (2, THUMB_H, THUMB_W))
@@ -1304,6 +1358,11 @@ def _selftest():
                [{"s": 0, "e": 5, "text": "hola"}], "breve")
         h = (Path(d) / "index.html").read_text()
         assert "<h2>Decisiones" not in h and "<h2>Tareas" not in h and "Desarrollo de la reunión" in h and "Uno." in h and "Dos." not in h, h
+        render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
+               [{"s": 0, "e": 5, "text": "hola", "spk": "Ana"}], "breve", None, None,
+               {"fuente": "t.vtt", "formato": "WebVTT", "segmentos": 1, "hablantes": ["Ana"], "desfase": 0, "aviso": None})
+        h = (Path(d) / "index.html").read_text()  # sin vídeo: sin reproductor ni enlaces; con nota y participantes
+        assert "<video" not in h and 'data-t="' not in h and "Participantes: Ana" in h and "t.vtt (WebVTT, 1 segmentos" in h, h
     g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS, c=S(9)), 3)))
     assert 'root ::= o6' in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g
     assert '("," sp ("1")){1,4}) sp "]"' in gbnf(obj(p=arr({"enum": [1]}, 5, 2))), "minItems sin ? final"
@@ -1358,6 +1417,7 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Genera el acta de una reunión grabada")
     ap.add_argument("video", nargs="?")
+    ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
     ap.add_argument("--threads", type=int, default=PHYS)
@@ -1365,7 +1425,7 @@ if __name__ == "__main__":
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
-    if a.selftest or not a.video:
+    if a.selftest or not (a.video or a.transcripcion):
         sys.exit(_selftest())
     last = [0.0]
 
@@ -1373,8 +1433,8 @@ if __name__ == "__main__":
         if time.time() - last[0] > 5 or f >= 1:
             last[0] = time.time()
             print(f"{f:5.0%} {m}", flush=True)
-    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes)
+    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion)
     print(out / "index.html", z, json.dumps(t), sep="\n")
-    if a.condensar is not None:
+    if a.condensar is not None and a.video:
         v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)
         print(v, f"quitado {pct} %", json.dumps(st), sep="\n")
