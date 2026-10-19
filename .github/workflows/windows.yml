@@ -77,14 +77,18 @@ jobs:
         with:
           name: instalador-${{ matrix.target }}
           path: installer/Output/Actas-setup.exe
+      - name: Reunir logs
+        if: always()
+        run: |
+          New-Item logs -ItemType Directory -Force | Out-Null
+          Copy-Item "$env:APPDIR\instalacion.log","$env:APPDIR\work\app.log" logs -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: logs-${{ matrix.target }}
           path: |
             install.log
-            C:\Pérez y Cía\Actas\instalacion.log
-            C:\Pérez y Cía\Actas\work\app.log
+            logs
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

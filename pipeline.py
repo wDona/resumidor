@@ -364,7 +364,7 @@ def keyframes(video, wd, threads, dur, cb):
         img = wd / "frames" / f"k{b * STEP:06d}.jpg"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1",
                         "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
-        im = cv2.imread(str(img))
+        im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)  # imread no abre rutas con tildes en Windows
         c = round(len(im) * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
         res, _ = ocr(im[c:len(im) - c])
         lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
