@@ -185,3 +185,11 @@ trampas 91 %, paráfrasis 77 %, factuales 88 %; latencia por pregunta p50 21,8 s
 LLM más fuerte para RAG (probado, no adoptado; 38 preguntas con gold, todos los hilos): 4B Q4_0 (actual) factual 95 / paráfrasis 93 /
 trampas 91 / ausentes 100 %, descartes 18 %, p50 19,6 s; 4B Q8_0 (4,5 GB) 95 / 86 / 91 / 100 %, descartes 14 %, p50 22,5 s;
 9B Q4_0 (5,1 GB) 89 / 93 / 100 / 86 %, descartes 6 %, p50 29,2 s (≈ 2× en el ProBook). Mismo nº de aciertos con más latencia y RAM: se queda el 4B Q4_0.
+
+## Instalador de Windows
+
+Descarga `Actas-setup.exe` de la sección Releases y ejecútalo (no pide administrador; se instala en `%LOCALAPPDATA%\Programs\Actas`). Necesita internet durante la instalación (Python y librerías) y en el primer arranque (unos 3,3 GB de modelos, con pantalla de progreso; si se corta, se reanuda al volver a abrir).
+
+El instalador no está firmado: Windows SmartScreen mostrará «Windows protegió su PC». Pulsa **Más información → Ejecutar de todos modos**. La primera vez, Windows Defender analiza los ficheros nuevos y el arranque y el primer acta pueden tardar más; es normal. No se añaden exclusiones a Defender.
+
+Para construirlo: `python tools/fetch_bins.py --uv` y `iscc installer\actas.iss` (Inno Setup 6). `tools/fetch_bins.py` también deja `bin/` listo (ffmpeg + llama.cpp) en Linux/macOS. Licencia de ffmpeg (GPL, build de gyan.dev): se incluye `LICENSE` en `bin\ffmpeg`; fuentes en https://ffmpeg.org y https://www.gyan.dev/ffmpeg/builds/.
