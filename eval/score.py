@@ -73,13 +73,14 @@ def score(acta, gold):
 
 
 def main():
+    alta = "_alta" * ("--alta" in sys.argv)
     verbose, asr = "-v" in sys.argv, sys.argv[sys.argv.index("--asr") + 1] if "--asr" in sys.argv else "rápido"
     f = lambda pr: "  -  " if pr is None else f"{pr:4.2f}"
     print(f"{'vídeo':18} {'nivel':9} {'dec P/R':11} {'tar P/R':11} prohib resp✗ claves 2ªmitad pts2  corte nolat")
     for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
         gold = json.loads(gf.read_text())
         for lv in LEVELS:
-            p = ROOT / "work" / gold["hash"] / f"acta_{lv}_{asr}" / "acta.json"
+            p = ROOT / "work" / gold["hash"] / f"acta_{lv}_{asr}{alta}" / "acta.json"
             if not p.exists():
                 print(f"{gold['video']:18} {lv:9} (sin acta.json)")
                 continue
