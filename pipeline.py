@@ -573,7 +573,7 @@ punto a la próxima sesión, suspender la sesión); también cuando alguien pide
 próxima reunión» y quien dirige lo acepta, o cuando se designa, se reorienta o se fija algo («se aplaza…», «se designa \
 a…», «la próxima reunión será en…»). NO son \
 decisiones: lo que se lee en voz alta de un acta anterior (aunque diga «Acuerdos» o «queda aprobada»: el acta se aprueba \
-hoy cuando los presentes la votan o dicen estar de acuerdo), los pasos de una demostración o ejemplo («ahora creo un \
+hoy cuando los presentes la votan o dicen estar de acuerdo; ni sus acuerdos ni tareas), los pasos de una demostración o ejemplo («ahora creo un \
 webinar…»), opiniones, observaciones ni propuestas sin aprobar («deberíamos», «se podría»).
 tareas: solo encargos o compromisos explícitos de alguien para después de la reunión (quién hará qué); no lo son \
 consejos o recomendaciones generales, lo que ya se hizo («se ha cursado un oficio»), pasos de una demostración ni \
@@ -587,7 +587,8 @@ donde empieza; el segundo empieza hacia la mitad del fragmento. Solo lo dicho o 
 nuevos. En un tutorial, cuenta qué se enseña y cómo.
 Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."""
 
-FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras, votos ni abstenciones. Atribuye las opiniones a quien las dice."
+FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras, votos ni abstenciones. Atribuye las opiniones a quien las dice. \
+Leer, aprobar o repasar el acta o los acuerdos de una reunión ANTERIOR no es una decisión ni una tarea de esta: cuéntalo solo como lectura («se leyó el acta anterior»), sin «se acuerda» ni «se aprueba» sobre su contenido."
 SEC_PROMPT = """Redactas una sección del acta de una reunión. Recibes sus puntos clave con marcas [mm:ss].
 resumen: {n} que los sinteticen. {faithful} No digas que se acordó o decidió algo si la viñeta no lo dice. Escribe en {lang}."""
 # Verificación de cada decisión/tarea candidata: una llamada corta por candidata con la cita y la transcripción de alrededor
