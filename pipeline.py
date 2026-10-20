@@ -18,10 +18,14 @@ BLOCK = 8                     # lado del bloque (px de miniatura) para comparar 
 CUT = 0.05                    # fracción de bloques cambiados que cuenta como "cambio de pantalla"
 NOISY = 0.4                   # bloque que cambia en >= 40 % de las muestras vecinas (webcam superpuesta): se ignora
 LOCAL = 3                     # un grupo compacto (>= 2x2) de >= 3 bloques cambiados (menú, diálogo) también es cambio
+VIDEO = 0.25                  # bloque que cambia en >= 25 % de las muestras vecinas y forma una mancha de >= 3x3: vídeo en vivo
 LIVELY = 0.15                 # bloque que cambia en >= 15 % de las muestras vecinas: cámara/vídeo, no cuenta como cambio local
 MIN_LEN = 2                   # muestras estables seguidas para capturar
 SCROLL = 0.5                  # desplazamiento vertical (fracción de pantalla) que cuenta como contenido nuevo
-EDGE = 0.2                    # bordes duros (fracción de bloques de 16 px): pantalla sin texto (gráfico, imagen) y no cámara
+NAME = re.compile(r"(?:[A-ZÁÉÍÓÚÑ][\w.'-]*\s?){2,4}")  # nombre bajo una cara; >= 3 en la captura = mosaico de cámaras
+DUPFP = 25                    # diferencia media (0-255) de la huella 32x18 bajo la cual dos capturas que no son pantalla son la misma
+SKIN = 0.04                   # fracción de píxeles de piel por debajo de la cual una captura sin texto puede ser pantalla
+EDGE = 0.05                   # bordes duros (fracción de bloques de 16 px): una captura sin texto no vacía (gráfico, imagen)
 OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
@@ -287,7 +291,7 @@ def sample_thumbs(video, threads, dur, cb):
     return np.array(frames, np.int16)
 
 
-def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15):
+def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15, info=None):
     """[(inicio, fin)] en índices de muestra: tramos estables (>= min_len muestras) sin repetir pantallas ya vistas.
     Se compara con el inicio del tramo (no con el frame anterior) para que un cambio gradual también corte.
     Por bloques y sin las franjas CROP; los bloques que cambian casi siempre en ±win muestras (webcam superpuesta
@@ -307,9 +311,16 @@ def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15):
     noisy &= noisy.mean((1, 2), keepdims=True) < 0.25  # solo zonas pequeñas; si cambia media pantalla es contenido
 
     big = (rate >= 2 * LIVELY).mean((1, 2)) >= 0.15  # mucho vídeo en vivo (hablante a pantalla casi completa): su zona no cuenta, sus gestos no son capturas
+    vid = np.zeros_like(lively)  # zonas de vídeo (cámaras, mosaico): manchas en vivo de >= 3x3 bloques; una línea de texto que se escribe no lo es
+    for i in range(n):
+        lab, st = cv2.connectedComponentsWithStats((rate[i] >= VIDEO).astype(np.uint8), connectivity=8)[1:3]
+        for k in np.flatnonzero((st[1:, 2] >= 3) & (st[1:, 3] >= 3)):
+            vid[i] |= lab == k + 1
+    if info is not None:  # bloques cambiados entre dos muestras, sin webcam ni vídeo (para releer solo esa zona)
+        info["mask"] = lambda i, j: blk(t[i], t[j]) & ~(noisy[i] | noisy[j] | vid[i] | vid[j])
 
     def moved(i, j):
-        ch = blk(t[i], t[j]) & ~(noisy[i] | noisy[j])
+        ch = blk(t[i], t[j]) & ~(noisy[i] | noisy[j] | vid[i] | vid[j])
         if big[i] or big[j]:
             ch &= ~(lively[i] | lively[j])
         if ch.mean() > cut:
@@ -391,33 +402,93 @@ def screens(kfs, vocab=None):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
         k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (not prose and k.get("edge", 0) >= EDGE),
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (not prose and k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE
+                                                                  and sum(bool(NAME.fullmatch(x.strip())) for x in ls) < 3),
                  end=int(re.search(r"\d+", k["img"])[0]))
-    return kfs
+    seen = set()  # texto nuevo de cada pantalla (líneas que no salieron ya antes): es lo que lee el LLM, no cada captura entera
+    for k in kfs:
+        ln = [x for x in k["text"].split(" | ") if " ".join(words(x)) not in seen] if k["screen"] else []
+        seen.update(" ".join(words(x)) for x in ln)
+        k["new"] = " | ".join(ln)
+    fps, out = [], []  # no-pantalla casi igual a otra no-pantalla (mosaico de caras que cambia): fuera
+    for k in kfs:
+        if not k["screen"] and "fp" in k:
+            f = np.array(k["fp"], np.int16)
+            if any(np.abs(f - o).mean() < DUPFP for o in fps):
+                continue
+            fps.append(f)
+        out.append(k)
+    return out
+
+
+def prose_chars(lines):
+    """Letras de las líneas de prosa (>= 2 palabras con alguna en minúscula de >= 3 letras): lo que cuenta como texto de pantalla."""
+    return sum(c.isalnum() for x in lines if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x) for c in x)
 
 
 def keyframes(video, wd, threads, dur, cb):
+    """[{t, img, text, edge, skin}] de cada captura. El OCR solo lee la zona que cambió respecto a la captura anterior
+    (si es < 30 % de la pantalla): el resto del texto se hereda; las capturas sin texto casi iguales a una anterior se omiten."""
     import cv2
     from rapidocr_onnxruntime import RapidOCR
-    segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.4, m)))
+    info = {}
+    segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.4, m)), info=info)
     (wd / "frames").mkdir(exist_ok=True)
     rec = model_file(OCR_REC)  # None: modelo chino/inglés de serie
     ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
-    out = []
+
+    def read(im, x0, y0):  # [[x0, y0, x1, y1, texto]] en coordenadas de la imagen entera
+        res, _ = ocr(im)
+        return [[x0 + min(p[0] for p in bx), y0 + min(p[1] for p in bx), x0 + max(p[0] for p in bx), y0 + max(p[1] for p in bx), x]
+                for bx, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
+    out, prev, small = [], None, []
     for n, (a, b) in enumerate(segs):
         cb(0.4 + 0.6 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
         img = wd / "frames" / f"k{b * STEP:06d}.jpg"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1",
                         "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
         im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)  # imread no abre rutas con tildes en Windows
-        c = round(len(im) * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
-        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.int16)[:len(im) // 16 * 16, :im.shape[1] // 16 * 16]
-        e = (np.abs(np.diff(g, axis=1, append=g[:, :1])) >= 80).reshape(len(g) // 16, 16, -1, 16).sum((1, 3)) >= 6
-        edge = float(e.mean())
-        res, _ = ocr(im[c:len(im) - c])
-        lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
-        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(lines), "edge": round(edge, 3)})
-    return out  # crudo; screens() clasifica y deduplica al cargar (barato, y así se puede ajustar sin repetir el OCR)
+        H, W = im.shape[:2]
+        c = round(H * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.int16)[:H // 16 * 16, :W // 16 * 16]
+        edge = float(((np.abs(np.diff(g, axis=1, append=g[:, :1])) >= 80).reshape(len(g) // 16, 16, -1, 16).sum((1, 3)) >= 6).mean())
+        yc = cv2.cvtColor(im, cv2.COLOR_BGR2YCrCb)  # piel (caras, manos): una captura sin texto con mucha piel es cámara, no pantalla
+        skin = float(((yc[..., 1] >= 135) & (yc[..., 1] <= 170) & (yc[..., 2] >= 85) & (yc[..., 2] <= 125)).mean())
+        lines = None
+        if prev:
+            m = info["mask"](prev[0], b)
+            if not m.any():
+                lines = prev[1]
+            else:  # una zona por mancha de cambios (con 1 bloque de margen); las líneas anteriores que tocan se releen enteras
+                ct = round(THUMB_H * CROP)
+                st = cv2.connectedComponentsWithStats(cv2.dilate(m.astype(np.uint8), np.ones((3, 3), np.uint8)), connectivity=8)[2][1:]
+                zs = [[st[k, 0] * BLOCK / THUMB_W * W, (ct + st[k, 1] * BLOCK) / THUMB_H * H,
+                       (st[k, 0] + st[k, 2]) * BLOCK / THUMB_W * W, (ct + (st[k, 1] + st[k, 3]) * BLOCK) / THUMB_H * H] for k in range(len(st))]
+                hit = lambda l, z: l[0] < z[2] + 4 and l[2] > z[0] - 4 and l[1] < z[3] + 4 and l[3] > z[1] - 4
+                for _ in range(2):  # ampliar a las líneas tocadas y juntar zonas que se solapan
+                    for z in zs:
+                        for l in prev[1]:
+                            if hit(l, z):
+                                z[:] = [min(z[0], l[0] - 2), min(z[1], l[1] - 2), max(z[2], l[2] + 2), max(z[3], l[3] + 2)]
+                    zs = [z for i, z in enumerate(zs) if not any(hit(z, o) and (o[2] - o[0]) * (o[3] - o[1]) > (z[2] - z[0]) * (z[3] - z[1]) for o in zs[:i] + zs[i + 1:])] or zs
+                zs = [[max(0, int(z[0])), max(c, int(z[1])), min(W, int(z[2])), min(H - c, int(z[3]))] for z in zs]
+                if len(zs) <= 6 and sum((z[2] - z[0]) * (z[3] - z[1]) for z in zs) < 0.35 * W * (H - 2 * c):
+                    lines = [l for l in prev[1] if not any(hit(l, z) for z in zs)]
+                    for z in zs:
+                        lines += read(im[z[1]:z[3], z[0]:z[2]], z[0], z[1])
+        if lines is None:
+            lines = read(im[c:H - c], 0, c)
+        lines.sort(key=lambda l: (round(l[1] / 10), l[0]))
+        texts = [l[4] for l in lines]
+        fp = cv2.resize(g.astype(np.uint8), (32, 18), interpolation=cv2.INTER_AREA).astype(np.int16)  # huella: miniatura 32x18
+        if prose_chars(texts) < MIN_CHARS:  # sin texto: si se parece mucho a otra sin texto (mosaico de caras que cambia), se omite
+            if any(np.abs(fp - o).mean() < DUPFP for o in small):
+                continue
+            small.append(fp)
+        prev = (b, lines)
+        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(texts), "edge": round(edge, 3), "skin": round(skin, 3),
+                    "fp": fp.ravel().tolist()})
+    return out  # crudo; screens() clasifica al cargar (barato, y así se puede ajustar sin repetir el OCR)
 
 
 # ---------- LLM (llama-server) ----------
@@ -669,7 +740,7 @@ def map_input(segs, kfs, allsegs=()):
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
     text = "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
-    screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
+    screens = [f"[{fmt(k['t'])}] {k['new'][:600]}" for k in kfs if k["new"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
     return text
@@ -1361,7 +1432,7 @@ def _selftest():
     assert segs == [(0, 5), (6, 11)], segs
     # menú local (2x3 bloques, < 5 % de la pantalla) abre y cierra: captura; el scroll lento no corta, el grande sí
     menu = a.copy(); menu[24:40, 40:64] = 0
-    assert stable_segments(np.array([a, a, a, menu, menu, menu, a, a])) == [(0, 2), (3, 5)]
+    assert stable_segments(np.array([a] * 12 + [menu] * 3 + [a] * 12)) == [(0, 11), (12, 14)]
     page = rng.integers(0, 255, (200, THUMB_W))
     sc = lambda y: page[y:y + THUMB_H].reshape(-1)
     assert stable_segments(np.array([sc(0)] * 12 + [sc(4)] * 2 + [sc(8)] * 12)) == [(0, 25)], "scroll corto: una captura"

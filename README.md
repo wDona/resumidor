@@ -112,8 +112,10 @@ Límites: un desfase que no sea constante (cortes, pausas) no se corrige; sin vo
    cada ejecución: quita la interfaz de la videollamada (líneas cuyas dos primeras palabras salen en ≥ 30 % de los frames:
    barra de marcadores, "X está presentando", nombres de la columna de caras, paneles) y solo cuenta líneas de ≥ 2
    palabras con alguna en minúscula (los nombres bajo las caras y los botones no). Con ≥ 30 letras así es "pantalla
-   compartida"; también una captura sin texto con bordes duros (gráfico, imagen; `edge` ≥ 0,2), no la cámara. Una cuadrícula
-   de caras no. El OCR solo alimenta al LLM con el texto de pantalla. Pie de captura = primera línea de texto, solo si
+   compartida"; también una captura sin texto con bordes (`edge` ≥ 0,05), poca piel (`skin` < 4 %) y < 3 nombres bajo caras
+   (gráfico, imagen). Una cuadrícula de caras no, y las no-pantalla casi iguales (huella 32×18) se descartan. El OCR relee solo
+   las zonas que cambian si son < 35 % de la pantalla (ahorro pequeño: casi todo el coste es leer capturas nuevas enteras).
+   Al LLM (map) solo van las líneas de pantalla que no habían salido antes. El OCR solo alimenta al LLM con el texto de pantalla. Pie de captura = primera línea de texto, solo si
    ≥ 70 % de sus palabras salen en la transcripción (en vídeos de 480p el OCR da basura: entonces «Pantalla compartida»).
 6. La transcripción se trocea en n = ⌈total / 10 000 caracteres⌉ bloques del mismo tamaño (~3k tokens; ni cola diminuta
    con solo la despedida ni un último bloque gigante con solo 10 puntos para 20 min) con el texto OCR de su intervalo. Los segmentos se funden en tramos de 15 s antes de poner `[mm:ss]`
