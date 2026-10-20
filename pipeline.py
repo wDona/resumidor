@@ -856,8 +856,9 @@ def verify(chat, maps, segments, kfs, win=45):
 
 
 CHECK_PROMPT = """Compruebas una decisión o tarea propuesta para el acta contra el bloque de transcripción automática (con errores) \
-del que salió. respaldada = si: el bloque dice o permite concluir claramente que eso se decidió o se encargó; no: no \
-aparece, se inventó, mezcla cosas distintas o es otra cosa (hipótesis, opinión, algo ya hecho)."""
+del que salió. respaldada = si: el bloque habla de eso como algo decidido o encargado (aunque las palabras difieran, haya \
+errores de transcripción o se decida en varias intervenciones). no: solo si el bloque no lo menciona, lo contradice o \
+es claramente otra cosa (hipótesis, opinión, algo ya hecho). Ante la duda, si."""
 
 
 def check_sources(chat, valid, inputs):

@@ -40,6 +40,14 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). Hil
 (= físicos con hyperthreading; con más hilos que núcleos llama.cpp genera a menos de la mitad); `--threads` o
 `ACTAS_THREADS` (GUI) lo cambian.
 
+**Calidad Alta** (`--calidad alta`, campo `calidad` de la API, selector en la GUI): mismo map y verify que Rápida (misma caché);
+añade `check_sources` (sí/no de cada decisión/tarea contra su bloque) y redacta el reduce con Qwen3.5-9B Q4_0
+(`models/Qwen3.5-9B-Q4_0.gguf`, 5,4 GB, opcional) si hay >= 12 GB de RAM; si no, todo con el 4B (la GUI lo avisa).
+Salida en `acta_<nivel>_<asr>_alta/`; `eval/score.py --alta`. Medido (quality sin emulación, cores 0-5, CPU compartida): con el
+scorer actual Alta empata con Rápida (dec/tar P y R iguales salvo ±1 elemento, claves ±2 por ruido del 9B); la comprobación
+a veces descarta aciertos (tarea de reunion_sintetica R 0,80 → 0,60). Sobrecoste de Alta sobre Rápida en larga_cne (2 h 22):
+comprobación ≈ 780 s + reduce 9B 80-330 s (≈ +0,10-0,13x); RTF absoluto emulado: pendiente (CPU compartida).
+
 Referencia (4 núcleos de un Ryzen 5500 con `taskset` emulando un HP ProBook 440 G8, `--asr rápido`, nivel breve):
 
 | reunión | ASR | capturas+OCR | map | reduce b / n / d | total breve | × duración |
