@@ -73,7 +73,7 @@ def score(acta, gold):
 
 
 def main():
-    alta = "_alta" * ("--alta" in sys.argv)
+    alta = "_alta" * ("--alta" in sys.argv) + (f"_{sys.argv[sys.argv.index('--tag') + 1]}" if "--tag" in sys.argv else "")
     verbose, asr = "-v" in sys.argv, sys.argv[sys.argv.index("--asr") + 1] if "--asr" in sys.argv else "rápido"
     f = lambda pr: "  -  " if pr is None else f"{pr:4.2f}"
     print(f"{'vídeo':18} {'nivel':9} {'dec P/R':11} {'tar P/R':11} prohib resp✗ claves 2ªmitad pts2  corte nolat")

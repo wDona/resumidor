@@ -56,7 +56,7 @@ def _phys():
 
 
 PHYS = _phys()
-GPU = ["-ngl", "99"] if sys.platform == "darwin" and platform.machine() == "arm64" and not os.environ.get("ACTAS_CPU") else []  # Metal solo en Apple Silicon (ACTAS_CPU=1 lo desactiva); Intel y el resto, CPU
+GPU = ["-ngl", "99"] if (sys.platform == "darwin" and platform.machine() == "arm64" and not os.environ.get("ACTAS_CPU")) or os.environ.get("ACTAS_GPU") else []  # Metal solo en Apple Silicon (ACTAS_CPU=1 lo desactiva); Intel y el resto, CPU
 if os.name == "nt":  # ffmpeg/llama-server/Tk sin ventana de consola (la app se lanza con pythonw)
     _Popen = subprocess.Popen
 
@@ -432,13 +432,14 @@ def alta_model():
 
 
 def llm_model():
-    p = ROOT / "models" / LLM[0]
+    p = ROOT / "models" / (os.environ.get("ACTAS_MAP_MODEL") or LLM[0])  # ACTAS_MAP_MODEL: otro .gguf para map+reduce (experimento)
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
 
 
 def llama_exe():
     """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb."""
-    return next((p for p in ROOT.glob("bin/**/llama-server*") if p.is_file() and p.suffix in ("", ".exe")), None)
+    gpu = bool(os.environ.get("ACTAS_GPU"))  # ACTAS_GPU=1: build Vulkan (bin/llama-*-vulkan) con -ngl 99; si no, la de CPU
+    return next((p for p in sorted(ROOT.glob("bin/**/llama-server*")) if p.is_file() and p.suffix in ("", ".exe") and ("vulkan" in str(p)) == gpu), None)
 
 
 @contextlib.contextmanager
@@ -1244,7 +1245,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if alta:  # el map y verify son los de Rápida (misma caché); Alta añade la comprobación y, si cabe, el 9B en el reduce
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
         rh = hashlib.sha1((rh + vh + str(big)).encode()).hexdigest()[:8]
-    tag = "_alta" if alta else ""
+    tag = ("_alta" if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
