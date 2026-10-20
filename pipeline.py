@@ -401,6 +401,36 @@ def keyframes(video, wd, threads, dur, cb):
 
 
 # ---------- LLM (llama-server) ----------
+LLM_ALTA = "Qwen3.5-9B-Q4_0.gguf"  # calidad Alta: redacta el reduce (resumen, secciones, selección); el map y las comprobaciones, el 4B
+ALTA_MIN_GB = 12  # con menos RAM el 9B no cabe junto al SO: Alta sigue con el 4B (y sus pasos extra)
+
+
+def ram_gb():
+    """RAM total en GB (stdlib); 0 si no se sabe."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MS(ctypes.Structure):
+                _fields_ = [("l", ctypes.c_ulong), ("u", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + \
+                           [(f"x{i}", ctypes.c_ulonglong) for i in range(5)]
+            m = MS()
+            m.l = ctypes.sizeof(m)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return m.total / 2**30
+        if sys.platform == "darwin":
+            return int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30
+        return int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text()).group(1)) / 2**20
+    except Exception:
+        return 0
+
+
+def alta_model():
+    """Modelo grande para Alta, o None (no está descargado o la RAM no llega): Alta sigue con el 4B."""
+    p = ROOT / "models" / LLM_ALTA
+    return p if p.exists() and ram_gb() >= ALTA_MIN_GB else None
+
+
 def llm_model():
     p = ROOT / "models" / LLM[0]
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
@@ -412,9 +442,9 @@ def llama_exe():
 
 
 @contextlib.contextmanager
-def llama(threads, ctx=8192):
+def llama(threads, ctx=8192, model=None):
     exe = llama_exe()
-    model = llm_model()
+    model = model or llm_model()
     if not exe or not model:
         raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
     with socket.socket() as s:
@@ -825,6 +855,28 @@ def verify(chat, maps, segments, kfs, win=45):
     return out
 
 
+CHECK_PROMPT = """Compruebas una decisión o tarea propuesta para el acta contra el bloque de transcripción automática (con errores) \
+del que salió. respaldada = si: el bloque dice o permite concluir claramente que eso se decidió o se encargó; no: no \
+aparece, se inventó, mezcla cosas distintas o es otra cosa (hipótesis, opinión, algo ya hecho)."""
+
+
+def check_sources(chat, valid, inputs):
+    """Calidad Alta: cada decisión y tarea ya verificada se comprueba (sí/no) contra el bloque de donde salió; fuera las no
+    respaldadas. Ordenadas por bloque: el bloque va primero en el prompt y se lee una vez (caché de prefijo)."""
+    out = {}
+    for name, key in (("decisiones", "texto"), ("tareas", "tarea")):
+        keep = {}
+        for i, it in sorted(enumerate(valid[name]), key=lambda x: x[1]["b"]):
+            q = f"Bloque:\n{inputs[it['b']]}\n\nPropuesta: {it[key]}\nCita: «{it['cita']}»"
+            ok = chat(CHECK_PROMPT, q, obj(respaldada={"enum": ["si", "no"]}), 20)["respaldada"] == "si"
+            if ok:
+                keep[i] = it
+            else:
+                print(f"  descartada (sin respaldo en el bloque): {it[key]}", flush=True)
+        out[name] = [keep[i] for i in sorted(keep)]
+    return out
+
+
 def group(items, key):
     """Decisiones repetitivas en una (la primera, con n = cuántas): «se aprueba parcialmente la recalificación de X / de Y…»
     se distinguen solo por el nombre propio. Esqueleto = palabras en minúscula; iguales al 75 % (aceptar frente a negar
@@ -1131,7 +1183,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None):
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida"):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor."""
     video = Path(video) if video else None
     if not (video or transcript):
@@ -1185,11 +1237,17 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     inputs = [map_input(c, kfs, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
-    vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
+    vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
-    mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}_{rh}.json"
+    alta, big = calidad == "alta", alta_model()
+    if alta:  # el map y verify son los de Rápida (misma caché); Alta añade la comprobación y, si cabe, el 9B en el reduce
+        vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
+        rh = hashlib.sha1((rh + vh + str(big)).encode()).hexdigest()[:8]
+    tag = "_alta" if alta else ""
+    mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
+    vf0 = wd / f"valid_{quality}_{vh0}.json" if alta else vf
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists():
         t0 = time.time()
         cb(0.6, "Arrancando modelo de lenguaje…")
@@ -1204,11 +1262,21 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfs)  # tras guardar la caché: es barato y así se puede ajustar
-            if not vf.exists():
-                vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfs), ensure_ascii=False))
+            if not vf0.exists():
+                vf0.write_text(json.dumps(verify(chat, maps, tr["segments"], kfs), ensure_ascii=False))
+            if alta and not vf.exists():
+                cb(0.93, "Comprobando decisiones y tareas…")
+                vf.write_text(json.dumps(check_sources(chat, json.loads(vf0.read_text()), inputs), ensure_ascii=False))
             valid = json.loads(vf.read_text())
-            rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
+            if not (big and alta) and not rf.exists():
+                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
+        if big and alta and not rf.exists():
+            t0 = time.time()
+            cb(0.95, "Redactando el acta (modelo grande)…")
+            with llama(threads, model=big) as chat:
+                rf.write_text(json.dumps(reduce_maps(chat, maps, json.loads(vf.read_text()), starts, level, lang), ensure_ascii=False))
+            stage("reduce_grande", t0)
     red = json.loads(rf.read_text())
     maps = mark_reading(maps, tr["segments"], kfs)
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
@@ -1216,13 +1284,13 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
     print(score_hist(maps), flush=True)
 
-    out = wd / f"acta_{level}_{quality}"
+    out = wd / f"acta_{level}_{quality}{tag}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
     for k in render(out, red.get("titulo") or (video or Path(transcript)).stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
                     level, video.suffix if video else None, names, imp):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
-    zpath = wd / f"acta_{(video or Path(transcript)).stem}_{level}.zip"
+    zpath = wd / f"acta_{(video or Path(transcript)).stem}_{level}{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
             z.write(f, f.relative_to(out))
@@ -1234,7 +1302,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if not src.exists():
             put_file(video.resolve(), src)
         put_file(src, out / src.name)
-    (wd / f"timings_{quality}_{level}.json").write_text(json.dumps(timings))
+    (wd / f"timings_{quality}_{level}{tag}.json").write_text(json.dumps(timings))
     cb(1, "Listo")
     return out, zpath, timings
 
@@ -1420,6 +1488,7 @@ if __name__ == "__main__":
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
+    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: 9B en el reduce + comprobación de decisiones/tareas")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
@@ -1433,7 +1502,7 @@ if __name__ == "__main__":
         if time.time() - last[0] > 5 or f >= 1:
             last[0] = time.time()
             print(f"{f:5.0%} {m}", flush=True)
-    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion)
+    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion, calidad=a.calidad)
     print(out / "index.html", z, json.dumps(t), sep="\n")
     if a.condensar is not None and a.video:
         v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)
