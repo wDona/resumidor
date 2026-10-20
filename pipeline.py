@@ -11,13 +11,17 @@ import transcripts
 
 ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "work"
-STEP = 3                      # s entre muestras de vídeo
+STEP = 1                      # s entre muestras de vídeo (un cambio que dure < 1 s se pierde)
 THUMB_W, THUMB_H = 128, 72    # miniatura en gris para detectar cambios
 CROP = 0.05                   # franjas de arriba/abajo ignoradas (barra de menús con reloj/batería, dock)
 BLOCK = 8                     # lado del bloque (px de miniatura) para comparar por zonas
 CUT = 0.05                    # fracción de bloques cambiados que cuenta como "cambio de pantalla"
 NOISY = 0.4                   # bloque que cambia en >= 40 % de las muestras vecinas (webcam superpuesta): se ignora
-DUP = 0.75                    # palabras OCR compartidas / palabras de la pantalla más corta para darla por repetida
+LOCAL = 3                     # un grupo compacto (>= 2x2) de >= 3 bloques cambiados (menú, diálogo) también es cambio
+LIVELY = 0.15                 # bloque que cambia en >= 15 % de las muestras vecinas: cámara/vídeo, no cuenta como cambio local
+MIN_LEN = 2                   # muestras estables seguidas para capturar
+SCROLL = 0.5                  # desplazamiento vertical (fracción de pantalla) que cuenta como contenido nuevo
+EDGE = 0.2                    # bordes duros (fracción de bloques de 16 px): pantalla sin texto (gráfico, imagen) y no cámara
 OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
            "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
            "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
@@ -76,14 +80,14 @@ for _f in ROOT.glob("bin/**/ffmpeg*"):
 # 50 % más (un modelo pequeño a veces entra en bucle y agotaría max_tokens) y, si se alcanza, se recorta en la última frase
 # completa (sentences): nunca a mitad de palabra
 LEVELS = {
-    "breve": dict(keep=0.2, pts=10, shots=3, hshots=None, nshots=6, rel=1, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
-    "normal": dict(keep=0.5, pts=None, shots=10, hshots=None, nshots=12, rel=2, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
+    "breve": dict(keep=0.2, pts=10, shots=3, hshots=6, nshots=6, rel=1, dec=5, tar=5, secs=False, tldr=("2-3 frases", 450), sec=None),
+    "normal": dict(keep=0.5, pts=None, shots=10, hshots=20, nshots=12, rel=2, dec=12, tar=10, secs=True, tldr=("4-6 frases", 750),
                    sec=("2-3 frases", 350)),
     "detallado": dict(keep=1.0, pts=None, shots=None, hshots=None, nshots=20, rel=2, dec=None, tar=None, secs=True,
                       tldr=("un párrafo de 6-10 frases", 1200), sec=("3-5 frases", 600)),
 }
-# rel = frases máx. de cada párrafo del relato; nshots = capturas máx. del relato; hshots = capturas de la parte literal (None = todas) si el
-# vídeo es de pantalla (>= HEAVY cambios de pantalla distintos: demos, tutoriales)
+# rel = frases máx. de cada párrafo del relato; nshots = capturas máx. del relato; hshots = capturas en línea de la parte literal (None = todas) si el
+# vídeo es de pantalla (>= HEAVY cambios de pantalla distintos: demos, tutoriales); el resto va en la tira de miniaturas
 HEAVY = 20
 SHOT_WIN = (-10, 90)          # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
 LANG = {"es": "español", "en": "inglés (English)"}
@@ -283,27 +287,57 @@ def sample_thumbs(video, threads, dur, cb):
     return np.array(frames, np.int16)
 
 
-def stable_segments(thumbs, cut=CUT, min_len=2, win=5):
+def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15):
     """[(inicio, fin)] en índices de muestra: tramos estables (>= min_len muestras) sin repetir pantallas ya vistas.
     Se compara con el inicio del tramo (no con el frame anterior) para que un cambio gradual también corte.
     Por bloques y sin las franjas CROP; los bloques que cambian casi siempre en ±win muestras (webcam superpuesta
-    o vídeo incrustado) no cuentan, así que solo corta un cambio que cubra > cut del área útil."""
+    o vídeo incrustado) no cuentan. Corta un cambio de > cut del área útil o un grupo compacto de >= LOCAL bloques
+    (menú, diálogo). Un scroll (la misma página desplazada en vertical) corta solo al pasar SCROLL de pantalla.
+    Un tramo se descarta si es igual a CUALQUIER captura anterior (A -> B -> A no repite A)."""
     # dHash probado y descartado: en imágenes planas (diapositiva blanca vs. mosaico oscuro) apenas cambia.
+    import cv2
     c = round(THUMB_H * CROP)
     t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c:c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
     n, h, w = t.shape
-    blk = lambda i, j: (np.abs(t[i] - t[j]) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
-    cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(i, i + 1) for i in range(n - 1)], 0)
+    blk = lambda a, b: (np.abs(a - b) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
+    cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(t[i], t[i + 1]) for i in range(n - 1)], 0)
     lo, hi = np.maximum(np.arange(n) - win, 0), np.minimum(np.arange(n) + win, n - 1)
-    noisy = (cs[hi] - cs[lo]) / np.maximum(hi - lo, 1)[:, None, None] >= NOISY
+    rate = (cs[hi] - cs[lo]) / np.maximum(hi - lo, 1)[:, None, None]  # fracción de muestras vecinas en que el bloque cambia
+    noisy, lively = rate >= NOISY, rate >= LIVELY  # lively: vídeo de caras (mosaico de cámaras): no vale para cambio local
     noisy &= noisy.mean((1, 2), keepdims=True) < 0.25  # solo zonas pequeñas; si cambia media pantalla es contenido
-    diff = lambda i, j: (blk(i, j) & ~(noisy[i] | noisy[j])).mean()
+
+    big = (rate >= 2 * LIVELY).mean((1, 2)) >= 0.15  # mucho vídeo en vivo (hablante a pantalla casi completa): su zona no cuenta, sus gestos no son capturas
+
+    def moved(i, j):
+        ch = blk(t[i], t[j]) & ~(noisy[i] | noisy[j])
+        if big[i] or big[j]:
+            ch &= ~(lively[i] | lively[j])
+        if ch.mean() > cut:
+            return True
+        st = cv2.connectedComponentsWithStats((ch & ~(lively[i] | lively[j])).astype(np.uint8), connectivity=8)[2][1:]
+        return bool(((st[:, 4] >= LOCAL) & (st[:, 2] >= 2) & (st[:, 3] >= 2)).any())
+
+    def scrolled(i, j):
+        """Filas de desplazamiento vertical si t[i] es t[j] movida (0 si no es scroll)."""
+        a, b = t[i], t[j]
+        m = np.repeat(np.repeat(noisy[i] | noisy[j], BLOCK, 0), BLOCK, 1)
+        f0, best = ((np.abs(a - b) > 32) & ~m).mean(), (0.03, 0)
+        for dy in range(2 - h // 2, h // 2 - 1):
+            if abs(dy) < 2:
+                continue
+            x, y, mm = (a[dy:], b[:h - dy], m[:h - dy]) if dy > 0 else (a[:h + dy], b[-dy:], m[-dy:])
+            f = ((np.abs(x - y) > 32) & ~mm).mean()
+            if f < best[0] and f < 0.5 * f0:
+                best = (f, dy)
+        return best[1]
+
     segs, start = [], 0
     for i in range(1, n + 1):
-        if i == n or diff(i, start) > cut:
-            if i - start >= min_len and all(diff(i - 1, e) > cut for _, e in segs):
-                segs.append((start, i - 1))
-            start = i
+        if i < n and not (moved(i, start) and abs(scrolled(i, start)) not in range(1, round(SCROLL * h))):
+            continue
+        if i - start >= min_len and all(moved(i - 1, e) for _, e in segs):
+            segs.append((start, i - 1))
+        start = i
     return segs
 
 
@@ -341,9 +375,9 @@ def screens(kfs, vocab=None):
     en >= 30 % de los frames (barra de marcadores, "X está presentando", nombres de la columna de caras aunque el OCR los
     corte distinto, paneles de la aplicación). Solo cuentan las líneas con >= 2 palabras y alguna en minúscula de >= 3
     letras: los nombres bajo las caras de Meet/Zoom/Teams y los botones no, así que una cuadrícula de caras no es pantalla.
-    Repetidas (mismo texto, o una contiene a la otra: viñetas que van apareciendo, volver a una pantalla ya vista):
-    queda la más completa; hereda la marca de la primera aparición solo si su texto es casi igual (>= 90 %). También si
-    es la misma página desplazada (scroll): las >= 3 últimas líneas de una son las primeras de la otra.
+    Las repetidas ya las quitó stable_segments por imagen (contra todas las capturas anteriores), no por palabras.
+    También es pantalla una captura sin texto con bordes duros (k["edge"] >= EDGE: gráfico, imagen, interfaz) y sin
+    texto de prosa: la cámara y los mosaicos de caras son suaves.
     Pie de captura (title) = primera línea de texto, solo si >= 70 % de sus palabras salen en `vocab` (la transcripción):
     en vídeos de baja resolución el OCR da basura («aal fngora oe egunad») y es mejor el pie genérico."""
     key = lambda line: " ".join(words(line)[:2])
@@ -353,50 +387,36 @@ def screens(kfs, vocab=None):
     def real(line):
         w = [v for v in words(line) if len(v) >= 3]
         return not vocab or sum(v in vocab for v in w) >= 0.7 * len(w)
-    kept = []  # [(palabras, líneas, keyframe)]
     for k, ls in zip(kfs, lines):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
         k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS,
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (not prose and k.get("edge", 0) >= EDGE),
                  end=int(re.search(r"\d+", k["img"])[0]))
-        if not k["screen"]:
-            continue
-        w, ln = words(k["text"]), [" ".join(words(x)) for x in body]
-        scroll = lambda a, b: any(a[-n:] == b[:n] for n in range(3, min(len(a), len(b)) + 1))
-        for n, (ow, ol, o) in enumerate(kept):
-            sm = SequenceMatcher(None, ow, w, autojunk=False)
-            m = sum(b.size for b in sm.get_matching_blocks())
-            if m >= DUP * min(len(ow), len(w)) or scroll(ol, ln) or scroll(ln, ol):
-                keep, drop = (k, o) if len(w) > len(ow) else (o, k)
-                if m >= 0.9 * max(len(ow), len(w)):
-                    keep["t"] = min(k["t"], o["t"])
-                drop["screen"] = False
-                kept[n] = (max(w, ow, key=len), max(ln, ol, key=len), keep)
-                break
-        else:
-            kept.append((w, ln, k))
     return kfs
 
 
 def keyframes(video, wd, threads, dur, cb):
     import cv2
     from rapidocr_onnxruntime import RapidOCR
-    segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.5, m)))
+    segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.4, m)))
     (wd / "frames").mkdir(exist_ok=True)
     rec = model_file(OCR_REC)  # None: modelo chino/inglés de serie
     ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
     out = []
     for n, (a, b) in enumerate(segs):
-        cb(0.5 + 0.5 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
+        cb(0.4 + 0.6 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
         img = wd / "frames" / f"k{b * STEP:06d}.jpg"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1",
                         "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
         im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)  # imread no abre rutas con tildes en Windows
         c = round(len(im) * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.int16)[:len(im) // 16 * 16, :im.shape[1] // 16 * 16]
+        e = (np.abs(np.diff(g, axis=1, append=g[:, :1])) >= 80).reshape(len(g) // 16, 16, -1, 16).sum((1, 3)) >= 6
+        edge = float(e.mean())
         res, _ = ocr(im[c:len(im) - c])
         lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
-        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(lines)})
+        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(lines), "edge": round(edge, 3)})
     return out  # crudo; screens() clasifica y deduplica al cargar (barato, y así se puede ajustar sin repetir el OCR)
 
 
@@ -954,7 +974,7 @@ def pick_shots(kfs, sel, n):
     w = lambda k: sum(p[2] for p in sel if k["t"] + SHOT_WIN[0] <= p[0] <= k["t"] + SHOT_WIN[1])
     ws = lambda k: set(words(k["text"]))
     # casi repetidas (la misma tabla de precios con otro detalle): como mucho una cada 3 min si comparten >= la mitad
-    near = lambda a, b: abs(a["t"] - b["t"]) < 180 and len(ws(a) & ws(b)) >= 0.5 * min(len(ws(a)), len(ws(b)))
+    near = lambda a, b: abs(a["t"] - b["t"]) < 180 and ws(a) and ws(b) and len(ws(a) & ws(b)) >= 0.5 * min(len(ws(a)), len(ws(b)))
     out = []
     for k in sorted(scr, key=w, reverse=True):
         if len(out) < n and not any(near(k, o) for o in out):
@@ -973,9 +993,16 @@ h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9
 figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #d9dee4;border-radius:6px}
 figcaption{font-size:13px;color:#616e7c}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:top}
+.strip{display:flex;gap:4px;overflow-x:auto;margin:0 0 10px;padding-bottom:4px}.strip a{flex:none;text-align:center;font-size:11px;color:#616e7c;text-decoration:none}
+.strip img{display:block;height:64px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
+#big{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;cursor:zoom-out}
+#big img{max-width:96vw;max-height:90vh}#big span{color:#fff;margin-top:6px}
 details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
 
-JS = """const v=document.getElementById('v');
+JS = """document.addEventListener('click',e=>{const z=e.target.closest('a.z');if(z){e.preventDefault();
+const b=document.createElement('div');b.id='big';b.innerHTML='<img src="'+z.href+'"><span>'+z.dataset.l+'</span>';
+b.onclick=()=>b.remove();document.body.append(b)}});
+const v=document.getElementById('v');
 document.addEventListener('click',e=>{const a=e.target.closest('[data-t]');if(!a)return;e.preventDefault();
 v.currentTime=+a.dataset.t;v.play();});
 v.addEventListener('error',()=>{document.getElementById('pick').hidden=false});
@@ -1008,6 +1035,12 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     li = lambda t, x: f"<li>{ts_link(t)}{spk(t, x)}{esc(x)}</li>"
     fig = lambda k: (f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
+    shown = {k["img"] for k in [*shots, *nshots.values()]}
+    rest = [k for k in scr if k["img"] not in shown]  # el resto de capturas: tira de miniaturas por tramo
+    strip_ = lambda t0, t1: (lambda ks: (f'<div class="strip">' + "".join(
+        f'<a class="z" href="img/{k["img"]}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
+        f'height="64" alt="">[{fmt(k["t"])}]</a>' for k in ks) + "</div>") if ks else "")(
+        [k for k in rest if t0 <= k["t"] < t1 and not k.__setitem__("strip", True)])
     more = "<p class=meta>Hay más decisiones y tareas en el nivel detallado.</p>" if red["mas"] else ""
     body = []
     secs = red["secciones"]
@@ -1017,18 +1050,19 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
         inner = sorted([(t, li(t, x)) for t, x, _, b in sel if b == s["b"]] +
                        [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1])
         body.append(f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p>"
-                    f"<ul>{''.join(h for _, h in inner)}</ul>")
+                    f"<ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}")
     dec = "".join(li(parse_ts(d["t"]), d["texto"] + (f" (y {d['n'] - 1} más parecidas)" if d.get("n", 1) > 1 else ""))
                   for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
-    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}</div>"
+    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(0 if not i else t, nxt(i))}</div>"
                    for i, (t, x) in enumerate(rel))
     if cfg["secs"]:
         desarrollo = f"<h2>Detalle por secciones</h2>{''.join(body)}"
     else:  # breve: unos pocos puntos clave con marca y las capturas más relevantes
         desarrollo = (f"<h2>Puntos clave</h2><ul>{''.join(li(t, x) for t, x, _, _ in sel)}</ul>"
-                      + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else ""))
+                      + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else "")
+                      + (strip_(0, 1e9) if not rel and not secs else ""))
     trans = "".join(f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}"
                     f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
     nota = ""
@@ -1056,6 +1090,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
         page = page.replace("<main>", '<main style="display:block;max-width:900px">', 1)
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
     allshots = sorted({k["img"]: k for k in [*shots, *nshots.values()]}.values(), key=lambda k: k["t"])
+    allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
         "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
@@ -1064,7 +1099,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
         "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
         "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
         "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
-        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in allshots]}, ensure_ascii=False, indent=1),
+        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in allshots if not k.get("strip")]}, ensure_ascii=False, indent=1),
         names), encoding="utf-8")
     return allshots
 
@@ -1228,7 +1263,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if k:
             s["spk"] = k
 
-    kf = wd / "frames.json"  # OCR crudo; screens() lo clasifica y deduplica en cada ejecución
+    kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
     if video and not kf.exists():
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.1 * f, m)), ensure_ascii=False))
@@ -1293,6 +1328,10 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     for k in render(out, red.get("titulo") or (video or Path(transcript)).stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
                     level, video.suffix if video else None, names, imp):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
+        if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
+            import cv2
+            im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
+            cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (224, 126), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 70])
     zpath = wd / f"acta_{(video or Path(transcript)).stem}_{level}{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
@@ -1317,9 +1356,16 @@ def _selftest():
     a, b = rng.integers(0, 255, (2, THUMB_H, THUMB_W))
     noisy = a.copy(); noisy[:2] += 100  # reloj en la barra de menús (franja CROP)
     cam = lambda f: (lambda x: (x.__setitem__((slice(48, 64), slice(104, 128)), rng.integers(0, 255, (16, 24))), x)[1])(f.copy())
-    # A A A(reloj) B B A A, con webcam cambiando en cada muestra -> tramos A y B; la vuelta a A no se repite
-    segs = stable_segments(np.array([cam(f) for f in (a, a, noisy, b, b, a, a)]))
-    assert segs == [(0, 2), (3, 4)], segs
+    # A A A(reloj) A A A B*6 A*4, con webcam cambiando en cada muestra -> tramos A y B; la vuelta a A no se repite
+    segs = stable_segments(np.array([cam(f) for f in (a, a, noisy, a, a, a, *[b] * 6, *[a] * 4)]))
+    assert segs == [(0, 5), (6, 11)], segs
+    # menú local (2x3 bloques, < 5 % de la pantalla) abre y cierra: captura; el scroll lento no corta, el grande sí
+    menu = a.copy(); menu[24:40, 40:64] = 0
+    assert stable_segments(np.array([a, a, a, menu, menu, menu, a, a])) == [(0, 2), (3, 5)]
+    page = rng.integers(0, 255, (200, THUMB_W))
+    sc = lambda y: page[y:y + THUMB_H].reshape(-1)
+    assert stable_segments(np.array([sc(0)] * 12 + [sc(4)] * 2 + [sc(8)] * 12)) == [(0, 25)], "scroll corto: una captura"
+    assert stable_segments(np.array([sc(0)] * 12 + [sc(60)] * 12)) == [(0, 11), (12, 23)], "scroll largo: contenido nuevo"
 
     # ASR por ventanas: ni huecos ni repetidos, marcas absolutas; una frase que cruza el borde se hace en la siguiente
     truth = [(t, t + 8, f"s{t}") for t in range(0, 2500, 10)]
@@ -1338,8 +1384,8 @@ def _selftest():
                   kf(40, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril | "
                          "Fase 3 lanzamiento internacional con socios"),
                   kf(51, grid), kf(60, "Presupuesto total de doscientos mil euros para el año 2025")])
-    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, False), (20, False), (31, False), (40, True),
-                                                   (51, False), (31, True)], ks
+    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, True), (20, True), (31, True), (40, True),
+                                                   (51, False), (60, True)], ks  # repetidas: las quita stable_segments
     assert "marcadores" not in ks[6]["text"] and ks[6]["title"].startswith("Presupuesto total"), ks[6]
 
     for n, want in ((30, [10, 10, 10]), (23, [8, 7, 8]), (3, [3])):  # mismo tamaño, sin cola ni bloque gigante
