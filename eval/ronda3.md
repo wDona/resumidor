@@ -167,12 +167,71 @@ Opinión (charla normal): relato igual de fluido que el 9B normal; las decisione
 **Conclusión: los límites no explican la derrota del 9B.** Ampliarlos no cambia nada; la diferencia está en el modelo
 (menos fiel, decisiones inventadas), no en el recorte. `ACTAS_LOOSE` queda como interruptor de experimento, sin efecto por defecto.
 
+## 7. Chat interpretativo con gemma-4-E4B
+
+`rag.py`: el chat usa `models/gemma-4-E4B-it-Q4_0.gguf` (el 4B de las actas no cambia; solo hay un llama-server cargado a la vez,
+el del chat se para al generar un acta). `ACTAS_CHAT=qwen` vuelve al 4B y al estilo literal anterior. Estilo nuevo (`answer_i`):
+líneas `[n] Se dijo que …` (síntesis con sus palabras, puede juntar dos tramos `[n][m]`, misma verificación léxica de siempre
+contra la unión de los tramos citados) y, como mucho, una `[n] Se deduce que X, porque se dijo que Y.` / `Probablemente …`:
+la base Y es una afirmación de hecho y pasa la misma verificación que «Se dijo» (si falla, se descarta la deducción) y solo
+puede citar tramos que ya sostienen alguna línea «Se dijo» de la misma respuesta. Cifras de la deducción también comprobadas.
+Preguntas generales («¿de qué va la reunión?», regex `GEN_Q`): 3 líneas sacadas del acta breve (resumen + relato) con el enlace
+al tramo de voz de cada momento. Preguntas de propósito (`PURP_Q`): se enseña el contexto ±1 de cada tramo.
+Gold nuevo: 15 preguntas (6 `general`, 5 `purpose`; reuniones nuevas `demo_excel` y `demo_vscode`, procesadas con el pipeline;
+el vídeo de VS Code está en inglés). 62 preguntas, 6 reuniones. GPU (Vulkan, `-ngl 99`), un solo servidor, `nice 19`.
+**Latencias solo de referencia en GPU, no representan el portátil.**
+
+| métrica (62 preguntas) | 4B literal | gemma, original | gemma + cita ⊆ «se dijo» | gemma + base «porque se dijo» (final) |
+|---|---|---|---|---|
+| recall@8 | 98 % | 98 % | 98 % | 98 % |
+| factual | 95 % (18/19) | 95 % | 95 % | 100 % (19/19) |
+| paráfrasis | 86 % (12/14) | 93 % | 93 % | 93 % (13/14) |
+| trampas | 91 % (10/11) | 91 % | 91 % | 100 % (11/11) |
+| ausentes | 100 % (7/7) | 100 % | 100 % | 100 % (7/7) |
+| general (nuevo) | 17 % (1/6) | 67 % | 67 % | 67 % (4/6) |
+| propósito (nuevo) | 40 % (2/5) | 100 % | 100 % | 100 % (5/5) |
+| propósito con deducción marcada y citada | 0 % | 60 % | 60 % | 20 % (1/5) |
+| falso «No se menciona» en respondibles | 6 % | 0 % | 0 % | 0 % |
+| frases descartadas por la verificación | 24 % | 23 % | 25 % | 30 % |
+| deducciones totales / en trampas+ausentes | 0 / 0 | 41 / 6 | 24 / 2 | 6 / 0 |
+| deducciones con cita que no las respalda | – | 17 de 41 | 0 de 24 | 0 de 6 |
+| deducciones con base verificada (antes de descartar) | – | – | – | 32 % (7/22) |
+| latencia p50 / p90 (GPU, referencia) | 2,0 / 2,6 s | 3,1 / 4,1 s | 3,1 / 4,1 s | 4,8 / 6,4 s |
+
+(«cita que no las respalda» = refs de la deducción ⊄ refs de sus líneas «Se dijo»; en la primera columna de gemma se calculó
+a posteriori sobre `rag_resultados.json`.) Gemma no es peor en ausentes ni trampas (100 % en ambas, la ronda original ya estaba
+al 91 % en trampas; el único fallo, «¿Fue un éxito el evento…?», se resolvió en la versión final porque la deducción se descarta
+sin base verificable). Mejora clara en general y propósito, a costa de ~1,5-2,5× de latencia. Las deducciones sin base verificable
+mueren (68 % de los intentos): quedan pocas, pero todas citadas, marcadas y con su «porque se dijo». Límite conocido: la
+verificación es léxica, una suma inventada cuyas cifras aparecen sueltas en el tramo («75,75» con «34,75» presente) pasa;
+en inglés (VS Code) casi todo lo escrito en español se descarta por no coincidir las palabras (queda la cita literal).
+
+Ejemplos (versión final, gemma):
+
+- «¿De qué va la reunión?» (clickmeeting): `[00:01]` Se presenta una demostración de la plataforma ClickMeeting para conferencias y
+  capacitaciones en línea. · `[09:23]` Se explica cómo configurar un evento con hora programada y opciones de acceso seguras. ·
+  `[21:17]` Se muestran herramientas interactivas como la pizarra, encuestas y el chat. (4B: dos tramos sueltos sobre «crear un
+  evento» y «reunión normal».)
+- «¿Para qué sirve el modo cameo de PowerPoint?»: `[10:48]` Se dijo que en el modo cameo lo único que va a ver el personal que
+  atiende es lo que se llama el modo cameo. · `[11:07]` Se dijo que el modo cameo, lo que haría en mi ordenador, sería presentarme
+  a mí ahí mismo. · `[10:48]` *Se deduce que el modo cameo sirve para que el presentador se muestre al personal que atiende, porque
+  se dijo que «…lo que haría en mi ordenador, sería presentarme a mí ahí mismo».*
+- «¿Para qué sirven las tablas dinámicas?» (demo_excel): `[00:15]` Se dijo que en este vídeo se aprenderá a dominar las tablas
+  dinámicas, saber para qué sirven, cuándo se utilizan y cómo adaptarlas a nuestros informes. (4B: «un tema bastante interesante que
+  me han pedido muchísimo».)
+- «¿Se puede emitir en vivo en redes sociales?»: `[03:53]` Se dijo que se puede transmitir en directo en Facebook o en YouTube si se
+  utiliza el plan pago · `[03:53]` *Se deduce que la transmisión en vivo en redes sociales requiere el plan pago, porque se dijo que
+  «también puedo transmitir con el plan pago… en directo en Facebook o en YouTube».*
+
+Fallos que quedan: «¿De qué trata la reunión?» en la charla del comité (el resumen del acta tiene líneas que no resumen la sesión) y en el
+vídeo de VS Code (la cita no cae en el `must` en inglés); la pregunta de propósito en inglés (VS Code) solo devuelve citas literales.
+
 ## Pendiente
 
 - Calidad Alta sin una mejora demostrada: falta una idea que funcione (p. ej. extraer dos veces con el 4B y votar,
   o que el modelo ordene los puntos en vez de puntuarlos).
 - Casilla "Usar GPU" en la UI (Vulkan win/linux, pre-marcada según GPU, offload parcial con poca VRAM).
-- RAG interpretativo (síntesis citada + deducciones marcadas); comparar gemma-4-E4B y 9B para el chat.
+- Chat: comparar también el 9B con el estilo interpretativo; deducciones con base verificable son pocas (32 %), ver §7.
 - Medir en el portátil: coste de las 2 pasadas de OCR y de la etapa de capturas.
 - Capturas: cara a 0:53 en charla; validar `collapse_typing` con más vídeos.
 - Nada de esta ronda está subido (sin push ni release).

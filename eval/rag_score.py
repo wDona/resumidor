@@ -26,6 +26,7 @@ try:
             print(f"índice {q['m']}: {len(idxs[q['m']].segs)} tramos, {time.time() - t0:.1f} s", flush=True)
         idx, gold = idxs[q["m"]], set(q.get("gold", []))
         hit = lambda i: any(P.fmt(idx.segs[j]["s"]) in gold for j in idx.window(i))
+        hits = lambda f: any(hit(i) for i in f.get("refs", [f["i"]]))
         r = {"m": q["m"], "type": q["type"], "q": q["q"]}
         if retr_only:
             ids, cos = idx.search(q["q"])
@@ -38,11 +39,13 @@ try:
             if kind == "candidatos":
                 r["recall"] = any(hit(i) for i in v) if gold else None
             elif kind == "frase":
-                frases.append({**v, "t": P.fmt(idx.segs[v["i"]]["s"]), "hit": hit(v["i"]), "seg": v["cita"]})
+                frases.append({**v, "t": P.fmt(idx.segs[v["i"]]["s"]), "hit": hits(v), "seg": v["cita"]})
             elif kind == "nada":
                 nada = v
             else:
                 r.update(v)
+        dj = {i for f in frases if f.get("kind") == "dijo" for i in f["refs"]}
+        r["ded_mal_citada"] = sum(f.get("kind") == "deduce" and not set(f["refs"]) <= dj for f in frases)  # cita que no respalda
         shown = " ".join(f["frase"] if f["ok"] else f["seg"] for f in frases)  # lo que ve el usuario
         model = fold(" ".join(f["frase"] for f in frases))                    # lo que escribió el LLM
         said = fold(" ".join(f["frase"] for f in frases if f["ok"]))           # frases que pasan la verificación
@@ -54,6 +57,11 @@ try:
             r["ok"] = bool(nada)
         elif q["type"] == "trap":
             r["ok"] = not r["shown_inference"] and (not gold or any(f["hit"] for f in frases))
+        elif q["type"] == "general":  # resumen del acta: >= 2 líneas con enlace y las ideas clave
+            r["ok"] = not nada and len(frases) >= 2 and r["must_ok"]
+        elif q["type"] == "purpose":  # propósito: hechos con enlace al gold; la deducción (solo gemma) marcada y citada aparte
+            r["ded"] = any(f.get("kind") == "deduce" and f["hit"] for f in frases)
+            r["ok"] = not nada and any(f["hit"] for f in frases) and r["must_ok"]
         else:
             r["ok"] = not nada and any(f["hit"] for f in frases) and r["must_ok"]
         rows.append(r)
@@ -75,11 +83,17 @@ if retr_only:
         cs = sorted(round(r["cos"], 3) for r in rows if r["type"] == t)
         print(f"cos {t}: {cs}")
     sys.exit()
+ded = [f for r in rows for f in r["frases"] if f.get("kind") == "deduce"]
 by = lambda t: [r["ok"] for r in rows if r["type"] == t]
 fr = [f for r in rows for f in r["frases"]]
 ans = [r for r in rows if r["type"] in ("factual", "paraphrase")]
 print("factual:", pct(by("factual")), "· paráfrasis:", pct(by("paraphrase")), "· trampas:", pct(by("trap")),
       "· ausentes:", pct(by("absent")))
+print("general:", pct(by("general")), "· propósito:", pct(by("purpose")),
+      "· propósito con deducción marcada y citada:", pct([r["ded"] for r in rows if r["type"] == "purpose"]),
+      "· deducciones con cita que no la respalda:", sum(r.get("ded_mal_citada", 0) for r in rows),
+      "de", len(ded), "· deducciones con base «porque se dijo» verificada (antes de descartar):",
+      pct([True] * sum(r.get("ded_base_ok", 0) for r in rows) + [False] * sum(r.get("ded_n", 0) - r.get("ded_base_ok", 0) for r in rows)), "· deducciones en trampas/ausentes:", sum(f.get("kind") == "deduce" for r in rows if r["type"] in ("trap", "absent") for f in r["frases"]))
 print("falso 'no se menciona' en respondibles:", pct([bool(r["nada"]) for r in ans]),
       "· el LLM infirió en trampas (antes de verificar):", pct([r["raw_inference"] for r in rows if r["type"] == "trap"]))
 print("frases descartadas por la verificación:", pct([not f["ok"] for f in fr]))

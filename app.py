@@ -234,8 +234,10 @@ def preguntar(d: dict):
                     yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200]} for i in v])
                 elif kind == "frase":
                     s = idx.segs[v["i"]]
-                    yield line(k="frase", t=s["s"], ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"],
-                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j == v["i"]} for j in idx.window(v["i"])])
+                    refs = v.get("refs", [v["i"]])  # estilo interpretativo: puede citar varios tramos
+                    yield line(k="frase", t=s["s"], ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"], kind=v.get("kind", "dijo"),
+                               mas=[idx.segs[j]["s"] for j in refs[1:]],
+                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j in refs} for j in dict.fromkeys(k for r in refs for k in idx.window(r))])
                 elif kind == "nada":
                     yield line(k="nada", text=rag.NOT_SAID)
         except Exception as e:

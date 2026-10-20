@@ -10,6 +10,8 @@ M = P.ROOT / "models"
 # (ruta en models/, url, sha256 o None, bytes). Sin sha256 (ficheros pequeños no LFS) solo se exige que no esté vacío.
 FILES = [
     (P.LLM[0], P.LLM[1], "298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb", 2583221408),
+    ("gemma-4-E4B-it-Q4_0.gguf", HF + "unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+     "4a403d2e4d80281063e4f517b1c061ded8476b4011a4fc2ba7dbff707075547e", 4836002944),  # chat de Preguntar (rag.GEMMA)
     ("whisper-small/model.bin", _W + "model.bin", "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671", 483546902),
     ("whisper-small/config.json", _W + "config.json", None, 2370),
     ("whisper-small/tokenizer.json", _W + "tokenizer.json", None, 2203239),

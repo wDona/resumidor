@@ -180,7 +180,7 @@ Límites: un desfase que no sea constante (cortes, pausas) no se corrige; sin vo
 ```sh
 uv run rag.py work/<hash> "¿Cuánto cuesta el plan?"   # o el vídeo; ACTAS_LLM_URL reutiliza un llama-server ya arrancado
 uv run rag.py --selftest                              # verificación: rosa/femenino, 1843/antigua, cifras, negación
-uv run eval/rag_score.py                              # eval/rag_preguntas.json (47 preguntas, 4 reuniones)
+uv run eval/rag_score.py                              # eval/rag_preguntas.json (62 preguntas, 6 reuniones)
 ```
 
 Responde solo con lo dicho, en estilo indirecto («Se dijo que…»), cada frase con su `[mm:ss]` (salta al vídeo) y la cita
@@ -207,6 +207,12 @@ independiente: sin historial, sin caché de respuestas y con `cache_prompt: fals
    «cinco» = 5), y una cifra que en el original va negada («ya no vale 25 sino 30») no puede salir sin negar. Si falla y la
    frase sale entera de otro tramo recuperado, se le atribuye a ese (el LLM a veces se equivoca de número); si no, se
    descarta y se muestra la cita literal del tramo. Sobre texto de pantalla: «En pantalla se mostró que…».
+
+**Chat interpretativo (gemma-4-E4B, por defecto si está `models/gemma-4-E4B-it-Q4_0.gguf`; `ACTAS_CHAT=qwen` = estilo literal con el 4B):**
+síntesis citada con `[mm:ss]` (puede juntar varios tramos), «Se deduce que X, porque se dijo que Y» en cursiva (la base Y se verifica
+como cualquier «Se dijo» y solo cita tramos de las líneas «Se dijo» de la misma respuesta; si no, se descarta), preguntas generales
+(«¿de qué va la reunión?») resueltas con el acta breve y de propósito («¿para qué sirve X?») con deducción marcada. Medido en
+`eval/ronda3.md` §7 (GPU): ausentes y trampas 100 %, general 17 → 67 %, propósito 40 → 100 %, latencia ×1,5-2,5.
 
 Limitaciones: la verificación es por palabras, no por sentido: una frase que reordena palabras del mismo tramo (o quita
 una negación que no va pegada a una cifra) pasa; por eso la cita literal va siempre al lado. Se cita el ASR tal cual

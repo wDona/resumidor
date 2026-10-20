@@ -15,6 +15,17 @@ MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.35))  # bajo esto: "No se 
 MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificación descarta (medido: +10 pts de descartes)
 CTX_WORDS = 20  # palabras de contexto de cada vecino ±1 que se enseñan al LLM junto a cada fragmento
 NOT_SAID = "No se menciona en la reunión."
+GEMMA = "gemma-4-E4B-it-Q4_0.gguf"
+
+
+def chat_model():
+    """Modelo del chat: gemma-4-E4B (estilo interpretativo) si está; ACTAS_CHAT=qwen vuelve al 4B de las actas (estilo literal)."""
+    g = P.ROOT / "models" / GEMMA
+    return g if os.environ.get("ACTAS_CHAT", "gemma") != "qwen" and g.exists() else P.llm_model()
+
+
+def interp():
+    return chat_model().name == GEMMA
 
 STOP = set("""a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
 cuales cuando de del desde donde dos el ella ellas ello ellos en entre era eran es esa esas ese eso esos esta estas este
@@ -65,6 +76,14 @@ SCREEN_Q = re.compile(r"pantalla|bot[oó]n|men[uú]|ventana|icono|diapositiva|\b
 # Preguntas de definición: el contexto ±1 solo ayuda ahí (la definición suele continuar en el tramo vecino); en el resto
 # alargaba el prompt (+10 s) y el LLM parafraseaba más (paráfrasis 93% -> 71% medido).
 DEF_Q = re.compile(r"\bqu[eé] (es|son|significa|signific[oa]n)\b|\ben qu[eé] consiste|\bpara qu[eé] (sirve|sirven|se usa|se usan|se utiliza)", re.I)
+
+
+# Preguntas generales («¿de qué va la reunión?») -> se responden con el acta breve; de propósito («¿para qué sirve X?») ->
+# deducción marcada a partir de las funciones que se mostraron o dijeron.
+GEN_Q = re.compile(r"\bde qu[eé] (va|trata|tratan|se habl[oó]|hablan?)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo|llamada|encuentro)\b|"
+                   r"\b(resum[ei]|resumen)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo)\b|\bde qu[eé] (va|trata) (esto|todo)\b", re.I)
+PURP_Q = re.compile(r"\bpara qu[eé] (sirve|sirven|se usa|se utiliza|es)\b|\bde qu[eé] (va|trata) (el|la|este|esta|ese|esa)\b|\bqu[eé] (hace|permite) (el|la|este|esta)\b", re.I)
+needs_ctx = lambda q: bool(DEF_Q.search(q) or (interp() and PURP_Q.search(q)))
 
 
 def terms(text):
@@ -134,6 +153,21 @@ class Index:
         self.df = Counter(w for d in self.docs for w in d)
         self.len = np.array([sum(d.values()) for d in self.docs], float)
         self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
+        self.wd = Path(wd)
+
+    def acta(self):
+        """(resumen, [(t, texto)...]) del acta breve (o la más corta que haya) de esta reunión; (None, []) si no hay."""
+        fs = sorted(self.wd.glob("acta_*/acta.json"), key=lambda f: ("breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name))
+        try:
+            a = json.loads(fs[0].read_text())
+        except (IndexError, ValueError):
+            return None, []
+        rel = [(r["t"], r["texto"]) for r in a.get("relato", [])] or [(x.get("t", 0), x.get("titulo", "")) for x in a.get("secciones", [])]
+        return a.get("resumen"), rel
+
+    def seg_at(self, t):
+        """Índice del tramo de voz que contiene el segundo t."""
+        return next((i for i in reversed(self.voz) if self.segs[i]["s"] <= t + 1), self.voz[0])
 
     def bm25(self, q, k1=1.5, b=0.75):
         n, sc = len(self.docs), np.zeros(len(self.docs))
@@ -223,7 +257,7 @@ def grammar(n):
 def prompt(idx, ids, q):
     def ctx(i):  # final del tramo anterior y principio del siguiente (solo voz)
         w = idx.window(i)
-        if len(w) == 1 or not DEF_Q.search(q):
+        if len(w) == 1 or not needs_ctx(q):
             return ""
         a = [j for j in w if j < i]
         b = [j for j in w if j > i]
@@ -231,23 +265,23 @@ def prompt(idx, ids, q):
                                + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else []))
     rows = [f"[{n}] ({P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
             f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
-    nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if DEF_Q.search(q) else ""
+    nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if needs_ctx(q) else ""
     return f"Fragmentos{nota}:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
 
 
-def server(threads, ctx=4096):
+def server(threads, ctx=None):
     """llama-server propio (puerto libre) o el de ACTAS_LLM_URL. -> (url, proceso o None).
     ponytail: copia de los argumentos de P.llama; unificar si P.llama devolviera también la url."""
     if os.environ.get("ACTAS_LLM_URL"):
         return os.environ["ACTAS_LLM_URL"], None
     exe = P.llama_exe()
-    if not exe or not P.llm_model():
+    if not exe or not chat_model():
         raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     P.WORK.mkdir(exist_ok=True)
-    proc = subprocess.Popen([str(exe), "-m", str(P.llm_model()), "-c", str(ctx), "-t", str(threads), "-np", "1",
+    proc = subprocess.Popen([str(exe), "-m", str(chat_model()), "-c", str(ctx or (6144 if interp() else 4096)), "-t", str(threads), "-np", "1", *P.GPU,
                              "-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none", "--host", "127.0.0.1",
                              "--port", str(port)], stdout=open(P.WORK / "llama-server-rag.log", "w"),
                             stderr=subprocess.STDOUT)
@@ -264,10 +298,10 @@ def server(threads, ctx=4096):
     raise RuntimeError("llama-server no arranca")
 
 
-def stream(url, user, n):
+def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):
     """Genera los trozos de texto del LLM; el último elemento es el dict de tiempos de llama-server."""
-    body = {"messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
-            "temperature": 0, "max_tokens": 80 * MAX_LINES, "grammar": grammar(n), "stream": True,
+    body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": 0, "max_tokens": max_tokens, "grammar": gram or grammar(n), "stream": True,
             "cache_prompt": False, "chat_template_kwargs": {"enable_thinking": False}}
     req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
@@ -288,6 +322,9 @@ def stream(url, user, n):
 def answer(idx, q, url):
     """Eventos: ("candidatos", [i...]) al instante; luego ("frase", dict) por cada línea del LLM o ("nada", motivo);
     al final ("fin", tiempos). Una pregunta = una llamada sin historial."""
+    if interp():
+        yield from answer_i(idx, q, url)
+        return
     t0 = time.time()
     ids, cos = idx.search(q)
     st = {"recuperacion": round(time.time() - t0, 3), "cos": round(cos, 3)}
@@ -325,6 +362,116 @@ def answer(idx, q, url):
     if not n_out:
         yield "nada", "llm"
     yield "fin", {**st, "primer_token": first, "total": round(time.time() - t0, 2)}
+
+
+# ---------- estilo interpretativo (gemma-4-E4B): síntesis citada + deducción marcada ----------
+SYSTEM_I = """Respondes preguntas sobre una reunión usando SOLO los fragmentos numerados de su transcripción.
+Cada línea empieza por el número del fragmento que la apoya, o de dos si juntas ideas de ambos: [n] o [n][m].
+Dos tipos de línea, los hechos primero:
+[n] Se dijo que <lo que dicen los fragmentos sobre lo preguntado, con tus palabras, resumiendo o conectando varios \
+si hace falta; solo datos, nombres y cifras que aparezcan en ellos>.
+[n] Se deduce que <conclusión razonable; es una deducción, no un hecho dicho>, porque se dijo que <lo que dicen esos \
+fragmentos en que se apoya, con sus palabras>.
+Reglas: máximo 3 líneas «Se dijo» y 1 «Se deduce». La deducción solo si ayuda a responder (p. ej. el propósito de \
+una herramienta a partir de las funciones que se muestran); cada deducción cita el fragmento en que se apoya y no inventa \
+cifras ni hechos. Si la pregunta supone algo que los fragmentos no dicen, no lo des por cierto. \
+Si ningún fragmento trata lo preguntado, escribe solo: NINGUNO"""
+SYSTEM_G = """Resumes una reunión a partir de su resumen y de los momentos numerados de su acta.
+Escribe 3 líneas, cada una con su idea y el número del momento que la apoya: [n] <idea>. Solo lo que dice el acta, \
+sin inventar nombres, cifras ni conclusiones."""
+
+
+def grammar_i(n, general=False):
+    refs = 'refs ::= "[" id "]" ("[" id "]")?\nid ::= ' + " | ".join(f'"{i}"' for i in range(1, n + 1))
+    txt = 'txt ::= [^\\n\\[\\]]{3,260}'
+    if general:
+        return f'root ::= g{{2,3}}\ng ::= refs " " txt "\\n"\n{refs}\n{txt}'
+    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " Se dijo que " txt "\\n"\n'
+            f'e ::= refs " " ("Se deduce que" | "Probablemente") " " txt ", porque se dijo que " txt "\\n"\n{refs}\n{txt}')
+
+
+LINE_I = re.compile(r"^((?:\[\d+\])+) (Se dijo que|Se deduce que|Probablemente)? ?(.+)")
+
+
+def answer_i(idx, q, url):
+    """Como answer() pero interpretativo. Eventos "frase" con kind dijo|deduce|resumen y refs (todos los tramos citados).
+    «Se dijo» se verifica como siempre (contra la unión de los tramos citados); «Se deduce» y el resumen solo exigen
+    que sus cifras estén en lo citado (o en el acta)."""
+    t0 = time.time()
+    resumen, rel = idx.acta() if GEN_Q.search(q) else (None, [])
+    general = bool(rel)
+    ids, cos = idx.search(q)
+    st = {"recuperacion": round(time.time() - t0, 3), "cos": round(cos, 3)}
+    allowed = None
+    if general:  # momentos del acta (como mucho 24, repartidos) -> tramo de voz donde ocurren
+        rel = rel if len(rel) <= 24 else [rel[round(k * (len(rel) - 1) / 23)] for k in range(24)]
+        order = [idx.seg_at(t) for t, _ in rel]
+        user = (f"Resumen del acta: {resumen}\n\nMomentos:\n" + "\n".join(f"[{n}] ({P.fmt(t)}) {x}" for n, (t, x) in enumerate(rel, 1))
+                + f"\n\nPregunta: {q}")
+        allowed = " ".join([resumen or ""] + [x for _, x in rel])
+        args = dict(system=SYSTEM_G, gram=grammar_i(len(rel), True), max_tokens=330)
+        yield "candidatos", order
+    else:
+        yield "candidatos", ids
+        if cos < MIN_COS:
+            yield "nada", "umbral"
+            yield "fin", {**st, "total": round(time.time() - t0, 2)}
+            return
+        order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))
+        user, args = prompt(idx, order, q), dict(system=SYSTEM_I, gram=grammar_i(len(order)), max_tokens=420)
+    buf, n_out, t1, first, seen, dijo = "", 0, time.time(), None, set(), set()
+    ded_n = ded_ok = 0  # dijo: tramos citados por las líneas «Se dijo»
+    text_of = lambda js: " ".join(idx.segs[k]["text"] for j in js for k in idx.window(j))
+    for ch in stream(url, user, len(order), **args):
+        if isinstance(ch, dict):
+            st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
+                      prompt_tok=ch.get("prompt_n"), gen_tok=ch.get("predicted_n"))
+            break
+        first = first or round(time.time() - t1, 2)
+        buf += ch
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            m = LINE_I.match(line.strip())
+            if not m:
+                continue
+            refs = list(dict.fromkeys(order[int(x) - 1] for x in re.findall(r"\d+", m[1]) if 0 < int(x) <= len(order)))
+            if not refs:
+                continue
+            kind = "resumen" if general else "dijo" if m[2] == "Se dijo que" else "deduce"
+            frase = (m[2] + " " if m[2] else "") + re.sub(r"</?[a-zA-Z][^>]*>", "", m[3]).strip()  # sin restos de HTML
+            if kind == "dijo":
+                if refs[0] in seen:
+                    continue
+                miss = verify(frase, text_of(refs))
+                if miss and len(refs) == 1:  # el LLM a veces se equivoca de tramo: si sale entera de otro, es de ese
+                    j = next((j for j in order if j not in seen and not verify(frase, text_of([j]))), None)
+                    if j is not None:
+                        refs, miss = [j], []
+                if idx.segs[refs[0]]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
+                    continue
+                if idx.segs[refs[0]]["kind"] == "pantalla":
+                    frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
+                seen.add(refs[0])
+                dijo.update(refs)
+            else:  # deducción / resumen: sin cifras inventadas
+                if kind == "deduce":
+                    frase = re.split(r"\.\s", frase + " ", 1)[0].rstrip(".") + "."  # una sola oración: el LLM a veces sigue con otra
+                    if not set(refs) <= dijo:
+                        continue  # una deducción solo puede citar lo que ya sostiene los hechos de esta respuesta
+                    ded_n += 1
+                    base = frase.split(", porque se dijo que ", 1)[-1]
+                    if verify(base, text_of(refs)):
+                        continue  # «porque se dijo que…» es una afirmación de hecho: misma verificación que «Se dijo»
+                    ded_ok += 1
+                miss = [w for w in verify(frase, allowed or text_of(refs)) if w.isdigit() or w.startswith("no ")]
+                if miss:
+                    continue
+            n_out += 1
+            yield "frase", {"i": refs[0], "refs": refs, "kind": kind, "frase": frase, "ok": not miss, "faltan": miss,
+                            "cita": idx.cita(refs[0], q)}
+    if not n_out:
+        yield "nada", "llm"
+    yield "fin", {**st, "primer_token": first, "total": round(time.time() - t0, 2), "ded_n": ded_n, "ded_base_ok": ded_ok}
 
 
 def resolve(arg):
@@ -374,7 +521,7 @@ if __name__ == "__main__":
                     print(f"  cand [{P.fmt(idx.segs[i]['s'])}] {idx.segs[i]['text'][:110]}")
             elif kind == "frase":
                 s = idx.segs[v["i"]]
-                print(f"[{P.fmt(s['s'])}] {v['frase'] if v['ok'] else 'Se dijo: «' + v['cita'] + '»'}"
+                print(f"[{', '.join(P.fmt(idx.segs[j]['s']) for j in v.get('refs', [v['i']]))}] {v['frase'] if v['ok'] else 'Se dijo: «' + v['cita'] + '»'}"
                       + ("" if v["ok"] else f"  (frase descartada: {v['faltan']})"))
             elif kind == "nada":
                 print(NOT_SAID, f"({v})")

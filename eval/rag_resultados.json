@@ -4,53 +4,42 @@
   "type": "factual",
   "q": "¿Cuánto cuesta el plan básico al mes si se paga anualmente?",
   "recall": true,
-  "recuperacion": 1.762,
+  "recuperacion": 1.189,
   "cos": 0.586,
-  "prefill": 18.85,
-  "gen": 0.25,
-  "prompt_tok": 814,
-  "gen_tok": 4,
-  "primer_token": 18.85,
-  "total": 20.87,
-  "nada": "llm",
-  "frases": [],
-  "must_ok": false,
-  "raw_inference": false,
-  "shown_inference": false,
-  "ok": false
- },
- {
-  "m": "real_clickmeeting",
-  "type": "paraphrase",
-  "q": "¿Cuánto vale el plan si se abona mes a mes?",
-  "recall": true,
-  "recuperacion": 0.119,
-  "cos": 0.588,
-  "prefill": 18.92,
-  "gen": 5.76,
-  "prompt_tok": 813,
-  "gen_tok": 67,
-  "primer_token": 18.92,
-  "total": 24.8,
+  "prefill": 0.87,
+  "gen": 4.81,
+  "prompt_tok": 815,
+  "gen_tok": 202,
+  "primer_token": 0.88,
+  "total": 6.88,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 8,
-    "frase": "Se dijo que este plan que vale 25 dólares de una llega de almacenamiento, si se paga mensual ya no vale 25 sino vale 30 dólares.",
+    "refs": [
+     8
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que un plan tiene una capacidad de almacenamiento y cuesta 25 dólares.",
     "ok": false,
     "faltan": [
-     "mensual",
-     "sino",
-     "30"
+     "cuesta"
     ],
     "cita": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento.",
     "t": "02:24",
-    "hit": false,
+    "hit": true,
     "seg": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento."
    },
    {
     "i": 14,
-    "frase": "Se dijo que si se paga por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares.",
+    "refs": [
+     14
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que si se paga mensualmente, el plan ya no vale 25 sino vale 30 dólares.",
     "ok": true,
     "faltan": [],
     "cita": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de",
@@ -67,37 +56,90 @@
  {
   "m": "real_clickmeeting",
   "type": "paraphrase",
+  "q": "¿Cuánto vale el plan si se abona mes a mes?",
+  "recall": true,
+  "recuperacion": 0.101,
+  "cos": 0.588,
+  "prefill": 0.86,
+  "gen": 4.49,
+  "prompt_tok": 814,
+  "gen_tok": 174,
+  "primer_token": 0.86,
+  "total": 5.45,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 14,
+    "refs": [
+     14
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que si se paga mensualmente, el plan mencionado ya no vale 25 sino 30 dólares.",
+    "ok": false,
+    "faltan": [
+     "mencionado"
+    ],
+    "cita": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de",
+    "t": "04:12",
+    "hit": true,
+    "seg": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de"
+   },
+   {
+    "i": 18,
+    "refs": [
+     18
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que los precios cambian dependiendo del tamaño de la audiencia.",
+    "ok": false,
+    "faltan": [
+     "cambian"
+    ],
+    "cita": "una conferencia con más usuarios, acá los precios van a ir cambiando, entonces dependiendo del tamaño de su audiencia van a tener que pagar un valor diferente. Yo voy a iniciar sesión acá con mi cuenta. Voy a iniciar sesión. Yo tengo una cuenta que cree hace poco.",
+    "t": "05:26",
+    "hit": false,
+    "seg": "una conferencia con más usuarios, acá los precios van a ir cambiando, entonces dependiendo del tamaño de su audiencia van a tener que pagar un valor diferente. Yo voy a iniciar sesión acá con mi cuenta. Voy a iniciar sesión. Yo tengo una cuenta que cree hace poco."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "paraphrase",
   "q": "¿Los asistentes tienen que instalar algún programa?",
   "recall": true,
-  "recuperacion": 0.111,
+  "recuperacion": 0.095,
   "cos": 0.441,
-  "prefill": 19.1,
-  "gen": 8.95,
-  "prompt_tok": 826,
-  "gen_tok": 104,
-  "primer_token": 19.1,
-  "total": 28.17,
+  "prefill": 0.85,
+  "gen": 4.47,
+  "prompt_tok": 821,
+  "gen_tok": 167,
+  "primer_token": 0.86,
+  "total": 5.42,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 6,
-    "frase": "Se dijo que no van a necesitar descargar ningún software, lo hacen directamente desde su computador en el navegador o desde el celular, incluso pueden acceder a una reunión por teléfono también si no tienen de pronto algún celular o",
+    "refs": [
+     6
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que no van a necesitar descargar ningún software.",
     "ok": true,
     "faltan": [],
     "cita": "línea no van a necesitar descargar ningún software, lo hacen directamente desde su computador en el navegador o desde el celular, incluso pueden acceder a una reunión por teléfono también si no tienen de pronto algún celular o algún computador.",
     "t": "01:48",
     "hit": true,
     "seg": "línea no van a necesitar descargar ningún software, lo hacen directamente desde su computador en el navegador o desde el celular, incluso pueden acceder a una reunión por teléfono también si no tienen de pronto algún celular o algún computador."
-   },
-   {
-    "i": 86,
-    "frase": "Se dijo que si yo estoy, por ejemplo, abriendo algún programa, digamos que tenga acá este programa, ellos van a ir viendo en tiempo real lo que yo voy haciendo acá en la aplicación y si yo voy escribiendo ellos van viendo y si yo",
-    "ok": true,
-    "faltan": [],
-    "cita": "si yo estoy, por ejemplo, abriendo algún programa, digamos que tenga acá este programa, ellos van a ir viendo en tiempo real lo que yo voy haciendo acá en la aplicación y si yo voy escribiendo ellos van viendo y si yo cambio acá cualquier cosa dentro de mi pantalla o me pasó a ver un vídeo o",
-    "t": "26:52",
-    "hit": false,
-    "seg": "si yo estoy, por ejemplo, abriendo algún programa, digamos que tenga acá este programa, ellos van a ir viendo en tiempo real lo que yo voy haciendo acá en la aplicación y si yo voy escribiendo ellos van viendo y si yo cambio acá cualquier cosa dentro de mi pantalla o me pasó a ver un vídeo o"
    }
   ],
   "must_ok": true,
@@ -110,25 +152,34 @@
   "type": "factual",
   "q": "¿Cuánto pueden durar los eventos de la prueba gratuita?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.1,
   "cos": 0.577,
-  "prefill": 19.27,
-  "gen": 3.37,
-  "prompt_tok": 836,
-  "gen_tok": 39,
-  "primer_token": 19.27,
-  "total": 22.75,
+  "prefill": 0.91,
+  "gen": 2.77,
+  "prompt_tok": 842,
+  "gen_tok": 112,
+  "primer_token": 0.91,
+  "total": 3.78,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 15,
-    "frase": "Se dijo que la versión gratuita da 15 minutos para la conferencia.",
-    "ok": true,
-    "faltan": [],
-    "cita": "la audiencia que podamos tener, bueno, la versión gratuita ya vemos que podemos tener hasta 25 personas en un webinar, es decir, en una conferencia online, pero nos dan sólo 15 minutos para la conferencia, lo cual es muy corto obviamente. Entonces no le vamos a decir a los usuarios",
-    "t": "04:32",
+    "i": 11,
+    "refs": [
+     11
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la prueba gratuita permite crear eventos solo de 15 minutos.",
+    "ok": false,
+    "faltan": [
+     "permite"
+    ],
+    "cita": "dice que es gratis por siete días, digamos, y nos da la posibilidad de crear eventos solo de 15 minutos. Obviamente es un tiempo muy cortico. Ellos lo hacen yo creo o pienso que con la intención de que de que lo conozcan y que posteriormente pues realicen el pago.",
+    "t": "03:20",
     "hit": true,
-    "seg": "la audiencia que podamos tener, bueno, la versión gratuita ya vemos que podemos tener hasta 25 personas en un webinar, es decir, en una conferencia online, pero nos dan sólo 15 minutos para la conferencia, lo cual es muy corto obviamente. Entonces no le vamos a decir a los usuarios"
+    "seg": "dice que es gratis por siete días, digamos, y nos da la posibilidad de crear eventos solo de 15 minutos. Obviamente es un tiempo muy cortico. Ellos lo hacen yo creo o pienso que con la intención de que de que lo conozcan y que posteriormente pues realicen el pago."
    }
   ],
   "must_ok": true,
@@ -141,18 +192,25 @@
   "type": "factual",
   "q": "¿Cuántas personas asistieron al evento que hizo hace poco?",
   "recall": true,
-  "recuperacion": 0.116,
+  "recuperacion": 0.097,
   "cos": 0.525,
-  "prefill": 19.57,
-  "gen": 3.31,
-  "prompt_tok": 846,
-  "gen_tok": 39,
-  "primer_token": 19.58,
-  "total": 23.01,
+  "prefill": 0.91,
+  "gen": 1.28,
+  "prompt_tok": 837,
+  "gen_tok": 52,
+  "primer_token": 0.91,
+  "total": 2.29,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 20,
+    "refs": [
+     20
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que asistieron 56 personas a ese evento.",
     "ok": true,
     "faltan": [],
@@ -162,14 +220,32 @@
     "seg": "Entonces bueno acá ya me encuentro en mi cuenta, fíjense que yo hace poco hice un evento, bueno acá dice que asistieron 56 personas a ese evento y entonces les voy a mostrar acá arriba las posibilidades y las herramientas que tiene. Entonces aquí dice almacenamiento,"
    },
    {
-    "i": 23,
-    "frase": "Se dijo que me muestra qué personas asistieron cuando yo hago un evento.",
+    "i": 25,
+    "refs": [
+     25
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el reporte completo muestra cuántos asistentes fueron.",
     "ok": true,
     "faltan": [],
-    "cita": "Entonces, bueno, yo en este momento puedo, si quiero descargar esto o subirlo a YouTube o publicarlo, en fin. También me da estadísticas, entonces me muestra cuando yo hago un evento, me muestra qué personas asistieron y vamos a ver por ejemplo en",
-    "t": "06:58",
+    "cita": "aquí rápidamente para para mostrárselos porque es una aplicación que es muy completa y genera unas estadísticas muy muy buenas fíjense por ejemplo en este reporte tan completo que me genera. Acá me dice cuánto duró el evento, cuántos asistentes fueron, cuántos llegaron por web,",
+    "t": "07:35",
     "hit": false,
-    "seg": "Entonces, bueno, yo en este momento puedo, si quiero descargar esto o subirlo a YouTube o publicarlo, en fin. También me da estadísticas, entonces me muestra cuando yo hago un evento, me muestra qué personas asistieron y vamos a ver por ejemplo en"
+    "seg": "aquí rápidamente para para mostrárselos porque es una aplicación que es muy completa y genera unas estadísticas muy muy buenas fíjense por ejemplo en este reporte tan completo que me genera. Acá me dice cuánto duró el evento, cuántos asistentes fueron, cuántos llegaron por web,"
+   },
+   {
+    "i": 24,
+    "refs": [
+     24
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede sacar un informe con cuántos asistentes.",
+    "ok": true,
+    "faltan": [],
+    "cita": "estadísticas qué datos tengo. Acá dice que me muestra los diferentes eventos, por ejemplo acá en este vamos a ver este evento voy a mirar las estadísticas fíjense que si yo le digo informe básico en pdf me vas a sacar bueno una lista con cuántos asistentes va a sacar un informe",
+    "t": "07:13",
+    "hit": false,
+    "seg": "estadísticas qué datos tengo. Acá dice que me muestra los diferentes eventos, por ejemplo acá en este vamos a ver este evento voy a mirar las estadísticas fíjense que si yo le digo informe básico en pdf me vas a sacar bueno una lista con cuántos asistentes va a sacar un informe"
    }
   ],
   "must_ok": true,
@@ -182,18 +258,25 @@
   "type": "factual",
   "q": "¿Con qué plataforma de pagos viene integrado?",
   "recall": true,
-  "recuperacion": 0.112,
+  "recuperacion": 0.098,
   "cos": 0.488,
-  "prefill": 20.26,
-  "gen": 2.36,
-  "prompt_tok": 870,
-  "gen_tok": 27,
-  "primer_token": 20.26,
-  "total": 22.74,
+  "prefill": 0.91,
+  "gen": 1.52,
+  "prompt_tok": 875,
+  "gen_tok": 62,
+  "primer_token": 0.92,
+  "total": 2.54,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 42,
+    "refs": [
+     42
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que ya viene integrado con PayPal.",
     "ok": true,
     "faltan": [],
@@ -213,19 +296,42 @@
   "type": "paraphrase",
   "q": "¿Se puede emitir en vivo en redes sociales?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.098,
   "cos": 0.583,
-  "prefill": 19.25,
-  "gen": 3.68,
-  "prompt_tok": 832,
-  "gen_tok": 43,
-  "primer_token": 19.26,
-  "total": 23.05,
+  "prefill": 0.86,
+  "gen": 2.87,
+  "prompt_tok": 830,
+  "gen_tok": 124,
+  "primer_token": 0.86,
+  "total": 3.83,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 13,
-    "frase": "Se dijo que se puede transmitir en directo en Facebook o en YouTube o en las dos si se desea.",
+    "refs": [
+     13
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede transmitir en directo en Facebook o en YouTube si se utiliza el plan pago.",
+    "ok": false,
+    "faltan": [
+     "utiliza"
+    ],
+    "cita": "sabrán a qué me refiero con esto. También se puede compartir en línea en las redes sociales, fíjense acá, tiene la opción. También puedo transmitir con el plan pago, el primero, y de ahí en adelante puedo transmitir en directo en Facebook o en YouTube o en las dos si yo deseo",
+    "t": "03:53",
+    "hit": true,
+    "seg": "sabrán a qué me refiero con esto. También se puede compartir en línea en las redes sociales, fíjense acá, tiene la opción. También puedo transmitir con el plan pago, el primero, y de ahí en adelante puedo transmitir en directo en Facebook o en YouTube o en las dos si yo deseo"
+   },
+   {
+    "i": 13,
+    "refs": [
+     13
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que la transmisión en vivo en redes sociales requiere el plan pago, porque se dijo que \"También puedo transmitir con el plan pago, el primero, y de ahí en adelante puedo transmitir en directo en Facebook o en YouTube o en las dos si yo deseo\".",
     "ok": true,
     "faltan": [],
     "cita": "sabrán a qué me refiero con esto. También se puede compartir en línea en las redes sociales, fíjense acá, tiene la opción. También puedo transmitir con el plan pago, el primero, y de ahí en adelante puedo transmitir en directo en Facebook o en YouTube o en las dos si yo deseo",
@@ -244,35 +350,48 @@
   "type": "paraphrase",
   "q": "¿En qué ciudad dice estar el presentador?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.095,
   "cos": 0.362,
-  "prefill": 19.29,
-  "gen": 2.58,
-  "prompt_tok": 833,
-  "gen_tok": 30,
-  "primer_token": 19.3,
-  "total": 21.99,
+  "prefill": 0.86,
+  "gen": 3.77,
+  "prompt_tok": 828,
+  "gen_tok": 144,
+  "primer_token": 0.86,
+  "total": 4.73,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 39,
-    "frase": "Se dijo que yo me encuentro en Bogotá este momento.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     39
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el presentador se encuentra en Bogotá.",
+    "ok": false,
+    "faltan": [
+     "presentador"
+    ],
     "cita": "necesite. Digamos que es un evento de tres horas, le voy a dar a aceptar, entonces acá ya sale la hora del evento, este es mi zona horaria, yo me encuentro en Bogotá este momento. Entonces yo tengo la posibilidad de darle diferentes restricciones al evento, le puede decir,",
     "t": "11:57",
     "hit": true,
     "seg": "necesite. Digamos que es un evento de tres horas, le voy a dar a aceptar, entonces acá ya sale la hora del evento, este es mi zona horaria, yo me encuentro en Bogotá este momento. Entonces yo tengo la posibilidad de darle diferentes restricciones al evento, le puede decir,"
    },
    {
-    "i": 67,
-    "frase": "Se dijo que Juan está conectado en este momento.",
+    "i": 30,
+    "refs": [
+     30
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede ver la ciudad donde estaba la persona.",
     "ok": true,
     "faltan": [],
-    "cita": "a la derecha ya dice que Juan está conectado, está Christian que soy yo, que soy el organizador y estaba Juan que ya se encuentra conectado en este momento, entonces él ya en este momento está viendo la pantalla, fíjense, voy a pasarme como si fuera ese usuario, vamos a ver por acá creo",
-    "t": "20:57",
+    "cita": "que muchas gracias, puedo ver la ciudad donde él estaba y así con cada una de las personas, fíjense que acá tengo otra persona, acá me dice, esta persona entró y salió varias veces y por eso me aparecen varios varios registros y así por cada una de las personas, fíjense acá y otra,",
+    "t": "09:08",
     "hit": false,
-    "seg": "a la derecha ya dice que Juan está conectado, está Christian que soy yo, que soy el organizador y estaba Juan que ya se encuentra conectado en este momento, entonces él ya en este momento está viendo la pantalla, fíjense, voy a pasarme como si fuera ese usuario, vamos a ver por acá creo"
+    "seg": "que muchas gracias, puedo ver la ciudad donde él estaba y así con cada una de las personas, fíjense que acá tengo otra persona, acá me dice, esta persona entró y salió varias veces y por eso me aparecen varios varios registros y así por cada una de las personas, fíjense acá y otra,"
    }
   ],
   "must_ok": true,
@@ -285,21 +404,45 @@
   "type": "trap",
   "q": "¿Es caro ClickMeeting?",
   "recall": true,
-  "recuperacion": 0.11,
+  "recuperacion": 0.097,
   "cos": 0.516,
-  "prefill": 18.4,
-  "gen": 4.09,
-  "prompt_tok": 796,
-  "gen_tok": 48,
-  "primer_token": 18.41,
-  "total": 22.61,
+  "prefill": 0.86,
+  "gen": 4.31,
+  "prompt_tok": 815,
+  "gen_tok": 172,
+  "primer_token": 0.87,
+  "total": 5.27,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 8,
-    "frase": "Se dijo que este plan que vale 25 dólares tiene una llegada de almacenamiento.",
+    "i": 7,
+    "refs": [
+     7
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en la versión gratuita no se puede grabar ni almacenar grabaciones.",
     "ok": true,
     "faltan": [],
+    "cita": "Entonces vamos a ver la diferencia entre la gratuita y los planes pagos rápidamente. Esto tiene muchas funciones pero les voy a mencionar tan solo las más importantes. Por ejemplo, en la versión gratuita, digamos que no tenemos la posibilidad de grabar, de",
+    "t": "02:05",
+    "hit": true,
+    "seg": "Entonces vamos a ver la diferencia entre la gratuita y los planes pagos rápidamente. Esto tiene muchas funciones pero les voy a mencionar tan solo las más importantes. Por ejemplo, en la versión gratuita, digamos que no tenemos la posibilidad de grabar, de"
+   },
+   {
+    "i": 8,
+    "refs": [
+     8
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que un plan que cuesta 25 dólares ofrece una capacidad de almacenamiento para grabar hasta seis horas de videos de capacitación.",
+    "ok": false,
+    "faltan": [
+     "cuesta",
+     "ofrece"
+    ],
     "cita": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento.",
     "t": "02:24",
     "hit": true,
@@ -307,9 +450,17 @@
    },
    {
     "i": 14,
-    "frase": "Se dijo que si se paga mensual este plan ya no vale 25 sino vale 30 dólares.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     14
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que si se paga mensualmente, un plan que antes costaba 25 dólares ahora cuesta 30 dólares.",
+    "ok": false,
+    "faltan": [
+     "costaba",
+     "ahora",
+     "cuesta"
+    ],
     "cita": "y bueno tiene un montón de funciones adicionales. Yo tengo dos opciones de pago, la posibilidad anual o la posibilidad mensual, si pago por ejemplo mensual este plan ya no vale 25 sino vale 30 dólares y veamos que también el precio va a depender de la cantidad de usuarios de",
     "t": "04:12",
     "hit": true,
@@ -326,23 +477,42 @@
   "type": "trap",
   "q": "¿Recomienda el ponente usar ClickMeeting?",
   "recall": true,
-  "recuperacion": 0.112,
+  "recuperacion": 0.104,
   "cos": 0.612,
-  "prefill": 18.61,
-  "gen": 3.12,
-  "prompt_tok": 802,
-  "gen_tok": 36,
-  "primer_token": 18.61,
-  "total": 21.84,
+  "prefill": 0.86,
+  "gen": 5.01,
+  "prompt_tok": 805,
+  "gen_tok": 198,
+  "primer_token": 0.86,
+  "total": 5.98,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 1,
-    "frase": "Se dijo que el ponente utiliza click meeting en ese momento.",
-    "ok": false,
-    "faltan": [
-     "ponente"
+    "i": 0,
+    "refs": [
+     0
     ],
+    "kind": "dijo",
+    "frase": "Se dijo que Cristian Bolanios quiere compartir una aplicación o herramienta que utiliza para hacer conferencias, capacitaciones o seminarios en línea.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones",
+    "t": "00:01",
+    "hit": true,
+    "seg": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones"
+   },
+   {
+    "i": 1,
+    "refs": [
+     1
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el software que más le gusta utilizar se llama ClickMeeting.",
+    "ok": true,
+    "faltan": [],
     "cita": "de este software que hay en realidad bastantes, pero el que más me gusta a mí utilizar se llama click meeting en ese momento ya me encuentro en su página web. Entonces les voy a mostrar en qué consiste este software, cómo funciona, las diferentes alternativas que nos da y pues",
     "t": "00:22",
     "hit": true,
@@ -359,35 +529,46 @@
   "type": "trap",
   "q": "¿Fue un éxito el evento del 31 de marzo?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.096,
   "cos": 0.426,
-  "prefill": 19.48,
-  "gen": 4.56,
-  "prompt_tok": 839,
-  "gen_tok": 53,
-  "primer_token": 19.48,
-  "total": 24.15,
+  "prefill": 0.9,
+  "gen": 3.52,
+  "prompt_tok": 837,
+  "gen_tok": 150,
+  "primer_token": 0.91,
+  "total": 4.53,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 29,
-    "frase": "Se dijo que se puede ver que una persona valoró el evento con cinco estrellas y dijo que fue excelente.",
-    "ok": true,
-    "faltan": [],
-    "cita": "dice yo puedo saber si una persona estuvo digamos que durante todo el evento o si abandonó porque tuvo un problema o se aburrió o no llenó las expectativas. En fin eso aparece acá, fíjense que puedo ver que esta persona valoró el evento con cinco estrellas, dijo que fue excelente,",
-    "t": "08:48",
-    "hit": false,
-    "seg": "dice yo puedo saber si una persona estuvo digamos que durante todo el evento o si abandonó porque tuvo un problema o se aburrió o no llenó las expectativas. En fin eso aparece acá, fíjense que puedo ver que esta persona valoró el evento con cinco estrellas, dijo que fue excelente,"
-   },
-   {
     "i": 22,
-    "frase": "Se dijo que hubo un evento de tres horas, 16 minutos, el 31 de marzo.",
+    "refs": [
+     22
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que tuve un evento de tres horas, 16 minutos, el 31 de marzo.",
     "ok": true,
     "faltan": [],
     "cita": "Y también, al canal almacenamiento tengo las grabaciones, entonces acá quedan grabados mis eventos y yo las puedo, por ejemplo, descargar acá, dice que hay un retraso en las grabaciones, fíjense que acá tuve un evento de tres horas, 16 minutos, el 31 de marzo.",
     "t": "06:40",
     "hit": true,
     "seg": "Y también, al canal almacenamiento tengo las grabaciones, entonces acá quedan grabados mis eventos y yo las puedo, por ejemplo, descargar acá, dice que hay un retraso en las grabaciones, fíjense que acá tuve un evento de tres horas, 16 minutos, el 31 de marzo."
+   },
+   {
+    "i": 29,
+    "refs": [
+     29
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que una persona valoró el evento con cinco estrellas y dijo que fue excelente.",
+    "ok": true,
+    "faltan": [],
+    "cita": "dice yo puedo saber si una persona estuvo digamos que durante todo el evento o si abandonó porque tuvo un problema o se aburrió o no llenó las expectativas. En fin eso aparece acá, fíjense que puedo ver que esta persona valoró el evento con cinco estrellas, dijo que fue excelente,",
+    "t": "08:48",
+    "hit": false,
+    "seg": "dice yo puedo saber si una persona estuvo digamos que durante todo el evento o si abandonó porque tuvo un problema o se aburrió o no llenó las expectativas. En fin eso aparece acá, fíjense que puedo ver que esta persona valoró el evento con cinco estrellas, dijo que fue excelente,"
    }
   ],
   "must_ok": true,
@@ -400,14 +581,17 @@
   "type": "trap",
   "q": "¿De qué color es el botón para iniciar el evento?",
   "recall": null,
-  "recuperacion": 0.115,
+  "recuperacion": 0.096,
   "cos": 0.544,
-  "prefill": 20.34,
-  "gen": 0.26,
-  "prompt_tok": 883,
-  "gen_tok": 4,
-  "primer_token": 20.34,
-  "total": 20.72,
+  "prefill": 0.92,
+  "gen": 0.05,
+  "prompt_tok": 889,
+  "gen_tok": 3,
+  "primer_token": 0.93,
+  "total": 1.07,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -420,14 +604,17 @@
   "type": "absent",
   "q": "¿En qué año se fundó la empresa ClickMeeting?",
   "recall": null,
-  "recuperacion": 0.112,
+  "recuperacion": 0.096,
   "cos": 0.477,
-  "prefill": 18.59,
-  "gen": 0.26,
-  "prompt_tok": 806,
-  "gen_tok": 4,
-  "primer_token": 18.6,
-  "total": 18.97,
+  "prefill": 0.86,
+  "gen": 0.05,
+  "prompt_tok": 812,
+  "gen_tok": 3,
+  "primer_token": 0.87,
+  "total": 1.01,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -440,9 +627,10 @@
   "type": "absent",
   "q": "¿Cuántos empleados tiene la empresa?",
   "recall": null,
-  "recuperacion": 0.106,
+  "recuperacion": 0.096,
   "cos": 0.28,
-  "total": 0.11,
+  "total": 0.1,
+  "ded_mal_citada": 0,
   "nada": "umbral",
   "frases": [],
   "must_ok": true,
@@ -455,19 +643,26 @@
   "type": "factual",
   "q": "¿A quién se designó como directora regional de trabajo?",
   "recall": true,
-  "recuperacion": 0.108,
+  "recuperacion": 0.098,
   "cos": 0.653,
-  "prefill": 18.16,
-  "gen": 3.97,
-  "prompt_tok": 780,
-  "gen_tok": 46,
-  "primer_token": 18.17,
-  "total": 22.25,
+  "prefill": 0.84,
+  "gen": 5.17,
+  "prompt_tok": 789,
+  "gen_tok": 207,
+  "primer_token": 0.84,
+  "total": 6.11,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 18,
-    "frase": "Se dijo que se designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez.",
+    "refs": [
+     18
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la doctora Ana Fiorela Calván Gutierrez fue designada como directora regional de trabajo.",
     "ok": true,
     "faltan": [],
     "cita": "designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez, como ustedes saben, en la sesión de trabajo el doctor Gabriel Facundo Peña entonces pongo en conocimiento a los miembros esta nueva",
@@ -476,14 +671,25 @@
     "seg": "designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez, como ustedes saben, en la sesión de trabajo el doctor Gabriel Facundo Peña entonces pongo en conocimiento a los miembros esta nueva"
    },
    {
-    "i": 16,
-    "frase": "Se dijo que en la actualidad contamos con nueva directora regional de.",
-    "ok": true,
-    "faltan": [],
-    "cita": "que en la actualidad contamos con nueva directora regional de",
-    "t": "05:19",
+    "i": 30,
+    "refs": [
+     30
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la doctora Ana Feorela Galván Gutiérrez es la directoraal a cargo.",
+    "ok": false,
+    "faltan": [
+     "doctora",
+     "ana",
+     "feorela",
+     "galvan",
+     "gutierrez",
+     "directoraal"
+    ],
+    "cita": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director",
+    "t": "09:52",
     "hit": false,
-    "seg": "que en la actualidad contamos con nueva directora regional de"
+    "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
    }
   ],
   "must_ok": true,
@@ -496,18 +702,25 @@
   "type": "factual",
   "q": "¿Qué número tiene la ordenanza regional sobre la implementación?",
   "recall": true,
-  "recuperacion": 0.12,
+  "recuperacion": 0.098,
   "cos": 0.568,
-  "prefill": 18.52,
-  "gen": 6.26,
-  "prompt_tok": 795,
-  "gen_tok": 72,
-  "primer_token": 18.53,
-  "total": 24.91,
+  "prefill": 0.86,
+  "gen": 5.68,
+  "prompt_tok": 802,
+  "gen_tok": 239,
+  "primer_token": 0.86,
+  "total": 6.64,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 30,
+    "refs": [
+     30
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social.",
     "ok": true,
     "faltan": [],
@@ -517,14 +730,37 @@
     "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
    },
    {
-    "i": 130,
-    "frase": "Se dijo que al revisar el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia.",
-    "ok": true,
-    "faltan": [],
-    "cita": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia",
-    "t": "41:56",
+    "i": 31,
+    "refs": [
+     31
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el artículo segundo de la ordenanza regional establece que la Gerencia de Desarrollo Social del gobierno regional de Piura debe disponer la implementación.",
+    "ok": false,
+    "faltan": [
+     "debe",
+     "disponer"
+    ],
+    "cita": "regional de educación, esa es la observación. Le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación. Así lo establece el artículo segundo de la orden, de esta ordenanza regional que a la letra dice, encargar a la",
+    "t": "10:13",
+    "hit": true,
+    "seg": "regional de educación, esa es la observación. Le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación. Así lo establece el artículo segundo de la orden, de esta ordenanza regional que a la letra dice, encargar a la"
+   },
+   {
+    "i": 32,
+    "refs": [
+     32
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la Gerencia General Regional y la Gerencia Regional de Desarrollo Social deben disponer la implementación de la presente ordenanza regional.",
+    "ok": false,
+    "faltan": [
+     "disponer"
+    ],
+    "cita": "Gerencia General Regional y a la Gerencia Regional de Desarrollo Social dispongan la implementación de la presente ordenanza regional a fin de que aseguren la formación a niños, niñas, adolescentes y jóvenes de la región piura en prevención de la seguridad y salud",
+    "t": "10:33",
     "hit": false,
-    "seg": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia"
+    "seg": "Gerencia General Regional y a la Gerencia Regional de Desarrollo Social dispongan la implementación de la presente ordenanza regional a fin de que aseguren la formación a niños, niñas, adolescentes y jóvenes de la región piura en prevención de la seguridad y salud"
    }
   ],
   "must_ok": true,
@@ -537,21 +773,30 @@
   "type": "paraphrase",
   "q": "¿Por qué se cambió el día de la reunión?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.1,
   "cos": 0.603,
-  "prefill": 15.28,
-  "gen": 5.85,
-  "prompt_tok": 655,
-  "gen_tok": 68,
-  "primer_token": 15.28,
-  "total": 21.24,
+  "prefill": 0.74,
+  "gen": 2.12,
+  "prompt_tok": 662,
+  "gen_tok": 90,
+  "primer_token": 0.75,
+  "total": 2.96,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 20,
-    "frase": "Se dijo que la fecha inicialmente fijada para el miércoles próximo pasado fue cambiada para la fecha previa coordinación con ustedes.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     20
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la fecha inicialmente fijada para el miércoles próximo pasado fue cambiada para una fecha previa coordinación con los asistentes.",
+    "ok": false,
+    "faltan": [
+     "asistentes"
+    ],
     "cita": "que tome el conocimiento pertinente, en razón, a esa motivación es que la fecha inicialmente fijada para el miércoles próximo pasado fue cambiada para la fecha previa coordinación con ustedes.",
     "t": "06:34",
     "hit": true,
@@ -559,9 +804,17 @@
    },
    {
     "i": 14,
-    "frase": "Se dijo que se había fijado previamente para la sesión una fecha, no sin antes dar cuenta de algunos aspectos importantes que han acontecido respecto al tema del cambio de fecha.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     14,
+     15
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se estaban dando cuenta de algunos aspectos importantes respecto al tema del cambio de fecha que había sido fijado previamente para la sesión de la reunión de consejo.",
+    "ok": false,
+    "faltan": [
+     "estaban",
+     "dando"
+    ],
     "cita": "sesión fijada para la fecha, no sin antes dar cuenta de algunos aspectos importantes que han acontecido respecto al tema del cambio de fecha que se había fijado previamente para",
     "t": "04:40",
     "hit": true,
@@ -578,19 +831,26 @@
   "type": "paraphrase",
   "q": "¿Con cuánta anticipación piden recibir las invitaciones a las capacitaciones?",
   "recall": true,
-  "recuperacion": 0.116,
+  "recuperacion": 0.113,
   "cos": 0.634,
-  "prefill": 17.54,
-  "gen": 4.4,
-  "prompt_tok": 756,
-  "gen_tok": 51,
-  "primer_token": 17.54,
-  "total": 22.06,
+  "prefill": 0.8,
+  "gen": 5.12,
+  "prompt_tok": 768,
+  "gen_tok": 193,
+  "primer_token": 0.81,
+  "total": 6.05,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 92,
-    "frase": "Se dijo que se les envíe la invitación con una antelación mayor a 10 días.",
+    "refs": [
+     92
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se pide que las capacitaciones sean enviadas con una antelación mayor a 10 días.",
     "ok": true,
     "faltan": [],
     "cita": "incumpliendo los plazos previstos en la norma. Pide que las capacitaciones sean en horarios apropiados y se les envíe la invitación con una antelación mayor a 10 días. Se pide por la parte laboral que su representación en la",
@@ -609,19 +869,40 @@
   "type": "paraphrase",
   "q": "¿Qué se propuso respecto a la Marina de Guerra?",
   "recall": true,
-  "recuperacion": 0.111,
+  "recuperacion": 0.099,
   "cos": 0.416,
-  "prefill": 16.92,
-  "gen": 6.72,
-  "prompt_tok": 718,
-  "gen_tok": 78,
-  "primer_token": 16.92,
-  "total": 23.76,
+  "prefill": 0.8,
+  "gen": 3.08,
+  "prompt_tok": 726,
+  "gen_tok": 136,
+  "primer_token": 0.81,
+  "total": 3.99,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
+    "i": 72,
+    "refs": [
+     72
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se quería sugerir invitar a la primera zona naval para que acredite un personal en las reuniones y sea miembro también.",
+    "ok": true,
+    "faltan": [],
+    "cita": "serie de convenios, entre ellos el convenio solas, que prioriza la seguridad y la vida humana en el mar. Por tanto nosotros queríamos sugerir si se podría invitar a la primera zona",
+    "t": "23:54",
+    "hit": true,
+    "seg": "serie de convenios, entre ellos el convenio solas, que prioriza la seguridad y la vida humana en el mar. Por tanto nosotros queríamos sugerir si se podría invitar a la primera zona"
+   },
+   {
     "i": 73,
-    "frase": "Se dijo que se podría invitar a la primera zona naval para que acredite un personal en estas reuniones y sea miembro también.",
+    "refs": [
+     73
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en Piura hay en la comandancia el comandante Díaz, quien es el director de capitalías y guardacostas de la zona norte de Tunes, de Ximbote a Tunes.",
     "ok": true,
     "faltan": [],
     "cita": "naval para que acredite un personal en estas reuniones y sea miembro también. En este caso tenemos acá en Piura en la comandancia al comandante Díaz que es el director de capitalías y guardacostas de la zona norte de Tunes, de Ximbote a Tunes. Esa es sugerencia",
@@ -631,7 +912,11 @@
    },
    {
     "i": 75,
-    "frase": "Se dijo que en el ámbito marino hay muchas empresas pesqueras que dependen de los informes de capitania sobre estado del tiempo y se prioriza de esta forma la vida del personal que trabaja en este ámbito.",
+    "refs": [
+     75
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el ámbito marino no es solo por el tema de petróleo, sino que hay muchas empresas pesqueras que también dependen de los informes de capitania sobre estado del tiempo y se prioriza de esta forma la vida del personal que trabaja en este ámbito.",
     "ok": true,
     "faltan": [],
     "cita": "el ámbito marino y no solamente por el tema de petróleo sino que hay hay muchas empresas pesqueras que también dependen de los informes de capitania sobre estado del tiempo y se prioriza de esta forma la vida del personal que trabaja en este ámbito. Esa era nuestra sugerencia doctor Ledri.",
@@ -650,39 +935,32 @@
   "type": "factual",
   "q": "¿Cuándo será la próxima reunión?",
   "recall": true,
-  "recuperacion": 0.104,
+  "recuperacion": 0.093,
   "cos": 0.545,
-  "prefill": 16.11,
-  "gen": 3.93,
-  "prompt_tok": 697,
-  "gen_tok": 46,
-  "primer_token": 16.12,
-  "total": 20.15,
+  "prefill": 0.75,
+  "gen": 1.24,
+  "prompt_tok": 701,
+  "gen_tok": 52,
+  "primer_token": 0.75,
+  "total": 2.08,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 150,
-    "frase": "Se dijo que se convocan a la próxima reunión para el mes de noviembre.",
-    "ok": false,
-    "faltan": [
-     "convocan"
+    "refs": [
+     150
     ],
+    "kind": "dijo",
+    "frase": "Se dijo que la próxima reunión será en el mes de noviembre.",
+    "ok": true,
+    "faltan": [],
     "cita": "este nuevamente convocándolos a la próxima reunión para el mes de noviembre. Gracias a todos. Buenas tardes. Buenos días todavía. Buenos días. Buenos días doctor. Ya este por favor si pudieran",
     "t": "48:25",
     "hit": true,
     "seg": "este nuevamente convocándolos a la próxima reunión para el mes de noviembre. Gracias a todos. Buenas tardes. Buenos días todavía. Buenos días. Buenos días doctor. Ya este por favor si pudieran"
-   },
-   {
-    "i": 34,
-    "frase": "Se dijo que los avances de los acuerdos se refieren a la reunión del 16 de agosto.",
-    "ok": false,
-    "faltan": [
-     "refieren"
-    ],
-    "cita": "no corresponde entonces cursar documento al director regional de educación entonces en este sentido creo que este punto es amerita que se toque el día de hoy no eso es todo los avances de los acuerdos que se han adoptado en la reunión del 16 de agosto. Bien muchas gracias doctora Rosy",
-    "t": "11:09",
-    "hit": false,
-    "seg": "no corresponde entonces cursar documento al director regional de educación entonces en este sentido creo que este punto es amerita que se toque el día de hoy no eso es todo los avances de los acuerdos que se han adoptado en la reunión del 16 de agosto. Bien muchas gracias doctora Rosy"
    }
   ],
   "must_ok": true,
@@ -695,19 +973,26 @@
   "type": "factual",
   "q": "¿Qué institución debe encargarse de implementar la ordenanza?",
   "recall": true,
-  "recuperacion": 0.122,
+  "recuperacion": 0.1,
   "cos": 0.526,
-  "prefill": 17.56,
-  "gen": 4.23,
-  "prompt_tok": 750,
-  "gen_tok": 50,
-  "primer_token": 17.56,
-  "total": 21.91,
+  "prefill": 0.81,
+  "gen": 4.47,
+  "prompt_tok": 758,
+  "gen_tok": 188,
+  "primer_token": 0.82,
+  "total": 5.39,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 30,
-    "frase": "Se dijo que la implementación está cargo de la Gerencia de Desarrollo Social.",
+    "refs": [
+     30
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la implementación de la ordenanza regional está a cargo de la Gerencia de Desarrollo Social.",
     "ok": true,
     "faltan": [],
     "cita": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director",
@@ -717,6 +1002,10 @@
    },
    {
     "i": 31,
+    "refs": [
+     31
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación.",
     "ok": true,
     "faltan": [],
@@ -724,6 +1013,20 @@
     "t": "10:13",
     "hit": true,
     "seg": "regional de educación, esa es la observación. Le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación. Así lo establece el artículo segundo de la orden, de esta ordenanza regional que a la letra dice, encargar a la"
+   },
+   {
+    "i": 32,
+    "refs": [
+     32
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la Gerencia General Regional y a la Gerencia Regional de Desarrollo Social dispongan la implementación de la presente ordenanza regional.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Gerencia General Regional y a la Gerencia Regional de Desarrollo Social dispongan la implementación de la presente ordenanza regional a fin de que aseguren la formación a niños, niñas, adolescentes y jóvenes de la región piura en prevención de la seguridad y salud",
+    "t": "10:33",
+    "hit": true,
+    "seg": "Gerencia General Regional y a la Gerencia Regional de Desarrollo Social dispongan la implementación de la presente ordenanza regional a fin de que aseguren la formación a niños, niñas, adolescentes y jóvenes de la región piura en prevención de la seguridad y salud"
    }
   ],
   "must_ok": true,
@@ -736,29 +1039,43 @@
   "type": "paraphrase",
   "q": "¿Quién pidió que se arreglara su apellido en el acta?",
   "recall": true,
-  "recuperacion": 0.11,
+  "recuperacion": 0.096,
   "cos": 0.386,
-  "prefill": 15.52,
-  "gen": 6.16,
-  "prompt_tok": 668,
-  "gen_tok": 72,
-  "primer_token": 15.52,
-  "total": 21.79,
+  "prefill": 0.74,
+  "gen": 2.73,
+  "prompt_tok": 661,
+  "gen_tok": 115,
+  "primer_token": 0.74,
+  "total": 3.57,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 69,
-    "frase": "Se dijo que alguien de alguien que está en la plataforma pidió el uso de la palabra no puede no puede verificar quién fue.",
-    "ok": true,
-    "faltan": [],
-    "cita": "de la placa. Muchas gracias a Doctor Afani. Eh alguien de alguien que está en la plataforma pidió el uso de la palabra no puede no puede verificar quién fue. Que quiere intervenir. Sí doctor, buenos",
-    "t": "23:06",
+    "i": 70,
+    "refs": [
+     70
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que Doctor Daniel Alexander Guevara Gordillo señaló que en el acta aparecía Castillo y solicitó la corrección.",
+    "ok": false,
+    "faltan": [
+     "aparecia",
+     "solicito"
+    ],
+    "cita": "días. Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente. Buenos días compañeros, Doctor Lele me",
+    "t": "23:21",
     "hit": true,
-    "seg": "de la placa. Muchas gracias a Doctor Afani. Eh alguien de alguien que está en la plataforma pidió el uso de la palabra no puede no puede verificar quién fue. Que quiere intervenir. Sí doctor, buenos"
+    "seg": "días. Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente. Buenos días compañeros, Doctor Lele me"
    },
    {
     "i": 70,
-    "frase": "Se dijo que Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente.",
+    "refs": [
+     70
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que la persona que pidió el cambio de apellido es Doctor Daniel Alexander Guevara Gordillo, porque se dijo que \"Doctor es Daniel Alexander Guevara Gordillo, no es Castillo.",
     "ok": true,
     "faltan": [],
     "cita": "días. Doctor es Daniel Alexander Guevara Gordillo, no es Castillo. Ahí en el acta veo Castillo. Ya, gracias Dani haremos la corrección correspondiente. Buenos días compañeros, Doctor Lele me",
@@ -777,55 +1094,85 @@
   "type": "trap",
   "q": "¿Fue acertado no invitar al director regional de educación?",
   "recall": true,
-  "recuperacion": 0.113,
+  "recuperacion": 0.102,
   "cos": 0.591,
-  "prefill": 17.2,
-  "gen": 6.04,
-  "prompt_tok": 744,
-  "gen_tok": 71,
-  "primer_token": 17.21,
-  "total": 23.36,
+  "prefill": 0.81,
+  "gen": 4.56,
+  "prompt_tok": 745,
+  "gen_tok": 194,
+  "primer_token": 0.82,
+  "total": 5.48,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 18,
-    "frase": "Se dijo que designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez.",
+    "i": 30,
+    "refs": [
+     30
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la Ordenancia Regional 434 2019 establece que la implementación de este documento está a cargo de la Gerencia de Desarrollo Social.",
     "ok": true,
     "faltan": [],
-    "cita": "designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez, como ustedes saben, en la sesión de trabajo el doctor Gabriel Facundo Peña entonces pongo en conocimiento a los miembros esta nueva",
-    "t": "05:54",
-    "hit": false,
-    "seg": "designó como directora regional de trabajo a la doctora Ana Fiorela Calván Gutierrez, como ustedes saben, en la sesión de trabajo el doctor Gabriel Facundo Peña entonces pongo en conocimiento a los miembros esta nueva"
+    "cita": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director",
+    "t": "09:52",
+    "hit": true,
+    "seg": "El tema es de que la ordenanza regional, la Ordenancia Regional 434 2019 establece que la implementación de este documento está cargo de la Gerencia de Desarrollo Social. Por lo tanto, entonces no corresponde invitar al director"
    },
    {
-    "i": 28,
-    "frase": "Se dijo que no se ha podido materializar lo siguiente, que es es el tema de cursar el documento de, perdón, de invitar al representante de la Dirección Regional de Educación.",
+    "i": 31,
+    "refs": [
+     31
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que no corresponde invitar al director regional de educación, sino que le corresponde a la Gerencia de Desarrollo Social del gobierno regional de Piura, para que disponga la implementación.",
+    "ok": false,
+    "faltan": [
+     "sino"
+    ],
+    "cita": "regional de educación, esa es la observación. Le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación. Así lo establece el artículo segundo de la orden, de esta ordenanza regional que a la letra dice, encargar a la",
+    "t": "10:13",
+    "hit": true,
+    "seg": "regional de educación, esa es la observación. Le corresponde a la Gerencia de Desarrollo social del gobierno regional de Piura, para que disponga la implementación. Así lo establece el artículo segundo de la orden, de esta ordenanza regional que a la letra dice, encargar a la"
+   },
+   {
+    "i": 130,
+    "refs": [
+     130
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que al revisar el texto de la ordenanza regional correspondiente, no señala que quien debe estar a cargo de la implementación es la gerencia.",
     "ok": true,
     "faltan": [],
-    "cita": "directoral regional 031 2022. Del mismo modo se ha hecho la siguiente observación y es por eso que no se ha podido materializar lo siguiente, que es es el tema de cursar el documento de, perdón,",
-    "t": "09:13",
-    "hit": false,
-    "seg": "directoral regional 031 2022. Del mismo modo se ha hecho la siguiente observación y es por eso que no se ha podido materializar lo siguiente, que es es el tema de cursar el documento de, perdón,"
+    "cita": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia",
+    "t": "41:56",
+    "hit": true,
+    "seg": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia"
    }
   ],
   "must_ok": true,
   "raw_inference": false,
   "shown_inference": false,
-  "ok": false
+  "ok": true
  },
  {
   "m": "charla_comite",
   "type": "trap",
   "q": "¿Estaba enfadada la doctora Fanny?",
   "recall": null,
-  "recuperacion": 0.108,
+  "recuperacion": 0.094,
   "cos": 0.539,
-  "prefill": 16.85,
-  "gen": 0.26,
-  "prompt_tok": 729,
-  "gen_tok": 4,
-  "primer_token": 16.85,
-  "total": 17.22,
+  "prefill": 0.8,
+  "gen": 0.05,
+  "prompt_tok": 719,
+  "gen_tok": 3,
+  "primer_token": 0.8,
+  "total": 0.94,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -838,14 +1185,17 @@
   "type": "absent",
   "q": "¿Cuál es el presupuesto del consejo regional para 2023?",
   "recall": null,
-  "recuperacion": 0.121,
+  "recuperacion": 0.109,
   "cos": 0.406,
-  "prefill": 17.61,
-  "gen": 0.26,
-  "prompt_tok": 759,
-  "gen_tok": 4,
-  "primer_token": 17.61,
-  "total": 17.99,
+  "prefill": 0.81,
+  "gen": 0.05,
+  "prompt_tok": 768,
+  "gen_tok": 3,
+  "primer_token": 0.81,
+  "total": 0.97,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -858,9 +1208,10 @@
   "type": "absent",
   "q": "¿Se habló de la vacunación contra el COVID?",
   "recall": null,
-  "recuperacion": 0.107,
+  "recuperacion": 0.102,
   "cos": 0.269,
-  "total": 0.11,
+  "total": 0.1,
+  "ded_mal_citada": 0,
   "nada": "umbral",
   "frases": [],
   "must_ok": true,
@@ -873,19 +1224,26 @@
   "type": "factual",
   "q": "¿A partir de cuántas palabras por diapositiva la gente lee en vez de escuchar?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.099,
   "cos": 0.7,
-  "prefill": 18.76,
-  "gen": 6.07,
-  "prompt_tok": 803,
-  "gen_tok": 70,
-  "primer_token": 18.76,
-  "total": 24.94,
+  "prefill": 0.85,
+  "gen": 6.7,
+  "prompt_tok": 806,
+  "gen_tok": 262,
+  "primer_token": 0.86,
+  "total": 7.65,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 21,
-    "frase": "Se dijo que cuando tú tienes más de 75 palabras en una diapositiva, la persona que está leyendo la presentación está leyendo el documento.",
+    "refs": [
+     21
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que cuando hay más de 75 palabras en una diapositiva, la persona que está leyendo la presentación está leyendo el documento y no está escuchando.",
     "ok": true,
     "faltan": [],
     "cita": "Entonces, lo que ocurre en estos casos es que cuando tú tienes más de 75 palabras en una diapositiva, la persona que está leyendo la presentación está leyendo el documento. No te está escuchando.",
@@ -895,13 +1253,33 @@
    },
    {
     "i": 198,
-    "frase": "Se dijo que donde ya ponemos mucho texto, ya la gente está intentando leer y a la vez está intentando escuchar a lo que dices.",
+    "refs": [
+     198
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que cuando se pone mucho texto, la gente está intentando leer y a la vez está intentando escuchar a lo que se dice.",
     "ok": true,
     "faltan": [],
     "cita": "donde ya ponemos mucho texto, ya la gente está intentando leer y a la vez está intentando escuchar a lo que dices. Y en el extremo ya de la izquierda, directamente cuando tú pones un movillón de palabras en la de esta, mejor te callas, le das tiempo a las personas para leer y así ya continúas y das el argumento que tú vas hablando.",
     "t": "59:41",
     "hit": false,
     "seg": "donde ya ponemos mucho texto, ya la gente está intentando leer y a la vez está intentando escuchar a lo que dices. Y en el extremo ya de la izquierda, directamente cuando tú pones un movillón de palabras en la de esta, mejor te callas, le das tiempo a las personas para leer y así ya continúas y das el argumento que tú vas hablando."
+   },
+   {
+    "i": 25,
+    "refs": [
+     25
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que si se busca que te escuchen, se deben poner pocas palabras.",
+    "ok": false,
+    "faltan": [
+     "deben"
+    ],
+    "cita": "Otra manera de decir esto mismo es decir, si vas a hacer una presentación dependiendo de qué es lo que estás buscando en tu presentación, intenta poner pocas palabras si lo que quieres es que te escuchen o poner muchas palabras si lo que quieres es que lo lean, que también puede ocurrir.",
+    "t": "07:29",
+    "hit": false,
+    "seg": "Otra manera de decir esto mismo es decir, si vas a hacer una presentación dependiendo de qué es lo que estás buscando en tu presentación, intenta poner pocas palabras si lo que quieres es que te escuchen o poner muchas palabras si lo que quieres es que lo lean, que también puede ocurrir."
    }
   ],
   "must_ok": true,
@@ -914,19 +1292,40 @@
   "type": "paraphrase",
   "q": "¿Qué resolución hace falta para imprimir en papel?",
   "recall": true,
-  "recuperacion": 0.114,
+  "recuperacion": 0.106,
   "cos": 0.609,
-  "prefill": 17.81,
-  "gen": 9.22,
-  "prompt_tok": 771,
-  "gen_tok": 106,
-  "primer_token": 17.82,
-  "total": 27.15,
+  "prefill": 0.84,
+  "gen": 5.99,
+  "prompt_tok": 776,
+  "gen_tok": 226,
+  "primer_token": 0.84,
+  "total": 6.94,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
+    "i": 17,
+    "refs": [
+     17
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la medida de 300 píxeles por pulgadas es la necesaria para que la impresión salga sin problemas.",
+    "ok": true,
+    "faltan": [],
+    "cita": "y sin embargo en un papel la medida de 300 fíciles por pulgadas es la medida necesaria para que la impresión salga sin problemas Si queremos hacer una newsletter también podríamos hacer como un papel a 4 y en horizontal",
+    "t": "05:06",
+    "hit": true,
+    "seg": "y sin embargo en un papel la medida de 300 fíciles por pulgadas es la medida necesaria para que la impresión salga sin problemas Si queremos hacer una newsletter también podríamos hacer como un papel a 4 y en horizontal"
+   },
+   {
     "i": 16,
-    "frase": "Se dijo que la diferencia entre 150 y 300 píxeles por pulgadas es que con 150 es suficiente para engañar al ojo de que los píxeles no se ven, y sin embargo en un papel la medida de 300 píxeles por pulgadas es la medida necesaria.",
+    "refs": [
+     16
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que con 150 píxeles por pulgadas es suficiente para engañar al ojo de que los píxeles no se ven.",
     "ok": true,
     "faltan": [],
     "cita": "Como un papel A4, como formato vertical y entre cientos píxeles por pulgadas y la diferencia entre 150 y 300 es que con 150 es suficiente para engañar al ojo de que los píxeles no se ven",
@@ -935,14 +1334,20 @@
     "seg": "Como un papel A4, como formato vertical y entre cientos píxeles por pulgadas y la diferencia entre 150 y 300 es que con 150 es suficiente para engañar al ojo de que los píxeles no se ven"
    },
    {
-    "i": 86,
-    "frase": "Se dijo que si lo ajusto a 150 la imagen se va a ver así como se ve perfecta, se va a ver.",
-    "ok": true,
-    "faltan": [],
-    "cita": "esta imagen que yo copié de internet, la puedo coger y buscar en sus formatos cuál es su medida de PPI, su medida de píxeles por pulgadas. Entonces si lo ajusto a 150 la imagen se va a ver así como se ve perfecta, se va a ver",
-    "t": "25:51",
+    "i": 181,
+    "refs": [
+     181
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que las personas suelen imprimir estos entrenamientos para repasarlos o para futura referencia.",
+    "ok": false,
+    "faltan": [
+     "repasarlos"
+    ],
+    "cita": "Otra cosa que suele ocurrir en estos casos es que estos entrenamientos las personas se los imprimen, se los imprimen y luego los van repasando o se los imprimen para futura referencia, pues usted tiene que tenerlo en cuenta, si empiezas a poner pues eso, presentaciones,",
+    "t": "54:46",
     "hit": false,
-    "seg": "esta imagen que yo copié de internet, la puedo coger y buscar en sus formatos cuál es su medida de PPI, su medida de píxeles por pulgadas. Entonces si lo ajusto a 150 la imagen se va a ver así como se ve perfecta, se va a ver"
+    "seg": "Otra cosa que suele ocurrir en estos casos es que estos entrenamientos las personas se los imprimen, se los imprimen y luego los van repasando o se los imprimen para futura referencia, pues usted tiene que tenerlo en cuenta, si empiezas a poner pues eso, presentaciones,"
    }
   ],
   "must_ok": true,
@@ -955,35 +1360,46 @@
   "type": "factual",
   "q": "¿Para qué se usan los gráficos de barras?",
   "recall": true,
-  "recuperacion": 0.113,
+  "recuperacion": 0.097,
   "cos": 0.609,
-  "prefill": 27.44,
-  "gen": 4.3,
-  "prompt_tok": 1175,
-  "gen_tok": 50,
-  "primer_token": 27.44,
-  "total": 31.86,
+  "prefill": 1.25,
+  "gen": 4.4,
+  "prompt_tok": 1178,
+  "gen_tok": 178,
+  "primer_token": 1.26,
+  "total": 5.76,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 89,
-    "frase": "Se dijo que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación.",
-    "ok": true,
-    "faltan": [],
-    "cita": "Entonces, lo primero que hay que tener en cuenta es qué tipo de presentación, qué tipo de gráfico estamos utilizando porque no todo el mundo entiende que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación.",
-    "t": "26:45",
-    "hit": false,
-    "seg": "Entonces, lo primero que hay que tener en cuenta es qué tipo de presentación, qué tipo de gráfico estamos utilizando porque no todo el mundo entiende que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación."
-   },
-   {
     "i": 90,
-    "frase": "Se dijo que los gráficos de barra, tanto en vertical como en horizontal, los utilizas para comparar grupos.",
+    "refs": [
+     90
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que los gráficos de barra se utilizan para comparar grupos, tanto en vertical como en horizontal.",
     "ok": true,
     "faltan": [],
     "cita": "y veis, pues cuando tú tienes una línea de una barra, un gráfico de líneas, estás utilizándolo o deberías utilizarlo para tendencias de todo tipo. En el caso de los gráficos de barra,",
     "t": "27:02",
     "hit": true,
     "seg": "y veis, pues cuando tú tienes una línea de una barra, un gráfico de líneas, estás utilizándolo o deberías utilizarlo para tendencias de todo tipo. En el caso de los gráficos de barra,"
+   },
+   {
+    "i": 89,
+    "refs": [
+     89
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que hay que tener en cuenta qué tipo de gráfico se está utilizando porque no todo el mundo entiende que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Entonces, lo primero que hay que tener en cuenta es qué tipo de presentación, qué tipo de gráfico estamos utilizando porque no todo el mundo entiende que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación.",
+    "t": "26:45",
+    "hit": false,
+    "seg": "Entonces, lo primero que hay que tener en cuenta es qué tipo de presentación, qué tipo de gráfico estamos utilizando porque no todo el mundo entiende que cada tipo de gráfico fue diseñado o es mejor para un cierto tipo de presentación."
    }
   ],
   "must_ok": true,
@@ -996,19 +1412,26 @@
   "type": "paraphrase",
   "q": "¿Cómo se puede aligerar el tamaño del archivo de la presentación?",
   "recall": true,
-  "recuperacion": 0.111,
+  "recuperacion": 0.099,
   "cos": 0.544,
-  "prefill": 18.23,
-  "gen": 8.77,
-  "prompt_tok": 788,
-  "gen_tok": 102,
-  "primer_token": 18.24,
-  "total": 27.12,
+  "prefill": 0.86,
+  "gen": 4.3,
+  "prompt_tok": 787,
+  "gen_tok": 176,
+  "primer_token": 0.86,
+  "total": 5.26,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 85,
-    "frase": "Se dijo que la presentación en su conjunto pesa muchísimo porque estamos copiando y pegando de internet y no siempre nos fijamos en cuanto pesan las cosas. Para resolver ese problema, podemos utilizar esta imagen, por ejemplo.",
+    "refs": [
+     85
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede resolver el problema del peso de la presentación utilizando una imagen, porque se mencionó que la presentación en su conjunto pesa muchísimo al copiar y pegar de internet.",
     "ok": true,
     "faltan": [],
     "cita": "la presentación en su conjunto pesa muchísimo porque estamos copiando y pegando de internet y no siempre nos fijamos en cuanto pesan las cosas. Para resolver ese problema, podemos utilizar esta imagen, por ejemplo,",
@@ -1018,13 +1441,36 @@
    },
    {
     "i": 197,
-    "frase": "Se dijo que hay que tender hacia la parte de presentaciones visuales si es posible y si tu presentación es lo que necesita, porque en el momento en que ponemos mucho texto, ahora ya lo entendéis mucho mejor que antes.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     197
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que hay que tender hacia la parte de presentaciones visuales si es posible, porque poner mucho texto hace que la presentación pese.",
+    "ok": false,
+    "faltan": [
+     "pese"
+    ],
     "cita": "Espero que hayáis entendido que hay que tender hacia la parte de presentaciones visuales si es posible y si tu presentación es lo que necesita, porque en el momento en que ponemos mucho texto, ahora ya lo entendéis mucho mejor que antes,",
     "t": "59:24",
     "hit": false,
     "seg": "Espero que hayáis entendido que hay que tender hacia la parte de presentaciones visuales si es posible y si tu presentación es lo que necesita, porque en el momento en que ponemos mucho texto, ahora ya lo entendéis mucho mejor que antes,"
+   },
+   {
+    "i": 45,
+    "refs": [
+     45
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el sistema puede dar cómo organizar las diapositivas, además de colores y tamaños.",
+    "ok": false,
+    "faltan": [
+     "sistema",
+     "dar"
+    ],
+    "cita": "tipos de diapositivas que podría yo necesitar para mi presentación. Es decir, no sólo me está presentando los colores, los tamaños, sino que además también me está dando cómo organizar las diapositivas para cosas pues normales.",
+    "t": "13:35",
+    "hit": false,
+    "seg": "tipos de diapositivas que podría yo necesitar para mi presentación. Es decir, no sólo me está presentando los colores, los tamaños, sino que además también me está dando cómo organizar las diapositivas para cosas pues normales."
    }
   ],
   "must_ok": true,
@@ -1037,35 +1483,32 @@
   "type": "paraphrase",
   "q": "¿Qué hay que tener en cuenta al trabajar con gente de Israel?",
   "recall": true,
-  "recuperacion": 0.113,
+  "recuperacion": 0.096,
   "cos": 0.61,
-  "prefill": 17.9,
-  "gen": 4.63,
-  "prompt_tok": 776,
-  "gen_tok": 54,
-  "primer_token": 17.91,
-  "total": 22.65,
+  "prefill": 0.85,
+  "gen": 5.83,
+  "prompt_tok": 783,
+  "gen_tok": 232,
+  "primer_token": 0.86,
+  "total": 6.78,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 76,
-    "frase": "Se dijo que en Israel van al revés y tienen los caracteres al revés.",
+    "refs": [
+     76
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en Israel tienen los caracteres al revés.",
     "ok": true,
     "faltan": [],
     "cita": "Y si trabajas con Israel, acuérdate que en Israel van al revés. En Israel tienen los caracteres al revés. Entonces, hay veces que para ellos es más sencillo.",
     "t": "22:53",
     "hit": true,
     "seg": "Y si trabajas con Israel, acuérdate que en Israel van al revés. En Israel tienen los caracteres al revés. Entonces, hay veces que para ellos es más sencillo."
-   },
-   {
-    "i": 203,
-    "frase": "Se dijo que los irrealitas van al revés incluso cuando trabajan con contextos en caracteres latinos, los ven al revés.",
-    "ok": true,
-    "faltan": [],
-    "cita": "con muy poquito texto y muy poquitas imágenes no hay ninguna cultura que tenga problema con ello, por ejemplo lo que decía los irrealitas van al revés, incluso cuando ellos cuando ellos trabajan con contextos en caracteres latinos, los ven al revés.",
-    "t": "61:21",
-    "hit": false,
-    "seg": "con muy poquito texto y muy poquitas imágenes no hay ninguna cultura que tenga problema con ello, por ejemplo lo que decía los irrealitas van al revés, incluso cuando ellos cuando ellos trabajan con contextos en caracteres latinos, los ven al revés."
    }
   ],
   "must_ok": true,
@@ -1078,18 +1521,25 @@
   "type": "factual",
   "q": "¿Qué modo de presentación se aconseja en el entorno corporativo?",
   "recall": true,
-  "recuperacion": 0.114,
+  "recuperacion": 0.098,
   "cos": 0.658,
-  "prefill": 18.27,
-  "gen": 4.18,
-  "prompt_tok": 787,
-  "gen_tok": 49,
-  "primer_token": 18.27,
-  "total": 22.57,
+  "prefill": 0.86,
+  "gen": 3.79,
+  "prompt_tok": 790,
+  "gen_tok": 157,
+  "primer_token": 0.86,
+  "total": 4.75,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 34,
+    "refs": [
+     34
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que en el ambiente corporativo deberías ser utilizado siempre en modo de presentar en Teams.",
     "ok": true,
     "faltan": [],
@@ -1099,10 +1549,33 @@
     "seg": "tu pantalla, pues la va a ver todo el mundo. Con lo cual, en el ambiente corporativo deberías ser utilizado siempre en modo de presentar en Teams, en este caso porque en mi empresa se utiliza Teams, pero si no se puede pues"
    },
    {
+    "i": 27,
+    "refs": [
+     27
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el modo profesional en Teams es la mejor manera de hacerlo porque permite tener el cursor láser y leer tus propias notas.",
+    "ok": false,
+    "faltan": [
+     "permite"
+    ],
+    "cita": "Hay un modo que es presentar en Teams, que es lo que pongo ahí en esta parte izquierda, en donde ese es el modo profesional, es la mejor manera de hacerlo, porque estás... tienes la posibilidad de tener el cursor láser, tienes la posibilidad de leer tus propias notas,",
+    "t": "08:14",
+    "hit": true,
+    "seg": "Hay un modo que es presentar en Teams, que es lo que pongo ahí en esta parte izquierda, en donde ese es el modo profesional, es la mejor manera de hacerlo, porque estás... tienes la posibilidad de tener el cursor láser, tienes la posibilidad de leer tus propias notas,"
+   },
+   {
     "i": 35,
-    "frase": "Se dijo que se utiliza el modo slideshow para evitar notificaciones del ordenador que aparecen en la pantalla.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     35
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que si no se puede usar Teams, se debe utilizar el modo slideshow.",
+    "ok": false,
+    "faltan": [
+     "usar",
+     "debe"
+    ],
     "cita": "utiliza el modo slideshow que es el que estoy utilizando en este momento porque así me estoy evitando que haya notificaciones del ordenador que aparecen en la pantalla. Sin embargo con esta presentación con estos modos de presentación lo único que va a ver el personal que atiende es la",
     "t": "10:30",
     "hit": true,
@@ -1119,25 +1592,46 @@
   "type": "trap",
   "q": "¿Qué color hay que usar para las métricas financieras?",
   "recall": true,
-  "recuperacion": 0.111,
+  "recuperacion": 0.097,
   "cos": 0.724,
-  "prefill": 18.06,
-  "gen": 5.05,
-  "prompt_tok": 789,
-  "gen_tok": 59,
-  "primer_token": 18.06,
-  "total": 23.22,
+  "prefill": 0.85,
+  "gen": 5.18,
+  "prompt_tok": 792,
+  "gen_tok": 208,
+  "primer_token": 0.85,
+  "total": 6.13,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 96,
-    "frase": "Se dijo que en el caso de métricas financieras no utiliza el color rojo.",
+    "refs": [
+     96
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en el caso de métricas financieras no se debe utilizar el color rojo.",
     "ok": true,
     "faltan": [],
     "cita": "Y obviamente en el caso de métricas financieras no utiliza el color rojo, puesto que no quieres confundir. Cuando alguien está hablando de métrica financiera y se utiliza un color rojo, se entiende rápidamente que es una cosa negativa y no tiene por qué ser así.",
     "t": "28:50",
     "hit": true,
     "seg": "Y obviamente en el caso de métricas financieras no utiliza el color rojo, puesto que no quieres confundir. Cuando alguien está hablando de métrica financiera y se utiliza un color rojo, se entiende rápidamente que es una cosa negativa y no tiene por qué ser así."
+   },
+   {
+    "i": 73,
+    "refs": [
+     73
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede utilizar el color rojo como color corporativo de resaltado número uno.",
+    "ok": true,
+    "faltan": [],
+    "cita": "pues aquí lo que tendríamos que intentar es utilizar el color corporativo de resaltado número uno, que será el, yo qué sé, en mi empresa es el rojo, y después está el azul y después está el negro y después está el no sé qué, pues utilizando los colores corporativos,",
+    "t": "21:57",
+    "hit": false,
+    "seg": "pues aquí lo que tendríamos que intentar es utilizar el color corporativo de resaltado número uno, que será el, yo qué sé, en mi empresa es el rojo, y después está el azul y después está el negro y después está el no sé qué, pues utilizando los colores corporativos,"
    }
   ],
   "must_ok": true,
@@ -1150,14 +1644,17 @@
   "type": "trap",
   "q": "¿Qué versión de PowerPoint usa el ponente?",
   "recall": null,
-  "recuperacion": 0.107,
+  "recuperacion": 0.094,
   "cos": 0.504,
-  "prefill": 17.4,
-  "gen": 0.25,
-  "prompt_tok": 753,
-  "gen_tok": 4,
-  "primer_token": 17.4,
-  "total": 17.76,
+  "prefill": 0.82,
+  "gen": 0.05,
+  "prompt_tok": 759,
+  "gen_tok": 3,
+  "primer_token": 0.82,
+  "total": 0.96,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -1170,14 +1667,17 @@
   "type": "absent",
   "q": "¿Cómo se llama la empresa ficticia de la plantilla?",
   "recall": null,
-  "recuperacion": 0.124,
+  "recuperacion": 0.095,
   "cos": 0.535,
-  "prefill": 19.06,
-  "gen": 0.26,
-  "prompt_tok": 830,
-  "gen_tok": 4,
-  "primer_token": 19.07,
-  "total": 19.45,
+  "prefill": 0.9,
+  "gen": 0.05,
+  "prompt_tok": 835,
+  "gen_tok": 3,
+  "primer_token": 0.91,
+  "total": 1.05,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -1190,14 +1690,17 @@
   "type": "absent",
   "q": "¿Cuánto cuesta hacerse socio del PMI?",
   "recall": null,
-  "recuperacion": 0.116,
+  "recuperacion": 0.098,
   "cos": 0.458,
-  "prefill": 19.59,
-  "gen": 0.25,
-  "prompt_tok": 852,
-  "gen_tok": 4,
-  "primer_token": 19.6,
-  "total": 19.97,
+  "prefill": 0.92,
+  "gen": 0.05,
+  "prompt_tok": 857,
+  "gen_tok": 3,
+  "primer_token": 0.92,
+  "total": 1.07,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -1210,23 +1713,29 @@
   "type": "factual",
   "q": "¿Para qué día y hora se convocó la sesión ordinaria?",
   "recall": true,
-  "recuperacion": 0.113,
+  "recuperacion": 0.098,
   "cos": 0.593,
-  "prefill": 17.55,
-  "gen": 5.8,
-  "prompt_tok": 760,
-  "gen_tok": 68,
-  "primer_token": 17.55,
-  "total": 23.46,
+  "prefill": 0.83,
+  "gen": 3.93,
+  "prompt_tok": 772,
+  "gen_tok": 173,
+  "primer_token": 0.84,
+  "total": 4.86,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 11,
-    "frase": "Se dijo que la sesión se realizaría por vía telemática el día martes 5 de octubre de 2021 a las 20 horas 30.",
+    "refs": [
+     11
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la sesión ordinaria del Pleno del Consejo Nacional Electoral se realizaría el martes 5 de octubre de 2021 a las 20 horas 30.",
     "ok": false,
     "faltan": [
-     "realizaria",
-     "via"
+     "realizaria"
     ],
     "cita": "sesión ordinaria del Pleno del Consejo Nacional Electoral a realizarse por vida telemática el día martes 5 de octubre de 2021 a las 20 horas 30. La sesión se desarrollará utilizando los medios electrónicos del INCERRA mediante correo electrónico institucional con el",
     "t": "13:32",
@@ -1235,13 +1744,34 @@
    },
    {
     "i": 467,
-    "frase": "Se dijo que se reanudaría el día de mañana miércoles seis de la mañana a las nueve horas de la mañana.",
-    "ok": true,
-    "faltan": [],
+    "refs": [
+     467
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la sesión se reanudaría el día miércoles seis a las nueve horas de la mañana.",
+    "ok": false,
+    "faltan": [
+     "sesion"
+    ],
     "cita": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con",
     "t": "140:43",
     "hit": false,
     "seg": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con"
+   },
+   {
+    "i": 11,
+    "refs": [
+     11,
+     467
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que la sesión se suspendió y se reanudó en una fecha posterior a la originalmente convocada, porque se dijo que la sesión se suspendería siendo las 22 horas con 51 minutos y se reanudaría el día de mañana miércoles seis de la mañana a las nueve horas de la mañana.",
+    "ok": true,
+    "faltan": [],
+    "cita": "sesión ordinaria del Pleno del Consejo Nacional Electoral a realizarse por vida telemática el día martes 5 de octubre de 2021 a las 20 horas 30. La sesión se desarrollará utilizando los medios electrónicos del INCERRA mediante correo electrónico institucional con el",
+    "t": "13:32",
+    "hit": true,
+    "seg": "sesión ordinaria del Pleno del Consejo Nacional Electoral a realizarse por vida telemática el día martes 5 de octubre de 2021 a las 20 horas 30. La sesión se desarrollará utilizando los medios electrónicos del INCERRA mediante correo electrónico institucional con el"
    }
   ],
   "must_ok": true,
@@ -1254,19 +1784,26 @@
   "type": "factual",
   "q": "¿A qué hora se suspendió la sesión?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.099,
   "cos": 0.529,
-  "prefill": 16.98,
-  "gen": 3.21,
-  "prompt_tok": 733,
-  "gen_tok": 38,
-  "primer_token": 16.99,
-  "total": 20.3,
+  "prefill": 0.8,
+  "gen": 1.83,
+  "prompt_tok": 743,
+  "gen_tok": 79,
+  "primer_token": 0.81,
+  "total": 2.73,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 467,
-    "frase": "Se dijo que se suspende la presencia siendo las 22 horas con 51 minutos.",
+    "refs": [
+     467
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la presencia fue suspendida siendo las 22 horas con 51 minutos.",
     "ok": true,
     "faltan": [],
     "cita": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con",
@@ -1275,14 +1812,18 @@
     "seg": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con"
    },
    {
-    "i": 466,
-    "frase": "Se dijo que se suspende la presentación.",
+    "i": 467,
+    "refs": [
+     467
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que la sesión se reanudará al día siguiente, miércoles seis, a las nueve horas de la mañana, porque se dijo que \"se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana\".",
     "ok": true,
     "faltan": [],
-    "cita": "de la presencia de estar presidente gracias. Muchas gracias señor secretario se suspende la presentación gracias a todos y a todas nos vemos mañana un buen descanso. Señor presidente se",
-    "t": "140:27",
+    "cita": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con",
+    "t": "140:43",
     "hit": true,
-    "seg": "de la presencia de estar presidente gracias. Muchas gracias señor secretario se suspende la presentación gracias a todos y a todas nos vemos mañana un buen descanso. Señor presidente se"
+    "seg": "suspende la presencia siendo las 22 horas con 51 minutos y se reanudará el día de mañana miércoles seis de la mañana a las nueve horas de la mañana. Una buena noche con"
    }
   ],
   "must_ok": true,
@@ -1295,27 +1836,29 @@
   "type": "paraphrase",
   "q": "¿Por qué pidió la consejera Nájera mover la sesión a la tarde?",
   "recall": true,
-  "recuperacion": 0.115,
+  "recuperacion": 0.107,
   "cos": 0.55,
-  "prefill": 16.75,
-  "gen": 7.15,
-  "prompt_tok": 718,
-  "gen_tok": 84,
-  "primer_token": 16.75,
-  "total": 24.01,
+  "prefill": 0.81,
+  "gen": 4.88,
+  "prompt_tok": 727,
+  "gen_tok": 188,
+  "primer_token": 0.81,
+  "total": 5.8,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 462,
-    "frase": "Se dijo que la consejera Nájera pidió mover la sesión a la tarde porque su hijo tenía un grado de maestría en la mañana y quería trasladar la sesión a la tarde para que pudiera asistir.",
+    "refs": [
+     462
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la consejera Najera quería hacer un pedido especial para mañana por el grado de maestría de su hijo.",
     "ok": false,
     "faltan": [
-     "pidio",
-     "mover",
-     "tenia",
-     "queria",
-     "pudiera",
-     "asistir"
+     "queria"
     ],
     "cita": "Señora Presidenta, quiero hacer un pedido especial mañana, es el grado de maestría de mi hijo, en la mañana no sé si usted tiene alguna, no sé si le consulta también a los consejeros, algún problema en que se pueda trasladar en la tarde dicha sesión.",
     "t": "139:17",
@@ -1324,13 +1867,13 @@
    },
    {
     "i": 464,
-    "frase": "Se dijo que la consejera Nájera no pudo asistir a la sesión en la mañana, pero su falta estaría justificada si así lo deseaba la presidenta.",
+    "refs": [
+     464
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que su falta estaría justificada si ella lo deseaba.",
     "ok": false,
     "faltan": [
-     "najera",
-     "pudo",
-     "asistir",
-     "manana",
      "deseaba"
     ],
     "cita": "no puedo como para eso ahora. En todo caso su falta estaría justificada si usted así lo desea. a mí si me interesa estar presente en esta sesión señora presidenta es la primera vez que yo solicito",
@@ -1349,25 +1892,46 @@
   "type": "factual",
   "q": "¿Cuál es el tercer punto del orden del día?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.097,
   "cos": 0.375,
-  "prefill": 19.03,
-  "gen": 6.02,
-  "prompt_tok": 819,
-  "gen_tok": 71,
-  "primer_token": 19.04,
-  "total": 25.17,
+  "prefill": 0.86,
+  "gen": 5.07,
+  "prompt_tok": 826,
+  "gen_tok": 199,
+  "primer_token": 0.86,
+  "total": 6.03,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 460,
-    "frase": "Se dijo que el tercer punto tiene que ver con el presupuesto del Consejo Nacional Electoral.",
+    "refs": [
+     460
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que falta todavía el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral.",
     "ok": true,
     "faltan": [],
     "cita": "tema trascendental para el país. Nos falta todavía el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral en virtud de que también es otro tema importante suspendo la presente sesión",
     "t": "138:46",
     "hit": true,
     "seg": "tema trascendental para el país. Nos falta todavía el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral en virtud de que también es otro tema importante suspendo la presente sesión"
+   },
+   {
+    "i": 12,
+    "refs": [
+     12
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la sesión es del Pleno del Consejo Nacional Electoral.",
+    "ok": true,
+    "faltan": [],
+    "cita": "objeto de tratar el siguiente orden del día. Conocimiento del texto de las resoluciones dautadas por el Pleno del Consejo Nacional Electoral en en el próximo mes de 2021 de sábado 2 de octubre de 2021. Segundo, conocimiento y resolución de los informes presentados por la comisión",
+    "t": "13:48",
+    "hit": true,
+    "seg": "objeto de tratar el siguiente orden del día. Conocimiento del texto de las resoluciones dautadas por el Pleno del Consejo Nacional Electoral en en el próximo mes de 2021 de sábado 2 de octubre de 2021. Segundo, conocimiento y resolución de los informes presentados por la comisión"
    }
   ],
   "must_ok": true,
@@ -1380,21 +1944,44 @@
   "type": "paraphrase",
   "q": "¿Por qué motivo se abstiene Elena Nájera en las votaciones?",
   "recall": false,
-  "recuperacion": 0.117,
+  "recuperacion": 0.109,
   "cos": 0.692,
-  "prefill": 16.47,
-  "gen": 2.54,
-  "prompt_tok": 713,
-  "gen_tok": 31,
-  "primer_token": 16.48,
-  "total": 19.14,
+  "prefill": 0.8,
+  "gen": 3.91,
+  "prompt_tok": 718,
+  "gen_tok": 161,
+  "primer_token": 0.81,
+  "total": 4.83,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
-    "i": 220,
-    "frase": "Se dijo que no hay observaciones.",
+    "i": 359,
+    "refs": [
+     359
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el voto de Elena Najera es abstención porque se han hecho los argumentos y los argumentos discriminados anteriormente.",
     "ok": true,
     "faltan": [],
+    "cita": "Doctor Elena Najera, su voto, por favor. Señor secretario, en el que se han hecho los argumentos y los argumentos discriminados anteriormente por lo tanto mi voto es abstención. Se toma nota señora",
+    "t": "111:23",
+    "hit": false,
+    "seg": "Doctor Elena Najera, su voto, por favor. Señor secretario, en el que se han hecho los argumentos y los argumentos discriminados anteriormente por lo tanto mi voto es abstención. Se toma nota señora"
+   },
+   {
+    "i": 220,
+    "refs": [
+     220
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se le pide a la doctora Elena Najera su voto.",
+    "ok": false,
+    "faltan": [
+     "pide"
+    ],
     "cita": "de los que tenemos tiene la palabra. No hay observaciones señor secretario, procedo a tomar votación. Procedo. doctora Elena Najera, su voto por favor. Gracias señor",
     "t": "72:47",
     "hit": false,
@@ -1402,7 +1989,11 @@
    },
    {
     "i": 232,
-    "frase": "Se dijo que con motivaciones expuestas su voto es abstención.",
+    "refs": [
+     232
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la doctora Elena Najera vota abstención con motivaciones expuestas.",
     "ok": true,
     "faltan": [],
     "cita": "observaciones señor secretario proceda a tomar votación. Procedo señora presidenta, doctora Elena Najera, su voto por favor. Con motivaciones expuestas mi voto es abstención. Gracias por favor. Gracias señor",
@@ -1421,19 +2012,26 @@
   "type": "factual",
   "q": "¿Qué puntuación total obtuvo Paúl Leonardo Medina Vázquez?",
   "recall": true,
-  "recuperacion": 0.11,
+  "recuperacion": 0.102,
   "cos": 0.52,
-  "prefill": 17.28,
-  "gen": 6.89,
-  "prompt_tok": 748,
-  "gen_tok": 81,
-  "primer_token": 17.28,
-  "total": 24.29,
+  "prefill": 0.81,
+  "gen": 3.91,
+  "prompt_tok": 742,
+  "gen_tok": 173,
+  "primer_token": 0.81,
+  "total": 4.83,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 309,
-    "frase": "Se dijo que su valoración de méritos fue cuarenta y dos coma cero cero sobre cincuenta y la prueba de oposición veintiocho coma.",
+    "refs": [
+     309
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la valoración de méritos de Paúl Leonardo Medina fue de cuarenta y dos coma cero cero sobre cincuenta.",
     "ok": true,
     "faltan": [],
     "cita": "conformidad con el siguiente cuadro expediente. Cínto setenta y nueve cédula diecisiete, veintidós, veintisiete, veintinueve, cinco, nombre, Medina, Pásquez, Paúl, y Leonardo, valoración de méritos, cuarenta y dos coma cero cero sobre cincuenta prueba de oposición veintiocho coma",
@@ -1442,16 +2040,37 @@
     "seg": "conformidad con el siguiente cuadro expediente. Cínto setenta y nueve cédula diecisiete, veintidós, veintisiete, veintinueve, cinco, nombre, Medina, Pásquez, Paúl, y Leonardo, valoración de méritos, cuarenta y dos coma cero cero sobre cincuenta prueba de oposición veintiocho coma"
    },
    {
-    "i": 318,
-    "frase": "Se dijo que se niega la solicitud de recalificación presentada por el postulante, Paul Leonardo Medina Vázquez, por no cumplir con establecido en un artículo treintinueve del reglamento por.",
+    "i": 342,
+    "refs": [
+     342
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la valoración de méritos de Paul Leonardo Medina Vázquez fue de 34,75 sobre 50.",
     "ok": false,
     "faltan": [
-     "niega"
+     "paul",
+     "leonardo",
+     "medina",
+     "vazquez"
     ],
-    "cita": "por favor. Mienda negar la solicitud de recalificación presentada por la por el postulante, Paul Leonardo Medina Vázquez, por no cumplir con establecido en un artículo treintinueve del reglamento por",
-    "t": "100:17",
+    "cita": "valoración de méritos 34,75 sobre 50 oposición prueba 29,40 sobre 35 oposición de ensayo 11,60 sobre 15 total 75,75 sobre cilincé. Disponerá la que dentro del término de dos",
+    "t": "106:51",
     "hit": false,
-    "seg": "por favor. Mienda negar la solicitud de recalificación presentada por la por el postulante, Paul Leonardo Medina Vázquez, por no cumplir con establecido en un artículo treintinueve del reglamento por"
+    "seg": "valoración de méritos 34,75 sobre 50 oposición prueba 29,40 sobre 35 oposición de ensayo 11,60 sobre 15 total 75,75 sobre cilincé. Disponerá la que dentro del término de dos"
+   },
+   {
+    "i": 342,
+    "refs": [
+     342
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que la puntuación total de Paul Leonardo Medina Vázquez fue de 75,75 sobre cincuenta, porque se dijo que su valoración de méritos fue de 34,75 sobre 50, su prueba de oposición fue de 29,40 sobre 35 y su oposición de ensayo fue de 11,60 sobre 15.",
+    "ok": true,
+    "faltan": [],
+    "cita": "valoración de méritos 34,75 sobre 50 oposición prueba 29,40 sobre 35 oposición de ensayo 11,60 sobre 15 total 75,75 sobre cilincé. Disponerá la que dentro del término de dos",
+    "t": "106:51",
+    "hit": false,
+    "seg": "valoración de méritos 34,75 sobre 50 oposición prueba 29,40 sobre 35 oposición de ensayo 11,60 sobre 15 total 75,75 sobre cilincé. Disponerá la que dentro del término de dos"
    }
   ],
   "must_ok": true,
@@ -1464,35 +2083,32 @@
   "type": "factual",
   "q": "¿Cuántos consejeros estaban presentes al constatar el quórum?",
   "recall": true,
-  "recuperacion": 0.115,
+  "recuperacion": 0.098,
   "cos": 0.574,
-  "prefill": 15.6,
-  "gen": 2.75,
-  "prompt_tok": 670,
-  "gen_tok": 33,
-  "primer_token": 15.6,
-  "total": 18.47,
+  "prefill": 0.75,
+  "gen": 3.49,
+  "prompt_tok": 686,
+  "gen_tok": 131,
+  "primer_token": 0.75,
+  "total": 4.34,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 8,
-    "frase": "Se dijo que constituido con cinco consejeros presentes en esta sala habitual.",
+    "refs": [
+     8
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que había cinco consejeros presentes en la sala habitual.",
     "ok": true,
     "faltan": [],
     "cita": "constituido con cinco consejeros presentes en esta sala habitual. Consecuentemente contamos con el Cúrano de Leia la presentación que restala la",
     "t": "12:45",
     "hit": true,
     "seg": "constituido con cinco consejeros presentes en esta sala habitual. Consecuentemente contamos con el Cúrano de Leia la presentación que restala la"
-   },
-   {
-    "i": 16,
-    "frase": "Se dijo que de señores consejeros.",
-    "ok": true,
-    "faltan": [],
-    "cita": "de señores consejeros. Gracias señor secretario señores consejeros señores consejeras tienen en la palabra. No hay observaciones, señor secretario, será por conocido el primer punto",
-    "t": "14:54",
-    "hit": false,
-    "seg": "de señores consejeros. Gracias señor secretario señores consejeros señores consejeras tienen en la palabra. No hay observaciones, señor secretario, será por conocido el primer punto"
    }
   ],
   "must_ok": true,
@@ -1505,16 +2121,65 @@
   "type": "trap",
   "q": "¿Fue justo el concurso de méritos?",
   "recall": null,
-  "recuperacion": 0.108,
+  "recuperacion": 0.093,
   "cos": 0.51,
-  "prefill": 19.86,
-  "gen": 0.25,
-  "prompt_tok": 860,
-  "gen_tok": 4,
-  "primer_token": 19.86,
-  "total": 20.22,
-  "nada": "llm",
-  "frases": [],
+  "prefill": 0.91,
+  "gen": 4.42,
+  "prompt_tok": 855,
+  "gen_tok": 193,
+  "primer_token": 0.92,
+  "total": 5.43,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 46,
+    "refs": [
+     46
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el concurso de méritos y oposición se ha llevado de manera transparente en los términos determinados en el reglamento.",
+    "ok": true,
+    "faltan": [],
+    "cita": "en la solicitud de cada postulante. En este sentido, con el fin de continuar con el concurso de méritos y oposición que se ha llevado de manera transparente en los términos determinados en el reglamento emitido por este pleno mi voto a favor del informe.",
+    "t": "24:00",
+    "hit": false,
+    "seg": "en la solicitud de cada postulante. En este sentido, con el fin de continuar con el concurso de méritos y oposición que se ha llevado de manera transparente en los términos determinados en el reglamento emitido por este pleno mi voto a favor del informe."
+   },
+   {
+    "i": 99,
+    "refs": [
+     99
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la Comisión Técnica en coordinación con la Comisión académica han realizado el análisis correspondiente.",
+    "ok": true,
+    "faltan": [],
+    "cita": "reglamento para el concurso público de méritos y oposición para la designación de los miembros del CES y CASES y una vez que la Comisión Técnica en coordinación con la Comisión académica han realizado el análisis correspondiente mi voto es a favor de aprobar el informe",
+    "t": "39:02",
+    "hit": false,
+    "seg": "reglamento para el concurso público de méritos y oposición para la designación de los miembros del CES y CASES y una vez que la Comisión Técnica en coordinación con la Comisión académica han realizado el análisis correspondiente mi voto es a favor de aprobar el informe"
+   },
+   {
+    "i": 379,
+    "refs": [
+     379
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el concurso público de méritos de oposición para la designación de los miembros del Consejo de Acción Superior CES y el Consejo de Seguramente la Calidad de Locación Superior CAS se llevó a cabo hasta el periodo dos mil veintiuno dos mil veinti seis.",
+    "ok": false,
+    "faltan": [
+     "llevo",
+     "cabo"
+    ],
+    "cita": "el concurso público de méritos de posición para la designación de los miembros del Consejo de Acción Superior CES y el Consejo de Seguramente la Calidad de Locación Superior CAS hasta el periodo dos mil veintiuno dos mil veinti seis. de la fase de méritos. B, conocer y aprobar el presente informe con resultados totales de la fase de méritos y",
+    "t": "116:45",
+    "hit": false,
+    "seg": "el concurso público de méritos de posición para la designación de los miembros del Consejo de Acción Superior CES y el Consejo de Seguramente la Calidad de Locación Superior CAS hasta el periodo dos mil veintiuno dos mil veinti seis. de la fase de méritos. B, conocer y aprobar el presente informe con resultados totales de la fase de méritos y"
+   }
+  ],
   "must_ok": true,
   "raw_inference": false,
   "shown_inference": false,
@@ -1525,16 +2190,62 @@
   "type": "trap",
   "q": "¿Cuánto dinero tiene el presupuesto 2022 del CNE?",
   "recall": null,
-  "recuperacion": 0.112,
+  "recuperacion": 0.099,
   "cos": 0.448,
-  "prefill": 18.4,
-  "gen": 0.25,
-  "prompt_tok": 801,
-  "gen_tok": 4,
-  "primer_token": 18.4,
-  "total": 18.77,
-  "nada": "llm",
-  "frases": [],
+  "prefill": 0.85,
+  "gen": 4.34,
+  "prompt_tok": 807,
+  "gen_tok": 176,
+  "primer_token": 0.86,
+  "total": 5.3,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 14,
+    "refs": [
+     14
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede dar lectura del presupuesto ordinario anual 2022.",
+    "ok": true,
+    "faltan": [],
+    "cita": "del presupuesto ordinario anual 2022. que se puede dar lectura al presente orden del día y convocatoria. Gracias señor secretario, señores consejeros, tiene la palabra. No hay observaciones, señor",
+    "t": "14:21",
+    "hit": false,
+    "seg": "del presupuesto ordinario anual 2022. que se puede dar lectura al presente orden del día y convocatoria. Gracias señor secretario, señores consejeros, tiene la palabra. No hay observaciones, señor"
+   },
+   {
+    "i": 460,
+    "refs": [
+     460
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que falta el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral.",
+    "ok": true,
+    "faltan": [],
+    "cita": "tema trascendental para el país. Nos falta todavía el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral en virtud de que también es otro tema importante suspendo la presente sesión",
+    "t": "138:46",
+    "hit": false,
+    "seg": "tema trascendental para el país. Nos falta todavía el tercer punto que tiene que ver con el presupuesto del Consejo Nacional Electoral en virtud de que también es otro tema importante suspendo la presente sesión"
+   },
+   {
+    "i": 465,
+    "refs": [
+     465
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el presupuesto del Consejo Nacional Electoral es un tema importante para el país.",
+    "ok": true,
+    "faltan": [],
+    "cita": "este cambio porque la verdad es que siempre estamos objeto a su a su agenda no entonces son dos temas para mí muy importante el uno es un tema de trascendencia para el país como es el presupuesto del Consejo Nacional Electoral sin embargo voy a a dejar de lado el tema personal porque voy a",
+    "t": "140:05",
+    "hit": false,
+    "seg": "este cambio porque la verdad es que siempre estamos objeto a su a su agenda no entonces son dos temas para mí muy importante el uno es un tema de trascendencia para el país como es el presupuesto del Consejo Nacional Electoral sin embargo voy a a dejar de lado el tema personal porque voy a"
+   }
+  ],
   "must_ok": true,
   "raw_inference": false,
   "shown_inference": false,
@@ -1545,14 +2256,17 @@
   "type": "trap",
   "q": "¿Estaba molesta la presidenta por el pedido de Nájera?",
   "recall": null,
-  "recuperacion": 0.117,
+  "recuperacion": 0.1,
   "cos": 0.558,
-  "prefill": 17.19,
-  "gen": 0.26,
-  "prompt_tok": 742,
-  "gen_tok": 4,
-  "primer_token": 17.19,
-  "total": 17.57,
+  "prefill": 0.81,
+  "gen": 0.05,
+  "prompt_tok": 749,
+  "gen_tok": 3,
+  "primer_token": 0.81,
+  "total": 0.96,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -1565,14 +2279,17 @@
   "type": "absent",
   "q": "¿Se habló de las elecciones seccionales de 2023?",
   "recall": null,
-  "recuperacion": 0.112,
+  "recuperacion": 0.099,
   "cos": 0.387,
-  "prefill": 19.92,
-  "gen": 0.26,
-  "prompt_tok": 861,
-  "gen_tok": 4,
-  "primer_token": 19.93,
-  "total": 20.3,
+  "prefill": 0.92,
+  "gen": 0.05,
+  "prompt_tok": 866,
+  "gen_tok": 3,
+  "primer_token": 0.92,
+  "total": 1.07,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": "llm",
   "frases": [],
   "must_ok": true,
@@ -1585,19 +2302,26 @@
   "type": "factual",
   "q": "Que es clickmeeting?",
   "recall": true,
-  "recuperacion": 0.103,
+  "recuperacion": 0.093,
   "cos": 0.611,
-  "prefill": 27.49,
-  "gen": 3.59,
-  "prompt_tok": 1185,
-  "gen_tok": 42,
-  "primer_token": 27.49,
-  "total": 31.18,
+  "prefill": 1.26,
+  "gen": 4.28,
+  "prompt_tok": 1177,
+  "gen_tok": 172,
+  "primer_token": 1.27,
+  "total": 5.64,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 0,
-    "frase": "Se dijo que se llama click meeting.",
+    "refs": [
+     0
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que Cristian Bolanios quiere compartir una aplicación o herramienta que utiliza para hacer conferencias, capacitaciones o seminarios en línea, también conocidos como webinar.",
     "ok": true,
     "faltan": [],
     "cita": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones",
@@ -1607,10 +2331,14 @@
    },
    {
     "i": 1,
-    "frase": "Se dijo que es un software que permite hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar.",
+    "refs": [
+     1
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se mostrará en qué consiste este software, cómo funciona y las diferentes alternativas que ofrece.",
     "ok": false,
     "faltan": [
-     "permite"
+     "ofrece"
     ],
     "cita": "de este software que hay en realidad bastantes, pero el que más me gusta a mí utilizar se llama click meeting en ese momento ya me encuentro en su página web. Entonces les voy a mostrar en qué consiste este software, cómo funciona, las diferentes alternativas que nos da y pues",
     "t": "00:22",
@@ -1628,19 +2356,26 @@
   "type": "paraphrase",
   "q": "¿Para qué sirve la herramienta que muestra el ponente?",
   "recall": true,
-  "recuperacion": 0.113,
+  "recuperacion": 0.098,
   "cos": 0.406,
-  "prefill": 28.31,
-  "gen": 6.49,
-  "prompt_tok": 1218,
-  "gen_tok": 76,
-  "primer_token": 28.31,
-  "total": 34.92,
+  "prefill": 1.27,
+  "gen": 5.21,
+  "prompt_tok": 1194,
+  "gen_tok": 210,
+  "primer_token": 1.27,
+  "total": 6.59,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 0,
-    "frase": "Se dijo que es una aplicación o herramienta que se utiliza para hacer conferencias, capacitaciones o seminarios en línea, también conocidos como webinar.",
+    "refs": [
+     0
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la herramienta se utiliza para hacer conferencias, capacitaciones o seminarios en línea, también conocidos como webinar.",
     "ok": true,
     "faltan": [],
     "cita": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones",
@@ -1650,15 +2385,33 @@
    },
    {
     "i": 2,
-    "frase": "Se dijo que se puede utilizar como una herramienta de trabajo para reunirnos con personas de nuestro equipo, para dar capacitaciones o para generar algún ingreso extra con el conocimiento que se tenga y compartir.",
+    "refs": [
+     2
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede utilizar para reunirnos con personas de un equipo o para generar algún ingreso extra con el conocimiento que se pueda tener y compartir.",
     "ok": false,
     "faltan": [
-     "tenga"
+     "pueda"
     ],
     "cita": "muchos de ustedes lo pueden explorar, lo pueden probar y si les funciona y les gusta lo pueden utilizar como una herramienta de trabajo porque pues bueno en ese momento que nos encontramos en confinamiento pues podemos utilizarlas para reunirnos con personas de nuestro equipo",
     "t": "00:38",
     "hit": true,
     "seg": "muchos de ustedes lo pueden explorar, lo pueden probar y si les funciona y les gusta lo pueden utilizar como una herramienta de trabajo porque pues bueno en ese momento que nos encontramos en confinamiento pues podemos utilizarlas para reunirnos con personas de nuestro equipo"
+   },
+   {
+    "i": 9,
+    "refs": [
+     9
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede compartir la pantalla, tener una pizarra interactiva para describir, poner preguntas y respuestas, encuestas y chatear con las personas.",
+    "ok": true,
+    "faltan": [],
+    "cita": "cualquier plan, yo voy a poder compartir la pantalla, ya vamos a ver cómo se hace, tengo una pizarra interactiva donde yo puedo describir tal cual como si fuera un tablero, puedo poner preguntas y respuestas, poner encuestas, chatear con las personas, les puedo dar permiso a autorización para que ellos",
+    "t": "02:45",
+    "hit": false,
+    "seg": "cualquier plan, yo voy a poder compartir la pantalla, ya vamos a ver cómo se hace, tengo una pizarra interactiva donde yo puedo describir tal cual como si fuera un tablero, puedo poner preguntas y respuestas, poner encuestas, chatear con las personas, les puedo dar permiso a autorización para que ellos"
    }
   ],
   "must_ok": true,
@@ -1671,18 +2424,25 @@
   "type": "factual",
   "q": "¿Qué es la regla de los tercios?",
   "recall": true,
-  "recuperacion": 0.109,
+  "recuperacion": 0.094,
   "cos": 0.64,
-  "prefill": 27.76,
-  "gen": 4.36,
-  "prompt_tok": 1194,
-  "gen_tok": 51,
-  "primer_token": 27.77,
-  "total": 32.23,
+  "prefill": 1.26,
+  "gen": 4.45,
+  "prompt_tok": 1185,
+  "gen_tok": 182,
+  "primer_token": 1.27,
+  "total": 5.82,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 123,
+    "refs": [
+     123
+    ],
+    "kind": "dijo",
     "frase": "Se dijo que la regla de los tercios es una regla que se utiliza para componer una imagen.",
     "ok": true,
     "faltan": [],
@@ -1693,7 +2453,11 @@
    },
    {
     "i": 124,
-    "frase": "Se dijo que la regla de los tercios es una regla que se utiliza para componer una imagen.",
+    "refs": [
+     124
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que la regla de los tercios no fue inventada por PowerPoint, sino que se inventó para la fotografía.",
     "ok": true,
     "faltan": [],
     "cita": "tres, la regla de los tercios, que es una regla que se utiliza para componer una imagen. Esta regla de los tercios no la inventó PowerPoint, sino que se inventó para la fotografía y dentro de dentro de las reglas de cómo enfocar para hacer",
@@ -1712,23 +2476,28 @@
   "type": "factual",
   "q": "¿Qué es el modo cameo?",
   "recall": true,
-  "recuperacion": 0.108,
+  "recuperacion": 0.095,
   "cos": 0.673,
-  "prefill": 27.91,
-  "gen": 5.67,
-  "prompt_tok": 1197,
-  "gen_tok": 66,
-  "primer_token": 27.92,
-  "total": 33.69,
+  "prefill": 1.26,
+  "gen": 1.83,
+  "prompt_tok": 1190,
+  "gen_tok": 77,
+  "primer_token": 1.27,
+  "total": 3.19,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
   "nada": null,
   "frases": [
    {
     "i": 36,
-    "frase": "Se dijo que el modo cameo es una ventañita que aparece en la parte inferior izquierda y que haría que el orador se presentara a sí mismo ahí mismo.",
-    "ok": false,
-    "faltan": [
-     "orador"
+    "refs": [
+     36
     ],
+    "kind": "dijo",
+    "frase": "Se dijo que el modo cameo es una ventanita en la parte inferior izquierda en el modo izquierdo.",
+    "ok": true,
+    "faltan": [],
     "cita": "presentación de Powerpoint. Vale, entonces así es. Si hay una positiva, las tengo para que veáis que es posible hacer una presentación y en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo,",
     "t": "10:48",
     "hit": true,
@@ -1736,10 +2505,16 @@
    },
    {
     "i": 37,
-    "frase": "Se dijo que el modo cameo es lo que haría en el ordenador presentarse a sí mismo ahí mismo.",
+    "refs": [
+     37
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el presentador se dio cuenta de que en ese ordenador no tenía el modo cameo.",
     "ok": false,
     "faltan": [
-     "presentarse"
+     "presentador",
+     "dio",
+     "tenia"
     ],
     "cita": "de lo que se llama el modo cameo. Y el modo cameo, lo que haría en mi ordenador, sería presentarme a mí ahí mismo. Sin embargo, preparando la presentación me he dado cuenta que en este ordenador no tengo el modo cameo. Tiene un powerpoint anterior y no lo tengo.",
     "t": "11:07",
@@ -1750,6 +2525,762 @@
   "must_ok": true,
   "raw_inference": false,
   "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "general",
+  "q": "¿De qué va la reunión?",
+  "recall": null,
+  "recuperacion": 0.096,
+  "cos": 0.507,
+  "prefill": 0.44,
+  "gen": 1.52,
+  "prompt_tok": 401,
+  "gen_tok": 69,
+  "primer_token": 0.45,
+  "total": 2.06,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "resumen",
+    "frase": "Se presenta una demostración de la plataforma ClickMeeting para conferencias y capacitaciones en línea.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones",
+    "t": "00:01",
+    "hit": false,
+    "seg": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones"
+   },
+   {
+    "i": 31,
+    "refs": [
+     31
+    ],
+    "kind": "resumen",
+    "frase": "Se explica cómo configurar un evento con hora programada y opciones de acceso seguras.",
+    "ok": true,
+    "faltan": [],
+    "cita": "me dice que esta persona, acá veo los comentarios que estaba por aquí en la costa atlántica, En fin, entonces es una aplicación que nos permite interactividad, ya también vemos unas estadísticas completas muy buenas, muy chévere, y voy a mostrarles rápidamente cómo se puede",
+    "t": "09:23",
+    "hit": false,
+    "seg": "me dice que esta persona, acá veo los comentarios que estaba por aquí en la costa atlántica, En fin, entonces es una aplicación que nos permite interactividad, ya también vemos unas estadísticas completas muy buenas, muy chévere, y voy a mostrarles rápidamente cómo se puede"
+   },
+   {
+    "i": 68,
+    "refs": [
+     68
+    ],
+    "kind": "resumen",
+    "frase": "Se muestran herramientas interactivas como la pizarra, encuestas y el chat para fomentar la participación.",
+    "ok": true,
+    "faltan": [],
+    "cita": "que la ventana, entonces acá estoy viendo la ventana como la vería la persona digamos que la persona que toma la capacitación, entonces el de que yo estoy hablando por acá de que hay un",
+    "t": "21:17",
+    "hit": false,
+    "seg": "que la ventana, entonces acá estoy viendo la ventana como la vería la persona digamos que la persona que toma la capacitación, entonces el de que yo estoy hablando por acá de que hay un"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "charla_comite",
+  "type": "general",
+  "q": "¿De qué trata la reunión?",
+  "recall": null,
+  "recuperacion": 0.095,
+  "cos": 0.485,
+  "prefill": 0.53,
+  "gen": 1.79,
+  "prompt_tok": 512,
+  "gen_tok": 79,
+  "primer_token": 0.53,
+  "total": 2.41,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 42,
+    "refs": [
+     42
+    ],
+    "kind": "resumen",
+    "frase": "Se aprobó el acta anterior corrigiendo la inclusión de una invitada que no tenía condición de representante.",
+    "ok": true,
+    "faltan": [],
+    "cita": "desarrollando la siguiente agenda. Agenda punto número uno, aprobación del acta anterior, seguimiento al programa regional de seguridad de Salón en el trabajo 2022 y actualización de la resolución directora regional 031-2022, es la SRP guión de RTP y honda de R del 23 de junio del 2022,",
+    "t": "13:39",
+    "hit": false,
+    "seg": "desarrollando la siguiente agenda. Agenda punto número uno, aprobación del acta anterior, seguimiento al programa regional de seguridad de Salón en el trabajo 2022 y actualización de la resolución directora regional 031-2022, es la SRP guión de RTP y honda de R del 23 de junio del 2022,"
+   },
+   {
+    "i": 130,
+    "refs": [
+     130
+    ],
+    "kind": "resumen",
+    "frase": "Se reorientó el acuerdo para que la gerencia de desarrollo social informe sobre la implementación de una ordenanza regional.",
+    "ok": true,
+    "faltan": [],
+    "cita": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia",
+    "t": "41:56",
+    "hit": false,
+    "seg": "esa sesión de consejo del día 16 señalaba que se convocara a un representante de la DRE para que dé cuenta de la implementación pero la revisando el texto de la ordenanza regional correspondiente no señala que quien debe estar a cargo de la implementación es la gerencia"
+   },
+   {
+    "i": 116,
+    "refs": [
+     116
+    ],
+    "kind": "resumen",
+    "frase": "Se confirmó que aún no se tiene el nombre de la persona para designar representantes ante la comisión.",
+    "ok": true,
+    "faltan": [],
+    "cita": "quién iba a ser el representante a Dani Guevara. Dani estás ahí. Dani. Luis Antonio. Dani está en plataforma o no no tienes",
+    "t": "38:09",
+    "hit": false,
+    "seg": "quién iba a ser el representante a Dani Guevara. Dani estás ahí. Dani. Luis Antonio. Dani está en plataforma o no no tienes"
+   }
+  ],
+  "must_ok": false,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "general",
+  "q": "¿De qué va el webinar?",
+  "recall": null,
+  "recuperacion": 0.093,
+  "cos": 0.555,
+  "prefill": 0.82,
+  "gen": 1.83,
+  "prompt_tok": 766,
+  "gen_tok": 82,
+  "primer_token": 0.82,
+  "total": 2.75,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 9,
+    "refs": [
+     9
+    ],
+    "kind": "resumen",
+    "frase": "Las presentaciones con pocas palabras facilitan que la audiencia escuche en lugar de leer.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Bueno, que este webinar debería haber empezado y ahora ya lo que voy a hacer es empezar a ver de qué va esta presentación. Lo primero que voy a hacer es hablar, hablaros de lo que pone en la diapositiva, que os dejo que lo leáis,",
+    "t": "02:41",
+    "hit": false,
+    "seg": "Bueno, que este webinar debería haber empezado y ahora ya lo que voy a hacer es empezar a ver de qué va esta presentación. Lo primero que voy a hacer es hablar, hablaros de lo que pone en la diapositiva, que os dejo que lo leáis,"
+   },
+   {
+    "i": 87,
+    "refs": [
+     87
+    ],
+    "kind": "resumen",
+    "frase": "La visualización de datos debe priorizar la claridad del mensaje sobre la estética, seleccionando el gráfico adecuado para cada tipo de dato y simplificando la información.",
+    "ok": true,
+    "faltan": [],
+    "cita": "tal y como está. Y esto disminuye muchísimo el peso total de la presentación cuando tiene muchas imágenes. Muy bien, vamos a una parte un poco complicada que es la visualización de datos científicos",
+    "t": "26:11",
+    "hit": false,
+    "seg": "tal y como está. Y esto disminuye muchísimo el peso total de la presentación cuando tiene muchas imágenes. Muy bien, vamos a una parte un poco complicada que es la visualización de datos científicos"
+   },
+   {
+    "i": 100,
+    "refs": [
+     100
+    ],
+    "kind": "resumen",
+    "frase": "Las presentaciones deben destacar solo los datos esenciales para que el público entienda el mensaje principal rápidamente.",
+    "ok": true,
+    "faltan": [],
+    "cita": "exactamente lo que son, pero a lo que voy con esta diapositiva es anteriormente había hablado de utilizar el gráfico adecuado para el tipo de datos que estás trabajando, pero aquí lo que estoy hablando es que hay un modo más allá que es utilizar, destacar",
+    "t": "30:03",
+    "hit": false,
+    "seg": "exactamente lo que son, pero a lo que voy con esta diapositiva es anteriormente había hablado de utilizar el gráfico adecuado para el tipo de datos que estás trabajando, pero aquí lo que estoy hablando es que hay un modo más allá que es utilizar, destacar"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "larga_cne",
+  "type": "general",
+  "q": "¿De qué va la sesión?",
+  "recall": null,
+  "recuperacion": 0.094,
+  "cos": 0.414,
+  "prefill": 1.25,
+  "gen": 2.4,
+  "prompt_tok": 1164,
+  "gen_tok": 106,
+  "primer_token": 1.26,
+  "total": 3.75,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 156,
+    "refs": [
+     156
+    ],
+    "kind": "resumen",
+    "frase": "El Pleno aprobó parcialmente las recalificaciones de varios postulantes mediante cuatro votos a favor y una abstención, ordenando la notificación del resultado.",
+    "ok": true,
+    "faltan": [],
+    "cita": "recomendamos a usted y por intermedio al pleno del Consejo Nacional a aceptar parcialmente la solicitud de recalificación presentada por la postulante conforme lo establecida en el artículo 39 del reglamento para el concurso público de enmeritos de oposición, ahora la designación de los miembros del Consejo de Presidencia Superior CES y el",
+    "t": "54:44",
+    "hit": false,
+    "seg": "recomendamos a usted y por intermedio al pleno del Consejo Nacional a aceptar parcialmente la solicitud de recalificación presentada por la postulante conforme lo establecida en el artículo 39 del reglamento para el concurso público de enmeritos de oposición, ahora la designación de los miembros del Consejo de Presidencia Superior CES y el"
+   },
+   {
+    "i": 202,
+    "refs": [
+     202
+    ],
+    "kind": "resumen",
+    "frase": "El pleno del Consejo Nacional Electoral aprobó parcialmente la recalificación de la postulante Doris Patricia Sevillos Sanbrano tras una votación de cuatro votos a favor y una abstención.",
+    "ok": true,
+    "faltan": [],
+    "cita": "vicepresidente. Se toma nota en el que la ingeniera viene a traman esto voto por favor. Mi voto a favor del informe con el mismo razonamiento de la votación anterior señor secretario proceda a registrar. Gracias señora",
+    "t": "67:45",
+    "hit": false,
+    "seg": "vicepresidente. Se toma nota en el que la ingeniera viene a traman esto voto por favor. Mi voto a favor del informe con el mismo razonamiento de la votación anterior señor secretario proceda a registrar. Gracias señora"
+   },
+   {
+    "i": 268,
+    "refs": [
+     268
+    ],
+    "kind": "resumen",
+    "frase": "Los miembros del pleno votaron por mayoría sobre una abstención para aprobar parcialmente las solicitudes de recalificación de varios postulantes.",
+    "ok": true,
+    "faltan": [],
+    "cita": "secretario solicito que la motivación expuesta en el primer informe sea replicada y con ese razonamiento mi voto se toma nota gracias señor consejero ingeniero rique pita su voto por favor. El secretario",
+    "t": "86:27",
+    "hit": false,
+    "seg": "secretario solicito que la motivación expuesta en el primer informe sea replicada y con ese razonamiento mi voto se toma nota gracias señor consejero ingeniero rique pita su voto por favor. El secretario"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "demo_excel",
+  "type": "general",
+  "q": "¿De qué va el vídeo?",
+  "recall": null,
+  "recuperacion": 0.092,
+  "cos": 0.397,
+  "prefill": 0.44,
+  "gen": 2.18,
+  "prompt_tok": 394,
+  "gen_tok": 96,
+  "primer_token": 0.44,
+  "total": 2.71,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "resumen",
+    "frase": "El presentador introduce el tema de las tablas dinámicas y agradece la acogida del canal antes de comenzar la demostración.",
+    "ok": true,
+    "faltan": [],
+    "cita": "¿Qué tal mis amigos de YouTube? Bienvenidos a un vídeo más y esta vez vamos a tocar un tema bastante interesante que me han pedido también muchísimo y he decidido pues de hacer un vídeo exclusivo únicamente para esto. Estoy hablando de lo que son tablas dinámicas.",
+    "t": "00:00",
+    "hit": false,
+    "seg": "¿Qué tal mis amigos de YouTube? Bienvenidos a un vídeo más y esta vez vamos a tocar un tema bastante interesante que me han pedido también muchísimo y he decidido pues de hacer un vídeo exclusivo únicamente para esto. Estoy hablando de lo que son tablas dinámicas."
+   },
+   {
+    "i": 14,
+    "refs": [
+     14
+    ],
+    "kind": "resumen",
+    "frase": "Se muestra en pantalla cómo convertir una tabla de datos en un objeto de Excel y configurar los campos de origen para crear la dinámica.",
+    "ok": true,
+    "faltan": [],
+    "cita": "donde tenemos la opción de tablas dinámicas no tablas dinámicas está de aquí tablas dinámicas recomendadas son otras tablas que nos recomiendan excel en base a los datos que tenemos pero aquí tenemos nosotros la que vamos a utilizar tabla dinámica en blanco al darle clic aquí fíjense",
+    "t": "04:22",
+    "hit": false,
+    "seg": "donde tenemos la opción de tablas dinámicas no tablas dinámicas está de aquí tablas dinámicas recomendadas son otras tablas que nos recomiendan excel en base a los datos que tenemos pero aquí tenemos nosotros la que vamos a utilizar tabla dinámica en blanco al darle clic aquí fíjense"
+   },
+   {
+    "i": 72,
+    "refs": [
+     72
+    ],
+    "kind": "resumen",
+    "frase": "Se demuestra la utilidad de la escala de tiempo para filtrar ventas por trimestres o meses y se recomienda practicar para dominar las funciones de Excel.",
+    "ok": true,
+    "faltan": [],
+    "cita": "de fechas, ok campo de fechas, yo como en mi tabla si tenía un campo de fechas miren nada más se crea esta escala de tiempo, si con los rangos de fechas desde el primer mes hasta el último, mire yo tengo a cabo campos fechas desde tengo abril, tengo febrero, todas son de 2020 no",
+    "t": "22:06",
+    "hit": false,
+    "seg": "de fechas, ok campo de fechas, yo como en mi tabla si tenía un campo de fechas miren nada más se crea esta escala de tiempo, si con los rangos de fechas desde el primer mes hasta el último, mire yo tengo a cabo campos fechas desde tengo abril, tengo febrero, todas son de 2020 no"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": true
+ },
+ {
+  "m": "demo_vscode",
+  "type": "general",
+  "q": "¿De qué va el vídeo?",
+  "recall": null,
+  "recuperacion": 0.092,
+  "cos": 0.323,
+  "prefill": 0.39,
+  "gen": 1.75,
+  "prompt_tok": 374,
+  "gen_tok": 80,
+  "primer_token": 0.4,
+  "total": 2.24,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "resumen",
+    "frase": "El presentador introduce un tutorial práctico para principiantes sobre cómo utilizar Visual Studio Code desde cero.",
+    "ok": true,
+    "faltan": [],
+    "cita": "In this video, I'm going to show you how to use VS Code right from the very beginning. If you open VS Code and it feels a bit confusing at first, don't worry. By the end of this video, you'll know what the main areas do, how to open a project folder,",
+    "t": "00:00",
+    "hit": false,
+    "seg": "In this video, I'm going to show you how to use VS Code right from the very beginning. If you open VS Code and it feels a bit confusing at first, don't worry. By the end of this video, you'll know what the main areas do, how to open a project folder,"
+   },
+   {
+    "i": 13,
+    "refs": [
+     13
+    ],
+    "kind": "resumen",
+    "frase": "Se guía al usuario para crear una carpeta de proyecto, abrirla en VS Code y comenzar a escribir código HTML, CSS y JavaScript.",
+    "ok": true,
+    "faltan": [],
+    "cita": "or nex.js. Next let's create some files in and work on them in VS Code. A best practice is to create a dedicated folder first rather than just making random files and opening them individually.",
+    "t": "03:39",
+    "hit": false,
+    "seg": "or nex.js. Next let's create some files in and work on them in VS Code. A best practice is to create a dedicated folder first rather than just making random files and opening them individually."
+   },
+   {
+    "i": 57,
+    "refs": [
+     57
+    ],
+    "kind": "resumen",
+    "frase": "Se introducen las funciones de control de versiones con Git y depuración para encontrar errores en el código.",
+    "ok": true,
+    "faltan": [],
+    "cita": "That's it for the essential shortcuts I recommend memorizing first. Next, let's take a look at source control and debugging inside VS Code. These two features might look a little advanced at first, but the basic concepts are actually quite simple.",
+    "t": "16:32",
+    "hit": false,
+    "seg": "That's it for the essential shortcuts I recommend memorizing first. Next, let's take a look at source control and debugging inside VS Code. These two features might look a little advanced at first, but the basic concepts are actually quite simple."
+   }
+  ],
+  "must_ok": false,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ok": false
+ },
+ {
+  "m": "real_clickmeeting",
+  "type": "purpose",
+  "q": "¿Para qué sirve el software ClickMeeting?",
+  "recall": true,
+  "recuperacion": 0.094,
+  "cos": 0.66,
+  "prefill": 1.27,
+  "gen": 7.23,
+  "prompt_tok": 1189,
+  "gen_tok": 284,
+  "primer_token": 1.28,
+  "total": 8.6,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el software ClickMeeting es una herramienta que se utiliza para hacer conferencias, capacitaciones o seminarios en línea, también conocidos como webinar.",
+    "ok": true,
+    "faltan": [],
+    "cita": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones",
+    "t": "00:01",
+    "hit": true,
+    "seg": "Hola mi nombre es Cristian Bolanios y en el vídeo del día de hoy te quiero compartir una aplicación, una herramienta que yo suelo utilizar para hacer conferencias o capacitaciones o seminarios en línea, también como se conocen webinar, pues entonces bueno vamos a ver las diferentes funciones"
+   },
+   {
+    "i": 1,
+    "refs": [
+     1
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el software permite crear una reunión o un webinar, que es como una conferencia.",
+    "ok": false,
+    "faltan": [
+     "permite",
+     "crear",
+     "reunion",
+     "conferencia"
+    ],
+    "cita": "de este software que hay en realidad bastantes, pero el que más me gusta a mí utilizar se llama click meeting en ese momento ya me encuentro en su página web. Entonces les voy a mostrar en qué consiste este software, cómo funciona, las diferentes alternativas que nos da y pues",
+    "t": "00:22",
+    "hit": true,
+    "seg": "de este software que hay en realidad bastantes, pero el que más me gusta a mí utilizar se llama click meeting en ese momento ya me encuentro en su página web. Entonces les voy a mostrar en qué consiste este software, cómo funciona, las diferentes alternativas que nos da y pues"
+   },
+   {
+    "i": 8,
+    "refs": [
+     8
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el software permite grabar hasta seis horas de vídeos de capacitaciones y automáticamente los aloja en la plataforma.",
+    "ok": true,
+    "faltan": [],
+    "cita": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento.",
+    "t": "02:24",
+    "hit": false,
+    "seg": "almacenar grabaciones. Este software, cuando yo estoy haciendo una capacitación, un curso, me permite grabar hasta seis horas de mis vídeos, de mis capacitaciones y automáticamente las va alojando en la plataforma. Tiene una capacidad, por ejemplo, este plan que vale 25 dólares de una llega de almacenamiento."
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ded": false,
+  "ok": true
+ },
+ {
+  "m": "webinar_pmia",
+  "type": "purpose",
+  "q": "¿Para qué sirve el modo cameo de PowerPoint?",
+  "recall": true,
+  "recuperacion": 0.096,
+  "cos": 0.731,
+  "prefill": 1.26,
+  "gen": 4.62,
+  "prompt_tok": 1161,
+  "gen_tok": 196,
+  "primer_token": 1.26,
+  "total": 5.98,
+  "ded_n": 1,
+  "ded_base_ok": 1,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 36,
+    "refs": [
+     36
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en el modo cameo, lo único que va a ver el personal que atiende es la de lo que se llama el modo cameo.",
+    "ok": true,
+    "faltan": [],
+    "cita": "presentación de Powerpoint. Vale, entonces así es. Si hay una positiva, las tengo para que veáis que es posible hacer una presentación y en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo,",
+    "t": "10:48",
+    "hit": true,
+    "seg": "presentación de Powerpoint. Vale, entonces así es. Si hay una positiva, las tengo para que veáis que es posible hacer una presentación y en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo,"
+   },
+   {
+    "i": 37,
+    "refs": [
+     37
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el modo cameo, lo que haría en mi ordenador, sería presentarme a mí ahí mismo.",
+    "ok": true,
+    "faltan": [],
+    "cita": "de lo que se llama el modo cameo. Y el modo cameo, lo que haría en mi ordenador, sería presentarme a mí ahí mismo. Sin embargo, preparando la presentación me he dado cuenta que en este ordenador no tengo el modo cameo. Tiene un powerpoint anterior y no lo tengo.",
+    "t": "11:07",
+    "hit": true,
+    "seg": "de lo que se llama el modo cameo. Y el modo cameo, lo que haría en mi ordenador, sería presentarme a mí ahí mismo. Sin embargo, preparando la presentación me he dado cuenta que en este ordenador no tengo el modo cameo. Tiene un powerpoint anterior y no lo tengo."
+   },
+   {
+    "i": 36,
+    "refs": [
+     36
+    ],
+    "kind": "deduce",
+    "frase": "Se deduce que el modo cameo sirve para que el presentador se muestre al personal que atiende, porque se menciona que \"lo único que va a ver el personal que atiende es la de lo que se llama el modo cameo\" y que \"lo que haría en mi ordenador, sería presentarme\".., porque se dijo que \"en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo\" y \"el modo cameo, lo que haría en mi ordenador, sería presentarme\".",
+    "ok": true,
+    "faltan": [],
+    "cita": "presentación de Powerpoint. Vale, entonces así es. Si hay una positiva, las tengo para que veáis que es posible hacer una presentación y en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo,",
+    "t": "10:48",
+    "hit": true,
+    "seg": "presentación de Powerpoint. Vale, entonces así es. Si hay una positiva, las tengo para que veáis que es posible hacer una presentación y en el modo izquierdo, en la parte inferior izquierda, hay la ventañita del cameo,"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ded": true,
+  "ok": true
+ },
+ {
+  "m": "demo_excel",
+  "type": "purpose",
+  "q": "¿Para qué sirven las tablas dinámicas?",
+  "recall": true,
+  "recuperacion": 0.093,
+  "cos": 0.584,
+  "prefill": 1.26,
+  "gen": 5.08,
+  "prompt_tok": 1200,
+  "gen_tok": 210,
+  "primer_token": 1.27,
+  "total": 6.44,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se va a aprender para qué sirven las tablas dinámicas.",
+    "ok": true,
+    "faltan": [],
+    "cita": "¿Qué tal mis amigos de YouTube? Bienvenidos a un vídeo más y esta vez vamos a tocar un tema bastante interesante que me han pedido también muchísimo y he decidido pues de hacer un vídeo exclusivo únicamente para esto. Estoy hablando de lo que son tablas dinámicas.",
+    "t": "00:00",
+    "hit": true,
+    "seg": "¿Qué tal mis amigos de YouTube? Bienvenidos a un vídeo más y esta vez vamos a tocar un tema bastante interesante que me han pedido también muchísimo y he decidido pues de hacer un vídeo exclusivo únicamente para esto. Estoy hablando de lo que son tablas dinámicas."
+   },
+   {
+    "i": 1,
+    "refs": [
+     1
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que en este vídeo se aprenderá a dominar las tablas dinámicas, saber para qué sirven, cuándo se utilizan y cómo adaptarlas a nuestros informes, a nuestros datos, a nuestro contenido.",
+    "ok": true,
+    "faltan": [],
+    "cita": "En este vídeo vamos a aprender a dominar las tablas dinámicas, saber para qué sirven, cuándo se utilizan y cómo adaptarlas a nuestros informes, a nuestros datos, a nuestro contenido. así que sin más preámbulos empezamos. Antes que nada quería agradecerles mis amigos por la",
+    "t": "00:15",
+    "hit": true,
+    "seg": "En este vídeo vamos a aprender a dominar las tablas dinámicas, saber para qué sirven, cuándo se utilizan y cómo adaptarlas a nuestros informes, a nuestros datos, a nuestro contenido. así que sin más preámbulos empezamos. Antes que nada quería agradecerles mis amigos por la"
+   },
+   {
+    "i": 23,
+    "refs": [
+     23
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que los cuadrantes (filtros, columnas, valores y filas) son donde se va a colocar cada uno de los campos de acuerdo a lo que se quiera visualizar.",
+    "ok": false,
+    "faltan": [
+     "quiera"
+    ],
+    "cita": "estos cuadrantes de aquí abajo que son para que sirven, siempre ustedes que creen una tabla dinámica les aparecerá esto, filtros, columnas, valores y filas. Estos cuadrantes es donde nosotros vamos a colocar cada uno de estos campos de acuerdo a lo que queramos visualizar pero qué ocurre qué qué qué campo ponemos en cada cuadrante en qué cuadrante",
+    "t": "07:03",
+    "hit": false,
+    "seg": "estos cuadrantes de aquí abajo que son para que sirven, siempre ustedes que creen una tabla dinámica les aparecerá esto, filtros, columnas, valores y filas. Estos cuadrantes es donde nosotros vamos a colocar cada uno de estos campos de acuerdo a lo que queramos visualizar pero qué ocurre qué qué qué campo ponemos en cada cuadrante en qué cuadrante"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ded": false,
+  "ok": true
+ },
+ {
+  "m": "demo_excel",
+  "type": "purpose",
+  "q": "¿Para qué sirve la segmentación de datos?",
+  "recall": true,
+  "recuperacion": 0.102,
+  "cos": 0.52,
+  "prefill": 1.27,
+  "gen": 3.96,
+  "prompt_tok": 1191,
+  "gen_tok": 158,
+  "primer_token": 1.28,
+  "total": 5.33,
+  "ded_n": 1,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 5,
+    "refs": [
+     5
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que con una tabla dinámica se pueden obtener filtros y segmentaciones.",
+    "ok": true,
+    "faltan": [],
+    "cita": "mucho más sencillo que una tabla normal o una tala tradicional y con muchas otras ventajas que hacerlo de forma tradicional. Entonces a partir de la tala dinámica nosotros podemos obtener filtros, podemos obtener segmentaciones, podemos obtener gráficos dinámicos, en fin todo este tipo de situaciones que normalmente",
+    "t": "01:29",
+    "hit": true,
+    "seg": "mucho más sencillo que una tabla normal o una tala tradicional y con muchas otras ventajas que hacerlo de forma tradicional. Entonces a partir de la tala dinámica nosotros podemos obtener filtros, podemos obtener segmentaciones, podemos obtener gráficos dinámicos, en fin todo este tipo de situaciones que normalmente"
+   },
+   {
+    "i": 63,
+    "refs": [
+     63
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que se puede insertar una segmentación de datos en el análisis de tabla dinámica.",
+    "ok": true,
+    "faltan": [],
+    "cita": "mostrar los datos nos vamos a análisis de tabla dinámica y aquí en donde dice mostrar decimos lista de campos y ahí vuelve a aparecer yo puedo insertar también una segmentación de datos a esto se llama segmentación de datos y miren esto me aparece aquí una lista de campos si por los",
+    "t": "19:24",
+    "hit": true,
+    "seg": "mostrar los datos nos vamos a análisis de tabla dinámica y aquí en donde dice mostrar decimos lista de campos y ahí vuelve a aparecer yo puedo insertar también una segmentación de datos a esto se llama segmentación de datos y miren esto me aparece aquí una lista de campos si por los"
+   },
+   {
+    "i": 64,
+    "refs": [
+     64
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que con la segmentación de datos se pueden filtrar los datos para mostrar solo lo seleccionado.",
+    "ok": true,
+    "faltan": [],
+    "cita": "cuáles yo puedo segmentar mis datos por ejemplo si yo digo por provincia digamos por por categoría mismo no por categoría y por vendedor ya digo aceptar que va a ocurrir aquí va a aparecer esto si yo",
+    "t": "19:46",
+    "hit": true,
+    "seg": "cuáles yo puedo segmentar mis datos por ejemplo si yo digo por provincia digamos por por categoría mismo no por categoría y por vendedor ya digo aceptar que va a ocurrir aquí va a aparecer esto si yo"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ded": false,
+  "ok": true
+ },
+ {
+  "m": "demo_vscode",
+  "type": "purpose",
+  "q": "¿Para qué sirve VS Code?",
+  "recall": true,
+  "recuperacion": 0.096,
+  "cos": 0.602,
+  "prefill": 1.27,
+  "gen": 4.5,
+  "prompt_tok": 1185,
+  "gen_tok": 176,
+  "primer_token": 1.27,
+  "total": 5.87,
+  "ded_n": 0,
+  "ded_base_ok": 0,
+  "ded_mal_citada": 0,
+  "nada": null,
+  "frases": [
+   {
+    "i": 0,
+    "refs": [
+     0
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que VS Code es una herramienta para mostrar cómo usarla desde el principio.",
+    "ok": false,
+    "faltan": [
+     "herramienta",
+     "mostrar",
+     "usarla",
+     "principio"
+    ],
+    "cita": "In this video, I'm going to show you how to use VS Code right from the very beginning. If you open VS Code and it feels a bit confusing at first, don't worry. By the end of this video, you'll know what the main areas do, how to open a project folder,",
+    "t": "00:00",
+    "hit": true,
+    "seg": "In this video, I'm going to show you how to use VS Code right from the very beginning. If you open VS Code and it feels a bit confusing at first, don't worry. By the end of this video, you'll know what the main areas do, how to open a project folder,"
+   },
+   {
+    "i": 2,
+    "refs": [
+     2
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que VS Code es el nombre común para Visual Studio Code.",
+    "ok": false,
+    "faltan": [
+     "nombre",
+     "comun"
+    ],
+    "cita": "So let's jump right in. To get started, I'm going to open my browser and search for VS Code on Google. In the search results, I'll look for the official Visual Studio Code website. The official website is code.visualstudio.com.",
+    "t": "00:33",
+    "hit": true,
+    "seg": "So let's jump right in. To get started, I'm going to open my browser and search for VS Code on Google. In the search results, I'll look for the official Visual Studio Code website. The official website is code.visualstudio.com."
+   },
+   {
+    "i": 46,
+    "refs": [
+     46
+    ],
+    "kind": "dijo",
+    "frase": "Se dijo que el panel inferior es donde muchas herramientas muestran mensajes, ejecutan servidores, instalan paquetes o inician proyectos.",
+    "ok": false,
+    "faltan": [
+     "inferior",
+     "herramientas",
+     "mensajes",
+     "ejecutan",
+     "servidores",
+     "instalan",
+     "paquetes",
+     "inician",
+     "proyectos"
+    ],
+    "cita": "And because it's built directly into VS Code, You can keep your files, the editor, and the command area all in one convenient place. Next, let's look at a few shortcuts that will make using VS Code much faster. You don't need to memorize every shortcut in VS Code, but",
+    "t": "13:23",
+    "hit": false,
+    "seg": "And because it's built directly into VS Code, You can keep your files, the editor, and the command area all in one convenient place. Next, let's look at a few shortcuts that will make using VS Code much faster. You don't need to memorize every shortcut in VS Code, but"
+   }
+  ],
+  "must_ok": true,
+  "raw_inference": false,
+  "shown_inference": false,
+  "ded": false,
   "ok": true
  }
 ]
