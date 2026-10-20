@@ -45,7 +45,7 @@ const soltar = (zona, set, msg) => {
 soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p), "subida"); soltar($("drop-tr"), setTr, "info-tr");
 
 // ---- generar / condensar ----
-const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, asr: $("asr").value, hablantes: $("hablantes").checked, nombres: $("nombres").value});
+const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: $("asr").value, hablantes: $("hablantes").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }
@@ -87,7 +87,7 @@ async function cargarLista() {
 }
 async function abrir(id, acta) {
   cur = await api("/api/meeting/" + id);
-  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr, "data-asr": a.asr})));
+  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.alta ? " · alta" : ""), "data-asr": a.asr})));
   if (acta) s.value = acta;
   vista("res"); cambiarActa(); pintarConds();
 }
@@ -170,3 +170,5 @@ async function modelos() {
 }
 $("mod-reint").onclick = async () => { await post("/api/modelos"); modelos(); };
 modelos();
+
+api("/api/alta").then(a => { if (!a.grande) $("info-alta").textContent = "Alta con el modelo pequeño (" + (a.ram < a.min ? "RAM " + a.ram + " GB < " + a.min + " GB" : "modelo grande no descargado") + "): mantiene las comprobaciones extra, pero no el modelo grande."; }).catch(() => {});

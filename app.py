@@ -104,11 +104,12 @@ def generar(d: dict):
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
     nivel, asr = d.get("nivel", "normal"), d.get("asr", "rápido")
-    if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS:
+    calidad = d.get("calidad", "rápida")
+    if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS or calidad not in ("rápida", "alta"):
         raise HTTPException(400, "Opción no válida")
 
     def fn(cb):
-        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None)
+        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad)
         return {"id": out.parent.name, "acta": out.name}
     start("acta", fn, video=(video or Path(tr)).name)
 
@@ -184,8 +185,8 @@ def get_meetings():
 @app.get("/api/meeting/{mid}")
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "url": f"/files/{wd.name}/{d.name}/index.html",
-              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_')[1]}.zip")), None)}
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "alta": d.name.endswith("_alta"), "url": f"/files/{wd.name}/{d.name}/index.html",
+              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}{'_alta' * d.name.endswith('_alta')}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
     if not actas:
         raise HTTPException(404, "Sin actas")
@@ -247,6 +248,12 @@ def preguntar(d: dict):
 @app.post("/api/latido")
 def latido():
     beat[0] = time.time()
+
+
+@app.get("/api/alta")
+def get_alta():
+    """Calidad Alta: ¿usa el 9B (grande) o, por RAM / modelo ausente, sigue con el 4B?"""
+    return {"grande": pipeline.alta_model() is not None, "ram": round(pipeline.ram_gb(), 1), "min": pipeline.ALTA_MIN_GB}
 
 
 @app.get("/api/modelos")
