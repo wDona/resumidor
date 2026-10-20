@@ -100,18 +100,20 @@ Límites: un desfase que no sea constante (cortes, pausas) no se corrige; sin vo
    cruzó el borde, así no se corta ninguna frase. La RAM no crece con la duración (faster-whisper hace la STFT de todo lo
    que recibe de golpe: con la reunión entera eran 6,9 GB en 2 h 20). Idioma detectado en la primera ventana.
    → `transcript_<asr>.json` (cambiar el nivel no repite el ASR).
-3. Vídeo: ffmpeg saca 1 miniatura gris cada 3 s; se compara por bloques de 8×8 sin el 5 % de arriba/abajo (barra de menús,
-   reloj, dock) e ignorando bloques que cambian casi siempre en ±15 s (webcam superpuesta). Se corta cuando cambia >5 % de
-   los bloques respecto al inicio del tramo.
-4. De cada tramo estable (≥ 6 s) se guarda el último frame a resolución completa, descartando pantallas ya vistas.
+3. Vídeo: ffmpeg saca 1 miniatura gris por segundo (un cambio < 1 s se pierde); se compara por bloques de 8×8 sin el 5 %
+   de arriba/abajo (barra de menús, reloj, dock) e ignorando bloques que cambian casi siempre en ±15 s (webcam superpuesta).
+   Se corta cuando cambia >5 % de los bloques respecto al inicio del tramo **o** un grupo compacto (≥ 2×2, ≥ 3 bloques) de
+   bloques (menú, submenú, diálogo). Un scroll (misma página desplazada en vertical) solo corta al entrar ≥ 50 % de
+   contenido nuevo.
+4. De cada tramo estable (≥ 2 s) se guarda el último frame a resolución completa, descartando los iguales a CUALQUIER
+   captura anterior (A → B → A no repite A); ya no se deduplica por palabras de OCR.
 5. RapidOCR (reconocedor latino PP-OCRv5, 7,5 MB, se baja solo a `models/`; sin red usa el chino/inglés de serie) sobre
    esos frames sin las franjas de arriba/abajo; se quita basura CJK → `frames.json` (crudo). `screens` lo clasifica en
    cada ejecución: quita la interfaz de la videollamada (líneas cuyas dos primeras palabras salen en ≥ 30 % de los frames:
    barra de marcadores, "X está presentando", nombres de la columna de caras, paneles) y solo cuenta líneas de ≥ 2
    palabras con alguna en minúscula (los nombres bajo las caras y los botones no). Con ≥ 30 letras así es "pantalla
-   compartida"; una cuadrícula de caras no. Pantallas cuyo texto contiene ≥ 75 % del de otra se fusionan: queda la más
-   completa, con la marca de la primera aparición solo si el texto es ≥ 90 % igual; también si es la misma página
-   desplazada (las ≥ 3 últimas líneas de una son las primeras de la otra). Pie de captura = primera línea de texto, solo si
+   compartida"; también una captura sin texto con bordes duros (gráfico, imagen; `edge` ≥ 0,2), no la cámara. Una cuadrícula
+   de caras no. El OCR solo alimenta al LLM con el texto de pantalla. Pie de captura = primera línea de texto, solo si
    ≥ 70 % de sus palabras salen en la transcripción (en vídeos de 480p el OCR da basura: entonces «Pantalla compartida»).
 6. La transcripción se trocea en n = ⌈total / 10 000 caracteres⌉ bloques del mismo tamaño (~3k tokens; ni cola diminuta
    con solo la despedida ni un último bloque gigante con solo 10 puntos para 20 min) con el texto OCR de su intervalo. Los segmentos se funden en tramos de 15 s antes de poner `[mm:ss]`
@@ -153,8 +155,9 @@ Límites: un desfase que no sea constante (cortes, pausas) no se corrige; sin vo
    más parecidas») y, si aún hay más que el tope, el LLM elige las clave por número (breve 5/5, normal 12/10). Largo pedido
    en caracteres, tope duro un 50 % mayor y recorte en la última frase completa: nunca a mitad de palabra.
 11. Render: breve = resumen + 10 puntos clave con marca + decisiones/tareas clave + 3 capturas; normal = secciones con sus
-    viñetas y las capturas más relevantes (máx. 10); detallado = todos los puntos y todas las capturas. Solo se copian a
-    `img/` las capturas mostradas; en breve/normal no se repiten casi iguales (≥ 50 % de palabras) a menos de 3 min. El
+    viñetas y las capturas más relevantes (máx. 10); detallado = todos los puntos y todas las capturas. Dos niveles: las capturas
+    clave van en línea (en breve/normal no se repiten casi iguales, ≥ 50 % de palabras a menos de 3 min) y TODAS las demás en
+    una tira de miniaturas por tramo (`img/t_*.jpg`, carga diferida; clic = ampliar). El
     vídeo se enlaza (o se copia una sola vez por vídeo en `work/<hash>/`; una subida en un temporal nunca con enlace
     simbólico, que moría al reiniciar). Junto a `index.html` va `acta.json` (lo mismo, para `eval/score.py`).
     Orden de la página: resumen, **Desarrollo de la reunión** (relato digerido: el map genera en la misma llamada 2 párrafos
