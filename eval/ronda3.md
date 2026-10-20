@@ -139,6 +139,34 @@ Lectura cualitativa (charla normal): el 9B redacta más fluido pero es menos fie
 **Conclusión: el 9B no justifica Calidad Alta con este pipeline.** Mejora algo de recall de decisiones y algunas claves,
 pero pierde tareas, claves en sintética y webinar, y mete decisiones falsas.
 
+## 6. 9B con límites más amplios (`ACTAS_LOOSE=1`)
+
+Pregunta: ¿perdió el 9B porque los topes (`REL_MAX`, `PT_MAX`, `S(n)` de decisión/tarea, `MAP_MAX`, 9 puntos/parte) eran del 4B?
+`ACTAS_LOOSE=1` (experimento, por defecto sin cambios; salida con sufijo `_loose`): cadenas x1,7 (REL 391, PT 272,
+decisión/tarea 272), `MAP_MAX` 3460, hasta 12 puntos por parte. Prompts, gramática, puntuación, temperatura 0,2 y seed 0 iguales.
+9B + map + reduce, GPU Vulkan, un servidor a la vez.
+
+| Reunión / nivel | 4B D | 4B T | 4B claves/prohib | 9B D | 9B T | 9B claves/prohib | 9B loose D | 9B loose T | 9B loose claves/prohib |
+|---|---|---|---|---|---|---|---|---|---|
+| charla breve | ,67/,67 | 1/1 | 4/6 · 0 | ,75/1 | ,67/0 | 5/6 · 0 | ,75/1 | ,67/0 | 5/6 · 0 |
+| charla normal | ,67/,67 | 1/1 | 4/6 · 0 | ,75/1 | ,67/0 | 4/6 · 0 | ,75/1 | ,67/0 | 4/6 · 0 |
+| sintética breve | 1/1 | 1/,8 | 4/5 · 0 | 1/1 | 1/,6 | 1/5 · 0 | 1/1 | 1/,6 | 1/5 · 0 |
+| sintética normal | 1/1 | 1/,8 | 3/5 · 0 | 1/1 | 1/,6 | 1/5 · 0 | 1/1 | 1/,6 | 1/5 · 0 |
+| webinar breve | — | — | 7/9 · 0 | 0/— | — | 4/9 · 0 | 0/— | — | 4/9 · 0 |
+| webinar normal | — | — | 9/9 · 0 | 0/— | — | 8/9 · 0 | 0/— | — | 8/9 · 0 |
+
+Tiempo 9B loose (breve incluye el map / normal): charla 141 / 23 s, sintética 53 / 14 s, webinar 197 / 35 s; igual que el 9B normal.
+
+Resultado idéntico en las 6 puntuaciones. Las actas de charla y sintética salen byte a byte iguales a las del 9B sin `LOOSE`;
+webinar cambia el texto pero no la puntuación. En el map loose el punto más largo mide 104 caracteres y el relato 136
+(topes originales 160 / 230): los topes no ligan con el 9B.
+
+Opinión (charla normal): relato igual de fluido que el 9B normal; las decisiones siguen siendo más genéricas e inventadas
+("se compromete a hacer seguimiento", "se reorienta el acuerdo") que las del 4B ("aprobación del acta", "se aplaza la designación").
+
+**Conclusión: los límites no explican la derrota del 9B.** Ampliarlos no cambia nada; la diferencia está en el modelo
+(menos fiel, decisiones inventadas), no en el recorte. `ACTAS_LOOSE` queda como interruptor de experimento, sin efecto por defecto.
+
 ## Pendiente
 
 - Calidad Alta sin una mejora demostrada: falta una idea que funcione (p. ej. extraer dos veces con el 4B y votar,

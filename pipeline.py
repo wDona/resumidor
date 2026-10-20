@@ -700,7 +700,9 @@ S = lambda n: {"type": "string", "maxLength": n}  # tope duro: una cadena desboc
 TS = {"type": "string", "pattern": "^[0-9]{1,3}:[0-5][0-9]$"}
 arr = lambda item, n, lo=0: {"type": "array", "items": item, "maxItems": n, "minItems": lo}
 # la cita va antes que el texto: el modelo primero copia la frase que lo prueba y luego redacta a partir de ella
-TASK = obj(cita=S(100), tarea=S(160), responsable=S(60), plazo=S(60), t=TS)
+LOOSE = os.environ.get("ACTAS_LOOSE") == "1"  # experimento (9B): topes de longitud x1,7 y hasta 12 puntos por parte
+L = (lambda n: n * 17 // 10) if LOOSE else (lambda n: n)
+TASK = obj(cita=S(100), tarea=S(L(160)), responsable=S(60), plazo=S(60), t=TS)
 def sentences(s, cap):
     """Texto que llegó al tope `cap` de la gramática: se recorta en la última frase completa (si queda al menos la mitad)
     o en la última palabra completa con «…». Nunca a mitad de palabra."""
@@ -713,12 +715,12 @@ def sentences(s, cap):
     return s.rsplit(" ", 1)[0].rstrip(",;: ") + "…"
 
 
-PT_MAX = 160
-REL_MAX = 230   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
-MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 9, 6),
-                 decisiones=arr(obj(cita=S(100), texto=S(160), t=TS), 5), tareas=arr(TASK, 5),
+PT_MAX = L(160)
+REL_MAX = L(230)   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
+MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 12 if LOOSE else 9, 6),
+                 decisiones=arr(obj(cita=S(100), texto=S(L(160)), t=TS), 5), tareas=arr(TASK, 5),
                  relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1))  # al final: decisiones y tareas se generan con el mismo contexto de siempre
-MAP_MAX = 1800  # peor caso con todos los topes llenos (≈ 1700 tokens); lo normal son 500-900
+MAP_MAX = L(1800) + 400 * LOOSE  # peor caso con todos los topes llenos (≈ 1700 tokens); lo normal son 500-900
 
 
 def gbnf(schema):
@@ -1471,7 +1473,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if alta:  # el map y verify son los de Rápida (misma caché); Alta añade la comprobación y, si cabe, el 9B en el reduce
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
         rh = hashlib.sha1((rh + vh + str(big)).encode()).hexdigest()[:8]
-    tag = ("_alta" if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")
+    tag = ("_alta" if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
