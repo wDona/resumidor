@@ -23,6 +23,7 @@ LIVELY = 0.15                 # bloque que cambia en >= 15 % de las muestras vec
 MIN_LEN = 2                   # muestras estables seguidas para capturar
 SCROLL = 0.5                  # desplazamiento vertical (fracción de pantalla) que cuenta como contenido nuevo
 NAME = re.compile(r"(?:[A-ZÁÉÍÓÚÑ][\w.'-]*\s?){2,4}")  # nombre bajo una cara; >= 3 en la captura = mosaico de cámaras
+SAME = 5                      # diferencia media de huella bajo la cual dos capturas seguidas son el mismo documento en edición
 DUPFP = 25                    # diferencia media (0-255) de la huella 32x18 bajo la cual dos capturas que no son pantalla son la misma
 SKIN = 0.04                   # fracción de píxeles de piel por debajo de la cual una captura sin texto puede ser pantalla
 EDGE = 0.05                   # bordes duros (fracción de bloques de 16 px): una captura sin texto no vacía (gráfico, imagen)
@@ -276,16 +277,16 @@ def rename(text, names):
 
 
 # ---------- Vídeo: cambios de pantalla ----------
-def sample_thumbs(video, threads, dur, cb):
+def sample_thumbs(video, threads, dur, cb, step=STEP):
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-threads", str(threads), "-i", str(video), "-an", "-vf",
-                          f"fps=1/{STEP},scale={THUMB_W}:{THUMB_H}:flags=area,format=gray", "-f", "rawvideo", "-"],
+                          f"fps=1/{step},scale={THUMB_W}:{THUMB_H}:flags=area,format=gray", "-f", "rawvideo", "-"],
                          stdout=subprocess.PIPE)
     frames, size = [], THUMB_W * THUMB_H
     while buf := p.stdout.read(size):
         if len(buf) < size:
             break
         frames.append(np.frombuffer(buf, np.uint8))
-        cb(min(len(frames) * STEP / dur, 1), f"Analizando vídeo… {fmt(len(frames) * STEP)}")
+        cb(min(len(frames) * step / dur, 1), f"Analizando vídeo… {fmt(len(frames) * step)}")
     if p.wait():
         raise RuntimeError("ffmpeg falló al leer el vídeo")
     return np.array(frames, np.int16)
@@ -405,11 +406,6 @@ def screens(kfs, vocab=None):
                  screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (not prose and k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE
                                                                   and sum(bool(NAME.fullmatch(x.strip())) for x in ls) < 3),
                  end=int(re.search(r"\d+", k["img"])[0]))
-    seen = set()  # texto nuevo de cada pantalla (líneas que no salieron ya antes): es lo que lee el LLM, no cada captura entera
-    for k in kfs:
-        ln = [x for x in k["text"].split(" | ") if " ".join(words(x)) not in seen] if k["screen"] else []
-        seen.update(" ".join(words(x)) for x in ln)
-        k["new"] = " | ".join(ln)
     fps, out = [], []  # no-pantalla casi igual a otra no-pantalla (mosaico de caras que cambia): fuera
     for k in kfs:
         if not k["screen"] and "fp" in k:
@@ -418,6 +414,21 @@ def screens(kfs, vocab=None):
                 continue
             fps.append(f)
         out.append(k)
+    return out
+
+
+def collapse_typing(kfs, every=45):
+    """Capturas de pantalla seguidas casi iguales como imagen (huella media < SAME: alguien escribe en el mismo documento;
+    el OCR cambia de una a otra, la imagen no): primera, una cada `every` s y la última (estado final al dejar de editar).
+    Un menú, diálogo o cambio de ventana mueve la huella más que eso: no se toca."""
+    fp = [np.array(k["fp"], np.int16) if "fp" in k else None for k in kfs]
+    typing = lambda i: i > 0 and fp[i] is not None and fp[i - 1] is not None and np.abs(fp[i] - fp[i - 1]).mean() < SAME
+    out, last = [], None
+    for i, k in enumerate(kfs):
+        if typing(i) and i + 1 < len(kfs) and typing(i + 1) and k["t"] - last < every:
+            continue  # en medio de una racha, hace poco que se guardó una
+        out.append(k)
+        last = k["t"]
     return out
 
 
@@ -489,6 +500,106 @@ def keyframes(video, wd, threads, dur, cb):
         out.append({"t": a * STEP, "img": img.name, "text": " | ".join(texts), "edge": round(edge, 3), "skin": round(skin, 3),
                     "fp": fp.ravel().tolist()})
     return out  # crudo; screens() clasifica al cargar (barato, y así se puede ajustar sin repetir el OCR)
+
+
+# ---------- Texto de pantalla para el map: la selección de siempre (muestreo a 3 s, dedup por palabras) ----------
+# El acta del LLM depende de este texto; las capturas nuevas (1 s, cambios locales) solo alimentan lo que se ve en el informe.
+STEP_MAP = 3
+DUP = 0.75                    # palabras OCR compartidas / palabras de la pantalla más corta para darla por repetida
+
+
+def map_segments(thumbs, cut=CUT, min_len=2, win=5):
+    """[(inicio, fin)] en índices de muestra: tramos estables (>= min_len muestras) sin repetir pantallas ya vistas.
+    Se compara con el inicio del tramo (no con el frame anterior) para que un cambio gradual también corte.
+    Por bloques y sin las franjas CROP; los bloques que cambian casi siempre en ±win muestras (webcam superpuesta
+    o vídeo incrustado) no cuentan, así que solo corta un cambio que cubra > cut del área útil."""
+    # dHash probado y descartado: en imágenes planas (diapositiva blanca vs. mosaico oscuro) apenas cambia.
+    c = round(THUMB_H * CROP)
+    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c:c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
+    n, h, w = t.shape
+    blk = lambda i, j: (np.abs(t[i] - t[j]) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
+    cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(i, i + 1) for i in range(n - 1)], 0)
+    lo, hi = np.maximum(np.arange(n) - win, 0), np.minimum(np.arange(n) + win, n - 1)
+    noisy = (cs[hi] - cs[lo]) / np.maximum(hi - lo, 1)[:, None, None] >= NOISY
+    noisy &= noisy.mean((1, 2), keepdims=True) < 0.25  # solo zonas pequeñas; si cambia media pantalla es contenido
+    diff = lambda i, j: (blk(i, j) & ~(noisy[i] | noisy[j])).mean()
+    segs, start = [], 0
+    for i in range(1, n + 1):
+        if i == n or diff(i, start) > cut:
+            if i - start >= min_len and all(diff(i - 1, e) > cut for _, e in segs):
+                segs.append((start, i - 1))
+            start = i
+    return segs
+
+
+
+def screens_map(kfs, vocab=None):
+    """Marca qué frames son pantalla compartida (k["screen"]), deja en k["text"] solo su contenido y deduplica.
+    Antes de contar letras y comparar se quita la interfaz de la videollamada: líneas cuyas dos primeras palabras salen
+    en >= 30 % de los frames (barra de marcadores, "X está presentando", nombres de la columna de caras aunque el OCR los
+    corte distinto, paneles de la aplicación). Solo cuentan las líneas con >= 2 palabras y alguna en minúscula de >= 3
+    letras: los nombres bajo las caras de Meet/Zoom/Teams y los botones no, así que una cuadrícula de caras no es pantalla.
+    Repetidas (mismo texto, o una contiene a la otra: viñetas que van apareciendo, volver a una pantalla ya vista):
+    queda la más completa; hereda la marca de la primera aparición solo si su texto es casi igual (>= 90 %). También si
+    es la misma página desplazada (scroll): las >= 3 últimas líneas de una son las primeras de la otra.
+    Pie de captura (title) = primera línea de texto, solo si >= 70 % de sus palabras salen en `vocab` (la transcripción):
+    en vídeos de baja resolución el OCR da basura («aal fngora oe egunad») y es mejor el pie genérico."""
+    key = lambda line: " ".join(words(line)[:2])
+    lines = [[x for x in k["text"].split(" | ") if key(x)] for k in kfs]
+    freq = Counter(n for ls in lines for n in {key(x) for x in ls})
+    ui = {n for n, c in freq.items() if c >= max(5, 0.3 * len(kfs))}
+    def real(line):
+        w = [v for v in words(line) if len(v) >= 3]
+        return not vocab or sum(v in vocab for v in w) >= 0.7 * len(w)
+    kept = []  # [(palabras, líneas, keyframe)]
+    for k, ls in zip(kfs, lines):
+        body = [x for x in ls if key(x) not in ui]
+        prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
+        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS,
+                 end=int(re.search(r"\d+", k["img"])[0]))
+        if not k["screen"]:
+            continue
+        w, ln = words(k["text"]), [" ".join(words(x)) for x in body]
+        scroll = lambda a, b: any(a[-n:] == b[:n] for n in range(3, min(len(a), len(b)) + 1))
+        for n, (ow, ol, o) in enumerate(kept):
+            sm = SequenceMatcher(None, ow, w, autojunk=False)
+            m = sum(b.size for b in sm.get_matching_blocks())
+            if m >= DUP * min(len(ow), len(w)) or scroll(ol, ln) or scroll(ln, ol):
+                keep, drop = (k, o) if len(w) > len(ow) else (o, k)
+                if m >= 0.9 * max(len(ow), len(w)):
+                    keep["t"] = min(k["t"], o["t"])
+                drop["screen"] = False
+                kept[n] = (max(w, ow, key=len), max(ln, ol, key=len), keep)
+                break
+        else:
+            kept.append((w, ln, k))
+    return kfs
+
+
+
+
+def keyframes_map(video, wd, threads, dur, cb):
+    """[{t, img, text}] del muestreo antiguo (3 s, OCR de la captura entera): lo único que lee el map."""
+    import cv2
+    from rapidocr_onnxruntime import RapidOCR
+    segs = map_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.5, m), STEP_MAP))
+    (wd / "frames").mkdir(exist_ok=True)
+    rec = model_file(OCR_REC)
+    ocr = RapidOCR(intra_op_num_threads=threads, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
+    out = []
+    for n, (a, b) in enumerate(segs):
+        cb(0.5 + 0.5 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
+        img = wd / "frames" / f"k{b * STEP_MAP:06d}.jpg"
+        if not img.exists():
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP_MAP), "-i", str(video), "-frames:v", "1",
+                            "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
+        im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)
+        c = round(len(im) * CROP)
+        res, _ = ocr(im[c:len(im) - c])
+        lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
+        out.append({"t": a * STEP_MAP, "img": img.name, "text": " | ".join(lines)})
+    return out
 
 
 # ---------- LLM (llama-server) ----------
@@ -740,7 +851,7 @@ def map_input(segs, kfs, allsegs=()):
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
     text = "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
-    screens = [f"[{fmt(k['t'])}] {k['new'][:600]}" for k in kfs if k["new"] and t0 <= k["t"] <= t1]
+    screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
     return text
@@ -1337,13 +1448,21 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
     if video and not kf.exists():
         t0 = time.time()
-        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.1 * f, m)), ensure_ascii=False))
+        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.05 * f, m)), ensure_ascii=False))
         stage("capturas+ocr", t0)
-    kfs = screens(json.loads(kf.read_text()), {w for s in tr["segments"] for w in words(s["text"])}) if video else []
+    vocab = {w for s in tr["segments"] for w in words(s["text"])}
+    # lo que ve el informe: solo pantallas (sin caras ni cámaras), con las rachas de escritura reducidas
+    kfs = collapse_typing([k for k in screens(json.loads(kf.read_text()), vocab) if k["screen"]]) if video else []
+    km = wd / "frames_map.json"  # lo que lee el LLM: el muestreo y la deduplicación de siempre (misma caché del map)
+    if video and not km.exists():
+        t0 = time.time()
+        km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, lambda f, m: cb(0.55 + 0.05 * f, m)), ensure_ascii=False))
+        stage("ocr_map", t0)
+    kfm = screens_map(json.loads(km.read_text()), vocab) if video else []
 
     chunks = chunk(tr["segments"])
     starts = [c[0]["s"] for c in chunks]
-    inputs = [map_input(c, kfs, tr["segments"]) for c in chunks]
+    inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
@@ -1365,14 +1484,14 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             t0 = time.time()
             for i in range(len(maps), len(chunks)):
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
-                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfs))
+                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
-            maps = mark_reading(maps, tr["segments"], kfs)  # tras guardar la caché: es barato y así se puede ajustar
+            maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
             if not vf0.exists():
-                vf0.write_text(json.dumps(verify(chat, maps, tr["segments"], kfs), ensure_ascii=False))
+                vf0.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
             if alta and not vf.exists():
                 cb(0.93, "Comprobando decisiones y tareas…")
                 vf.write_text(json.dumps(check_sources(chat, json.loads(vf0.read_text()), inputs), ensure_ascii=False))
@@ -1387,7 +1506,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 rf.write_text(json.dumps(reduce_maps(chat, maps, json.loads(vf.read_text()), starts, level, lang), ensure_ascii=False))
             stage("reduce_grande", t0)
     red = json.loads(rf.read_text())
-    maps = mark_reading(maps, tr["segments"], kfs)
+    maps = mark_reading(maps, tr["segments"], kfm)
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
     if video:  # el vídeo condensado necesita vídeo
         (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
@@ -1458,6 +1577,10 @@ def _selftest():
     assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, True), (20, True), (31, True), (40, True),
                                                    (51, False), (60, True)], ks  # repetidas: las quita stable_segments
     assert "marcadores" not in ks[6]["text"] and ks[6]["title"].startswith("Presupuesto total"), ks[6]
+
+    fpz = lambda v, menu=0: [v] * 576 if not menu else [v] * 500 + [v + 120] * 76
+    ty = [{"t": 10 * i, "fp": fpz(100 + i % 2)} for i in range(12)] + [{"t": 130, "fp": fpz(100, 1)}]
+    assert [k["t"] for k in collapse_typing(ty)] == [0, 50, 100, 110, 130], collapse_typing(ty)  # racha: una cada 45 s y la última; menú: aparte
 
     for n, want in ((30, [10, 10, 10]), (23, [8, 7, 8]), (3, [3])):  # mismo tamaño, sin cola ni bloque gigante
         segs = [{"s": i, "e": i + 1, "text": "x" * 991} for i in range(n)]
