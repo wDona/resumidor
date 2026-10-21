@@ -557,3 +557,25 @@ la viñeta con otro texto; perdidas.py, con ventana ±90 s, sí lo ve). Los 2 pr
 de la redacción: están igual en sem6000 sin pass2 y salen del map con bloques de 6000 (la viñeta «la presidenta solicita trasladar su
 sesión…», una viñeta que cuenta la petición sin su desenlace, y una tarea «Comisión Técnica» como responsable de notificar); con
 bloques de 10000 no aparecían. Copiada: `normal__4B_sc6_pass2`.
+
+## 17. Pasada 2: comprobación de cifras, horas y fechas; viñetas cortadas
+
+Comprobación en `group_section` (sobre sem6000 + pass2): cada cifra (`rag.bad_nums`, 34,75 != 75, también en letra), hora (18:00 se lee como una cifra) y
+mes de los puntos que cita una viñeta debe salir en ella. Si falta, una repetición de esas viñetas («conserva literalmente las cifras, horas y
+fechas») y, si sigue faltando, se añade tal cual la frase del punto que la contiene.
+Arreglo aparte: `sentences()` solo recortaba con len >= tope y el tope de la gramática no cuenta igual (un relato de 229 de 230 acababa en «…artículo 39 y»);
+ahora recorta desde tope-10 si no acaba en puntuación, y `trim_caps()` lo aplica antes de pintar el acta (puntos, relato, decisiones, tareas,
+resúmenes e viñetas, también los ya en caché). Con el arreglo, ningún relato ni punto de las 4 actas acaba a mitad de frase.
+
+| normal | viñetas | claves | prohib / resp✗ | perdidas a/b/c/d/e | LLM s (reduce) |
+|---|---|---|---|---|---|
+| larga base | 48 | 4/5 | 0 / 0 | 1/1/0/0/10 | 300 (total §14) |
+| larga sem6000 + pass2 + cifras | 89 | 5/5 | 2 / 1 | 1/0/0/0/11 | ~130 + 3 repeticiones (~5 s cada una) |
+| click base | 10 | 6/9 | 0 / 0 | 0/2/0/0/7 | 52 |
+| click sem6000 + pass2 + cifras | 17 | 6/9 | 0 / 0 | 0/0/0/0/9 | ~29 (reduce) |
+
+La comprobación saltó 3 veces en larga (1 viñeta cada vez) y ninguna en click. Click NO conserva «21 de abril 18:00»: el punto del map
+(«webinar … 21 de abril, hora 18:00 …») no llega a ninguna viñeta porque la selección (50 % de los puntos, ya tras fundir repetidos) lo deja
+fuera; no es un fallo de redacción, así que la comprobación no puede recuperarlo (con sem6000 sin pass2 sí salía, porque se mostraban más puntos).
+Aparte, en larga base hay 2 «decisiones» que son solo una marca («101:34», «98:10»): bug del map/rescate sin investigar.
+Se regenera ~/actas_comparar con `normal__4B_rapida` (base actual) y `normal__4B_sc6_pass2`.

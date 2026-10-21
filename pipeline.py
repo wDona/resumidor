@@ -724,7 +724,7 @@ def sentences(s, cap):
     """Texto que llegó al tope `cap` de la gramática: se recorta en la última frase completa (si queda al menos la mitad)
     o en la última palabra completa con «…». Nunca a mitad de palabra."""
     s = s.strip()
-    if len(s) < cap or s[-1] in ".!?…»)\"”":
+    if len(s) < cap - 10 or s[-1] in ".!?…»)\"”":
         return s
     i = max(s.rfind(c) for c in ".!?…")
     if i >= len(s) // 2:
@@ -1255,32 +1255,61 @@ def dedup_points(maps):
     return maps
 
 
+MONTHS = "enero febrero marzo abril mayo junio julio agosto septiembre setiembre octubre noviembre diciembre".split()
+
+
+hh = lambda t: re.sub(r"\b(\d{1,2}):(\d{2})\b", r"\1.\2", t)
+
+
+def lost_facts(src, bullet):
+    """Cifras, horas y fechas del texto de origen que NO están en la viñeta: reutiliza rag.bad_nums (34,75 != 75; también cuenta lo
+    dicho en letra) con las horas 18:00 como una sola cifra, más los nombres de mes."""
+    import rag
+    return rag.bad_nums(hh(src), hh(bullet)) + [m for m in MONTHS if m in words(src) and m not in words(bullet)]
+
+
 def group_section(chat, pts, ask_n, lang, mas):
     """Pasada 2 (2-3): el LLM agrupa los puntos numerados de una sección en viñetas con los ids que resume; los ids que falten se
-    piden una vez más y, si aun así faltan, se añaden tal cual. Devuelve (resumen, [{t, ts, texto}]) con las marcas de cada id."""
+    piden una vez más y, si aun así faltan, se añaden tal cual. Cada viñeta debe llevar las cifras, horas y fechas de sus puntos
+    (lost_facts): si falta alguna, una repetición de esas viñetas y, si sigue faltando, la frase del punto que la contiene se añade
+    tal cual. Devuelve (resumen, [{t, ts, texto}]) con las marcas de cada id."""
     n, c = ask_n
-    ask = lambda ps: chat(SEC2_PROMPT.format(n=f"{n} (como mucho unos {c} caracteres)", faithful=FAITHFUL, lang=lang),
-                          "\n".join(f"{i}. [{fmt(t)}] {x}" for i, (t, x, _, _) in enumerate(ps, 1)),
+    ask = lambda ps, extra="": chat(SEC2_PROMPT.format(n=f"{n} (como mucho unos {c} caracteres)", faithful=FAITHFUL, lang=lang),
+                          "\n".join(f"{i}. [{fmt(t)}] {x}" for i, (t, x, _, _) in enumerate(ps, 1)) + extra,
                           obj(resumen=S(c * 3 // 2), items=arr(obj(texto=S(300), ids=arr({"enum": list(range(1, len(ps) + 1))}, 5, 1)), len(ps), 1)),
                           900, 1.1)
-    out, left = [], list(range(len(pts)))
-    r = ask(pts)
+
+    def group(idx, extra=""):  # viñetas [(ids globales, texto)] que cubren todos los puntos idx
+        out, left, r = [], list(idx), None
+        for attempt in range(2):
+            r = ask([pts[i] for i in left], extra)
+            for it in r["items"]:
+                out.append(([left[i - 1] for i in dict.fromkeys(it["ids"])], it["texto"]))
+            left = [i for i in idx if i not in {j for ids, _ in out for j in ids}]
+            if not left:
+                break
+            print(f"  pasada 2: faltan {len(left)} puntos, se piden otra vez", flush=True)
+        return out + [([i], pts[i][1]) for i in left], r
+
+    out, r = group(range(len(pts)))
     res = r["resumen"]
-    for attempt in range(2):
-        for it in r["items"]:
-            ids = [left[i - 1] for i in dict.fromkeys(it["ids"])] if attempt else [i - 1 for i in dict.fromkeys(it["ids"])]
-            out.append((ids, it["texto"]))
-        done = {i for ids, _ in out for i in ids}
-        left = [i for i in range(len(pts)) if i not in done]
-        if not left or attempt:
-            break
-        print(f"  pasada 2: faltan {len(left)} puntos, se piden otra vez", flush=True)
-        r = ask([pts[i] for i in left])
-    out += [([i], pts[i][1]) for i in left]  # siguen sin salir: tal cual
-    items = []
+    src = lambda ids: " ".join(pts[i][1] for i in ids)
+    bad = [k for k, (ids, x) in enumerate(out) if lost_facts(src(ids), x)]
+    if bad:
+        print(f"  pasada 2: {len(bad)} viñetas sin alguna cifra/fecha, se repiten", flush=True)
+        ids = sorted({i for k in bad for i in out[k][0]})
+        extra = "\n\nImportante: conserva literalmente todas las cifras, horas y fechas de los puntos."
+        out = [o for k, o in enumerate(out) if k not in bad] + group(ids, extra)[0]
+    fixed = []
     for ids, x in out:
+        for f in lost_facts(src(ids), x):  # sigue faltando: la frase del punto que lo lleva, tal cual
+            cl = next((s.strip(" ,;.") for i in ids for s in re.split(r"(?<=[,;.])\s", pts[i][1]) if f in words(s) or f in hh(s)), "")
+            x = x.rstrip(".") + f". {cl}." if cl and cl not in x else x
+        fixed.append((ids, x))
+    items = []
+    for ids, x in fixed:
         ts = sorted({pts[i][0] for i in ids} | {parse_ts(t) for i in ids for t in mas.get((pts[i][0], pts[i][1]), [])})
-        items.append({"t": min(pts[i][0] for i in ids), "ts": ts, "texto": sentences(x, 300)})
+        items.append({"t": min(pts[i][0] for i in ids), "ts": ts, "texto": sentences(x, 420)})
     return sentences(res, c * 3 // 2), sorted(items, key=lambda i: i["t"])
 
 
@@ -1379,10 +1408,30 @@ def ts_link(t):
     return f'<a class="ts" href="#" data-t="{int(t)}">[{fmt(t)}]</a>'
 
 
+def trim_caps(red, maps, cfg):
+    """Textos que llegaron al tope de la gramática (el tope cuenta distinto y un texto cortado puede quedar a 10 caracteres de él),
+    también los que ya estaban en caché: se recortan en la última frase completa. Sitio único antes de pintar el acta."""
+    fix = lambda d, k, cap: d.__setitem__(k, sentences(d[k], cap)) if not d[k].startswith(READ_NOTE) else None
+    for m in maps:
+        for p in m["puntos"]:
+            fix(p, "texto", PT_MAX)
+        for r in m.get("relato", []):
+            fix(r, "texto", REL_MAX)
+    for d in red["decisiones"]:
+        fix(d, "texto", L(160))
+    for t in red["tareas"]:
+        fix(t, "tarea", L(160))
+    for s in red["secciones"] if cfg["sec"] else []:
+        fix(s, "resumen", cfg['sec'][1] * 3 // 2)
+        for it in s.get("items", []):
+            fix(it, "texto", 420)
+
+
 def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None):
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
     vídeo (las marcas no son enlaces). imp: datos de la transcripción importada (nota y participantes)."""
     cfg = LEVELS[level]
+    trim_caps(red, maps, cfg)
     at = [s["s"] for s in segments]
     spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
         segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk"))
@@ -1653,7 +1702,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs,
                                  *([f"alta2{ORD}", MAP_PROMPT_ORD, json.dumps(MAP_SCHEMA_ORD)] * alta)]).encode()).hexdigest()[:8]
     vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR)) * PASS2).encode()).hexdigest()[:8]
+    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * PASS2).encode()).hexdigest()[:8]
     if alta:  # map en dos pasadas con voto (caché propia); Alta añade además la comprobación sí/no de decisiones y tareas
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
         rh = hashlib.sha1((rh + vh).encode()).hexdigest()[:8]
@@ -1840,6 +1889,7 @@ def _selftest():
     r = reduce_maps(lambda *a: {"resumen": "r", "titulo": "Pleno"}, mp, v, [0], "normal", "español")
     assert r["decisiones"][0]["texto"] == "Se aprueba el acta" and r["titulo"] == "Pleno" and not r["mas"], r
     assert sentences("Uno dos tres. Cuatro cin", 24) == "Uno dos tres." and sentences("a" * 5 + " bb cc", 11) == "aaaaa bb…"
+    assert sentences("Frase corta sin punto", 100) == "Frase corta sin punto" and sentences("Frase uno completa. Otra fr", 30) == "Frase uno completa."
     assert sentences("Frase corta sin punto", 100) == "Frase corta sin punto"
     d = lambda t, x: {"t": t, "texto": x}
     assert [x["t"] for x in dedupe([
