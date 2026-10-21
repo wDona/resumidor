@@ -46,7 +46,7 @@ try:
     call("/api/modelos", {})
     wait("/api/modelos", "state", "done", "modelos", 3600)
     t0 = time.time()
-    call("/api/generar", {"video": video, "nivel": "normal", "asr": "rápido"})
+    call("/api/generar", {"video": video, "nivel": "normal", "asr": "calidad"})
     j = wait("/api/job", "state", "done", "acta", 3600)
     acta = app / "work" / j["result"]["id"] / j["result"]["acta"] / "index.html"
     assert acta.is_file() and acta.stat().st_size > 500, acta
@@ -62,7 +62,7 @@ try:
     assert "Participantes: Laura, Carlos" in h and "<video" not in h, h[:2000]
     print("acta importada ok", flush=True)
     r = urllib.request.urlopen(urllib.request.Request(base + "/api/preguntar", data=json.dumps(
-        {"sel": f"{j['result']['id']}|rápido", "q": "¿De qué se habló?"}).encode(), headers={"Content-Type": "application/json"}), timeout=900).read().decode()
+        {"sel": f"{j['result']['id']}|calidad", "q": "¿De qué se habló?"}).encode(), headers={"Content-Type": "application/json"}), timeout=900).read().decode()
     print("preguntar:", r[:300], flush=True)
     assert '"k": "error"' not in r, r
 finally:

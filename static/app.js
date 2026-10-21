@@ -47,13 +47,20 @@ soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p),
 // ---- GPU: autodetectada; la elección manual se recuerda ----
 api("/api/gpu").then(g => {
   const c = $("usar-gpu"), v = (() => { try { return localStorage.getItem("usar-gpu"); } catch { return null; } })();
+  const gb = g.vram_mb ? `, ${Math.round(g.vram_mb / 1024)} GB` : "";
   c.disabled = !g.ok; c.checked = g.ok && (v === null ? g.default : v === "1");
-  c.parentElement.title = g.ok ? "" : g.why; $("info-gpu").textContent = g.ok ? (g.name + (g.vram_mb ? ` · ${(g.vram_mb / 1024).toFixed(1)} GB` : "")) : g.why;
-  c.onchange = () => { try { localStorage.setItem("usar-gpu", c.checked ? "1" : "0"); } catch {} };
+  c.parentElement.title = "";
+  $("info-gpu").textContent = !g.ok ? "GPU no encontrada o no válida" : (g.default ? "Se te recomienda usar la GPU" : "No se te recomienda usar la GPU") + ` (${g.name}${gb})`;
+  const chat = () => { const [gem, why] = g[c.checked && g.ok ? "chat_gpu" : "chat_cpu"]; return `Chat: ${gem ? "gemma-4-E4B" : g.llm} (${why})`; };
+  const ram = () => $("info-ram").textContent = `RAM: ${g.ram_gb || "?"} GB` + (g.ok && g.vram_mb ? ` · VRAM: ${Math.round(g.vram_mb / 1024)} GB (${g.name})` : "") + " · " + chat() + (g.ram_gb && g.ram_gb < 8 ? ". Poca RAM: el proceso puede ir muy lento o fallar" : "");
+  ram();
+  c.onchange = () => { ram(); try { localStorage.setItem("usar-gpu", c.checked ? "1" : "0"); } catch {} };
+  const al = g.llm; $("calidad").options[0].textContent = `Rápida (${al})`; $("calidad").options[1].textContent = `Alta (${al}, 2 pasadas)`;
 }).catch(() => {});
+$("calidad").onchange = () => { $("aviso-alta").hidden = $("calidad").value !== "alta"; };
 
 // ---- generar / condensar ----
-const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: $("asr").value, hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
+const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: "calidad", hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }

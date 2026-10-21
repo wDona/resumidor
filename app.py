@@ -96,7 +96,9 @@ def get_job():
 
 @app.get("/api/gpu")
 def gpu():
-    return pipeline.gpu_info()
+    """GPU + RAM + modelo del chat con y sin GPU (la interfaz elige según la casilla)."""
+    return {**pipeline.gpu_info(), "ram_gb": pipeline.ram_gb(), "chat_gpu": rag.chat_choice(True), "chat_cpu": rag.chat_choice(False),
+            "llm": pipeline.llm_label()}
 
 
 @app.post("/api/generar")
@@ -108,7 +110,7 @@ def generar(d: dict):
         raise HTTPException(400, "Elige un vídeo o una transcripción")
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
-    nivel, asr = d.get("nivel", "normal"), d.get("asr", "rápido")
+    nivel, asr = d.get("nivel", "normal"), d.get("asr", "calidad")
     calidad, gpu = d.get("calidad", "rápida"), d.get("gpu")
     if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS or calidad not in ("rápida", "alta"):
         raise HTTPException(400, "Opción no válida")
@@ -123,7 +125,7 @@ def generar(d: dict):
 def fondo(d: dict):
     """Búsqueda a fondo de decisiones y tareas de un acta ya generada: mismo trabajo en segundo plano que generar (start() para
     el LLM del chat: un solo servidor a la vez) y se rehace el acta en su carpeta."""
-    wd, nivel, asr = pipeline.WORK / Path(d.get("id", "")).name, d.get("nivel", "normal"), d.get("asr", "rápido")
+    wd, nivel, asr = pipeline.WORK / Path(d.get("id", "")).name, d.get("nivel", "normal"), d.get("asr", "calidad")
     calidad = "alta" if d.get("alta") else "rápida"
     if nivel not in pipeline.LEVELS or not (wd / f"transcript_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
@@ -136,7 +138,7 @@ def fondo(d: dict):
 
 @app.post("/api/condensar")
 def condensar(d: dict):
-    wd, asr, pct = pipeline.WORK / Path(d["id"]).name, d.get("asr", "rápido"), int(d.get("pct", 40))
+    wd, asr, pct = pipeline.WORK / Path(d["id"]).name, d.get("asr", "calidad"), int(d.get("pct", 40))
     if not (wd / f"cortes_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
 

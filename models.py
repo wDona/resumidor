@@ -5,17 +5,18 @@ from pathlib import Path
 import pipeline as P
 
 HF = "https://huggingface.co/"
-_W, _E = HF + "Systran/faster-whisper-small/resolve/main/", HF + "onnx-community/embeddinggemma-300m-ONNX/resolve/main/"
+_W, _E = HF + "mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/main/", HF + "onnx-community/embeddinggemma-300m-ONNX/resolve/main/"
 M = P.ROOT / "models"
 # (ruta en models/, url, sha256 o None, bytes). Sin sha256 (ficheros pequeños no LFS) solo se exige que no esté vacío.
 FILES = [
     (P.LLM[0], P.LLM[1], "298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb", 2583221408),
     ("gemma-4-E4B-it-Q4_0.gguf", HF + "unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
      "4a403d2e4d80281063e4f517b1c061ded8476b4011a4fc2ba7dbff707075547e", 4836002944),  # chat de Preguntar (rag.GEMMA)
-    ("whisper-small/model.bin", _W + "model.bin", "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671", 483546902),
-    ("whisper-small/config.json", _W + "config.json", None, 2370),
-    ("whisper-small/tokenizer.json", _W + "tokenizer.json", None, 2203239),
-    ("whisper-small/vocabulary.txt", _W + "vocabulary.txt", None, 459861),
+    ("whisper-large-v3-turbo/model.bin", _W + "model.bin", "b5de55e781fd93b7d472c8ca3f7d40d870a3be764f8bb1a9c4a0511c55f9ca5b", 1617884929),
+    ("whisper-large-v3-turbo/config.json", _W + "config.json", None, 2263),
+    ("whisper-large-v3-turbo/preprocessor_config.json", _W + "preprocessor_config.json", None, 340),
+    ("whisper-large-v3-turbo/tokenizer.json", _W + "tokenizer.json", None, 2710337),
+    ("whisper-large-v3-turbo/vocabulary.json", _W + "vocabulary.json", None, 1068114),
     ("gemma-emb/tokenizer.json", _E + "tokenizer.json", "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47", 20323312),
     ("gemma-emb/onnx/model_quantized.onnx", _E + "onnx/model_quantized.onnx", "172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8", 567874),
     ("gemma-emb/onnx/model_quantized.onnx_data", _E + "onnx/model_quantized.onnx_data", "705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0", 308890624),

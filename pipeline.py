@@ -609,6 +609,12 @@ def llm_model():
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
 
 
+def llm_label():
+    """Nombre del modelo de las actas para la interfaz, p. ej. Qwen3.5-4B."""
+    m = llm_model()
+    return re.sub(r"[-_.](Q\d\w*|UD-\w+|MXFP4)\.gguf$|\.gguf$", "", m.name) if m else "sin modelo"
+
+
 def llama_exe(gpu=False):
     """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb.
     gpu: build Vulkan (bin/llama-*-vulkan); en Apple Silicon la única build ya usa Metal."""
@@ -619,6 +625,24 @@ def llama_exe(gpu=False):
 
 
 _gpu_cache = []
+
+
+def ram_gb():
+    """RAM total en GB (stdlib; 0 si no se sabe)."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class MS(ctypes.Structure):
+                _fields_ = [("l", ctypes.c_ulong), ("m", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + [(f"x{i}", ctypes.c_ulonglong) for i in range(5)]
+            m = MS(); m.l = ctypes.sizeof(m)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            return round(m.total / 2**30)
+        if sys.platform == "darwin":
+            return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30)
+        return round(int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text())[1]) / 2**20)
+    except Exception:
+        return 0
 
 
 def gpu_info():
@@ -2149,7 +2173,7 @@ if __name__ == "__main__":
     ap.add_argument("video", nargs="?")
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
-    ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
+    ap.add_argument("--asr", default="calidad", choices=ASR_MODELS)
     ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)")
     ap.add_argument("--fondo", action="store_true", help="además, la búsqueda a fondo de decisiones y tareas")
     ap.add_argument("--threads", type=int, default=PHYS)

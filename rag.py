@@ -21,10 +21,28 @@ NOT_SAID = "No se menciona en la reunión."
 GEMMA = "gemma-4-E4B-it-Q4_0.gguf"
 
 
+_gpu_chat = [None]  # casilla "Usar GPU" de la última pregunta (la fija server)
+
+
+def chat_choice(gpu=None):
+    """-> (usa gemma, motivo corto). gemma-4-E4B (~5 GB, estilo interpretativo) si hay GPU en uso con >=6 GB de VRAM o RAM >= 12 GB
+    (en Apple Silicon la memoria es unificada: cuenta la RAM); si no, el Qwen3.5-4B de las actas. ACTAS_CHAT=qwen/gemma fuerza uno."""
+    i, ram = P.gpu_info(), P.ram_gb()
+    vram = i["vram_mb"] if P.use_gpu(gpu) else 0
+    forced = os.environ.get("ACTAS_CHAT")
+    if forced in ("qwen", "gemma"):
+        return forced == "gemma" and (P.ROOT / "models" / GEMMA).exists(), "forzado por ACTAS_CHAT"
+    ok = (P.ROOT / "models" / GEMMA).exists()
+    if vram >= 6000:
+        return ok, f"VRAM de {vram / 1024:.0f} GB"
+    if ram >= 12:
+        return ok, f"RAM de {ram} GB"
+    return False, "poca memoria"
+
+
 def chat_model():
-    """Modelo del chat: gemma-4-E4B (estilo interpretativo) si está; ACTAS_CHAT=qwen vuelve al 4B de las actas (estilo literal)."""
-    g = P.ROOT / "models" / GEMMA
-    return g if os.environ.get("ACTAS_CHAT", "gemma") != "qwen" and g.exists() else P.llm_model()
+    """Modelo del chat según la memoria (chat_choice): gemma-4-E4B o el 4B de las actas."""
+    return P.ROOT / "models" / GEMMA if chat_choice(_gpu_chat[0])[0] else P.llm_model()
 
 
 def interp():
@@ -318,6 +336,7 @@ def server(threads, ctx=None, gpu=None):
     if os.environ.get("ACTAS_LLM_URL"):
         return os.environ["ACTAS_LLM_URL"], None
     P.WORK.mkdir(exist_ok=True)
+    _gpu_chat[0] = gpu
     return P.launch(chat_model(), ctx or (6144 if interp() else 4096), threads, ["-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none"],
                     "llama-server-rag.log", gpu)
 
