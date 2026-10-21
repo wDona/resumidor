@@ -113,8 +113,9 @@ print("números inventados en frases mostradas:", sum(r["inv"] for r in rows),
       "· inglés (demo_vscode):", pct([r["ok"] for r in en]), "frases descartadas:", pct([not f["ok"] for r in en for f in r["frases"]]))
 print("falso 'no se menciona' en respondibles:", pct([bool(r["nada"]) for r in ans]),
       "· el LLM infirió en trampas (antes de verificar):", pct([r["raw_inference"] for r in rows if r["type"] == "trap"]))
+print("deducciones mostradas:", len(ded), "· líneas «Se dijo» mostradas:", sum(f.get("kind") == "dijo" for f in fr))
 print("frases descartadas por la verificación:", pct([not f["ok"] for f in fr]))
-for k in ("recuperacion", "primer_token", "prefill", "gen", "total"):
+for k in ("recuperacion", "juez", "primer_token", "prefill", "gen", "total"):
     xs = sorted(r[k] for r in rows if r.get(k) is not None)
     if xs:
         print(f"{k}: p50 {statistics.median(xs):.2f} s · p90 {xs[int(0.9 * (len(xs) - 1))]:.2f} s · máx {xs[-1]:.2f} s")

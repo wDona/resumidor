@@ -413,6 +413,24 @@ Escribe 3 líneas, cada una con su idea y el número del momento que la apoya: [
 sin inventar nombres, cifras ni conclusiones."""
 
 
+SYSTEM_J = """Eres un revisor estricto de respuestas sobre una reunión. Recibes una pregunta y afirmaciones numeradas, cada una \
+con el fragmento en que dice apoyarse. Para cada una responde SI o NO.
+DIJO: SI si el fragmento dice eso sin añadir nada y aporta datos sobre el asunto concreto de la pregunta, aunque no la \
+conteste del todo; NO si habla de otro asunto o solo comparte alguna palabra con la pregunta.
+DEDUCE: SI solo si la cita citada sostiene la conclusión sin que haga falta suponer nada más Y la conclusión responde a lo \
+preguntado; NO si la cita solo describe hechos y la conclusión da una opinión, recomendación o valoración que la cita no dice."""
+
+
+def judge(url, q, items):
+    """items: [(tipo, frase, texto citado)] -> [bool]: el mismo gemma revisa en UNA llamada si cada frase está respaldada por su
+    cita y responde a la pregunta (SI/NO por gramática). ponytail: un solo voto de un modelo de 4B; no es una prueba formal."""
+    user = f"Pregunta: {q}\n\n" + "\n\n".join(
+        f"{k}. {t.upper()}: {f}\n   Fragmento: {x[:700]}" for k, (t, f, x) in enumerate(items, 1))
+    gram = "root ::= " + " ".join(f'"{k}: " yn "\\n"' for k in range(1, len(items) + 1)) + '\nyn ::= "SI" | "NO"'
+    out = "".join(c for c in stream(url, user, 0, system=SYSTEM_J, gram=gram, max_tokens=8 * len(items) + 8) if isinstance(c, str))
+    return [bool(re.search(rf"^{k}: SI", out, re.M)) for k in range(1, len(items) + 1)]
+
+
 def grammar_i(n, general=False, quote=False):
     refs = 'refs ::= "[" id "]" ("[" id "]")?\nid ::= ' + " | ".join(f'"{i}"' for i in range(1, n + 1))
     txt = 'txt ::= [^\\n\\[\\]«»"‖]{3,260}\nq ::= [^\\n\\[\\]«»]{12,160}\ndtxt ::= [^\\n\\[\\]«»"‖.]{3,200}'  # dtxt: una sola oración
@@ -454,7 +472,7 @@ def answer_i(idx, q, url):
         order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))
         user = prompt(idx, order, q)
         args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN), gram=grammar_i(len(order), quote=not es), max_tokens=420)
-    buf, n_out, t1, first, seen, dijo = "", 0, time.time(), None, set(), set()
+    buf, n_out, t1, first, seen, dijo, pend = "", 0, time.time(), None, set(), set(), []
     ded_n = ded_ok = 0  # dijo: tramos citados por las líneas «Se dijo»
     text_of = lambda js: " ".join(idx.segs[k]["text"] for j in js for k in idx.window(j))
 
@@ -510,9 +528,29 @@ def answer_i(idx, q, url):
                 miss = bad_nums(frase, allowed or text_of(refs))
                 if miss:
                     continue
-            n_out += 1
-            yield "frase", {"i": refs[0], "refs": refs, "kind": kind, "frase": frase, "ok": not miss, "faltan": miss,
-                            "cita": idx.cita(refs[0], q)}
+            ev = {"i": refs[0], "refs": refs, "kind": kind, "frase": frase, "ok": not miss, "faltan": miss,
+                  "cita": idx.cita(refs[0], q)}
+            if general:
+                n_out += 1
+                yield "frase", ev
+            else:
+                pend.append(ev)
+    if pend and os.environ.get("ACTAS_JUDGE", "1") != "0":
+        t2 = time.time()
+        # solo se revisan las que se enseñan como frase (ok); las no verificadas ya salen como cita literal
+        rev = [e for e in pend if e["ok"]]
+        try:
+            vs = judge(url, q, [(e["kind"], e["frase"], text_of(e["refs"])) for e in rev]) if rev else []
+        except Exception:  # sin revisor: mejor mostrar lo verificado que nada
+            vs = [True] * len(rev)
+        bad = {id(e) for e, v in zip(rev, vs) if not v}
+        pend = [e for e in pend if id(e) not in bad]
+        good = {j for e in pend if e["kind"] == "dijo" for j in e["refs"]}
+        pend = [e for e in pend if e["kind"] == "dijo" or set(e["refs"]) <= good]  # la deducción pierde su base -> cae
+        st["juez"] = round(time.time() - t2, 2)
+    for ev in pend:
+        n_out += 1
+        yield "frase", ev
     if not n_out:
         yield "nada", "llm"
     yield "fin", {**st, "primer_token": first, "total": round(time.time() - t0, 2), "ded_n": ded_n, "ded_base_ok": ded_ok}

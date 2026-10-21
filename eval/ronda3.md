@@ -273,3 +273,38 @@ fiel al fragmento 21:57 que nombra azul/negro; la gramática distinta cambió qu
 garantiza que lo dicho es literal, no que la conclusión sea sensata. Inglés: las citas ya sobreviven, pero las 2 preguntas
 siguen sin dar ok en «general» (`must` en español, igual que antes); «¿Para qué sirve VS Code?» pasa con citas en inglés.
 Pendiente: las deducciones con propósito ligado al gold siguen siendo 20 % (1/5).
+
+## 9. Chat gemma: revisor SI/NO con el mismo servidor
+
+Problema (§8): con deducciones de cita literal sobrevivían más, pero dos trampas se colaban: una deducción que «recomienda» con una
+cita que solo describe, y una frase fiel pero de otro asunto (colores de resaltado, no de métricas financieras). Cita literal != que
+la conclusión se siga ni que responda.
+
+Cambio (`rag.py`, `judge`): tras la verificación léxica, UNA llamada más al mismo llama-server (gramática `N: SI|NO`, temperatura 0)
+revisa todas las frases mostradas de la respuesta con su pregunta y su fragmento. DIJO: se mantiene si el fragmento lo dice sin
+añadir nada y aporta datos sobre el asunto concreto de la pregunta (aunque no la conteste del todo). DEDUCE: se mantiene solo si la
+cita sostiene la conclusión sin suponer nada más y la conclusión responde; no si la cita solo describe y la conclusión es una
+opinión o recomendación. Si cae un «Se dijo», las deducciones que lo citaban caen también. Las frases ya descartadas por la
+verificación no se revisan; si el revisor falla, se muestra lo verificado. `ACTAS_JUDGE=0` lo desactiva. No se usan datos de las
+preguntas del eval. Primer intento (criterio «responde directamente») rechazaba de más: factual 95 %, trampas 82 % (dos
+«No se menciona» falsos en «¿Es caro…?»); se relajó el criterio de DIJO.
+Además, `must` de «¿De qué va el vídeo?» (inglés) acepta también términos del contenido (carpeta, proyecto, código, git…).
+
+| Métrica | §8 | §9 (revisor) |
+|---|---|---|
+| factual | 100 % | 100 % (19/19) |
+| paráfrasis | 93 % | 93 % (13/14) |
+| trampas | 82 % (9/11) | 100 % (11/11) |
+| ausentes | 100 % | 100 % |
+| general | 67 % | 83 % (5/6) |
+| propósito | 100 % | 100 % (5/5) |
+| deducciones con base verificada (antes del revisor) | 77 % (20/26) | 77 % (20/26) |
+| deducciones mostradas (tras revisor) | 19 | 15 |
+| números inventados | 0 | 0 |
+| inglés (demo_vscode) ok | 50 % (1/2) | 100 % (2/2) |
+| latencia p50 / p90 total | 4,0 / 5,4 s | 5,0 / 6,3 s |
+| revisor solo, p50 / p90 | – | 0,83 / 1,13 s |
+
+Coste: ~+0,8 s por pregunta con frases (una llamada, prefill de ~1 k tokens + ~10 tokens de salida). Se perdieron 4 deducciones
+de 19, sin tocar las supervivientes de propósito/general. Quedan: «¿Por qué motivo se abstiene…?» (paráfrasis; las citas no caen
+en el gold) y «¿De qué trata la reunión?» del comité (el acta no resume la sesión).

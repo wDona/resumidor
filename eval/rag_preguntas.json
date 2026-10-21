@@ -57,7 +57,7 @@
   {"m": "webinar_pmia", "type": "general", "q": "¿De qué va el webinar?", "must": ["presentaci|powerpoint|diapositiva", "dato|grafic|color|jerarqu|visual"]},
   {"m": "larga_cne", "type": "general", "q": "¿De qué va la sesión?", "must": ["recalifica|informe|concurso", "aprob|vot"]},
   {"m": "demo_excel", "type": "general", "q": "¿De qué va el vídeo?", "must": ["tabla", "dinamic"]},
-  {"m": "demo_vscode", "type": "general", "q": "¿De qué va el vídeo?", "must": ["vs code|visual studio|code", "instal|editor|archivo|terminal"]},
+  {"m": "demo_vscode", "type": "general", "q": "¿De qué va el vídeo?", "must": ["vs code|visual studio|code", "instal|editor|archivo|terminal|carpeta|proyecto|codigo|depura|git"]},
   {"m": "real_clickmeeting", "type": "purpose", "q": "¿Para qué sirve el software ClickMeeting?", "gold": ["00:22", "01:48", "03:53", "12:57"], "must": ["webinar|reuni|evento|transmi|video"]},
   {"m": "webinar_pmia", "type": "purpose", "q": "¿Para qué sirve el modo cameo de PowerPoint?", "gold": ["11:07"], "must": ["cameo"]},
   {"m": "demo_excel", "type": "purpose", "q": "¿Para qué sirven las tablas dinámicas?", "gold": ["00:15", "00:55", "01:12", "01:29", "01:50"], "must": ["tabla"]},
