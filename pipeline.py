@@ -1411,8 +1411,8 @@ h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9
 figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #d9dee4;border-radius:6px}
 figcaption{font-size:13px;color:#616e7c}table{border-collapse:collapse;width:100%}
 td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:top}
-.strip{display:flex;gap:4px;overflow-x:auto;margin:0 0 10px;padding-bottom:4px}.strip a{flex:none;text-align:center;font-size:11px;color:#616e7c;text-decoration:none}
-.strip img{display:block;height:64px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
+.strip{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.strip a{flex:none;text-align:center;font-size:11px;color:#616e7c;text-decoration:none}
+.strip img{display:block;height:120px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;cursor:zoom-out}
 #big img{max-width:96vw;max-height:90vh}#big span{color:#fff;margin-top:6px}
 .q{display:block;color:#616e7c;font-size:12px}details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
@@ -1518,10 +1518,15 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
     shown = {k["img"] for k in [*shots, *nshots.values()]}
     rest = [k for k in scr if k["img"] not in shown]  # el resto de capturas: tira de miniaturas por tramo
-    strip_ = lambda t0, t1: (lambda ks: (f'<div class="strip">' + "".join(
-        f'<a class="z" href="img/{k["img"]}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
-        f'height="64" alt="">[{fmt(k["t"])}]</a>' for k in ks) + "</div>") if ks else "")(
-        [k for k in rest if t0 <= k["t"] < t1 and not k.__setitem__("strip", True)])
+    def strip_(t0, t1, src=None):  # capturas restantes de [t0, t1): imagen legible si el vídeo no es de pantalla; si lo es, rejilla media
+        ks = [k for k in (rest if src is None else src) if t0 <= k["t"] < t1]
+        if len(scr) < HEAVY:
+            return "".join(fig(k) for k in ks)
+        for k in ks:
+            k["strip"] = True
+        return (f'<div class="strip">' + "".join(
+            f'<a class="z" href="img/{k["img"]}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
+            f'height="120" alt="">[{fmt(k["t"])}]</a>' for k in ks) + "</div>") if ks else ""
     more = "<p class=meta>Hay más decisiones y tareas en el nivel detallado.</p>" if red["mas"] else ""
     body = []
     secs = red["secciones"]
@@ -1538,8 +1543,12 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                   for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}{quote(t)}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
-    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(0 if not i else t, nxt(i))}</div>"
+    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(t, nxt(i))}</div>"
                    for i, (t, x) in enumerate(rel))
+    src = scr if len(scr) < HEAVY else rest  # pocas pantallas: todas en el relato, aunque ya salgan en otra sección
+    pre = [k["t"] for k in src if rel and k["t"] < rel[0][0]]  # antes del primer párrafo: bloque propio, no colgado de uno posterior
+    if pre:
+        narr = f"<h3>Pantallas [{fmt(min(pre))}–{fmt(max(pre))}]</h3>{strip_(0, rel[0][0], src)}" + narr
     if cfg["secs"]:
         desarrollo = f"<h2>Detalle por secciones</h2>{''.join(body)}"
     else:  # breve: unos pocos puntos clave con marca y las capturas más relevantes
@@ -1837,7 +1846,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
             im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
-            cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (224, 126), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 70])
+            cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (400, 225), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 75])
     zpath = wd / f"acta_{stem}_{level}{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
