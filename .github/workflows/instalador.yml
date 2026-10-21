@@ -1,7 +1,7 @@
 name: instalador
 
 # Solo releases: se ejecuta cuando el mensaje del commit contiene "RELEASE"
-# (en mayúsculas; opcionalmente con versión, p. ej. "RELEASE v0.4.0").
+# (en mayúsculas; opcionalmente con versión, p. ej. "RELEASE v0.4.0"). Solo Windows salvo que diga "MAC RELEASE".
 on:
   push: {branches: [master]}
   workflow_dispatch:
@@ -17,6 +17,7 @@ jobs:
     outputs:
       ok: ${{ steps.c.outputs.ok }}
       v: ${{ steps.c.outputs.v }}
+      mac: ${{ steps.c.outputs.mac }}
     steps:
       # versión del mensaje ("RELEASE v0.4.0") o, si no hay, la última release con el minor +1. La release se crea ya como
       # pre-release y cada instalador se sube en cuanto pasa sus pruebas; al final se marca como la última.
@@ -30,6 +31,7 @@ jobs:
           fi
           gh release view "$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$v" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes --prerelease  # re-ejecución: ya existe
           echo ok=1 >> "$GITHUB_OUTPUT"; echo "v=$v" >> "$GITHUB_OUTPUT"
+          grep -q "MAC RELEASE" <<<"$MSG" && echo mac=1 >> "$GITHUB_OUTPUT" || true  # por defecto solo Windows
         env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', MSG: '${{ github.event.head_commit.message }}'}
 
   build:
@@ -134,7 +136,7 @@ jobs:
 
   macos:
     needs: gate
-    if: needs.gate.outputs.ok == '1'
+    if: needs.gate.outputs.ok == '1' && needs.gate.outputs.mac == '1'
     strategy:
       fail-fast: false
       matrix:
@@ -212,7 +214,8 @@ jobs:
           path: logs
 
   release:
-    needs: [gate, build, macos]  # solo si los tres instaladores pasaron: deja de ser pre-release
+    needs: [gate, build, macos]  # solo si los instaladores pasaron (Mac puede no ir): deja de ser pre-release
+    if: always() && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.macos.result)
     runs-on: ubuntu-latest
     steps:
       - run: gh release edit "$V" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest

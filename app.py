@@ -69,6 +69,7 @@ def start(kind, fn, **info):
             raise HTTPException(409, "Ya hay un trabajo en marcha")
         job.clear()
         job.update(state="running", kind=kind, frac=0, msg="Empezando…", t0=time.time(), **info)
+        pipeline.ETA.clear()
         save_job()
     parar_llm()  # dos modelos de 3 GB a la vez no caben en 8 GB
 
@@ -89,7 +90,10 @@ def start(kind, fn, **info):
 @app.get("/api/job")
 def get_job():
     j = dict(job)
-    if j.get("state") == "running" and j["frac"] > 0.03:
+    e = pipeline.eta() if j.get("state") == "running" else None  # actas: por fases y ritmos de este equipo
+    if e is not None:
+        j["eta"] = e
+    elif j.get("state") == "running" and j["frac"] > 0.03:  # resto (vídeo condensado): regla de tres
         j["eta"] = round((time.time() - j["t0"]) * (1 - j["frac"]) / j["frac"])
     if j.get("state") == "running":
         save_job()

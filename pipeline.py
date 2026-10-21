@@ -1833,6 +1833,36 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
     return out, pct, {"tramos": len(keeps), "dur": round(units[-1][1]), "queda": round(kept), "s": round(time.time() - t0, 1)}
 
 
+# ---------- Tiempo restante ----------
+RITMOS = WORK / "ritmos.json"  # segundos de cada fase por segundo de vídeo medidos en este equipo (media con la anterior)
+RITMO0 = {"asr": .35, "transcripción": .01, "hablantes": .05, "capturas+ocr": .05, "ocr_map": .03, "llm_carga": .005,
+          "map": .45, "reduce": .1, "fondo": .5}  # portátil sin GPU, hasta la 1.ª acta; Alta x2 en map/reduce, GPU /4 en el LLM
+ETA = {}  # fase en curso del trabajo (la lee /api/job)
+
+
+def ritmo_key(fase, alta, gpu):
+    return fase + "|alta" * (alta and fase in ("map", "reduce")) + "|gpu" * (gpu and fase in ("llm_carga", "map", "reduce", "fondo"))
+
+
+def ritmos():
+    try:
+        return json.loads(RITMOS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def ritmo(k):
+    return ritmos().get(k) or RITMO0[k.split("|")[0]] * (2 if "|alta" in k else 1) / (4 if "|gpu" in k else 1)
+
+
+def eta():
+    """Segundos que faltan: lo que queda de la fase en curso (a su ritmo real desde el 10 %) más lo previsto para las siguientes."""
+    if not ETA:
+        return None
+    e, f = time.time() - ETA["t0"], ETA["f"]
+    return round((e * (1 - f) / f if f >= 0.1 else max(ETA["exp"] - e, 0)) + ETA["rest"])
+
+
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
@@ -1860,11 +1890,32 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
     tf = wd / f"transcript_{quality}.json"
     dur = duration(video) if video else json.loads(tf.read_text())["segments"][-1]["e"] if tf.exists() else 0
+    rk = functools.partial(ritmo_key, alta=alta, gpu=use_gpu(gpu))
+    # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
+    todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
+            ("capturas+ocr", video and not (wd / "frames2.json").exists()), ("ocr_map", video and not (wd / "frames_map.json").exists()),
+            ("llm_carga", True), ("map", True), ("reduce", True), ("fondo", fondo)) if on}
+
+    def fase(name, lo, hi):
+        """Empieza una fase: ETA con su ritmo y el de las que quedan; devuelve el cb de su tramo de la barra."""
+        w = 1.0
+        while name in todo:
+            n, w = next(iter(todo.items()))
+            del todo[n]
+            if n == name:
+                break
+        if dur:
+            ETA.update(t0=time.time(), f=0, exp=w * ritmo(rk(name)) * dur, rest=sum(v * ritmo(rk(n)) * dur for n, v in todo.items()))
+
+        def p(f, m):
+            ETA["f"] = f
+            cb(lo + (hi - lo) * f, m)
+        return p
 
     if not tf.exists():
         t0 = time.time()
-        tr = (import_transcript(transcript, video, threads, dur, lambda f, m: cb(0.45 * f, m)) if transcript else
-              transcribe(video, quality, threads, dur, lambda f, m: cb(0.45 * f, m)))
+        pa = fase("transcripción" if transcript else "asr", 0, 0.45)
+        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else transcribe(video, quality, threads, dur, pa)
         tf.write_text(json.dumps(tr, ensure_ascii=False))
         stage("transcripción" if transcript else "asr", t0)
     tr = json.loads(tf.read_text())
@@ -1881,7 +1932,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     sf = wd / f"hablantes_{dh}.json"
     if speakers and not sf.exists():  # opcional: con voces parecidas o mal audio se equivoca a menudo
         t0 = time.time()
-        sf.write_text(json.dumps(diarize(video, tr["segments"], threads, lambda f, m: cb(0.45 + 0.05 * f, m))))
+        sf.write_text(json.dumps(diarize(video, tr["segments"], threads, fase("hablantes", 0.45, 0.5))))
         stage("hablantes", t0)
     for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text()))) if speakers
                     else []):
@@ -1891,7 +1942,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
     if video and not kf.exists():
         t0 = time.time()
-        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, lambda f, m: cb(0.5 + 0.05 * f, m)), ensure_ascii=False))
+        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, fase("capturas+ocr", 0.5, 0.55)), ensure_ascii=False))
         stage("capturas+ocr", t0)
     vocab = {w for s in tr["segments"] for w in words(s["text"])}
     # lo que ve el informe: solo pantallas (sin caras ni cámaras), con las rachas de escritura reducidas
@@ -1899,7 +1950,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     km = wd / "frames_map.json"  # lo que lee el LLM: el muestreo y la deduplicación de siempre (misma caché del map)
     if video and not km.exists():
         t0 = time.time()
-        km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, lambda f, m: cb(0.55 + 0.05 * f, m)), ensure_ascii=False))
+        km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, fase("ocr_map", 0.55, 0.6)), ensure_ascii=False))
         stage("ocr_map", t0)
     kfm = screens_map(json.loads(km.read_text()), vocab) if video else []
 
@@ -1918,18 +1969,21 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     ff0 = wd / f"fondo_crudo_{quality}{tag}_{fh}.json"  # lo que devuelve el LLM (caro); los filtros se pueden afinar sobre él
     ff = wd / f"fondo_{quality}{tag}_{hashlib.sha1((fh + FONDO_SIGNAL.pattern + str(FONDO_DUP) + str(FONDO_OVERLAP)).encode()).hexdigest()[:8]}.json"
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists() or (fondo and not ff.exists()):
-        t0 = time.time()
-        cb(0.6, "Arrancando modelo de lenguaje…")
+        t0, n0 = time.time(), len(maps)
+        todo.update(map=(len(chunks) - n0) / len(chunks), reduce=float(not rf.exists()), fondo=float(fondo and not ff.exists()))
+        fase("llm_carga", 0.6, 0.6)(0, "Arrancando modelo de lenguaje…")
         with llama(threads, gpu=gpu) as chat:
             stage("llm_carga", t0)
             t0 = time.time()
+            fase("map", 0.6, 0.9)
             for i in range(len(maps), len(chunks)):
+                ETA["f"] = (i - n0) / (len(chunks) - n0)
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
                 maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
-            cb(0.92, "Redactando el acta…")
+            fase("reduce", 0.92, 0.92)(0, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
             maps = dedup_points(maps) if p2 else maps
             if not vf.exists():
@@ -1941,11 +1995,13 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             if fondo and not ff.exists():
                 t0 = time.time()
                 if not ff0.exists():
-                    ff0.write_text(json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, lambda f, m: cb(0.93 + 0.06 * f, m)),
+                    ff0.write_text(json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, fase("fondo", 0.93, 0.99)),
                                               ensure_ascii=False))
                 ff.write_text(json.dumps(fondo_filtrar(chat, json.loads(ff0.read_text()), tr["segments"], kfm, valid, maps, starts),
                                          ensure_ascii=False))
                 stage("fondo", t0)
+    else:
+        ETA.clear()  # sin LLM (todo en caché): solo queda pintar
     red = json.loads(rf.read_text())
     if ff.exists():  # búsqueda a fondo hecha antes (o ahora): sus decisiones y tareas van al acta
         red = merge_fondo(red, json.loads(ff.read_text()))
@@ -1984,6 +2040,12 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             put_file(video.resolve(), src)
         put_file(src, out / src.name)
     (wd / f"timings_{quality}_{level}{tag}.json").write_text(json.dumps(timings))
+    r = ritmos()  # lo medido en este equipo afina el tiempo restante de las siguientes actas
+    for n, t in timings.items():
+        if n in RITMO0 and t >= 1 and dur >= 600:  # vídeos cortos: el arranque fijo pesa demasiado y falsearía el ritmo
+            k, v = rk(n), t / dur / ((len(chunks) - n0) / len(chunks) if n == "map" else 1)
+            r[k] = round((r[k] + v) / 2 if k in r else v, 4)
+    RITMOS.write_text(json.dumps(r))
     cb(1, "Listo")
     return out, zpath, timings
 
