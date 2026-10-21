@@ -843,9 +843,7 @@ inventar cuántas. Nada de saludos, agradecimientos ni despedidas.
 
 
 SEMCHUNK = os.environ.get("ACTAS_SEMCHUNK") == "1"
-COVER = os.environ.get("ACTAS_COVER") == "1"
 CHUNK_CHARS = int(os.environ.get("ACTAS_CHUNK_CHARS", CHUNK_CHARS))
-COVER_THR = float(os.environ.get("ACTAS_COVER_THR", 0.5))
 EMB_T = [0.0]  # segundos acumulados en embeddings
 
 
@@ -1050,14 +1048,11 @@ def map_chunk(chat, segs, text, lang, kfs=(), alta=False):
                 map_chunk1(chat, segs, text, lang, kfs, {"seed": 1, "temperature": 0.5}, ORD))
 
 
-def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False, hi=None):
+def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
     """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
     la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
-    prompt, schema = (MAP_PROMPT_ORD if order else MAP_PROMPT), MAP_SCHEMA_ORD if order else MAP_SCHEMA
-    if hi:  # rescate de cobertura: tramo corto, 1..hi puntos (el mismo prompt)
-        prompt = re.sub(r"de \d a 9 ideas", f"de 1 a {hi} ideas", prompt)
-        schema = {**schema, "properties": {**schema["properties"], "puntos": arr(PT_ITEM, hi, 1)}}
-    m = chat(prompt.format(lang=lang), text, schema, MAP_MAX, **(opt or {}))
+    m = chat((MAP_PROMPT_ORD if order else MAP_PROMPT).format(lang=lang), text, MAP_SCHEMA_ORD if order else MAP_SCHEMA, MAP_MAX,
+             **(opt or {}))
     if order:
         rank_to_score(m["puntos"])
     t0, t1 = segs[0]["s"], segs[-1]["e"]
@@ -1093,50 +1088,6 @@ def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False, hi=None):
                 keep.append({**it, "t": fmt(t)})
         m[k] = keep
     return m
-
-
-DUP_THR = 0.85  # cobertura: un punto nuevo con similitud >= DUP_THR con uno ya existente se descarta
-
-
-def cover(chat, maps, chunks, segments, kfs, lang):
-    """Rescate por cobertura: ventanas de ~30 s cuya máxima similitud con TODOS los puntos del map es < COVER_THR; las
-    contiguas se unen y se repite el map solo ahí (mismo prompt, 1..hi puntos); se descartan los que repiten algo ya recogido."""
-    ws = windows(segments, 30)
-    wv = embed([" ".join(x["text"] for x in segments[a:b]) for a, b in ws])
-    old = [p["texto"] for m in maps for p in m["puntos"]] + [r["texto"] for m in maps for r in m.get("relato", [])] + \
-          [d["texto"] for m in maps for d in m["decisiones"]] + [d["tarea"] for m in maps for d in m["tareas"]]
-    pv = embed(old)
-    mx = (wv @ pv.T).max(1)
-    spans = []
-    for (a, b), x in zip(ws, mx):
-        if x < COVER_THR:
-            if spans and spans[-1][1] == a:
-                spans[-1][1] = b
-            else:
-                spans.append([a, b])
-    out = []
-    starts = [c[0]["s"] for c in chunks]
-    for a, b in spans:
-        segs = segments[a:b]
-        n = sum(len(x["text"]) for x in segs)
-        m = map_chunk1(chat, segs, map_input(segs, kfs, segments), lang, kfs, hi=min(9, max(2, -(-n // 700))))
-        if m["puntos"]:
-            nv = embed([p["texto"] for p in m["puntos"]])
-            m["puntos"] = [p for p, s in zip(m["puntos"], (nv @ pv.T).max(1)) if s < DUP_THR]
-        out.append({"ci": max(i for i, s0 in enumerate(starts) if s0 <= segs[0]["s"] + 1e-6 or i == 0), "m": m,
-                    "t": [segs[0]["s"], segs[-1]["e"]]})
-    return {"thr": COVER_THR, "mx": [[segments[a]["s"], segments[b - 1]["e"], round(float(x), 3)] for (a, b), x in zip(ws, mx)],
-            "spans": out}
-
-
-def apply_cover(maps, cov):
-    maps = json.loads(json.dumps(maps))
-    for s in cov["spans"]:
-        d, m = maps[s["ci"]], s["m"]
-        d["puntos"] += m["puntos"]
-        d["decisiones"] = dedupe(d["decisiones"] + m["decisiones"], "texto")
-        d["tareas"] = dedupe(d["tareas"] + m["tareas"], "tarea", True)
-    return maps
 
 
 skel = lambda x: [w for w in x.split()[1:] if w[:1].islower()]  # esqueleto: sin nombres propios ni cifras
@@ -1269,6 +1220,70 @@ def check_sources(chat, valid, inputs):
     return out
 
 
+PASS2 = os.environ.get("ACTAS_PASS2") == "1"
+DEDUP_THR = float(os.environ.get("ACTAS_DEDUP_THR", 0.93))
+SEC2_PROMPT = """Redactas una sección del acta de una reunión. Recibes sus puntos clave numerados, con marcas [mm:ss].
+resumen: {n} que los sinteticen.
+items: agrupa los puntos relacionados en viñetas por tema; cada viñeta cuenta con tus palabras, en una o dos frases completas \
+(máx. 40 palabras), lo que dicen sus puntos, y ids lista los números de los puntos que resume (de 1 a 5). Cada punto debe estar \
+en alguna viñeta. Los puntos de la misma idea van en una sola viñeta; conserva nombres, cifras y votos. {faithful} No digas que \
+se acordó o decidió algo si los puntos no lo dicen. Escribe en {lang}."""
+
+
+def dedup_points(maps):
+    """Pasada 2 (1): puntos casi repetidos (coseno >= DEDUP_THR y las mismas cifras) se funden en el primero; se queda el texto más
+    largo y las marcas de los demás van a p["mas"]."""
+    maps = json.loads(json.dumps(maps))
+    pts = [p for m in maps for p in m["puntos"] if p["importancia"] > 1]
+    if len(pts) < 2:
+        return maps
+    v, kept, gone = embed([p["texto"] for p in pts]), [], set()
+    nums = lambda x: sorted(re.findall(r"\d+", x))
+    for j, p in enumerate(pts):
+        k = max(kept, key=lambda i: v[i] @ v[j], default=None)
+        if k is not None and v[k] @ v[j] >= DEDUP_THR and nums(pts[k]["texto"]) == nums(p["texto"]):
+            q = pts[k]
+            q["mas"] = q.get("mas", []) + [p["t"]] + p.get("mas", [])
+            q["importancia"] = max(q["importancia"], p["importancia"])
+            if len(p["texto"]) > len(q["texto"]):
+                q["texto"] = p["texto"]
+            gone.add(id(p))
+        else:
+            kept.append(j)
+    for m in maps:
+        m["puntos"] = [p for p in m["puntos"] if id(p) not in gone]
+    return maps
+
+
+def group_section(chat, pts, ask_n, lang, mas):
+    """Pasada 2 (2-3): el LLM agrupa los puntos numerados de una sección en viñetas con los ids que resume; los ids que falten se
+    piden una vez más y, si aun así faltan, se añaden tal cual. Devuelve (resumen, [{t, ts, texto}]) con las marcas de cada id."""
+    n, c = ask_n
+    ask = lambda ps: chat(SEC2_PROMPT.format(n=f"{n} (como mucho unos {c} caracteres)", faithful=FAITHFUL, lang=lang),
+                          "\n".join(f"{i}. [{fmt(t)}] {x}" for i, (t, x, _, _) in enumerate(ps, 1)),
+                          obj(resumen=S(c * 3 // 2), items=arr(obj(texto=S(300), ids=arr({"enum": list(range(1, len(ps) + 1))}, 5, 1)), len(ps), 1)),
+                          900, 1.1)
+    out, left = [], list(range(len(pts)))
+    r = ask(pts)
+    res = r["resumen"]
+    for attempt in range(2):
+        for it in r["items"]:
+            ids = [left[i - 1] for i in dict.fromkeys(it["ids"])] if attempt else [i - 1 for i in dict.fromkeys(it["ids"])]
+            out.append((ids, it["texto"]))
+        done = {i for ids, _ in out for i in ids}
+        left = [i for i in range(len(pts)) if i not in done]
+        if not left or attempt:
+            break
+        print(f"  pasada 2: faltan {len(left)} puntos, se piden otra vez", flush=True)
+        r = ask([pts[i] for i in left])
+    out += [([i], pts[i][1]) for i in left]  # siguen sin salir: tal cual
+    items = []
+    for ids, x in out:
+        ts = sorted({pts[i][0] for i in ids} | {parse_ts(t) for i in ids for t in mas.get((pts[i][0], pts[i][1]), [])})
+        items.append({"t": min(pts[i][0] for i in ids), "ts": ts, "texto": sentences(x, 300)})
+    return sentences(res, c * 3 // 2), sorted(items, key=lambda i: i["t"])
+
+
 def reduce_maps(chat, maps, valid, starts, level, lang):
     """Reduce jerárquico, nunca se pasa de contexto ni recorta: (1) una sección por bloque del map (título = su tema,
     viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el título y el resumen
@@ -1284,6 +1299,11 @@ def reduce_maps(chat, maps, valid, starts, level, lang):
         pts = [p for p in sel if p[3] == b]
         if pts:
             n, c = cfg["sec"]
+            if PASS2 and len(pts) > 1:
+                mas = {(parse_ts(p["t"]), p["texto"]): p["mas"] for mm in maps for p in mm["puntos"] if p.get("mas")}
+                res, items = group_section(chat, pts, cfg["sec"], lang, mas)
+                secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res, "items": items})
+                continue
             res = sentences(chat(SEC_PROMPT.format(n=ask(n, c), faithful=FAITHFUL, lang=lang), bullets(pts),
                                  obj(resumen=S(c * 3 // 2)), 500, 1.1)["resumen"], c * 3 // 2) if len(pts) > 1 else pts[0][1]
             secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res})
@@ -1377,7 +1397,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     keep = sorted(cand, key=lambda i: -w(cand[i]))[:cfg["nshots"]]
     nshots = {i: cand[i] for i in keep}
     esc = html.escape
-    li = lambda t, x: f"<li>{ts_link(t)}{spk(t, x)}{esc(x)}</li>"
+    li = lambda t, x, more=(): f"<li>{ts_link(t)}{''.join(ts_link(u) for u in more[:3])}{spk(t, x)}{esc(x)}</li>"
     fig = lambda k: (f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
     shown = {k["img"] for k in [*shots, *nshots.values()]}
@@ -1392,7 +1412,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     for i, s in enumerate(secs):  # secciones = bloques del map: viñetas por bloque, capturas por rango de tiempo
         t0 = 0 if i == 0 else s["t"]
         t1 = secs[i + 1]["t"] if i + 1 < len(secs) else 1e9
-        inner = sorted([(t, li(t, x)) for t, x, _, b in sel if b == s["b"]] +
+        inner = sorted([(t, li(t, x)) for t, x, _, b in sel if b == s["b"] and "items" not in s] +
+                       [(it["t"], li(it["t"], it["texto"], it["ts"][1:])) for it in s.get("items", [])] +
                        [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1])
         body.append(f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p>"
                     f"<ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}")
@@ -1440,7 +1461,8 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
         "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
         "relato": [{"t": t, "texto": x} for t, x in rel],
-        "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] for s in secs)],
+        "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] and "items" not in s for s in secs)] +
+                  [{"t": it["t"], "texto": it["texto"]} for s in secs for it in s.get("items", [])],
         "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
         "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
         "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
@@ -1630,8 +1652,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     alta = calidad == "alta"
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs,
                                  *([f"alta2{ORD}", MAP_PROMPT_ORD, json.dumps(MAP_SCHEMA_ORD)] * alta)]).encode()).hexdigest()[:8]
-    vh0 = vh = hashlib.sha1((mh + f"cover{COVER_THR}{DUP_THR}" * COVER + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
+    vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
+    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR)) * PASS2).encode()).hexdigest()[:8]
     if alta:  # map en dos pasadas con voto (caché propia); Alta añade además la comprobación sí/no de decisiones y tareas
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
         rh = hashlib.sha1((rh + vh).encode()).hexdigest()[:8]
@@ -1639,7 +1661,6 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
-    cf, ran = wd / f"cover_{quality}_{vh}.json", False
     vf0 = wd / f"valid_{quality}_{vh0}.json" if alta else vf
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists():
         t0 = time.time()
@@ -1652,15 +1673,10 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm, alta))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
-            if COVER:
-                t0 = time.time()
-                if not cf.exists():
-                    cf.write_text(json.dumps(cover(chat, maps, chunks, tr["segments"], kfm, lang), ensure_ascii=False))
-                maps, ran = apply_cover(maps, json.loads(cf.read_text())), True
-                stage("cover", t0)
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
+            maps = dedup_points(maps) if PASS2 else maps
             if not vf0.exists():
                 vf0.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
             if alta and not vf.exists():
@@ -1671,10 +1687,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
     red = json.loads(rf.read_text())
-    if COVER and not ran:
-        maps = apply_cover(maps, json.loads(cf.read_text()))
     timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
+    maps = dedup_points(maps) if PASS2 else maps
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
     if video:  # el vídeo condensado necesita vídeo
         (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))

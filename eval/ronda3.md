@@ -529,3 +529,31 @@ puntos del mismo tema que no llevan el dato). No se parcheó.
 Veredicto: SEMCHUNK con tope 6000 es lo que recupera (b 2 -> 0 en click, 1 -> 0 en larga, claves 6 -> 7 y 4 -> 5) pero cuesta x2,1 de LLM
 y añade 2 prohibidos/1 resp✗ en larga (más decisiones: 35); el corte semántico a 10000 no aporta frente a iguales. COVER es barato en larga
 (+0 map, +35 %) pero no recupera lo perdido. Mejor variante copiada: `normal__4B_sc6`. Con 2 reuniones y un solo run por celda no hay señal firme.
+
+## 16. Pasada 2 sobre los puntos del map (ACTAS_PASS2=1, sobre SEMCHUNK 6000)
+
+Se elimina ACTAS_COVER (no recuperaba nada, §15). `ACTAS_PASS2=1` (solo con secciones, es decir normal/detallado), sin tocar decisiones ni tareas:
+(1) `dedup_points`: puntos con coseno >= 0,93 (`ACTAS_DEDUP_THR`) y las mismas cifras se funden en el primero (texto más largo, las demás
+marcas quedan como enlaces extra); umbral por datos en larga sem6000 (223 puntos): >= 0,95 son la misma notificación repetida, 0,90-0,95
+mezcla repetidos y «aprobado el informe X / Y» distintos, por eso el requisito de cifras iguales. (2) `group_section`: el LLM recibe los
+puntos de cada sección numerados y devuelve resumen + viñetas con los ids que cada una resume (1-5); en lugar de la llamada de resumen de
+sección de antes (mismo nº de llamadas). (3) Comprobación en código: ids sin cubrir -> una segunda llamada solo con ellos -> si siguen
+faltando, se añaden tal cual. Las marcas de los ids (y las de los fundidos) son los enlaces [mm:ss] de la viñeta; los ids no se ven.
+Las notas 1 ya no entran en la selección, así que no hay «descarte explícito». En ambas reuniones no hizo falta la 2.ª llamada.
+
+| normal | viñetas | caracteres de viñetas / resúmenes | dec P/R | tar P/R | claves | prohib / resp✗ | perdidas a/b/c/d/e | LLM s |
+|---|---|---|---|---|---|---|---|---|
+| larga base (10000) | 48 | 4652 / 3743 | ,89/1 | 1/1 | 4/5 | 0 / 0 | 1/1/0/0/10 | 300 |
+| larga sem6000 | 112 | 10637 / 9839 | ,89/1 | 1/1 | 5/5 | 2 / 1 | 1/0/0/0/11 | 618 |
+| larga sem6000 + pass2 | 87 | 8787 / 6993 | ,89/1 | 1/1 | 5/5 | 2 / 1 | 1/0/0/0/11 | 618 + reduce +28 (130 frente a 102) |
+| click base | 10 | 817 / 768 | — | — | 6/9 | 0 / 0 | 0/2/0/0/7 | 52 |
+| click sem6000 | 26 | 2195 / 2059 | — | — | 7/9 | 0 / 0 | 0/0/0/0/9 | 107 |
+| click sem6000 + pass2 | 17 | 1918 / 1323 | — | — | 6/9 | 0 / 0 | 0/0/0/0/9 | 107 + 12 |
+
+Lectura: -22 % de viñetas en larga (112 -> 87) y -33 % en click (26 -> 17), -29 % / -36 % de texto de resúmenes, sin perder ítems del
+gold en perdidas (a-e igual) ni decisiones/tareas; embeddings 21 s (larga) y 5 s (click). Pero sigue lejos de lo compacto (87 viñetas
+para 239 puntos: el 4B agrupa poco) y en click el score de claves baja 7 -> 6 (se pierde «evento programado 21 de abril 18:00», que pasó a
+la viñeta con otro texto; perdidas.py, con ventana ±90 s, sí lo ve). Los 2 prohibidos y el 1 responsable erróneo NO vienen de la fusión ni
+de la redacción: están igual en sem6000 sin pass2 y salen del map con bloques de 6000 (la viñeta «la presidenta solicita trasladar su
+sesión…», una viñeta que cuenta la petición sin su desenlace, y una tarea «Comisión Técnica» como responsable de notificar); con
+bloques de 10000 no aparecían. Copiada: `normal__4B_sc6_pass2`.
