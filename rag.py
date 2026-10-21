@@ -313,33 +313,13 @@ def prompt(idx, ids, q):
     return f"Fragmentos{nota}:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
 
 
-def server(threads, ctx=None):
-    """llama-server propio (puerto libre) o el de ACTAS_LLM_URL. -> (url, proceso o None).
-    ponytail: copia de los argumentos de P.llama; unificar si P.llama devolviera también la url."""
+def server(threads, ctx=None, gpu=None):
+    """llama-server propio (puerto libre) o el de ACTAS_LLM_URL. -> (url, proceso o None)."""
     if os.environ.get("ACTAS_LLM_URL"):
         return os.environ["ACTAS_LLM_URL"], None
-    exe = P.llama_exe()
-    if not exe or not chat_model():
-        raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
     P.WORK.mkdir(exist_ok=True)
-    proc = subprocess.Popen([str(exe), "-m", str(chat_model()), "-c", str(ctx or (6144 if interp() else 4096)), "-t", str(threads), "-np", "1", *P.GPU,
-                             "-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none", "--host", "127.0.0.1",
-                             "--port", str(port)], stdout=open(P.WORK / "llama-server-rag.log", "w"),
-                            stderr=subprocess.STDOUT)
-    url = f"http://127.0.0.1:{port}"
-    for _ in range(600):
-        if proc.poll() is not None:
-            raise RuntimeError("llama-server terminó (ver work/llama-server-rag.log)")
-        try:
-            if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
-                return url, proc
-        except OSError:
-            time.sleep(0.5)
-    proc.terminate()
-    raise RuntimeError("llama-server no arranca")
+    return P.launch(chat_model(), ctx or (6144 if interp() else 4096), threads, ["-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none"],
+                    "llama-server-rag.log", gpu)
 
 
 def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):

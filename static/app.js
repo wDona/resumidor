@@ -44,8 +44,16 @@ const soltar = (zona, set, msg) => {
 };
 soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p), "subida"); soltar($("drop-tr"), setTr, "info-tr");
 
+// ---- GPU: autodetectada; la elección manual se recuerda ----
+api("/api/gpu").then(g => {
+  const c = $("usar-gpu"), v = (() => { try { return localStorage.getItem("usar-gpu"); } catch { return null; } })();
+  c.disabled = !g.ok; c.checked = g.ok && (v === null ? g.default : v === "1");
+  c.parentElement.title = g.ok ? "" : g.why; $("info-gpu").textContent = g.ok ? (g.name + (g.vram_mb ? ` · ${(g.vram_mb / 1024).toFixed(1)} GB` : "")) : g.why;
+  c.onchange = () => { try { localStorage.setItem("usar-gpu", c.checked ? "1" : "0"); } catch {} };
+}).catch(() => {});
+
 // ---- generar / condensar ----
-const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: $("asr").value, hablantes: $("hablantes").checked, nombres: $("nombres").value});
+const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: $("asr").value, hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }
@@ -129,7 +137,7 @@ $("qform").onsubmit = async e => {
   box.append(cuerpo, frag); $("respuestas").prepend(box);
   const estado = el("p", {textContent: "Buscando en la reunión…"}); cuerpo.append(estado);
   try {
-    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: $("reunion").value, q})});
+    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: $("reunion").value, q, gpu: $("usar-gpu").checked})});
     if (!r.ok) throw new Error((await r.json()).detail);
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) {

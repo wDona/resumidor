@@ -65,7 +65,7 @@ def _phys():
 
 
 PHYS = _phys()
-GPU = ["-ngl", "99"] if (sys.platform == "darwin" and platform.machine() == "arm64" and not os.environ.get("ACTAS_CPU")) or os.environ.get("ACTAS_GPU") else []  # Metal solo en Apple Silicon (ACTAS_CPU=1 lo desactiva); Intel y el resto, CPU
+MAC_ARM = sys.platform == "darwin" and platform.machine() == "arm64"  # Metal solo en Apple Silicon; Intel y el resto, CPU
 if os.name == "nt":  # ffmpeg/llama-server/Tk sin ventana de consola (la app se lanza con pythonw)
     _Popen = subprocess.Popen
 
@@ -608,41 +608,89 @@ def llm_model():
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
 
 
-def llama_exe():
-    """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb."""
-    gpu = bool(os.environ.get("ACTAS_GPU"))  # ACTAS_GPU=1: build Vulkan (bin/llama-*-vulkan) con -ngl 99; si no, la de CPU
-    return next((p for p in sorted(ROOT.glob("bin/**/llama-server*")) if p.is_file() and p.suffix in ("", ".exe") and ("vulkan" in str(p)) == gpu), None)
+def llama_exe(gpu=False):
+    """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb.
+    gpu: build Vulkan (bin/llama-*-vulkan); en Apple Silicon la única build ya usa Metal."""
+    vk = gpu and not MAC_ARM
+    return next((p for p in sorted(ROOT.glob("bin/**/llama-server*")) if p.is_file() and p.suffix in ("", ".exe") and ("vulkan" in str(p)) == vk), None)
+
+
+_gpu_cache = []
+
+
+def gpu_info():
+    """{ok, default, name, vram_mb, why}: GPU que usaría llama.cpp (`llama-server --list-devices`), en caché."""
+    if _gpu_cache:
+        return _gpu_cache[0]
+    r = {"ok": False, "default": False, "name": "", "vram_mb": 0, "why": "Esta instalación no incluye soporte de GPU"}
+    if MAC_ARM:
+        r = {"ok": True, "default": True, "name": "Apple Silicon (Metal)", "vram_mb": 0, "why": ""}
+    elif exe := llama_exe(True):
+        r["why"] = "No se detecta ninguna GPU compatible"
+        try:
+            out = subprocess.run([str(exe), "--list-devices"], capture_output=True, text=True, timeout=30).stdout
+        except Exception:
+            out = ""
+        devs = [(m[1], int(m[2])) for m in re.finditer(r"^\s*\w+\d+: (.+?) \((\d+) MiB", out, re.M)
+                if not re.search(r"llvmpipe|lavapipe|swiftshader|software", m[1], re.I)]
+        if devs:
+            name, mb = max(devs, key=lambda d: d[1])
+            # ponytail: integrada por el nombre (llama.cpp no lo dice); falla con iGPU rara de >=6 GB, el usuario puede marcarla
+            igpu = bool(re.search(r"intel|uhd|iris|apu|vega \d|radeon\(tm\) graphics|radeon graphics", name, re.I))
+            r = {"ok": True, "default": mb >= 6000 and not igpu, "name": name, "vram_mb": mb, "why": ""}
+    _gpu_cache.append(r)
+    return r
+
+
+def use_gpu(want=None):
+    """ACTAS_CPU=1 fuerza CPU, ACTAS_GPU=1 fuerza GPU; si no, `want` (casilla) o la recomendación."""
+    if os.environ.get("ACTAS_CPU"):
+        return False
+    i = gpu_info()
+    return i["ok"] and (bool(os.environ.get("ACTAS_GPU")) or (i["default"] if want is None else bool(want)))
+
+
+def launch(model, ctx, threads, extra, logname, gpu=None):
+    """Arranca llama-server -> (url, proc). En GPU (-ngl auto: descarga parcial según la VRAM libre) y, si no arranca
+    (p. ej. sin memoria), un reintento en CPU."""
+    g = use_gpu(gpu)
+    for use in ([True, False] if g else [False]):
+        exe = llama_exe(use)
+        if not exe or not model:
+            raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        log = open(WORK / logname, "w")
+        proc = subprocess.Popen([str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1", *extra,
+                                 *(["-ngl", "99" if MAC_ARM else "auto"] if use else []),
+                                 "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
+        url = f"http://127.0.0.1:{port}"
+        for _ in range(600):
+            if proc.poll() is not None:
+                break
+            try:
+                if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
+                    return url, proc
+            except OSError:
+                time.sleep(0.5)
+        if proc.poll() is None:
+            proc.terminate()
+        if not use:
+            raise RuntimeError(f"llama-server terminó (ver {log.name})")
+        print("  llama-server no arrancó en GPU (ver log); reintento en CPU", flush=True)
 
 
 @contextlib.contextmanager
-def llama(threads, ctx=8192, model=None):
-    exe = llama_exe()
-    model = model or llm_model()
-    if not exe or not model:
-        raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    log = open(WORK / "llama-server.log", "w")
-    proc = subprocess.Popen([str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1",
-                             # sin caché de prompts en RAM (8 GB por defecto); 2 checkpoints del estado (modelo híbrido: sin ellos
-                             # no se reutiliza nada; cada uno ≈ 50 MB, los 32 de serie eran +3 GB): así el prompt de sistema,
-                             # igual en todos los bloques del map y en cada verificación, se lee una sola vez (-11 s por llamada
-                             # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
-                             # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
-                             "-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none", *GPU,
-                             "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
-    url = f"http://127.0.0.1:{port}"
+def llama(threads, ctx=8192, model=None, gpu=None):
+    # sin caché de prompts en RAM (8 GB por defecto); 2 checkpoints del estado (modelo híbrido: sin ellos
+    # no se reutiliza nada; cada uno ≈ 50 MB, los 32 de serie eran +3 GB): así el prompt de sistema,
+    # igual en todos los bloques del map y en cada verificación, se lee una sola vez (-11 s por llamada
+    # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
+    # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
+    url, proc = launch(model or llm_model(), ctx, threads, ["-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none"],
+                       "llama-server.log", gpu)
     try:
-        for _ in range(600):
-            if proc.poll() is not None:
-                raise RuntimeError(f"llama-server terminó (ver {log.name})")
-            try:
-                if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
-                    break
-            except OSError:
-                time.sleep(0.5)
-
         def chat(system, user, schema, max_tokens, repeat_penalty=1.0, temperature=0.2, seed=0):
             body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                     "temperature": temperature, "seed": seed, "max_tokens": max_tokens, "grammar": gbnf(schema),
@@ -658,7 +706,6 @@ def llama(threads, ctx=8192, model=None):
     finally:
         proc.terminate()
         proc.wait(10)
-        log.close()
 
 
 def obj(**props):
@@ -1426,7 +1473,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida"):
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor."""
     video = Path(video) if video else None
     if not (video or transcript):
@@ -1503,7 +1550,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists():
         t0 = time.time()
         cb(0.6, "Arrancando modelo de lenguaje…")
-        with llama(threads) as chat:
+        with llama(threads, gpu=gpu) as chat:
             stage("llm_carga", t0)
             t0 = time.time()
             for i in range(len(maps), len(chunks)):

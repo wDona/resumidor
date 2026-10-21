@@ -94,6 +94,11 @@ def get_job():
     return j
 
 
+@app.get("/api/gpu")
+def gpu():
+    return pipeline.gpu_info()
+
+
 @app.post("/api/generar")
 def generar(d: dict):
     video, tr = Path(d.get("video") or ""), d.get("transcripcion") or ""
@@ -104,12 +109,12 @@ def generar(d: dict):
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
     nivel, asr = d.get("nivel", "normal"), d.get("asr", "rápido")
-    calidad = d.get("calidad", "rápida")
+    calidad, gpu = d.get("calidad", "rápida"), d.get("gpu")
     if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS or calidad not in ("rápida", "alta"):
         raise HTTPException(400, "Opción no válida")
 
     def fn(cb):
-        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad)
+        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, gpu)
         return {"id": out.parent.name, "acta": out.name}
     start("acta", fn, video=(video or Path(tr)).name)
 
@@ -226,9 +231,13 @@ def preguntar(d: dict):
             if sel not in _idx:
                 _idx[sel] = rag.Index(wd, asr, THREADS)
             idx = _idx[sel]
+            gpu = pipeline.use_gpu(d.get("gpu"))
+            if _llm.get("gpu") not in (None, gpu):  # cambió la casilla: otro servidor (solo uno a la vez en la GPU)
+                parar_llm()
             if not _llm.get("url"):
                 yield line(k="arranque")
-                _llm["url"], _llm["proc"] = rag.server(THREADS)
+                _llm["url"], _llm["proc"] = rag.server(THREADS, gpu=gpu)
+                _llm["gpu"] = gpu
             for kind, v in rag.answer(idx, q, _llm["url"]):
                 if kind == "candidatos":
                     yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200]} for i in v])

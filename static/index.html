@@ -58,6 +58,8 @@
               <select id="asr"><option>rápido</option><option>calidad</option></select>
               <small>rápido = whisper small · calidad = large-v3-turbo (más lento)</small></div>
           </div>
+          <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
+          <small id="info-gpu"></small>
           <label class="check"><input type="checkbox" id="hablantes"> Separar quién habla (experimental)</label>
           <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
           <div class="field"><label for="nombres">Nombres de los hablantes (opcional)</label>
