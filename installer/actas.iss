@@ -99,7 +99,7 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if (CurUninstallStep = usPostUninstall) and not UninstallSilent() then
-    // por defecto (No) se conservan reuniones y modelos (~3 GB); en silencioso (UninstallSilent) no se pregunta y se conservan
+    // por defecto (No) se conservan reuniones y modelos (varios GB); en silencioso (UninstallSilent) no se pregunta y se conservan
     if MsgBox('¿Borrar también las reuniones procesadas y los modelos descargados (varios GB)?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       DelTree(ExpandConstant('{app}'), True, True, True);
 end;

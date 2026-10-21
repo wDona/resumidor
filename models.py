@@ -119,4 +119,5 @@ def start():
 def status():
     if st["state"] != "running":
         st.update(state="done" if not missing() else ("error" if st["state"] == "error" else "idle"))
-    return {**st, "need": bool(missing())}
+    todo = missing()
+    return {**st, "need": bool(todo), "falta": sum(f[3] for f in todo)}  # bytes por bajar en esta máquina (para el aviso)

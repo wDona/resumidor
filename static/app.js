@@ -185,6 +185,7 @@ async function modelos() {
   let m = await api("/api/modelos").catch(() => null);
   if (!m || (!m.need && m.state !== "running")) return $("modelos").hidden = true;
   $("modelos").hidden = false; $("mod-reint").hidden = true;
+  if (m.falta && m.state === "idle") $("mod-gb").textContent = "unos " + (m.falta / 1e9).toFixed(1).replace(".", ",") + " GB de modelos";
   if (m.state === "idle") m = await post("/api/modelos");
   const p = Math.min(100, Math.round(m.done / m.total * 100));
   $("mod-msg").textContent = m.msg; $("mod-bar").style.width = p + "%";
