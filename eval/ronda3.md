@@ -659,3 +659,11 @@ extra si es un resultado de votación posterior al segmento citado; si pasa de 2
 «[1004] Notificar por correo… las resoluciones»: antes «proceda a la notificación de las respectivas resolución…» -> ahora con «conformidad artículo 39 del reglamento… proceda a la notificación…»;
 «[2806] Aprobación del informe de recalificación de Espinoza Cordero»: antes «con una abstención y cuatro votos a favor se aprobe el presente informe» -> ahora con «el Pleno del Consejo Nacional que…».
 Límite: sin puntuación fiable del ASR las «frases» salen largas y con ruido; mejora cuando el segmento citado era el principio de la intervención.
+
+### Contexto de solape de solo lectura entre bloques (probado y revertido)
+
+Alta (sc6 + pass2) en larga_cne con el final (~1000 caracteres) del bloque anterior antepuesto a cada bloque con la nota «[Contexto anterior: solo para
+entender quién habla y de qué se trata; NO extraigas puntos, decisiones ni tareas de aquí]». Frente a Alta sin solape: dec P ,89 -> ,94 (R 1), tar 1/1, claves 5/5, resp✗ 1 -> 0,
+pero prohibidos 2 -> 4 (nuevos: dos «José Cabrera / Enrique Pita se abstuvo» mal atribuidos; los 2 de Nájera siguen), viñetas 89 -> 92, decisiones 35 -> 33. LLM: map ≈ 513 -> ≥ 670 s y reduce 130 -> 261 s
+(esta corrida se retomó tras un corte, tiempos no limpios, pero el contexto añade entrada en cada bloque). No mejora sin errores nuevos (el modelo mezcla el contexto con el bloque): se revierte, no entra en Alta.
+Los 2 prohibidos de Nájera y su origen siguen abiertos (vienen del map).

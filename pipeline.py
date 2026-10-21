@@ -937,25 +937,12 @@ def merge_segs(segs, span=15):
     return out
 
 
-OVERLAP = os.environ.get("ACTAS_OVERLAP") == "1"
-OVERLAP_CHARS = 1000
-CTX_NOTE = "[Contexto anterior: solo para entender quién habla y de qué se trata; NO extraigas puntos, decisiones ni tareas de aquí]"
-
-
-def map_input(segs, kfs, allsegs=(), prev=None):
+def map_input(segs, kfs, allsegs=()):
     """Texto del bloque para el map; los tramos en que se lee en voz alta lo que hay en pantalla van marcados (el 4B no
     distingue por sí solo el acta anterior leída de los acuerdos de hoy)."""
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
     text = "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
-    if prev:  # contexto de solo lectura: el final del bloque anterior (quién habla, de qué va)
-        ctx, n = [], 0
-        for s in reversed(prev):
-            ctx.insert(0, f"[{fmt(s['s'])}] {who(s)}{s['text']}")
-            n += len(ctx[0])
-            if n >= OVERLAP_CHARS:
-                break
-        text = CTX_NOTE + "\n" + "\n".join(ctx) + "\n[Fin del contexto]\n\n" + text
     screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
@@ -1788,7 +1775,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
 
     chunks = chunk(tr["segments"], alta)
     starts = [c[0]["s"] for c in chunks]
-    inputs = [map_input(c, kfm, tr["segments"], chunks[i - 1] if OVERLAP and i else None) for i, c in enumerate(chunks)]
+    inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
