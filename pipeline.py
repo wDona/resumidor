@@ -937,12 +937,25 @@ def merge_segs(segs, span=15):
     return out
 
 
-def map_input(segs, kfs, allsegs=()):
+OVERLAP = os.environ.get("ACTAS_OVERLAP") == "1"
+OVERLAP_CHARS = 1000
+CTX_NOTE = "[Contexto anterior: solo para entender quién habla y de qué se trata; NO extraigas puntos, decisiones ni tareas de aquí]"
+
+
+def map_input(segs, kfs, allsegs=(), prev=None):
     """Texto del bloque para el map; los tramos en que se lee en voz alta lo que hay en pantalla van marcados (el 4B no
     distingue por sí solo el acta anterior leída de los acuerdos de hoy)."""
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     rd = lambda s: allsegs and reading(s["s"] + 7, allsegs, kfs) >= 0.25
     text = "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * bool(rd(s))}{s['text']}" for s in merge_segs(segs))
+    if prev:  # contexto de solo lectura: el final del bloque anterior (quién habla, de qué va)
+        ctx, n = [], 0
+        for s in reversed(prev):
+            ctx.insert(0, f"[{fmt(s['s'])}] {who(s)}{s['text']}")
+            n += len(ctx[0])
+            if n >= OVERLAP_CHARS:
+                break
+        text = CTX_NOTE + "\n" + "\n".join(ctx) + "\n[Fin del contexto]\n\n" + text
     screens = [f"[{fmt(k['t'])}] {k['text'][:600]}" for k in kfs if k["screen"] and t0 <= k["t"] <= t1]
     if screens:
         text += "\n\nTexto en pantalla compartida:\n" + "\n".join(screens)[:2500]
@@ -1432,7 +1445,45 @@ def ts_link(t):
     return f'<a class="ts" href="#" data-t="{int(t)}">[{fmt(t)}]</a>'
 
 
-def trim_caps(red, maps, cfg):
+VOTE = re.compile(r"a favor|en contra|abstenci|abstien|unanimidad|votos?\b|queda aprobad|se aprueba|aprobado|aprobamos|de acuerdo", re.I)
+ASSIGN = re.compile(r"encarg|me ocupo|me comprometo|har[eé]\b|haremos|responsable|plazo|antes d|prepar|enviar|notific|se encargar|corresponde", re.I)
+QUOTE_MAX = 200
+
+
+def best_quote(text, cita, t, segments, task=False):
+    """Evidencia que se muestra bajo una decisión/tarea: la frase, entre el segmento citado (-1 anterior, hasta 60 s después), que
+    mejor la respalda = palabras en común con el texto + señal genérica de acuerdo (FONDO_SIGNAL; en tareas, de encargo) y un
+    extra si es un resultado de votación posterior al segmento citado. Máx. ~QUOTE_MAX caracteres, con «…» donde se corta. El `cita`
+    del map (el principio del segmento) solo sirve para anclar y verificar."""
+    at = [s["s"] for s in segments]
+    i = max(0, bisect.bisect_right(at, t + 0.5) - 1)
+    iw = {w for w in words(text) if len(w) >= 4}
+    sig = ASSIGN if task else FONDO_SIGNAL
+    best, txt, off = (-1, cita), "", []  # los segmentos son trozos de frase: se juntan y se parte en frases por la puntuación
+    for j in range(max(0, i - 1), len(segments)):
+        if j > i and segments[j]["s"] > t + 60:
+            break
+        off.append((len(txt), j))
+        txt += segments[j]["text"].strip() + " "
+    for m in re.finditer(r"[^.!?…]+[.!?…]*", txt):
+        sent = m.group().strip()
+        sw = set(words(sent))
+        if len(sw) < 4:
+            continue
+        j = [jj for o, jj in off if o <= m.start() + len(m.group()) - len(m.group().lstrip())][-1]
+        sc = len(iw & sw) / max(1, len(iw)) + 0.4 * bool(sig.search(sent)) + 0.3 * (j > i and bool(VOTE.search(sent))) - 0.05 * abs(j - i)
+        if sc > best[0]:
+            best = (sc, sent)
+    q = best[1]
+    if len(q) > QUOTE_MAX:
+        m = (sig if task else VOTE).search(q) or sig.search(q)
+        a = max(0, (m.start() if m else 0) - 80)
+        a = q.rfind(" ", 0, a) + 1 if a else 0  # no a mitad de palabra
+        q = ("…" if a else "") + q[a:a + QUOTE_MAX].rsplit(" ", 1)[0] + ("…" if a + QUOTE_MAX < len(q) else "")
+    return q
+
+
+def trim_caps(red, maps, cfg, segments=()):
     """Textos que llegaron al tope de la gramática (el tope cuenta distinto y un texto cortado puede quedar a 10 caracteres de él),
     también los que ya estaban en caché: se recortan en la última frase completa. Sitio único antes de pintar el acta."""
     fix = lambda d, k, cap: d.__setitem__(k, sentences(d[k], cap)) if not d[k].startswith(READ_NOTE) else None
@@ -1442,6 +1493,9 @@ def trim_caps(red, maps, cfg):
         for r in m.get("relato", []):
             fix(r, "texto", REL_MAX)
     red["decisiones"], red["tareas"] = fix_junk(red["decisiones"], "texto"), fix_junk(red["tareas"], "tarea")
+    if segments:  # la evidencia que se ve: la frase que mejor lo respalda, no el principio del segmento (también en cachés)
+        red["decisiones"] = [{**d, "cita": best_quote(d["texto"], d.get("cita", ""), parse_ts(d["t"]), segments)} for d in red["decisiones"]]
+        red["tareas"] = [{**d, "cita": best_quote(d["tarea"], d.get("cita", ""), parse_ts(d["t"]), segments, True)} for d in red["tareas"]]
     for d in red["decisiones"]:
         fix(d, "texto", L(160))
     for t in red["tareas"]:
@@ -1456,7 +1510,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
     vídeo (las marcas no son enlaces). imp: datos de la transcripción importada (nota y participantes)."""
     cfg = LEVELS[level]
-    trim_caps(red, maps, cfg)
+    trim_caps(red, maps, cfg, segments)
     at = [s["s"] for s in segments]
     spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
         segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk"))
@@ -1734,7 +1788,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
 
     chunks = chunk(tr["segments"], alta)
     starts = [c[0]["s"] for c in chunks]
-    inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
+    inputs = [map_input(c, kfm, tr["segments"], chunks[i - 1] if OVERLAP and i else None) for i, c in enumerate(chunks)]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
@@ -1996,6 +2050,10 @@ def _selftest():
     assert all(u[r[-1]][1] - u[r[0]][0] < MIN_KEEP for r in runs([n == 0 for *_, n in u], False) if any(map(gone, r))), "silencios primero"
     assert recommend_pct([[0, 10, 0], [10, 100, 4]]) == 20 and recommend_pct([[0, 90, 2], [90, 100, 5]]) == 70
     assert recommend_pct([[0, 20, 0], [20, 40, 1], [40, 100, 3]]) == 40
+    sg = [{"s": 0, "e": 5, "text": "Considerando que los informes técnicos no son vinculantes, que estos son referenciales."},
+          {"s": 6, "e": 12, "text": "Se pone a consideración el informe sobre la recalificación de la postulante."},
+          {"s": 14, "e": 20, "text": "Con cuatro votos a favor y una abstención se aprueba el informe."}]
+    assert best_quote("Se aprueba parcialmente la recalificación de la postulante", "Considerando que los informes", 0, sg).startswith("Con cuatro votos"), "el resultado del voto"
     r = merge_fondo({"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:00"}], "tareas": []},
                     {"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:05"},
                                     {"texto": "Se aplaza la votación a la próxima sesión", "t": "02:00"}], "tareas": []})

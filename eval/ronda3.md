@@ -649,3 +649,13 @@ cambia) y la del reduce lleva PASS2; la salida va a `acta_<nivel>_<asr>_alta/`. 
 si se queda, §18). Probado con TestClient (`POST /api/generar` con calidad alta): reunion_sintetica (15 s, caches de ASR) y larga_cne (162 s, map en
 caché de §15) acaban en `acta_normal_rápido_alta`, la reunión los lista con `alta: true` y con zip. Problema abierto: con bloques de 6000 larga gana 2 «prohibidos» y 1
 responsable erróneo que salen del map (§16).
+
+### Evidencia bajo cada decisión/tarea
+
+La cita del map es el principio del segmento (`w[:100]`), no la prueba. `best_quote()` (en `trim_caps`, al pintar: Rápida, Alta, a fondo y cachés) junta los segmentos
+desde el anterior al citado hasta 60 s después, parte en frases y elige la de más palabras en común con el texto + señal de acuerdo (`FONDO_SIGNAL`; en tareas, de encargo) + un
+extra si es un resultado de votación posterior al segmento citado; si pasa de 200 caracteres, se corta alrededor de la señal con «…». Ejemplos larga_cne:
+«[1712] Se aprueba parcialmente la solicitud…»: antes «Con una abstención y cuatro votos a favor se aprueba el presente informe.» (ya bueno) -> ahora la frase con el voto y el contexto;
+«[1004] Notificar por correo… las resoluciones»: antes «proceda a la notificación de las respectivas resolución…» -> ahora con «conformidad artículo 39 del reglamento… proceda a la notificación…»;
+«[2806] Aprobación del informe de recalificación de Espinoza Cordero»: antes «con una abstención y cuatro votos a favor se aprobe el presente informe» -> ahora con «el Pleno del Consejo Nacional que…».
+Límite: sin puntuación fiable del ASR las «frases» salen largas y con ruido; mejora cuando el segmento citado era el principio de la intervención.
