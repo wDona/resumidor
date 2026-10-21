@@ -1086,8 +1086,22 @@ def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
                 print(f"  descartada (cita no está en el bloque): {it.get('texto') or it['tarea']}", flush=True)
             else:
                 keep.append({**it, "t": fmt(t)})
-        m[k] = keep
+        m[k] = fix_junk(keep, "texto" if k == "decisiones" else "tarea")
     return m
+
+
+def fix_junk(items, key):
+    """El 4B a veces escribe solo una marca («101:34») como texto de una decisión/tarea: se rehace con su cita literal y, sin
+    cita con al menos 2 palabras, se descarta. Sitio común del map (nuevos) y del render (cachés)."""
+    out = []
+    for it in items:
+        if len(words(re.sub(r"\d+:\d+", " ", it[key]))) < 2:
+            c = it.get("cita", "").strip()
+            if len(words(c)) < 2:
+                continue
+            it = {**it, key: c[:1].upper() + c[1:]}
+        out.append(it)
+    return out
 
 
 skel = lambda x: [w for w in x.split()[1:] if w[:1].islower()]  # esqueleto: sin nombres propios ni cifras
@@ -1417,6 +1431,7 @@ def trim_caps(red, maps, cfg):
             fix(p, "texto", PT_MAX)
         for r in m.get("relato", []):
             fix(r, "texto", REL_MAX)
+    red["decisiones"], red["tareas"] = fix_junk(red["decisiones"], "texto"), fix_junk(red["tareas"], "tarea")
     for d in red["decisiones"]:
         fix(d, "texto", L(160))
     for t in red["tareas"]:

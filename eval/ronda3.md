@@ -579,3 +579,7 @@ La comprobación saltó 3 veces en larga (1 viñeta cada vez) y ninguna en click
 fuera; no es un fallo de redacción, así que la comprobación no puede recuperarlo (con sem6000 sin pass2 sí salía, porque se mostraban más puntos).
 Aparte, en larga base hay 2 «decisiones» que son solo una marca («101:34», «98:10»): bug del map/rescate sin investigar.
 Se regenera ~/actas_comparar con `normal__4B_rapida` (base actual) y `normal__4B_sc6_pass2`.
+
+Corrección posterior (§17): las 2 «decisiones» «101:34» y «98:10» de larga base venían del map (el 4B escribió la marca como texto; está en la caché,
+no es de RESCUE ni del sin-tope). `fix_junk()` (map nuevo y `trim_caps` al pintar, así cubre cachés) rehace el texto con la cita literal o descarta si la cita
+tampoco sirve. Larga base: puntuación igual (,89/1, 4/5), ya sin textos que sean una marca.
