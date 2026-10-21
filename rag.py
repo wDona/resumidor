@@ -25,19 +25,11 @@ _gpu_chat = [None]  # casilla "Usar GPU" de la última pregunta (la fija server)
 
 
 def chat_choice(gpu=None):
-    """-> (usa gemma, motivo corto). gemma-4-E4B (~5 GB, estilo interpretativo) si hay GPU en uso con >=6 GB de VRAM o RAM >= 12 GB
-    (en Apple Silicon la memoria es unificada: cuenta la RAM); si no, el Qwen3.5-4B de las actas. ACTAS_CHAT=qwen/gemma fuerza uno."""
-    i, ram = P.gpu_info(), P.ram_gb()
-    vram = i["vram_mb"] if P.use_gpu(gpu) else 0
-    forced = os.environ.get("ACTAS_CHAT")
-    if forced in ("qwen", "gemma"):
-        return forced == "gemma" and (P.ROOT / "models" / GEMMA).exists(), "forzado por ACTAS_CHAT"
-    ok = (P.ROOT / "models" / GEMMA).exists()
-    if vram >= 6000:
-        return ok, f"VRAM de {vram / 1024:.0f} GB"
-    if ram >= 12:
-        return ok, f"RAM de {ram} GB"
-    return False, "poca memoria"
+    """-> (usa gemma, motivo corto): la regla de P.chat_model, pero con Qwen si el gguf de gemma no está descargado."""
+    m, why = P.chat_model(gpu)
+    if m == "gemma" and not (P.ROOT / "models" / GEMMA).exists():
+        return False, "Gemma no descargado: usando Qwen"
+    return m == "gemma", why
 
 
 def chat_model():
@@ -618,6 +610,11 @@ def _selftest():
     assert quote_ok("lo que haría … sería presentarme", "lo que haría en mi ordenador sería presentarme") and not quote_ok("hola mundo", "hola mundo")
     g = grammar(3)
     assert '"1" | "2" | "3"' in g and "NINGUNO" in g
+    e = os.environ.pop("ACTAS_CHAT", None)  # regla del chat con RAM/VRAM falsas
+    assert P.chat_model(ram=8, vram_mb=0)[0] == "qwen" and P.chat_model(ram=16, vram_mb=0)[0] == "gemma" and P.chat_model(ram=8, vram_mb=8000)[0] == "gemma"
+    os.environ["ACTAS_CHAT"] = "qwen"; assert P.chat_model(ram=64, vram_mb=0)[0] == "qwen"
+    os.environ["ACTAS_CHAT"] = "gemma"; assert P.chat_model(ram=4, vram_mb=0)[0] == "gemma"
+    os.environ.pop("ACTAS_CHAT"); e and os.environ.__setitem__("ACTAS_CHAT", e)
     print("selftest ok")
 
 

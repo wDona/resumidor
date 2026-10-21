@@ -677,6 +677,21 @@ def use_gpu(want=None):
     return i["ok"] and (bool(os.environ.get("ACTAS_GPU")) or (i["default"] if want is None else bool(want)))
 
 
+def chat_model(gpu=None, ram=None, vram_mb=None):
+    """-> ("gemma"|"qwen", motivo). Regla única del chat de Preguntar (la usan rag.py y models.py): gemma-4-E4B (~5 GB) si hay GPU
+    en uso con >=6 GB de VRAM o RAM >= 12 GB (en Apple Silicon la memoria es unificada: cuenta la RAM); si no, el Qwen de las actas.
+    gpu=None: la recomendación (casilla por defecto). ACTAS_CHAT=qwen/gemma fuerza uno. ram/vram_mb: solo para pruebas."""
+    if (f := os.environ.get("ACTAS_CHAT")) in ("qwen", "gemma"):
+        return f, "forzado por ACTAS_CHAT"
+    ram = ram_gb() if ram is None else ram
+    vram_mb = (gpu_info()["vram_mb"] if use_gpu(gpu) else 0) if vram_mb is None else vram_mb
+    if vram_mb >= 6000:
+        return "gemma", f"VRAM de {vram_mb / 1024:.0f} GB"
+    if ram >= 12:
+        return "gemma", f"RAM de {ram} GB"
+    return "qwen", "poca memoria"
+
+
 NOTICE = []  # aviso corto para la interfaz (estado del trabajo / chat); lo vacía quien lo muestra
 _SRV = {}    # url -> Srv
 

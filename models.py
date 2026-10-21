@@ -23,7 +23,15 @@ FILES = [
     (P.OCR_REC[0], P.OCR_REC[1], P.OCR_REC[2], 7_500_000),
     (P.DIAR_EMB[0], P.DIAR_EMB[1], P.DIAR_EMB[2], 27_000_000),
 ]
-st = {"state": "idle", "done": 0, "total": sum(f[3] for f in FILES), "msg": ""}  # idle | running | done | error
+GEMMA = "gemma-4-E4B-it-Q4_0.gguf"
+
+
+def wanted():
+    """FILES sin gemma si esta máquina no lo usaría (se asume la GPU recomendada); ACTAS_CHAT=gemma/qwen fuerza."""
+    return FILES if P.chat_model()[0] == "gemma" else [f for f in FILES if f[0] != GEMMA]
+
+
+st = {"state": "idle", "done": 0, "total": sum(f[3] for f in wanted()), "msg": ""}  # idle | running | done | error
 _lock = threading.Lock()
 
 
@@ -53,7 +61,7 @@ def ok(f):
 
 
 def missing():
-    return [f for f in FILES if not ok(f)]
+    return [f for f in wanted() if not ok(f)]
 
 
 def sha(p):
@@ -90,7 +98,8 @@ def fetch(f):
 def run():
     try:
         todo = missing()
-        st.update(total=sum(f[3] for f in FILES), done=sum(f[3] for f in FILES if f not in todo))
+        W = wanted()
+        st.update(total=sum(f[3] for f in W), done=sum(f[3] for f in W if f not in todo))
         for f in todo:
             st["msg"] = f"Descargando {Path(f[0]).name}…"
             st["done"] = st["total"] - sum(g[3] for g in todo[todo.index(f):])  # re-sincroniza con los tamaños nominales
