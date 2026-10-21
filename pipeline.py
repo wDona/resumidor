@@ -734,7 +734,9 @@ def sentences(s, cap):
 
 PT_MAX = L(160)
 REL_MAX = L(230)   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
-MAP_SCHEMA = obj(tema=S(100), puntos=arr(obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS), 12 if LOOSE else 9, 6),
+MINPTS = int(os.environ.get("ACTAS_MINPTS", 6))  # experimento: mínimo de puntos por bloque (bloques pequeños: 3)
+PT_ITEM = obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS)
+MAP_SCHEMA = obj(tema=S(100), puntos=arr(PT_ITEM, 12 if LOOSE else 9, MINPTS),
                  decisiones=arr(obj(cita=S(100), texto=S(L(160)), t=TS), 5), tareas=arr(TASK, 5),
                  relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1))  # al final: decisiones y tareas se generan con el mismo contexto de siempre
 MAP_MAX = L(1800) + 400 * LOOSE  # peor caso con todos los topes llenos (≈ 1700 tokens); lo normal son 500-900
@@ -807,6 +809,7 @@ frases): de qué se habló, qué se explicó o concluyó y por qué importa. Cad
 donde empieza; el segundo empieza hacia la mitad del fragmento. Solo lo dicho o mostrado: ni hechos, ni nombres, ni cifras \
 nuevos. En un tutorial, cuenta qué se enseña y cómo.
 Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."""
+MAP_PROMPT = MAP_PROMPT.replace("de 6 a 9 ideas", f"de {os.environ.get('ACTAS_MINPTS', 6)} a 9 ideas")
 
 FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras, votos ni abstenciones. Atribuye las opiniones a quien las dice. \
 Leer, aprobar o repasar el acta o los acuerdos de una reunión ANTERIOR no es una decisión ni una tarea de esta: cuéntalo solo como lectura («se leyó el acta anterior»), sin «se acuerda» ni «se aprueba» sobre su contenido."
@@ -839,7 +842,74 @@ inventar cuántas. Nada de saludos, agradecimientos ni despedidas.
 {faithful} Escribe en {lang}."""
 
 
+SEMCHUNK = os.environ.get("ACTAS_SEMCHUNK") == "1"
+COVER = os.environ.get("ACTAS_COVER") == "1"
+CHUNK_CHARS = int(os.environ.get("ACTAS_CHUNK_CHARS", CHUNK_CHARS))
+COVER_THR = float(os.environ.get("ACTAS_COVER_THR", 0.5))
+EMB_T = [0.0]  # segundos acumulados en embeddings
+
+
+def embed(texts):
+    import rag  # el mismo EmbeddingGemma ONNX del RAG
+    t0 = time.time()
+    v = rag.embed(texts, threads=PHYS)
+    EMB_T[0] += time.time() - t0
+    return v
+
+
+def windows(segments, span):
+    """Ventanas de ~`span` s de segmentos seguidos: [(i0, i1)) sobre `segments`]."""
+    out, i0 = [], 0
+    for i, s in enumerate(segments):
+        if s["e"] - segments[i0]["s"] >= span:
+            out.append((i0, i + 1))
+            i0 = i + 1
+    if i0 < len(segments):
+        if out and segments[-1]["e"] - segments[i0]["s"] < span / 2:
+            out[-1] = (out[-1][0], len(segments))
+        else:
+            out.append((i0, len(segments)))
+    return out
+
+
+def semchunk(segments, span=45):
+    """Como TextTiling: la similitud entre el bloque de 2 ventanas anterior y el posterior a cada hueco entre ventanas; se corta
+    donde es mínima (menos una bonificación si hay pausa o cambio de hablante) con tamaño entre 0,4 y 1 x CHUNK_CHARS."""
+    size = [len(x["text"]) + 9 for x in segments]
+    ws = windows(segments, span)
+    if len(ws) < 4 or sum(size) <= CHUNK_CHARS:
+        return chunk_eq(segments)
+    v = embed([" ".join(x["text"] for x in segments[a:b]) for a, b in ws])
+    ws_sz = [sum(size[a:b]) for a, b in ws]
+    sc = []  # sc[g]: puntuación del hueco entre ws[g] y ws[g+1] (menor = mejor corte)
+    for g in range(len(ws) - 1):
+        a, b = v[max(0, g - 1):g + 1].mean(0), v[g + 1:g + 3].mean(0)
+        s0, s1 = segments[ws[g][1] - 1], segments[ws[g + 1][0]]
+        sc.append(float(a @ b) / float(np.linalg.norm(a) * np.linalg.norm(b)) - 0.03 * min(2, max(0, s1["s"] - s0["e"]) / 1.5)
+                  - 0.03 * (s0.get("spk") != s1.get("spk")))
+    lo, out, g0, left = 0.4 * CHUNK_CHARS, [], 0, sum(ws_sz)
+    while left > CHUNK_CHARS:
+        acc, best = 0, None
+        for g in range(g0, len(ws) - 1):
+            acc += ws_sz[g]
+            if acc > CHUNK_CHARS:
+                break
+            if acc >= lo and left - acc >= lo and (best is None or sc[g] < sc[best]):
+                best = g
+        if best is None:  # sin hueco válido: corta por tamaño
+            best = max(g0, g - 1)
+        out.append(segments[ws[g0][0]:ws[best][1]])
+        left -= sum(ws_sz[g0:best + 1])
+        g0 = best + 1
+    out.append(segments[ws[g0][0]:])
+    return out
+
+
 def chunk(segments):
+    return semchunk(segments) if SEMCHUNK else chunk_eq(segments)
+
+
+def chunk_eq(segments):
     """Bloques del mismo tamaño, como mucho ~CHUNK_CHARS: n = ceil(total / CHUNK_CHARS) y se corta cada total / n. Ni
     bloque de cola diminuto (solo traería la despedida) ni uno gigante (la cola unida al anterior dejaba sin puntos los
     últimos 14 min de una reunión: el map da como mucho 10 por bloque)."""
@@ -980,11 +1050,14 @@ def map_chunk(chat, segs, text, lang, kfs=(), alta=False):
                 map_chunk1(chat, segs, text, lang, kfs, {"seed": 1, "temperature": 0.5}, ORD))
 
 
-def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
+def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False, hi=None):
     """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
     la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
-    m = chat((MAP_PROMPT_ORD if order else MAP_PROMPT).format(lang=lang), text, MAP_SCHEMA_ORD if order else MAP_SCHEMA, MAP_MAX,
-             **(opt or {}))
+    prompt, schema = (MAP_PROMPT_ORD if order else MAP_PROMPT), MAP_SCHEMA_ORD if order else MAP_SCHEMA
+    if hi:  # rescate de cobertura: tramo corto, 1..hi puntos (el mismo prompt)
+        prompt = re.sub(r"de \d a 9 ideas", f"de 1 a {hi} ideas", prompt)
+        schema = {**schema, "properties": {**schema["properties"], "puntos": arr(PT_ITEM, hi, 1)}}
+    m = chat(prompt.format(lang=lang), text, schema, MAP_MAX, **(opt or {}))
     if order:
         rank_to_score(m["puntos"])
     t0, t1 = segs[0]["s"], segs[-1]["e"]
@@ -1020,6 +1093,50 @@ def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
                 keep.append({**it, "t": fmt(t)})
         m[k] = keep
     return m
+
+
+DUP_THR = 0.85  # cobertura: un punto nuevo con similitud >= DUP_THR con uno ya existente se descarta
+
+
+def cover(chat, maps, chunks, segments, kfs, lang):
+    """Rescate por cobertura: ventanas de ~30 s cuya máxima similitud con TODOS los puntos del map es < COVER_THR; las
+    contiguas se unen y se repite el map solo ahí (mismo prompt, 1..hi puntos); se descartan los que repiten algo ya recogido."""
+    ws = windows(segments, 30)
+    wv = embed([" ".join(x["text"] for x in segments[a:b]) for a, b in ws])
+    old = [p["texto"] for m in maps for p in m["puntos"]] + [r["texto"] for m in maps for r in m.get("relato", [])] + \
+          [d["texto"] for m in maps for d in m["decisiones"]] + [d["tarea"] for m in maps for d in m["tareas"]]
+    pv = embed(old)
+    mx = (wv @ pv.T).max(1)
+    spans = []
+    for (a, b), x in zip(ws, mx):
+        if x < COVER_THR:
+            if spans and spans[-1][1] == a:
+                spans[-1][1] = b
+            else:
+                spans.append([a, b])
+    out = []
+    starts = [c[0]["s"] for c in chunks]
+    for a, b in spans:
+        segs = segments[a:b]
+        n = sum(len(x["text"]) for x in segs)
+        m = map_chunk1(chat, segs, map_input(segs, kfs, segments), lang, kfs, hi=min(9, max(2, -(-n // 700))))
+        if m["puntos"]:
+            nv = embed([p["texto"] for p in m["puntos"]])
+            m["puntos"] = [p for p, s in zip(m["puntos"], (nv @ pv.T).max(1)) if s < DUP_THR]
+        out.append({"ci": max(i for i, s0 in enumerate(starts) if s0 <= segs[0]["s"] + 1e-6 or i == 0), "m": m,
+                    "t": [segs[0]["s"], segs[-1]["e"]]})
+    return {"thr": COVER_THR, "mx": [[segments[a]["s"], segments[b - 1]["e"], round(float(x), 3)] for (a, b), x in zip(ws, mx)],
+            "spans": out}
+
+
+def apply_cover(maps, cov):
+    maps = json.loads(json.dumps(maps))
+    for s in cov["spans"]:
+        d, m = maps[s["ci"]], s["m"]
+        d["puntos"] += m["puntos"]
+        d["decisiones"] = dedupe(d["decisiones"] + m["decisiones"], "texto")
+        d["tareas"] = dedupe(d["tareas"] + m["tareas"], "tarea", True)
+    return maps
 
 
 skel = lambda x: [w for w in x.split()[1:] if w[:1].islower()]  # esqueleto: sin nombres propios ni cifras
@@ -1513,15 +1630,16 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     alta = calidad == "alta"
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs,
                                  *([f"alta2{ORD}", MAP_PROMPT_ORD, json.dumps(MAP_SCHEMA_ORD)] * alta)]).encode()).hexdigest()[:8]
-    vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
+    vh0 = vh = hashlib.sha1((mh + f"cover{COVER_THR}{DUP_THR}" * COVER + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
     if alta:  # map en dos pasadas con voto (caché propia); Alta añade además la comprobación sí/no de decisiones y tareas
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
         rh = hashlib.sha1((rh + vh).encode()).hexdigest()[:8]
-    tag = ("_alta" + "_ord" * ORD if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE
+    tag = ("_alta" + "_ord" * ORD if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
+    cf, ran = wd / f"cover_{quality}_{vh}.json", False
     vf0 = wd / f"valid_{quality}_{vh0}.json" if alta else vf
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists():
         t0 = time.time()
@@ -1534,6 +1652,12 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm, alta))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
+            if COVER:
+                t0 = time.time()
+                if not cf.exists():
+                    cf.write_text(json.dumps(cover(chat, maps, chunks, tr["segments"], kfm, lang), ensure_ascii=False))
+                maps, ran = apply_cover(maps, json.loads(cf.read_text())), True
+                stage("cover", t0)
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
@@ -1547,6 +1671,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
     red = json.loads(rf.read_text())
+    if COVER and not ran:
+        maps = apply_cover(maps, json.loads(cf.read_text()))
+    timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
     if video:  # el vídeo condensado necesita vídeo

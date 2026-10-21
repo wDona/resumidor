@@ -480,3 +480,52 @@ Q5_K_M: `ACTAS_MAP_MODEL=Qwen3.5-4B-Q5_K_M.gguf` cambia el modelo de TODO el pip
 Lectura: empate en todo salvo un ítem recuperado en click (b 2 -> 1); puntos mostrados 48/10 -> 43/12. Con 2 reuniones no hay señal.
 Tiempos de Q4 = los de la ronda en frío (map+verify en caché ahora). Veredicto: no merece seguir comparando cuantizaciones; el cuello
 está en lo que el map omite, no en la precisión del modelo.
+
+## 15. Recuperar lo que omite el map con embeddings (ACTAS_SEMCHUNK, ACTAS_COVER)
+
+Dos banderas, apagadas por defecto (EmbeddingGemma ONNX de rag.py, sin dependencias nuevas). `ACTAS_SEMCHUNK=1`: ventanas de ~45 s, similitud
+entre los 2 bloques de ventanas a cada lado de cada hueco (TextTiling), se corta en el mínimo (menos 0,03 por pausa >= 1,5 s y 0,03 por
+cambio de hablante) con tamaño 0,4-1 x `ACTAS_CHUNK_CHARS` (def. 10000). `ACTAS_MINPTS=n` cambia el «6 a 9» del prompt y del esquema.
+`ACTAS_COVER=1`: ventanas de 30 s; cubierta = similitud máx. con algún punto/relato/decisión/tarea del map >= `ACTAS_COVER_THR` (0,50);
+tramos no cubiertos contiguos se unen y se repite el map solo ahí (mismo prompt, 1..hi puntos, hi = chars/700); se descartan los puntos
+nuevos con similitud >= 0,85 con uno existente y se funde en el bloque que contiene el tramo. Normal, GPU Vulkan, Q4_0. Tiempos LLM en s
+(carga+map+reduce(+verify)); «emb» = embeddings (CPU). Base = §14 (en frío).
+
+Barrido de tamaño (solo real_clickmeeting; la clave es el máximo de caracteres del bloque):
+
+| click, normal | bloques | puntos map / mostrados | claves | perdidas a/b/c/d/e | prohib | LLM s | emb s |
+|---|---|---|---|---|---|---|---|
+| base (10000, iguales) | 3 | 25 / 10 | 6/9 | 0/2/0/0/7 | 0 | 52 | 0 |
+| sem 10000 | 4 | 33 / 14 | 5/9 | 0/1/1/0/7 | 0 | 67 | 4,6 |
+| sem 6000 | 7 | 58 / 26 | 7/9 | 0/0/0/0/9 | 0 | 107 | 4,5 |
+| sem 4000 | 9 | 72 / 32 | 8/9 | 0/0/0/0/9 | 0 | 131 | 4,7 |
+| sem 4000, min 3 | 9 | 76 / 32 | 8/9 | 0/0/0/0/9 | 2 | 135 | 4,7 |
+| sem 6000, min 3 | 7 | 57 / 24 | 8/9 | 0/0/0/0/9 | 0 | 105 | 4,8 |
+| cover (sobre base) | 3 | 43 / 19 | 7/9 | 0/1/1/0/7 | 0 | 52+48 ≈ 100 | 6,6 |
+| sem 6000 + cover | 7 | 62 / 27 | 7/9 | 0/0/0/0/9 | 0 | 107+17 = 124 | 9,5 |
+
+Mínimo 3: el 4B sigue escribiendo ~8 puntos por bloque (76 con 9 bloques), así que no hay relleno que quitar y no cambia nada
+(salvo 2 «prohibidos» de ruido en 4000). Tiempo: crece con los bloques (más puntos y relato por minuto; el map son los tokens de salida),
+x2,1 con 6000 y x2,5 con 4000. Puntos duplicados entre bloques (similitud >= 0,75): 0-2, despreciable. Ojo: parte de la mejora de
+«claves» es solo que se muestran más puntos (10 -> 26-32; la selección es 50 % del total), no que se recupere más por punto.
+
+larga_cne (solo el tamaño elegido, 6000, y cover):
+
+| larga, normal | puntos map / mostrados | dec P/R | tar P/R | claves | prohib / resp✗ | perdidas a/b/c/d/e | LLM s | emb s |
+|---|---|---|---|---|---|---|---|---|
+| base | 104 / 48 | ,89/1 | 1/1 | 4/5 | 0 / 0 | 1/1/0/0/10 | 300 | 0 |
+| cover | 135 / 62 | ,88/1 | 1/1 | 4/5 | 0 / 0 | 1/1/0/0/10 | 300+104 ≈ 470 | 22 |
+| sem 6000 | 265 / 112 | ,89/1 | 1/1 | 5/5 | 2 / 1 | 1/0/0/0/11 | 618 (x2,1) | 16 |
+| sem 6000 + cover | 273 / 114 | ,89/1 | 1/1 | 5/5 | 2 / 1 | 1/0/0/0/11 | 617+44 ≈ 660 | 42 |
+
+Umbral de cover: la similitud máxima de las ventanas es muy plana (click P5 ,46, mediana ,55, P75 ,59; larga P5 ,47, mediana ,58);
+0,50 ≈ percentil 20 (click 12 de 55 ventanas, larga 18 de 246 con el map de base; 4 y 9 tramos). Los ítems perdidos del click (t=674
+«21 de abril 18:00», t=1729 «calificación») caen en ventanas con 0,55 y 0,61: «cubiertas» por tema; para atraparlas habría que subir el
+umbral por encima del percentil 75 (media ventana re-mapeada). Cover recupera 1 clave en click (6 -> 7, pero no las dos perdidas por
+b) y 0 en larga; solo añade puntos. Caso precios: el punto «30 dólares mensual y 25 anual» sí está en el map y su ventana (t=265) tiene
+0,67; el fallo «tema cubierto, dato ausente» no se pudo reproducir con precios, pero sí ocurre con t=674 y t=1729 (ventana cubierta por
+puntos del mismo tema que no llevan el dato). No se parcheó.
+
+Veredicto: SEMCHUNK con tope 6000 es lo que recupera (b 2 -> 0 en click, 1 -> 0 en larga, claves 6 -> 7 y 4 -> 5) pero cuesta x2,1 de LLM
+y añade 2 prohibidos/1 resp✗ en larga (más decisiones: 35); el corte semántico a 10000 no aporta frente a iguales. COVER es barato en larga
+(+0 map, +35 %) pero no recupera lo perdido. Mejor variante copiada: `normal__4B_sc6`. Con 2 reuniones y un solo run por celda no hay señal firme.
