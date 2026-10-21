@@ -1518,9 +1518,11 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
     shown = {k["img"] for k in [*shots, *nshots.values()]}
     rest = [k for k in scr if k["img"] not in shown]  # el resto de capturas: tira de miniaturas por tramo
+    used = []  # capturas grandes que cuelgan de strip_: también hay que copiarlas
     def strip_(t0, t1, src=None):  # capturas restantes de [t0, t1): imagen legible si el vídeo no es de pantalla; si lo es, rejilla media
         ks = [k for k in (rest if src is None else src) if t0 <= k["t"] < t1]
         if len(scr) < HEAVY:
+            used.extend(ks)
             return "".join(fig(k) for k in ks)
         for k in ks:
             k["strip"] = True
@@ -1582,7 +1584,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
         page = re.sub(r'<div id="side">.*?</p></div>', "", page, flags=re.S).replace(f"<script>{JS}</script>", "")
         page = page.replace("<main>", '<main style="display:block;max-width:900px">', 1)
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
-    allshots = sorted({k["img"]: k for k in [*shots, *nshots.values()]}.values(), key=lambda k: k["t"])
+    allshots = sorted({k["img"]: k for k in [*shots, *nshots.values(), *used]}.values(), key=lambda k: k["t"])
     allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
@@ -1847,6 +1849,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             import cv2
             im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
             cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (400, 225), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 75])
+    miss = [m for m in re.findall(r'(?:src|href)="img/([^"]+)"', (out / "index.html").read_text()) if not (out / "img" / m).exists()]
+    if miss:
+        raise RuntimeError(f"imágenes sin copiar: {sorted(set(miss))}")
     zpath = wd / f"acta_{stem}_{level}{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
