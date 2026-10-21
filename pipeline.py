@@ -1414,12 +1414,32 @@ td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:to
 .strip{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.strip a{flex:none;text-align:center;font-size:11px;color:#616e7c;text-decoration:none}
 .strip img{display:block;height:120px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;cursor:zoom-out}
-#big img{max-width:96vw;max-height:90vh}#big span{color:#fff;margin-top:6px}
+#big img{max-width:96vw;max-height:90vh;touch-action:none;cursor:grab}#big .n{position:absolute;top:50%;left:8px;color:#fff;font-size:48px;padding:0 12px;cursor:pointer;user-select:none}#big .n.r{left:auto;right:8px}#big span{text-align:center}#big span a{color:#9cf}#big span{color:#fff;margin-top:6px}
 .q{display:block;color:#616e7c;font-size:12px}details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
 
-JS = """document.addEventListener('click',e=>{const z=e.target.closest('a.z');if(z){e.preventDefault();
-const b=document.createElement('div');b.id='big';b.innerHTML='<img src="'+z.href+'"><span>'+z.dataset.l+'</span>';
-b.onclick=()=>b.remove();document.body.append(b)}});
+JS = """const Z=[...document.querySelectorAll('a.z')].filter((a,i,r)=>!i||r[i-1].href!=a.href);
+let bi,B,I,S=1,X=0,Y=0;
+const ap=()=>I.style.transform='translate('+X+'px,'+Y+'px) scale('+S+')';
+const go=d=>{bi=(bi+d+Z.length)%Z.length;const z=Z[bi];I.src=z.href;S=1;X=Y=0;ap();
+B.querySelector('span').innerHTML=z.dataset.l+' <a class="ts" href="#" data-t="'+z.dataset.s+'">&#9654; ir al v\u00eddeo</a>'};
+const cl=()=>{B&&B.remove();B=0};
+const zm=(f)=>{S=Math.min(8,Math.max(1,S*f));if(S==1)X=Y=0;ap()};
+document.addEventListener('click',e=>{const z=e.target.closest('a.z');if(z){e.preventDefault();bi=Z.findLastIndex(a=>a==z||a.compareDocumentPosition(z)&4);
+B=document.createElement('div');B.id='big';B.innerHTML='<img draggable="false"><span></span><b class="n" data-d="-1">&#8249;</b><b class="n r" data-d="1">&#8250;</b>';
+document.body.append(B);I=B.querySelector('img');go(0);return}
+if(!B)return;const n=e.target.closest('.n');if(n){go(+n.dataset.d);return}
+if(e.target.closest('[data-t]')){cl();return}if(e.target==B)cl()});
+document.addEventListener('keydown',e=>{if(!B)return;if(e.key=='Escape')cl();else if(e.key=='ArrowLeft')go(-1);else if(e.key=='ArrowRight')go(1)});
+document.addEventListener('wheel',e=>{if(B){e.preventDefault();zm(e.deltaY<0?1.2:1/1.2)}},{passive:false});
+document.addEventListener('dblclick',e=>{if(B&&e.target==I){S=S>1?1:2;X=Y=0;ap()}});
+let P=[],D=0,sx=0;
+document.addEventListener('pointerdown',e=>{if(B&&e.target==I){P.push(e);sx=e.clientX;I.setPointerCapture(e.pointerId);D=0}});
+document.addEventListener('pointermove',e=>{const i=P.findIndex(p=>p.pointerId==e.pointerId);if(i<0)return;const o=P[i];
+if(P.length==2){const q=P[1-i],d0=Math.hypot(o.clientX-q.clientX,o.clientY-q.clientY),d1=Math.hypot(e.clientX-q.clientX,e.clientY-q.clientY);zm(d1/d0)}
+else if(S>1){X+=e.clientX-o.clientX;Y+=e.clientY-o.clientY;ap()}P[i]=e});
+const up=e=>{const i=P.findIndex(p=>p.pointerId==e.pointerId);if(i<0)return;P.splice(i,1);
+if(S==1&&!P.length&&Math.abs(e.clientX-sx)>60)go(e.clientX<sx?1:-1)};
+document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);
 const v=document.getElementById('v');
 document.addEventListener('click',e=>{const a=e.target.closest('[data-t]');if(!a)return;e.preventDefault();
 v.currentTime=+a.dataset.t;v.play();});
@@ -1514,7 +1534,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     nshots = {i: cand[i] for i in keep}
     esc = html.escape
     li = lambda t, x, more=(): f"<li>{ts_link(t)}{''.join(ts_link(u) for u in more[:3])}{spk(t, x)}{esc(x)}</li>"
-    fig = lambda k: (f'<figure><a href="img/{k["img"]}" target="_blank"><img src="img/{k["img"]}" loading="lazy"></a>'
+    fig = lambda k: (f'<figure><a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"] or "Pantalla compartida")}"><img src="img/{k["img"]}" loading="lazy"></a>'
                      f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
     shown = {k["img"] for k in [*shots, *nshots.values()]}
     rest = [k for k in scr if k["img"] not in shown]  # el resto de capturas: tira de miniaturas por tramo
@@ -1527,7 +1547,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
         for k in ks:
             k["strip"] = True
         return (f'<div class="strip">' + "".join(
-            f'<a class="z" href="img/{k["img"]}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
+            f'<a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
             f'height="120" alt="">[{fmt(k["t"])}]</a>' for k in ks) + "</div>") if ks else ""
     more = "<p class=meta>Hay más decisiones y tareas en el nivel detallado.</p>" if red["mas"] else ""
     body = []
