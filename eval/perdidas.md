@@ -47,7 +47,7 @@ en la ventana del gold ±90 s, más revisión manual. Se usó la caché del map 
 
 Minutos de transcripción con voz sin ningún ítem de map (punto, decisión, tarea o relato), y puntos del map que no se muestran.
 
-| reunión | min con voz | sin ítem en su minuto | sin ítem a ±1 min | puntos map | no mostrados en normal | no mostrados en detallado (nota 1) |
+| reunión | min con voz | sin ítem en su minuto | sin ítem a ±1 min | puntos map | no mostrados en normal | no mostrados en detallado (nota 1 y cupos) |
 |---|---|---|---|---|---|---|
 | charla_comite | 49 | 22 (45 %) | 2 (4 %) | 33 | 19 (58 %) | 6 (18 %) |
 | larga_cne | 132 | 42 (32 %) | 7 (5 %) | 104 | 56 (54 %) | 8 (8 %) |
