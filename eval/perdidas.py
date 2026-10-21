@@ -3,7 +3,7 @@ a = ASR (no está en la transcripción), b = map (ninguna salida del map lo cubr
 el acta), d = redacción (seleccionado pero ausente del acta final), e = presente.
 Coincidencia: regex del gold sobre texto normalizado, en la ventana del gold ±90 s (claves y e: como score.py).
 Reutiliza las cachés (run() ya hecho): captura maps/red al pasar por render().
-uv run eval/perdidas.py [--tag v2] [--nivel normal] [-v]   (--tag: sufijo de ACTAS_TAG con que se generó)"""
+uv run eval/perdidas.py [--tag v2] [--solo larga_cne,real_clickmeeting] [--nivel normal] [-v]   (--tag: sufijo de ACTAS_TAG con que se generó)"""
 import json, re, sys
 from pathlib import Path
 
@@ -30,6 +30,8 @@ tot, lost, dist = {}, [], []
 print(f"{'reunión':20} {'ítems':>5} a b c d e")
 for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
     g = json.loads(gf.read_text())
+    if "--solo" in sys.argv and g["video"] not in arg("--solo", "").split(","):
+        continue
     video = ROOT / "samples" / f"{g['video']}.mp4"
     P.run(video, level, "rápido")
     red, maps, segs = cap["red"], cap["maps"], cap["segments"]

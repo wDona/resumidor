@@ -461,3 +461,22 @@ texto (p. ej. «próxima reunión», encargos pequeños) como el de `RESCUE`; (b
 los falsos «prohibidos» (decisiones mal atribuidas que antes caían en el tope); (c) charla: 3 falsas decisiones nuevas (propuestas sin aprobar
 admitidas por `verify`); (d) click pierde 3 claves de funciones que el map describe menos al priorizar cifras; (e) breve: el criterio
 «protegidos primero» ocupa los 10 puntos con datos y se pierde panorama.
+
+## 14. Lote 1 revertido (salvo «decisiones y tareas sin tope») y Qwen3.5-4B Q5_K_M frente a Q4_0
+
+Decisión posterior a §13: se revierte todo el lote 1 salvo (a) decisiones y tareas nunca se recortan (sin `dec`/`tar` en LEVELS, sin
+elección del LLM ni `group()`, sin `[:7]` del voto) y (b) `eval/perdidas.py` (nuevo `--solo`). MAP_PROMPT/MAP_SCHEMA vuelven a ser los de
+antes (cachés válidas). Q4_0 con sin-tope, normal: larga dec ,89/1 (antes ,83/,67), tar 1/1; click igual que antes.
+
+Q5_K_M: `ACTAS_MAP_MODEL=Qwen3.5-4B-Q5_K_M.gguf` cambia el modelo de TODO el pipeline LLM (map, verify, reduce); GPU Vulkan, frío.
+
+| Reunión (normal) | dec P/R | tar P/R | claves | prohib | resp✗ | perdidas a/b/c/d/e | LLM s (carga+map+reduce) |
+|---|---|---|---|---|---|---|---|
+| larga Q4_0 | ,89/1 | 1/1 | 4/5 | 0 | 0 | 1/1/0/0/10 | 300 |
+| larga Q5_K_M | ,87/1 | 1/1 | 4/5 | 0 | 0 | 1/1/0/0/10 | 316 (+5 %) |
+| click Q4_0 | — | — | 6/9 | 0 | 0 | 0/2/0/0/7 | 52 |
+| click Q5_K_M | — | — | 6/9 | 0 | 0 | 0/1/0/0/8 | 64 (+23 %) |
+
+Lectura: empate en todo salvo un ítem recuperado en click (b 2 -> 1); puntos mostrados 48/10 -> 43/12. Con 2 reuniones no hay señal.
+Tiempos de Q4 = los de la ronda en frío (map+verify en caché ahora). Veredicto: no merece seguir comparando cuantizaciones; el cuello
+está en lo que el map omite, no en la precisión del modelo.
