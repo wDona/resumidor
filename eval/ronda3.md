@@ -332,3 +332,35 @@ el resumen del acta tal cual (ya revisado por la pipeline, sin pasar por el LLM,
 | deducciones verificadas / mostradas | 77 % / 15 | 77 % / 15 |
 | números inventados | 0 | 0 |
 | latencia p50 / p90 | 5,0 / 6,3 s | 4,6 / 5,9 s (ruido; sin coste añadido) |
+
+## 11. Duplicados que saturan el top-8 y preguntas «por qué»
+
+Problema (§10a): en larga_cne las ~15 votaciones de Elena Nájera son casi idénticas y llenaban el top-8; la razón real (136:35) estaba
+en el puesto 32 del denso y nunca llegaba al LLM, que solo podía decir «con motivaciones expuestas».
+
+Cambios (`rag.py`, `Index.search` y `prompt`):
+1. **MMR sobre las voces.** Tras el RRF, cada tramo se elige por relevancia (RRF normalizado) menos 6 × (coseno máximo con los ya
+   elegidos − 0,75). Los duplicados se hunden y los huecos los ocupa contenido distinto. Sin cambio para la pantalla. (Una poda por
+   umbral con máx. 2 por grupo, probada antes, no bastaba: los cosenos entre votos eran 0,83-0,94 y el resto de huecos seguía lleno de votos.)
+2. **«Por qué / motivo / razón / causa».** Tercera lista del RRF con doble peso: los tramos de las 120 mejores por similitud
+   densa que contienen una palabra de razón (porque, motivo(s), motivación(es), razón, debido, causa, dado). Y una nota en el
+   prompt: la pregunta pide una razón; usa los fragmentos que la den, no los que solo dan el resultado.
+3. Eval: la pregunta de Nájera exige `must` de la razón real (vinculante / seguridad jurídica / legalidad / informe). Una comprobación
+   genérica «toda respuesta a un por qué lleva palabra de razón» se probó y se quitó: marcaba mal «¿Por qué se cambió el día…?».
+   No se añadió el aviso «se repite N veces» (YAGNI; el MMR ya deja 1-2 representantes).
+
+Respuesta de «¿Por qué motivo se abstiene Elena Nájera…?» ahora: `[136:35]` Se dijo que el voto es abstención dado que para mí el
+informe técnico y el informe jurídico no es vinculante y así lo señala también la doctrina. · `[136:35]` *Se deduce que la abstención se
+debe a que el informe técnico y el informe jurídico no son vinculantes, porque se dijo que «mi voto es abstención dado que para mí el
+informe técnico y el informe jurídico no es vinculante y así lo señala también la doctrina.»* (antes: «su voto es abstención con
+motivaciones expuestas»).
+
+| Métrica | §10 | §11 |
+|---|---|---|
+| factual / trampas / ausentes / propósito / general | 100 % en todas | 100 % en todas |
+| paráfrasis (con `must` de razón en Nájera) | 100 % | 100 % (14/14) |
+| recall@8 | 100 % | 100 % |
+| deducciones verificadas / mostradas | 77 % / 15 | 79 % (23/29) / 16 |
+| números inventados | 0 | 0 |
+| recuperación p50 | 0,12 s | 0,14 s (MMR) |
+| total p50 / p90 | 4,6 / 5,9 s | 4,6 / 7,5 s (p90 sube por ruido del revisor y de «por qué», +0,3 s de prompt) |

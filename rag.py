@@ -10,6 +10,9 @@ import numpy as np
 
 import pipeline as P
 
+MMR_T, MMR_W = 0.75, 6.0  # MMR: penaliza a un tramo por lo que se parece (coseno > MMR_T) a los ya elegidos (votaciones repetidas…)
+WHY = re.compile(r"\bpor qu[eé]\b|\bmotivo|\braz[oó]n\b|\bcausa\b", re.I)
+REASON = {"porque", "motivo", "motivos", "motivacion", "motivaciones", "razon", "razones", "debido", "causa", "causas", "dado"}
 TOPK, RRF_K, POOL, MAX_SCREEN = 8, 60, 30, 2  # como mucho 2 trozos de pantalla en el top: si no, tapan la voz
 MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.35))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
 MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificación descarta (medido: +10 pts de descartes)
@@ -189,7 +192,18 @@ class Index:
             for r, i in enumerate(np.argsort(-sc)[:POOL]):
                 if sc[i] > 0:
                     rrf[int(i)] += 1 / (RRF_K + r + 1)
-        ranked = [i for i, _ in rrf.most_common()]
+        if WHY.search(q0):  # «¿por qué…?»: tercera lista con los tramos que dan una razón (porque, motivo…), por parecido denso
+            for r, i in enumerate([i for i in np.argsort(-dense)[:4 * POOL] if REASON & set(P.words(self.segs[i]["text"]))][:POOL]):
+                rrf[int(i)] += 2 / (RRF_K + r + 1)  # doble peso: es lo que pide la pregunta
+        top = rrf.most_common()
+        rel = {i: sc / top[0][1] for i, sc in top}
+        voz, pick = [i for i, _ in top if self.segs[i]["kind"] == "voz"], []
+        while voz:  # MMR sobre las voces: relevancia (RRF normalizado) menos penalización por parecido a lo ya elegido
+            best = max(voz, key=lambda i: rel[i] - MMR_W * max(0.0, max((self.emb[i] @ self.emb[j] for j in pick), default=0.0) - MMR_T))
+            pick.append(best)
+            voz.remove(best)
+        it = iter(pick)  # las voces ocupan sus huecos del RRF en el orden MMR; la pantalla se queda donde estaba
+        ranked = [next(it) if self.segs[i]["kind"] == "voz" else i for i, _ in top]
         scr = [i for i in ranked if self.segs[i]["kind"] == "pantalla"][:MAX_SCREEN]
         # el texto de pantalla (OCR) es secundario: solo si se pregunta por lo que se ve o si ninguna voz se parece
         if SCREEN_Q.search(q0) or not self.voz or dense[self.voz].max() < MIN_COS:
@@ -294,6 +308,8 @@ def prompt(idx, ids, q):
     rows = [f"[{n}] ({P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
             f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
     nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if needs_ctx(q) else ""
+    if WHY.search(q):
+        nota += " (la pregunta pide una RAZÓN: usa los fragmentos que la den; los que solo dicen el resultado o repiten que ya se explicó, no sirven)"
     return f"Fragmentos{nota}:\n" + "\n".join(rows) + f"\n\nPregunta: {q}"
 
 
