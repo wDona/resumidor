@@ -1,17 +1,19 @@
 """Baja a bin/ ffmpeg + llama.cpp (+ uv y CPython con --uv) para este SO/arquitectura. Solo stdlib; lo usan CI y devs.
 Uso: python tools/fetch_bins.py [--target win-x64|linux-x64|macos-arm64|macos-x64] [--uv]"""
-import argparse, io, platform, tarfile, urllib.request, zipfile
+import argparse, gzip, io, platform, tarfile, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
 BIN = Path(__file__).resolve().parent.parent / "bin"
 LLAMA = "b11690"
 LL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA}/llama-{LLAMA}-bin-"
-LLAMA_ASSET = {"win-x64": "win-vulkan-x64.zip"  # Vulkan trae también todos los ggml-cpu-*.dll: sin driver Vulkan usa la CPU, "linux-x64": "ubuntu-x64.tar.gz", "macos-arm64": "macos-arm64.tar.gz", "macos-x64": "macos-x64.tar.gz"}
+# Windows: la build Vulkan trae también todos los ggml-cpu-*.dll (sin driver Vulkan usa la CPU)
+LLAMA_ASSET = {"win-x64": "win-vulkan-x64.zip", "linux-x64": "ubuntu-x64.tar.gz", "macos-arm64": "macos-arm64.tar.gz", "macos-x64": "macos-x64.tar.gz"}
 # ffmpeg: Windows = gyan.dev "release essentials" (GPL, https://www.gyan.dev/ffmpeg/builds/, fuentes en https://ffmpeg.org);
 # Linux = estático de johnvansickle. macOS = estático (GPL, incluye VideoToolbox) de https://ffmpeg.martin-riedl.de (fuentes allí enlazadas).
 FFMPEG = {"win-x64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
           "linux-x64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"}
 MAC_FF = "https://ffmpeg.martin-riedl.de/redirect/latest/macos/{}/release/{}.zip"  # un zip por binario
+MAC_FF_ALT = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/{}-{}.gz"  # respaldo (GPL, fuentes en el repo)
 TRIPLE = {"win-x64": "x86_64-pc-windows-msvc", "macos-arm64": "aarch64-apple-darwin", "macos-x64": "x86_64-apple-darwin"}
 PY = "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.12.15%2B20261013-{}-install_only.tar.gz"
 UV = "https://github.com/astral-sh/uv/releases/latest/download/uv-{}.{}"
@@ -24,10 +26,18 @@ def detect():
     return f"{os_}-{arch}"
 
 
-def get(url):
+def get(url, tries=4):
+    """Con reintentos: los servidores de ffmpeg a veces dan 5xx un rato (martin-riedl.de: 521 en la release v0.5.0)."""
     print("descargando", url, flush=True)
     req = urllib.request.Request(url, headers={"User-Agent": "actas-fetch-bins"})
-    return io.BytesIO(urllib.request.urlopen(req, timeout=120).read())
+    for i in range(tries):
+        try:
+            return io.BytesIO(urllib.request.urlopen(req, timeout=120).read())
+        except (urllib.error.URLError, TimeoutError) as e:
+            if i == tries - 1 or getattr(e, "code", 500) < 500:
+                raise
+            print(f"  {e}; reintento en {60 * (i + 1)} s", flush=True)
+            time.sleep(60 * (i + 1))
 
 
 def extract(data, url, dest, only=None):
@@ -68,7 +78,12 @@ def main():
         else:
             for n in ("ffmpeg", "ffprobe"):
                 u = MAC_FF.format(t.split("-")[1].replace("x64", "amd64"), n)
-                extract(get(u), ".zip", BIN / "ffmpeg", KEEP)
+                try:
+                    extract(get(u, tries=2), ".zip", BIN / "ffmpeg", KEEP)
+                except urllib.error.URLError:  # martin-riedl.de caído: estático GPL alojado en GitHub (ffmpeg 6.1.1)
+                    g = get(MAC_FF_ALT.format(n, t.replace("macos", "darwin")))
+                    (BIN / "ffmpeg").mkdir(parents=True, exist_ok=True)
+                    (BIN / "ffmpeg" / n).write_bytes(gzip.decompress(g.read()))
                 (BIN / "ffmpeg" / n).chmod(0o755)
     if a.uv:  # CPython empaquetado (uv no instala el suyo: evita las uniones de directorio que RedirectionGuard bloquea, error 448)
         win = t.startswith("win")
