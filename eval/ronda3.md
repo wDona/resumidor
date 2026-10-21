@@ -608,3 +608,15 @@ baja: lo nuevo son sobre todo reformulaciones de lo que el acta ya tenía (el 4B
 «estamos de acuerdo con la redacción del acta…») que el dedup por texto/coseno no atrapa, y 1 tarea y 2 decisiones falsas en charla. Cuesta
 ~0,35-0,5x el LLM completo. Con el gold actual no hay señal de que merezca la pena; el valor sería para actas con decisiones perdidas por el map
 (no las hay en estas 3). La mejora sería exigir que lo nuevo no tenga cita solapada con la de una existente (hoy solo texto).
+
+### Capturas: ninguna distinta se pierde por falta de texto
+
+Revisión de larga_cne: ya salían las 5 pantallas distintas (00:07, 00:17, 00:30, 00:43, 27:53; las otras 31 capturas son caras de la cámara), pero la
+27:53 salía dos veces (figura del desarrollo y figura del relato) y quedaban 4 figuras + 2 miniaturas; ahora 3 figuras + 2 miniaturas (5 distintas, sin repetir). Las que no
+son figura grande van a la tira de miniaturas por tramo de tiempo (también sin relato), así que el anclaje por puntos no descarta ninguna.
+El filtro que sí descartaba era el texto: `screens()` solo aceptaba una captura sin 30 letras de OCR si no tenía NINGUNA prosa (una diapositiva con
+solo un título corto quedaba fuera) y `keyframes()` omitía las sin texto parecidas a otra. Ahora es pantalla toda captura con bordes duros y sin piel
+(haya OCR o no) y la omisión de casi iguales no se aplica a ellas; el OCR sigue siendo solo entrada del map. Capturas mostradas (pantallas, con
+texto >= 30 letras / sin) antes -> ahora: larga 5 (4/1) -> 5; charla 40 (40/0) -> 40 (la cara de 0:53 no vuelve); sintética 7 -> 8 (la
+diapositiva «Presupuesto del semestre» con poco texto); click 104 -> 104; webinar 40 -> 40; demo vscode 98 -> 99 (tras collapse_typing 95); demo excel 91 -> 95 (83/12 con texto/sin), sin riesgo de
+inundación: las rachas de escritura siguen colapsadas. Al regenerar el OCR de sintética salen las mismas 9 capturas crudas.

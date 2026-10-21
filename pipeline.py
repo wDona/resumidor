@@ -388,8 +388,9 @@ def screens(kfs, vocab=None):
     corte distinto, paneles de la aplicación). Solo cuentan las líneas con >= 2 palabras y alguna en minúscula de >= 3
     letras: los nombres bajo las caras de Meet/Zoom/Teams y los botones no, así que una cuadrícula de caras no es pantalla.
     Las repetidas ya las quitó stable_segments por imagen (contra todas las capturas anteriores), no por palabras.
-    También es pantalla una captura sin texto con bordes duros (k["edge"] >= EDGE: gráfico, imagen, interfaz) y sin
-    texto de prosa: la cámara y los mosaicos de caras son suaves.
+    También es pantalla una captura con bordes duros (k["edge"] >= EDGE: gráfico, imagen, interfaz, diapositiva con un título)
+    y sin piel, tenga el texto que tenga o ninguno: lo que la distingue es la imagen, no el OCR; la cámara y los mosaicos de caras
+    son suaves o llevan piel.
     Pie de captura (title) = primera línea de texto, solo si >= 70 % de sus palabras salen en `vocab` (la transcripción):
     en vídeos de baja resolución el OCR da basura («aal fngora oe egunad») y es mejor el pie genérico."""
     key = lambda line: " ".join(words(line)[:2])
@@ -403,7 +404,7 @@ def screens(kfs, vocab=None):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
         k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (not prose and k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE
+                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE
                                                                   and sum(bool(NAME.fullmatch(x.strip())) for x in ls) < 3),
                  end=int(re.search(r"\d+", k["img"])[0]))
     fps, out = [], []  # no-pantalla casi igual a otra no-pantalla (mosaico de caras que cambia): fuera
@@ -492,7 +493,7 @@ def keyframes(video, wd, threads, dur, cb):
         lines.sort(key=lambda l: (round(l[1] / 10), l[0]))
         texts = [l[4] for l in lines]
         fp = cv2.resize(g.astype(np.uint8), (32, 18), interpolation=cv2.INTER_AREA).astype(np.int16)  # huella: miniatura 32x18
-        if prose_chars(texts) < MIN_CHARS:  # sin texto: si se parece mucho a otra sin texto (mosaico de caras que cambia), se omite
+        if prose_chars(texts) < MIN_CHARS and not (skin < SKIN and edge >= EDGE):  # cámara/mosaico casi igual a otro: se omite
             if any(np.abs(fp - o).mean() < DUPFP for o in small):
                 continue
             small.append(fp)
@@ -1440,7 +1441,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     rel = sorted((parse_ts(r["t"]), first_sentences(r["texto"], cfg["rel"])) for m in maps for r in m.get("relato", []))
     w = lambda k: sum(p[2] for p in sel if k["t"] + SHOT_WIN[0] <= p[0] <= k["t"] + SHOT_WIN[1])
     nxt = lambda i: rel[i + 1][0] if i + 1 < len(rel) else 1e9
-    cand = {i: max(c, key=w) for i, (t, _) in enumerate(rel) if (c := [k for k in scr if t <= k["t"] < nxt(i)])}
+    cand = {i: max(c, key=w) for i, (t, _) in enumerate(rel)  # sin repetir las que ya van como captura grande del desarrollo
+            if (c := [k for k in scr if t <= k["t"] < nxt(i) and k not in shots])}
     keep = sorted(cand, key=lambda i: -w(cand[i]))[:cfg["nshots"]]
     nshots = {i: cand[i] for i in keep}
     esc = html.escape
