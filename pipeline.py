@@ -1179,16 +1179,17 @@ FONDO_PROMPT = ("Buscas SOLO decisiones y tareas en un fragmento de transcripci�
                 MAP_PROMPT[MAP_PROMPT.index("decisiones:"):MAP_PROMPT.index("relato:")] +
                 "t = marca donde se dice. Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}.")
 FONDO_SCHEMA = obj(decisiones=MAP_SCHEMA["properties"]["decisiones"], tareas=MAP_SCHEMA["properties"]["tareas"])
-FONDO_DUP = 0.85  # coseno entre textos (a <= 2 min) a partir del cual una candidata repite una que el acta ya tiene
+FONDO_DUP = float(os.environ.get("ACTAS_FONDO_DUP", 0.7))  # coseno entre textos de decisiones/tareas a <= 60 s que cuenta como la misma
+FONDO_OVERLAP = 0.6  # palabras de la cita compartidas / las de la más corta (a <= 2 min) para darlas por la misma
+# una decisión NUEVA debe traer en su cita una señal explícita de acuerdo/resultado: aprobar, estar de acuerdo, votar con resultado,
+# resolver, designar, aplazar o suspender (en general, no atada a una reunión)
+FONDO_SIGNAL = re.compile(r"aprob|aprueb|de acuerdo|acord|conform|unanimidad|resuel|design|nombr|aplaz|suspend|pendiente|a favor|"
+                          r"en contra|abstenci|abstien|dispon|apelaci", re.I)
 
 
-def buscar_a_fondo(chat, segments, kfs, lang, maps, starts, cb=lambda f, m: None):
-    """Búsqueda a fondo de decisiones y tareas: recorre TODA la transcripción en bloques de ~FONDO_CHARS con un prompt que solo
-    extrae eso. Filtros en código: la cita debe estar en la transcripción (anchor_items), sin textos que sean una marca, sin
-    repetir lo que el acta ya tiene (dedupe + embeddings) y después verify() (mismas reglas que el map: lectura de pantalla,
-    condicionales, clasificación por LLM y responsable/plazo solo si los dice la transcripción de alrededor, si no «—»).
-    Devuelve {"decisiones": [...], "tareas": [...]} nuevas (con su cita), listas para fundir con merge_fondo."""
-    old = {"decisiones": [x for m in maps for x in m["decisiones"]], "tareas": [x for m in maps for x in m["tareas"]]}
+def fondo_candidatas(chat, segments, kfs, lang, cb=lambda f, m: None):
+    """Pase del LLM: toda la transcripción en bloques de ~FONDO_CHARS con un prompt que solo extrae decisiones y tareas; la cita
+    debe estar en la transcripción (anchor_items) y no hay textos que sean una marca. Sin más filtros: eso es fondo_filtrar."""
     new = {"decisiones": [], "tareas": []}
     chunks = chunk_eq(segments, FONDO_CHARS)
     for i, segs in enumerate(chunks):
@@ -1197,15 +1198,36 @@ def buscar_a_fondo(chat, segments, kfs, lang, maps, starts, cb=lambda f, m: None
         anchor_items(m, segs)
         for k in new:
             new[k] += m[k]
+    return new
+
+
+def repite(x, key, have, v=None):
+    """¿La candidata x repite algo que el acta ya tiene (`have`)? Misma cita (mismo segmento, o >= FONDO_OVERLAP de sus palabras a
+    <= 2 min), o a <= 60 s y con texto parecido (coseno >= FONDO_DUP) aunque esté redactado distinto. v = (vector de x, vectores de have)."""
+    wx = set(words(x["cita"]))
+    for h, o in enumerate(have):
+        dt = abs(parse_ts(x["t"]) - parse_ts(o["t"]))
+        wo = set(words(o.get("cita", "")))
+        if dt < 1 or (dt <= 120 and wx and wo and len(wx & wo) / min(len(wx), len(wo)) >= FONDO_OVERLAP):
+            return True
+        if dt <= 60 and v is not None and float(v[0] @ v[1][h]) >= FONDO_DUP:
+            return True
+    return False
+
+
+def fondo_filtrar(chat, new, segments, kfs, valid, maps, starts):
+    """Filtros de lo hallado: decisiones con señal de acuerdo en su cita, fuera lo que repite al acta (repite) y después verify()
+    (mismas reglas que el map: lectura de pantalla, condicionales, clasificación por LLM; responsable/plazo solo si los dice el
+    texto de alrededor, si no «—»). Devuelve {"decisiones": [...], "tareas": [...]} nuevas, con su cita."""
     pm = [{"tema": m["tema"], "decisiones": [], "tareas": []} for m in maps]  # verify() lee el tema del bloque del map
     for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
-        have = [x for x in old[k]]
-        fresh = [x for x in dedupe(have + new[k], key, k == "tareas") if any(x is n for n in new[k])]
-        if fresh and have:
-            v = embed([x[key] for x in fresh + have])
-            fresh = [x for j, x in enumerate(fresh) if not any(v[j] @ v[len(fresh) + h] >= FONDO_DUP and
-                                                              abs(parse_ts(x["t"]) - parse_ts(o["t"])) <= 120 for h, o in enumerate(have))]
-        for x in fresh:
+        have = valid[k]
+        cand = [x for x in new[k] if k == "tareas" or FONDO_SIGNAL.search(x["cita"])]
+        cand = [x for x in dedupe(have + cand, key, k == "tareas") if any(x is n for n in cand)]
+        if cand and have:
+            v = embed([x[key] for x in cand + have])
+            cand = [x for j, x in enumerate(cand) if not repite(x, key, have, (v[j], v[len(cand):]))]
+        for x in cand:
             pm[max(0, bisect.bisect_right(starts, parse_ts(x["t"]) + 1) - 1)][k].append(x)
     return verify(chat, pm, segments, kfs)
 
@@ -1716,8 +1738,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
-    fh = hashlib.sha1((vh + FONDO_PROMPT + str(FONDO_CHARS) + str(FONDO_DUP)).encode()).hexdigest()[:8]
-    ff = wd / f"fondo_{quality}{tag}_{fh}.json"
+    fh = hashlib.sha1((vh + FONDO_PROMPT + str(FONDO_CHARS)).encode()).hexdigest()[:8]
+    ff0 = wd / f"fondo_crudo_{quality}{tag}_{fh}.json"  # lo que devuelve el LLM (caro); los filtros se pueden afinar sobre él
+    ff = wd / f"fondo_{quality}{tag}_{hashlib.sha1((fh + FONDO_SIGNAL.pattern + str(FONDO_DUP) + str(FONDO_OVERLAP)).encode()).hexdigest()[:8]}.json"
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists() or (fondo and not ff.exists()):
         t0 = time.time()
         cb(0.6, "Arrancando modelo de lenguaje…")
@@ -1741,8 +1764,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             stage("reduce", t0)
             if fondo and not ff.exists():
                 t0 = time.time()
-                ff.write_text(json.dumps(buscar_a_fondo(chat, tr["segments"], kfm, lang, maps, starts,
-                                                        lambda f, m: cb(0.93 + 0.06 * f, m)), ensure_ascii=False))
+                if not ff0.exists():
+                    ff0.write_text(json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, lambda f, m: cb(0.93 + 0.06 * f, m)),
+                                              ensure_ascii=False))
+                ff.write_text(json.dumps(fondo_filtrar(chat, json.loads(ff0.read_text()), tr["segments"], kfm, valid, maps, starts),
+                                         ensure_ascii=False))
                 stage("fondo", t0)
     red = json.loads(rf.read_text())
     if ff.exists():  # búsqueda a fondo hecha antes (o ahora): sus decisiones y tareas van al acta

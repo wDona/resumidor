@@ -620,3 +620,23 @@ solo un título corto quedaba fuera) y `keyframes()` omitía las sin texto parec
 texto >= 30 letras / sin) antes -> ahora: larga 5 (4/1) -> 5; charla 40 (40/0) -> 40 (la cara de 0:53 no vuelve); sintética 7 -> 8 (la
 diapositiva «Presupuesto del semestre» con poco texto); click 104 -> 104; webinar 40 -> 40; demo vscode 98 -> 99 (tras collapse_typing 95); demo excel 91 -> 95 (83/12 con texto/sin), sin riesgo de
 inundación: las rachas de escritura siguen colapsadas. Al regenerar el OCR de sintética salen las mismas 9 capturas crudas.
+
+### §18 actualización: dedup por cita y señal de acuerdo en las decisiones nuevas
+
+`fondo_candidatas` (LLM, caché cruda) y `fondo_filtrar` (código + verify). Nuevo: (1) una candidata se descarta si su cita es la del acta (mismo segmento,
+o >= 60 % de las palabras de la más corta a <= 2 min) o si está a <= 60 s con texto de coseno >= 0,7; (2) una decisión nueva solo entra si su cita
+trae una señal explícita (aprob-, de acuerdo, acord-, votos a favor/en contra/abstención, resuelve, designa, aplaza, suspende, pendiente, dispone…).
+Candidatas del LLM -> finales: larga 30 dec / 22 tar -> 11 / 2; charla 6 / 4 -> 1 / 0; sintética 1 / 6 -> 0 / 1.
+
+| Reunión | dec P/R antes -> ahora | tar P/R antes -> ahora | añadidas dec / tar | prohib | pase |
+|---|---|---|---|---|---|
+| sintética | 1/1 -> 1/1 | 1/,80 -> ,80/,80 | 0 / +1 | 0 | 15,7 s |
+| charla | ,67/,67 -> ,50/,67 | 1/1 -> 1/1 | +1 / 0 | 0 | 35,6 s |
+| larga | ,89/1 -> ,82/1 | 1/1 -> ,75/1 | +11 / +2 | 0 | 142,9 s |
+
+Las 11 decisiones añadidas en larga (minuto: cita): 24:26 «se aproba el presidente informe»; 32:24 «con una extensión y cuatro votos a favor se provee el presente informe»;
+36:04 y 40:13 «se aprobó / aprobado el presente informe»; 44:20 «aprobar el presente informe… se nombra»; 86:59 «apruebo el informe puesto en nuestro conocimiento»;
+88:25 y 123:53 «se dispone a la Secretaría General… dos días» (la notificación que el acta ya tenía en otro minuto); 99:11 «voto a favor del informe en el que se le niega la
+solicitud»; 111:35 «mi voto es abstención»; 135:41 «se ordena notificar la resolución». Son votos por informe reales (cada informe se vota), pero el gold agrupa el patrón
+de votación y las cuenta como falsos positivos; no suben el recall (ya 1). Las 2 tareas nuevas: aceptar parcialmente una solicitud (en realidad una recomendación) y reanudar la sesión
+al día siguiente a las 9:00 (esta sí es real). Con el gold actual la búsqueda a fondo no mejora P/R; su valor sería listar cada votación, a costa de ~0,4x el LLM.
