@@ -16,11 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ok: ${{ steps.c.outputs.ok }}
+      v: ${{ steps.c.outputs.v }}
     steps:
+      # versión del mensaje ("RELEASE v0.4.0") o, si no hay, la última release con el minor +1. La release se crea ya como
+      # pre-release y cada instalador se sube en cuanto pasa sus pruebas; al final se marca como la última.
       - id: c
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || grep -qw RELEASE <<<"$MSG"; then echo ok=1 >> "$GITHUB_OUTPUT"; fi
-        env: {MSG: '${{ github.event.head_commit.message }}'}
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || grep -qw RELEASE <<<"$MSG" || exit 0
+          v=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$MSG" | head -1 || true)
+          if [ -z "$v" ]; then
+            last=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName -q '.[0].tagName')
+            IFS=. read -r a b _ <<<"${last#v}"; v="v$a.$((b+1)).0"
+          fi
+          gh release view "$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$v" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes --prerelease  # re-ejecución: ya existe
+          echo ok=1 >> "$GITHUB_OUTPUT"; echo "v=$v" >> "$GITHUB_OUTPUT"
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', MSG: '${{ github.event.head_commit.message }}'}
 
   build:
     needs: gate
@@ -100,6 +110,9 @@ jobs:
           if (Test-Path "$env:APPDIR\.venv") { throw 'queda .venv' }
           if (-not (Test-Path "$env:APPDIR\models")) { throw 'se borraron los modelos' }
 
+      - name: Subir a la release
+        run: gh release upload "$env:V" installer\Output\Actas-setup.exe --clobber --repo "$env:GITHUB_REPOSITORY"
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
       - uses: actions/upload-artifact@v4
         with:
           name: instalador-${{ matrix.target }}
@@ -180,6 +193,10 @@ jobs:
           D="$HOME/Library/Application Support/Actas/app"
           "$D/.venv/bin/python" -X utf8 tools/smoke.py "$D" "$PWD/muestra.mp4"
 
+      - name: Subir a la release
+        run: gh release upload "$V" "installer/Output/Actas-${{ matrix.arch }}.dmg" --clobber --repo "$GITHUB_REPOSITORY"
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
+
       - name: Reunir logs
         if: always()
         run: |
@@ -193,17 +210,8 @@ jobs:
           path: logs
 
   release:
-    needs: [build, macos]
+    needs: [gate, build, macos]  # solo si los tres instaladores pasaron: deja de ser pre-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with: {pattern: '{instalador,dmg}-*', merge-multiple: true}
-      # versión del mensaje ("RELEASE v0.4.0") o, si no hay, la última release con el minor +1
-      - run: |
-          v=$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$MSG" | head -1 || true)
-          if [ -z "$v" ]; then
-            last=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
-            IFS=. read -r a b _ <<<"${last#v}"; v="v$a.$((b+1)).0"
-          fi
-          gh release create "$v" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --generate-notes Actas-setup.exe Actas-arm64.dmg Actas-x64.dmg
-        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', MSG: '${{ github.event.head_commit.message }}'}
+      - run: gh release edit "$V" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
