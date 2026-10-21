@@ -463,6 +463,9 @@ def answer_i(idx, q, url):
         allowed = " ".join([resumen or ""] + [x for _, x in rel])
         args = dict(system=SYSTEM_G, gram=grammar_i(len(rel), True), max_tokens=330)
         yield "candidatos", order
+        if resumen:  # lo primero, el resumen global del propio acta (ya revisado): los momentos sueltos no dicen «de qué va»
+            n_out0 = {"i": order[0], "refs": [order[0]], "kind": "resumen", "frase": resumen.strip(), "ok": True, "faltan": [],
+                      "cita": idx.cita(order[0], q)}
     else:
         yield "candidatos", ids
         if cos < MIN_COS:
@@ -473,6 +476,9 @@ def answer_i(idx, q, url):
         user = prompt(idx, order, q)
         args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN), gram=grammar_i(len(order), quote=not es), max_tokens=420)
     buf, n_out, t1, first, seen, dijo, pend = "", 0, time.time(), None, set(), set(), []
+    if general and resumen:
+        n_out += 1
+        yield "frase", n_out0
     ded_n = ded_ok = 0  # dijo: tramos citados por las líneas «Se dijo»
     text_of = lambda js: " ".join(idx.segs[k]["text"] for j in js for k in idx.window(j))
 

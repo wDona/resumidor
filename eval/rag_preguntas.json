@@ -41,7 +41,7 @@
   {"m": "larga_cne", "type": "factual", "q": "¿A qué hora se suspendió la sesión?", "gold": ["140:43"], "must": ["51"]},
   {"m": "larga_cne", "type": "paraphrase", "q": "¿Por qué pidió la consejera Nájera mover la sesión a la tarde?", "gold": ["139:17"], "must": ["maestria"]},
   {"m": "larga_cne", "type": "factual", "q": "¿Cuál es el tercer punto del orden del día?", "gold": ["14:06", "14:21", "138:46"], "must": ["presupuesto"]},
-  {"m": "larga_cne", "type": "paraphrase", "q": "¿Por qué motivo se abstiene Elena Nájera en las votaciones?", "gold": ["136:35", "136:15", "60:04", "56:06", "56:31", "52:52"]},
+  {"m": "larga_cne", "type": "paraphrase", "q": "¿Por qué motivo se abstiene Elena Nájera en las votaciones?", "gold": ["136:35", "136:15", "60:04", "56:06", "56:31", "52:52", "76:03", "111:23"]},
   {"m": "larga_cne", "type": "factual", "q": "¿Qué puntuación total obtuvo Paúl Leonardo Medina Vázquez?", "gold": ["97:39", "97:55"]},
   {"m": "larga_cne", "type": "factual", "q": "¿Cuántos consejeros estaban presentes al constatar el quórum?", "gold": ["12:45"], "must": ["cinco|5"]},
   {"m": "larga_cne", "type": "trap", "q": "¿Fue justo el concurso de méritos?", "gold": [], "forbid": ["justo", "injust"]},

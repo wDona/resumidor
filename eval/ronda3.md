@@ -308,3 +308,27 @@ Además, `must` de «¿De qué va el vídeo?» (inglés) acepta también términ
 Coste: ~+0,8 s por pregunta con frases (una llamada, prefill de ~1 k tokens + ~10 tokens de salida). Se perdieron 4 deducciones
 de 19, sin tocar las supervivientes de propósito/general. Quedan: «¿Por qué motivo se abstiene…?» (paráfrasis; las citas no caen
 en el gold) y «¿De qué trata la reunión?» del comité (el acta no resume la sesión).
+
+## 10. Los dos fallos que quedaban: diagnóstico
+
+**(a) «¿Por qué motivo se abstiene Elena Nájera…?» (larga_cne)**. No era un fallo del sistema sino del gold. Recuperación: el top-8 son
+8 votos casi idénticos de Elena («doctora Elena Najera, su voto por favor… mi voto es abstención»); la reunión tiene ~15. Las dos citas
+que devolvió (76:03 «con motivaciones expuestas mi voto es abstención» y 111:23 «se han hecho los argumentos… por lo tanto mi
+voto es abstención») son literales, fieles y contestan a la pregunta, pero el gold solo listaba otros votos (136:35, 60:04…). Se añadieron
+esos dos tramos al gold tras leerlos. Sin cambio de código. (Limitación real, no corregida: en reuniones con muchas líneas casi
+idénticas el top-8 se llena de duplicados; MMR o más K costaría latencia.)
+
+**(b) «¿De qué trata la reunión?» (charla_comite)**. La recuperación no interviene (usa el acta breve). El LLM solo recibía los 8
+momentos y escribía 2-3 líneas de detalles (acta aprobada, ordenanza…), ninguna dice «de qué va la reunión». El `resumen` global del
+acta (que sí lo dice) iba en el prompt pero nunca se mostraba. Mecanismo general: en preguntas generales, la primera línea es ahora
+el resumen del acta tal cual (ya revisado por la pipeline, sin pasar por el LLM, enlazada al primer momento), seguida de las líneas del LLM.
+
+| Métrica | §9 | §10 |
+|---|---|---|
+| factual / trampas / ausentes / propósito | 100 / 100 / 100 / 100 % | 100 / 100 / 100 / 100 % |
+| paráfrasis | 93 % (13/14) | 100 % (14/14) (gold corregido) |
+| general | 83 % (5/6) | 100 % (6/6) |
+| recall@8 | 98 % | 100 % (gold corregido) |
+| deducciones verificadas / mostradas | 77 % / 15 | 77 % / 15 |
+| números inventados | 0 | 0 |
+| latencia p50 / p90 | 5,0 / 6,3 s | 4,6 / 5,9 s (ruido; sin coste añadido) |
