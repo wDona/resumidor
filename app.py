@@ -254,6 +254,8 @@ def preguntar(d: dict):
                 _llm["url"], _llm["proc"] = rag.server(THREADS, gpu=gpu)
                 _llm["gpu"] = gpu
             for kind, v in rag.answer(idx, q, _llm["url"]):
+                if pipeline.NOTICE:
+                    yield line(k="aviso", text=pipeline.NOTICE.pop())
                 if kind == "candidatos":
                     yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200]} for i in v])
                 elif kind == "frase":

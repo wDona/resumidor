@@ -6,7 +6,7 @@ from pathlib import Path
 BIN = Path(__file__).resolve().parent.parent / "bin"
 LLAMA = "b11690"
 LL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA}/llama-{LLAMA}-bin-"
-LLAMA_ASSET = {"win-x64": "win-cpu-x64.zip", "linux-x64": "ubuntu-x64.tar.gz", "macos-arm64": "macos-arm64.tar.gz", "macos-x64": "macos-x64.tar.gz"}
+LLAMA_ASSET = {"win-x64": "win-vulkan-x64.zip"  # Vulkan trae también todos los ggml-cpu-*.dll: sin driver Vulkan usa la CPU, "linux-x64": "ubuntu-x64.tar.gz", "macos-arm64": "macos-arm64.tar.gz", "macos-x64": "macos-x64.tar.gz"}
 # ffmpeg: Windows = gyan.dev "release essentials" (GPL, https://www.gyan.dev/ffmpeg/builds/, fuentes en https://ffmpeg.org);
 # Linux = estático de johnvansickle. macOS = estático (GPL, incluye VideoToolbox) de https://ffmpeg.martin-riedl.de (fuentes allí enlazadas).
 FFMPEG = {"win-x64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
@@ -59,8 +59,9 @@ def main():
     ap.add_argument("--uv", action="store_true", help="también uv y CPython (instaladores de Windows y macOS)")
     a = ap.parse_args()
     t = a.target
-    if not any((BIN / f"llama-{LLAMA}").glob("llama-server*")):
-        extract(get(LL + LLAMA_ASSET[t]), LLAMA_ASSET[t], BIN / f"llama-{LLAMA}")
+    ld = BIN / f"llama-{LLAMA}{'-vulkan' if t == 'win-x64' else ''}"  # pipeline.llama_exe reconoce "vulkan" en la ruta
+    if not any(ld.glob("llama-server*")):
+        extract(get(LL + LLAMA_ASSET[t]), LLAMA_ASSET[t], ld)
     if not any((BIN / "ffmpeg").glob("ffmpeg*")):
         if t in FFMPEG:
             extract(get(FFMPEG[t]), FFMPEG[t], BIN / "ffmpeg", KEEP)

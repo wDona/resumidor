@@ -329,17 +329,24 @@ def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):
             "cache_prompt": False, "chat_template_kwargs": {"enable_thinking": False}}
     req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                  {"Content-Type": "application/json"})
-    timings = {}
-    with urllib.request.urlopen(req, timeout=600) as r:
-        for raw in r:
-            line = raw.decode().strip()
-            if not line.startswith("data: ") or line == "data: [DONE]":
-                continue
-            d = json.loads(line[6:])
-            timings = d.get("timings", timings)
-            for c in d.get("choices", []):
-                if c.get("delta", {}).get("content"):
-                    yield c["delta"]["content"]
+    for retry in (True, False):
+        timings, n = {}, 0
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                for raw in r:
+                    line = raw.decode().strip()
+                    if not line.startswith("data: ") or line == "data: [DONE]":
+                        continue
+                    d = json.loads(line[6:])
+                    timings = d.get("timings", timings)
+                    for c in d.get("choices", []):
+                        if c.get("delta", {}).get("content"):
+                            n += 1
+                            yield c["delta"]["content"]
+            break
+        except OSError as e:  # servidor muerto o sin memoria de GPU: si aún no salió texto, se reinicia (CPU) y se repite
+            if n or not retry or not P.recover(url, e):
+                raise
     yield timings
 
 

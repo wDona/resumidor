@@ -82,6 +82,9 @@ jobs:
       - name: rag selftest
         run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 "$env:APPDIR\rag.py" --selftest'
 
+      - name: Dispositivos de llama.cpp (runner sin GPU: debe salir vacío y la app usar CPU)
+        run: '& (Get-ChildItem "$env:APPDIR\bin" -Recurse -Filter llama-server.exe | Select -First 1).FullName --list-devices 2>&1 | Out-String'
+
       - name: Humo (ping, modelos, acta, preguntar)
         timeout-minutes: 45
         run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 tools\smoke.py "$env:APPDIR" "$PWD\muestra.mp4"'

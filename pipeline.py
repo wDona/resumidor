@@ -613,7 +613,9 @@ def llama_exe(gpu=False):
     """llama-server (Linux/macOS) o llama-server.exe (Windows) empaquetado en bin/; no sus .lib/.pdb.
     gpu: build Vulkan (bin/llama-*-vulkan); en Apple Silicon la única build ya usa Metal."""
     vk = gpu and not MAC_ARM
-    return next((p for p in sorted(ROOT.glob("bin/**/llama-server*")) if p.is_file() and p.suffix in ("", ".exe") and ("vulkan" in str(p)) == vk), None)
+    c = [p for p in sorted(ROOT.glob("bin/**/llama-server*")) if p.is_file() and p.suffix in ("", ".exe")]
+    # Windows trae solo la build Vulkan (incluye la CPU): para CPU se usa ella con `-dev none`
+    return next((p for p in c if ("vulkan" in str(p)) == vk), None) or (next(iter(c), None) if not vk else None)
 
 
 _gpu_cache = []
@@ -651,6 +653,70 @@ def use_gpu(want=None):
     return i["ok"] and (bool(os.environ.get("ACTAS_GPU")) or (i["default"] if want is None else bool(want)))
 
 
+NOTICE = []  # aviso corto para la interfaz (estado del trabajo / chat); lo vacía quien lo muestra
+_SRV = {}    # url -> Srv
+
+
+class Srv:
+    """Proceso llama-server reiniciable en el mismo puerto (el url no cambia). Hace de Popen para quien lo para."""
+    def __init__(s, cmd, use, logname, port):
+        s.cmd, s.use, s.logname, s.port, s.proc, s.restarts = cmd, use, logname, port, None, 0
+        s.url = f"http://127.0.0.1:{port}"
+
+    def start(s):
+        """True si responde a /health."""
+        cmd = s.cmd(s.use)
+        if s.use and os.environ.get("ACTAS_TEST_GPU_FAIL") and s.restarts == 0:
+            cmd.append("--argumento-invalido")  # solo pruebas: fuerza el fallo de arranque en GPU
+        s.proc = subprocess.Popen(cmd, stdout=open(WORK / s.logname, "w"), stderr=subprocess.STDOUT)
+        for _ in range(600):
+            if s.proc.poll() is not None:
+                return False
+            try:
+                if urllib.request.urlopen(s.url + "/health", timeout=2).status == 200:
+                    return True
+            except OSError:
+                time.sleep(0.5)
+        s.proc.terminate()
+        return False
+
+    def terminate(s): s.proc.terminate()
+    def wait(s, t=None): return s.proc.wait(t)
+    def poll(s): return s.proc.poll()
+
+    def recover(s, why):
+        """Reinicia una vez (en CPU si estaba en GPU) tras morir o fallar por memoria."""
+        if s.restarts:
+            return False
+        s.restarts += 1
+        print(f"  llama-server falló ({why}); reinicio {'en CPU' if s.use else 'una vez'}", flush=True)
+        if s.proc.poll() is None:
+            s.proc.kill()
+        s.proc.wait()
+        gpu_was, s.use = s.use, False
+        if gpu_was:
+            NOTICE[:] = ["La GPU se quedó sin memoria; continuando en CPU"]
+        return s.start()
+
+
+def recover(url, e):
+    """¿Merece reintento la petición que falló con `e`? Si sí, el servidor ya está reiniciado. Compartido por el map/reduce y el chat."""
+    s = _SRV.get(url)
+    if not s or (isinstance(e, urllib.error.HTTPError) and e.code < 500):
+        return False
+    return s.recover(f"{type(e).__name__}: {e}")
+
+
+def call(url, fn):
+    """fn() contra el servidor `url`; si falla (servidor muerto, 5xx, sin memoria) se reinicia una vez y se repite."""
+    try:
+        return fn()
+    except OSError as e:
+        if not recover(url, e):
+            raise
+        return fn()
+
+
 def launch(model, ctx, threads, extra, logname, gpu=None):
     """Arranca llama-server -> (url, proc). En GPU (-ngl auto: descarga parcial según la VRAM libre) y, si no arranca
     (p. ej. sin memoria), un reintento en CPU."""
@@ -662,23 +728,14 @@ def launch(model, ctx, threads, extra, logname, gpu=None):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
-        log = open(WORK / logname, "w")
-        proc = subprocess.Popen([str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1", *extra,
-                                 *(["-ngl", "99" if MAC_ARM else "auto"] if use else []),
-                                 "--host", "127.0.0.1", "--port", str(port)], stdout=log, stderr=subprocess.STDOUT)
-        url = f"http://127.0.0.1:{port}"
-        for _ in range(600):
-            if proc.poll() is not None:
-                break
-            try:
-                if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
-                    return url, proc
-            except OSError:
-                time.sleep(0.5)
-        if proc.poll() is None:
-            proc.terminate()
+        srv = Srv(lambda u, exe=exe, port=port: [str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1", *extra,
+                                                 *(["-ngl", "99" if MAC_ARM else "auto"] if u else (["-dev", "none"] if "vulkan" in str(exe) else [])),
+                                                 "--host", "127.0.0.1", "--port", str(port)], use, logname, port)
+        if srv.start():
+            _SRV[srv.url] = srv
+            return srv.url, srv
         if not use:
-            raise RuntimeError(f"llama-server terminó (ver {log.name})")
+            raise RuntimeError(f"llama-server terminó (ver {WORK / logname})")
         print("  llama-server no arrancó en GPU (ver log); reintento en CPU", flush=True)
 
 
@@ -698,7 +755,7 @@ def llama(threads, ctx=8192, model=None, gpu=None):
                     "repeat_penalty": repeat_penalty}
             req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                          {"Content-Type": "application/json"})
-            r = json.load(urllib.request.urlopen(req, timeout=7200))
+            r = call(url, lambda: json.load(urllib.request.urlopen(req, timeout=7200)))
             u, tm = r.get("usage", {}), r.get("timings", {})
             print(f"  llm {u.get('prompt_tokens')}→{u.get('completion_tokens')} tok, "
                   f"{(tm.get('prompt_ms', 0) + tm.get('predicted_ms', 0)) / 1000:.0f} s", flush=True)
@@ -1741,6 +1798,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
     calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo."""
+    cb0, NOTICE[:] = cb, []
+    cb = lambda f, m: cb0(f, m + (" · " + NOTICE[0] if NOTICE else ""))  # aviso de GPU -> estado del trabajo
     video = Path(video) if video else None
     if reuse:
         video = next((WORK / reuse[0]).glob("video.*"), None)

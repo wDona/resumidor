@@ -161,6 +161,7 @@ function evento(ev, cuerpo, frag, estado) {
     cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {style: "font-style:italic"} : {}, ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t), ...(ev.mas || []).flatMap(t => [" ", ts(t)]),
       el("details", {}, el("summary", {textContent: "cita literal"}), quote)), estado);
   }
+  else if (ev.k === "aviso") cuerpo.insertBefore(el("p", {}, el("small", {textContent: ev.text})), estado);
   else if (ev.k === "nada") cuerpo.insertBefore(el("p", {}, el("b", {textContent: ev.text})), estado);
   else if (ev.k === "error") cuerpo.append(el("p", {className: "err", textContent: ev.text}));
 }

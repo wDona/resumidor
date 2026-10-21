@@ -15,7 +15,7 @@ curl -L https://github.com/ggml-org/llama.cpp/releases/download/b11690/llama-b11
 curl -L -o models/Qwen3.5-4B-Q4_0.gguf https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf
 ```
 
-En Windows, el zip `llama-bXXXXX-bin-win-cpu-x64.zip` de la misma página, descomprimido en `bin\`.
+En Windows, el zip `llama-bXXXXX-bin-win-vulkan-x64.zip` de la misma página (incluye la CPU: sin driver Vulkan funciona igual), descomprimido en `bin\llama-bXXXXX-vulkan\`.
 
 Los modelos de whisper se descargan solos la primera vez (small ≈ 480 MB, large-v3-turbo ≈ 1,6 GB).
 
