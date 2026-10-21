@@ -395,3 +395,69 @@ idénticas a Rápida en las 5 reuniones, pero al doble de coste. **El cuello de 
 el mismo modelo**: la 2.ª pasada aporta poco que la 1.ª no tuviera. Recomendación: no vender Alta como más calidad; si se mantiene,
 quedarse con la variante de orden (empata con Rápida, sin empeorar) o volver a Alta = solo comprobación. La variante de orden
 queda tras `ACTAS_ALTA_ORD=1`.
+
+## 13. Lote 1: que no falte información importante (Rápida y Alta)
+
+Cambios (`pipeline.py`): (1) decisiones y tareas nunca se recortan en ningún nivel (fuera `dec`/`tar` de LEVELS, fuera el
+«elige las N más importantes» del LLM, fuera `group()` y el `[:7]` del voto de Alta; topes del map 5 -> 8 por bloque); se mantienen
+los filtros de falsas decisiones (`verify`) y el dedup entre bloques es más estricto: dos decisiones con nombres/cifras distintos
+no son repetidas, dos tareas con responsable distinto tampoco. (2) Formato compacto: una línea + enlace al minuto; no se agrupa
+nada (la repetida idéntica ya la quita `dedupe`). (3) El map añade `tipo` por punto (contexto|dato|pregunta|decision|tarea|saludo);
+`protected()` = tipo en {decision,tarea,dato,pregunta} o regex ESPECÍFICA (importes, fechas, %, votos/abstenciones, «próxima
+reunión/sesión», aprob*/acord*/acuerd*, «se/me/nos encarg*»); un punto protegido entra siempre (también nota 1); la nota y la
+distribución forzada solo ordenan/recortan el resto. Los puntos con `READ_NOTE` (lectura del acta anterior) no se protegen. Breve
+(10 puntos clave): protegidos primero, sin repetidos, hasta el tope; decision/tarea no cuentan (ya van enteras en sus listas).
+(4) Hasta 14 puntos y 8+8 decisiones/tareas por bloque, `MAP_MAX` 1800 -> 3800, ctx 8192 -> 12288; `finish_reason=length` o JSON
+incompleto -> `Truncated`, se registra «MAP TRUNCADO» y el bloque se parte en dos (en esta ronda: 0 truncados). (5) Tras la
+redacción se comprueba cada decisión/tarea verificada por (t, texto) y se re-añade la que falte (0 re-añadidas: decisiones y tareas
+y los puntos protegidos se pintan directamente de las listas, el LLM solo escribe título y resúmenes). (6) Cada bloque recibe tema,
+últimos 2 puntos y últimas 3 decisiones del anterior como contexto («no extraigas nada de aquí»).
+`ACTAS_TAG=v2` separa la caché de salida (`acta_*_rápido_v2`); `eval/perdidas.py` reproduce la clasificación a-e (automática,
+por regex del gold: sus cifras no son idénticas a las del `perdidas.md` manual).
+Una primera calibración del prompt de `tipo` (enum con decision primero, «dato» = hecho concreto) marcó 90-100 % de los puntos como
+protegidos (el 4B pone «dato» a todo; 30 «decision» en el webinar, que no tiene): se acotó («dato» solo con cifra/fecha/norma,
+«decision» solo si alguien acuerda/vota, contexto primero en el enum). Cifras de abajo: la segunda.
+
+Banco: GPU Vulkan, un servidor, ASR/OCR en caché, map+verify+reduce en frío en ambos lados. Puntuación (`score.py`):
+
+| Reunión (normal) | dec P/R antes -> ahora | tar P/R antes -> ahora | claves | prohib | decis. / tareas / puntos en el acta |
+|---|---|---|---|---|---|
+| charla | ,67/,67 -> ,50/1 | 1/1 -> 1/,50 | 4/6 -> 5/6 | 0 -> 1 | 3/2/14 -> 6/1/33 |
+| larga | ,83/,67 -> ,78/1 | 1/1 -> ,80/1 | 4/5 -> 5/5 | 0 -> 4 | 12/2/48 -> 27/5/143 |
+| click | — | — | 6/9 -> 5/9 | 0 -> 1 | -/-/10 -> -/-/27 |
+| sintética | 1/1 -> 1/1 | 1/,80 -> 1/,80 | 3/5 -> 4/5 | 0 | 2/4/4 -> 2/4/14 |
+| webinar | — | — | 9/9 -> 9/9 | 0 | -/-/26 -> -/-/63 |
+
+Breve: charla ,67/,67 -> ,50/1 (tar ,50/,50 -> 1/,50), larga 1/1 -> ,78/1 (tar ,75/1 -> ,80/1), sintética igual, claves click 8/9 -> 4/9,
+webinar 5/9 -> 5/9, charla 4/6 -> 5/6 (con 10 puntos clave los protegidos desplazan a los de contexto).
+
+Pérdidas por etapa (normal, 59 ítems gold; `eval/perdidas.py`, antes con el código anterior en frío):
+
+| | a ASR | b map | c selección | d redacción | e presente |
+|---|---|---|---|---|---|
+| antes | 1 | 8 | 5 | 0 | 45 |
+| ahora | 1 | 12 | 1 | 0 | 45 |
+
+La selección ya no pierde (c 5 -> 1), pero el map omite más (b 8 -> 12; charla 5 -> 7: «próxima reunión en noviembre» y aprobación del acta
+no salen en el último bloque, el 4B escribe 8 puntos aunque el tope sea 14) y los presentes no suben (45): lo que se rescata de c se
+compensa con lo que se pierde en b. Con tareas: sintética sigue perdiendo «Laura prepara la convocatoria» en el map.
+
+Distribución de `tipo` y protegidos (normal; puntos del map: contexto/dato/pregunta/decision/tarea/saludo -> protegidos):
+charla 7/17/1/9/2/5 -> 29 de 41; larga 8/43/0/92/3/1 -> 141 de 147; click 23/16/0/0/0/1 -> 16 de 40; sintética 0/8/0/2/4/0 -> 14 de 14;
+webinar 54/36/0/1/0/3 -> 39 de 94 (3 por regex). Calibración razonable en charla/click/webinar; en el pleno (larga) casi todo es
+voto y el acta pasa de 48 a 143 viñetas; sintética es todo hecho (9 min).
+
+Demos (decisiones deben ser ~0): vscode 0 decisiones/0 tareas (normal y breve), excel 0/0; solo 1 y 3-4 puntos protegidos. Longitud (normal,
+caracteres de resumen+puntos+secciones+relato): vscode 4073 -> 3816, excel 4046 -> 5049 (+25 %; 20 puntos frente a 12, el resto es
+ranking); breve 2016 -> 2086 y 2230 -> 2397.
+
+Tiempo LLM (carga+map+reduce, s, normal): sintética 36 -> 45, click 52 -> 76, charla 91 -> 111, webinar 117 -> 174, larga 300 -> 481;
+total 595 -> 887 = **1,49x** (>20 %). Lo que cuesta: map x1,5 (más puntos por bloque + `tipo` + prompt más largo + contexto previo, ≈ +60 %
+de tokens de salida) y reduce x1,3-1,5 (más candidatas a decisión/tarea que verificar una a una y más viñetas por sección que
+resumir, porque ya no hay tope).
+
+Huecos: (a) el recall por gold no sube (45/59 igual): lo que falta ya no está en la selección sino en el map; haría falta un rescate por
+texto (p. ej. «próxima reunión», encargos pequeños) como el de `RESCUE`; (b) la protección infla las actas de plenos repetitivos y sube
+los falsos «prohibidos» (decisiones mal atribuidas que antes caían en el tope); (c) charla: 3 falsas decisiones nuevas (propuestas sin aprobar
+admitidas por `verify`); (d) click pierde 3 claves de funciones que el map describe menos al priorizar cifras; (e) breve: el criterio
+«protegidos primero» ocupa los 10 puntos con datos y se pierde panorama.
