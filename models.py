@@ -12,7 +12,7 @@ FILES = [
     (P.LLM[0], P.LLM[1], "298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb", 2583221408),
     ("gemma-4-E4B-it-Q4_0.gguf", HF + "unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
      "4a403d2e4d80281063e4f517b1c061ded8476b4011a4fc2ba7dbff707075547e", 4836002944),  # chat de Preguntar (rag.GEMMA)
-    ("whisper-large-v3-turbo/model.bin", _W + "model.bin", "b5de55e781fd93b7d472c8ca3f7d40d870a3be764f8bb1a9c4a0511c55f9ca5b", 1617884929),
+    ("whisper-large-v3-turbo/model.bin", _W + "model.bin", "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da", 1617884929),
     ("whisper-large-v3-turbo/config.json", _W + "config.json", None, 2263),
     ("whisper-large-v3-turbo/preprocessor_config.json", _W + "preprocessor_config.json", None, 340),
     ("whisper-large-v3-turbo/tokenizer.json", _W + "tokenizer.json", None, 2710337),
