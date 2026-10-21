@@ -63,7 +63,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: C:\Pérez y Cía\Actas\models
-          key: modelos-${{ hashFiles('models.py') }}
+          key: modelos-${{ runner.os }}-${{ hashFiles('models.py') }}
 
       - name: Instalación silenciosa
         timeout-minutes: 15
@@ -78,13 +78,18 @@ jobs:
           $r = Get-ChildItem $env:APPDIR -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue
           if ($r) { $r | % FullName; throw 'hay puntos de reanálisis en la instalación' }
 
+      # instalador ya verificado: se publica antes del humo (si este falla, no corre "release" y sigue pre-release)
+      - name: Subir a la release
+        run: gh release upload "$env:V" installer\Output\Actas-setup.exe --clobber --repo "$env:GITHUB_REPOSITORY"
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
+
       - name: Vídeo de prueba (voz SAPI + imagen)
         run: |
           Add-Type -AssemblyName System.Speech
           $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
           $s.SetOutputToWaveFile("$PWD\voz.wav")
           $t = 'Buenos días a todos. Hoy revisamos el presupuesto del proyecto. El plan cuesta veinticinco euros al mes. Decidimos lanzar la versión nueva el martes. Laura se encarga de enviar el informe final. Gracias y hasta la próxima reunión.'
-          1..3 | % { $s.Speak($t) }
+          $s.Speak($t)
           $s.Dispose()
           & "$env:APPDIR\bin\ffmpeg\ffmpeg.exe" -v error -y -f lavfi -i testsrc2=s=1280x720:r=5 -i voz.wav -shortest -c:v libx264 -pix_fmt yuv420p muestra.mp4
           Get-Item muestra.mp4 | Select Length
@@ -95,9 +100,9 @@ jobs:
       - name: 'Dispositivos de llama.cpp (runner sin GPU: debe salir vacío y la app usar CPU)'
         run: '& (Get-ChildItem "$env:APPDIR\bin" -Recurse -Filter llama-server.exe | Select -First 1).FullName --list-devices 2>&1 | Out-String'
 
-      - name: Humo (ping, modelos, acta, preguntar)
-        timeout-minutes: 45
-        run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 tools\smoke.py "$env:APPDIR" "$PWD\muestra.mp4"'
+      - name: Humo mínimo (ping, modelos, transcribir + LLM, preguntar)
+        timeout-minutes: 25
+        run: '& "$env:APPDIR\.venv\Scripts\python.exe" -X utf8 tools\smoke.py --min "$env:APPDIR" "$PWD\muestra.mp4"'
 
       - name: Desinstalar (conservando datos)
         timeout-minutes: 5
@@ -110,9 +115,6 @@ jobs:
           if (Test-Path "$env:APPDIR\.venv") { throw 'queda .venv' }
           if (-not (Test-Path "$env:APPDIR\models")) { throw 'se borraron los modelos' }
 
-      - name: Subir a la release
-        run: gh release upload "$env:V" installer\Output\Actas-setup.exe --clobber --repo "$env:GITHUB_REPOSITORY"
-        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
       - uses: actions/upload-artifact@v4
         with:
           name: instalador-${{ matrix.target }}
@@ -162,7 +164,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/Library/Application Support/Actas/app/models
-          key: modelos-mac-${{ hashFiles('models.py') }}
+          key: modelos-${{ runner.os }}-${{ hashFiles('models.py') }}
 
       - name: Montar .dmg, copiar la app y primer arranque (sin navegador)
         timeout-minutes: 15
@@ -174,11 +176,15 @@ jobs:
           tail -5 "$HOME/Library/Application Support/Actas/instalacion.log"
           ls "$HOME/Library/Application Support/Actas/app/.venv/bin/python" "$HOME/Library/Application Support/Actas/app/bin"
 
+      - name: Subir a la release
+        run: gh release upload "$V" "installer/Output/Actas-${{ matrix.arch }}.dmg" --clobber --repo "$GITHUB_REPOSITORY"
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
+
       - name: Vídeo de prueba (voz de macOS + imagen)
         run: |
           T='Buenos días a todos. Hoy revisamos el presupuesto del proyecto. El plan cuesta veinticinco euros al mes. Decidimos lanzar la versión nueva el martes. Laura se encarga de enviar el informe final. Gracias y hasta la próxima reunión.'
           say -v '?' | grep -i es_ | head -5 || true
-          say -v Eddy -o voz.aiff "$T $T $T" || say -v Monica -o voz.aiff "$T $T $T" || say -v Paulina -o voz.aiff "$T $T $T" || say -o voz.aiff "$T $T $T"
+          say -v Eddy -o voz.aiff "$T" || say -v Monica -o voz.aiff "$T" || say -v Paulina -o voz.aiff "$T" || say -o voz.aiff "$T"
           FF="$HOME/Library/Application Support/Actas/app/bin/ffmpeg"
           "$FF/ffmpeg" -v error -y -f lavfi -i testsrc2=s=1280x720:r=5 -i voz.aiff -shortest -c:v libx264 -pix_fmt yuv420p muestra.mp4
           "$FF/ffmpeg" -v error -encoders | grep -i videotoolbox || true
@@ -187,15 +193,11 @@ jobs:
       - name: rag selftest
         run: cd "$HOME/Library/Application Support/Actas/app" && .venv/bin/python -X utf8 rag.py --selftest
 
-      - name: Humo (ping, modelos, acta, preguntar) con Metal / por defecto
-        timeout-minutes: 40
+      - name: Humo mínimo (ping, modelos, transcribir + LLM, preguntar)
+        timeout-minutes: 25
         run: |
           D="$HOME/Library/Application Support/Actas/app"
-          "$D/.venv/bin/python" -X utf8 tools/smoke.py "$D" "$PWD/muestra.mp4"
-
-      - name: Subir a la release
-        run: gh release upload "$V" "installer/Output/Actas-${{ matrix.arch }}.dmg" --clobber --repo "$GITHUB_REPOSITORY"
-        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}', V: '${{ needs.gate.outputs.v }}'}
+          "$D/.venv/bin/python" -X utf8 tools/smoke.py --min "$D" "$PWD/muestra.mp4"
 
       - name: Reunir logs
         if: always()
