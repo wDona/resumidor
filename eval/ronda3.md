@@ -428,7 +428,7 @@ Banco: GPU Vulkan, un servidor, ASR/OCR en caché, map+verify+reduce en frío en
 | sintética | 1/1 -> 1/1 | 1/,80 -> 1/,80 | 3/5 -> 4/5 | 0 | 2/4/4 -> 2/4/14 |
 | webinar | — | — | 9/9 -> 9/9 | 0 | -/-/26 -> -/-/63 |
 
-Breve: charla ,67/,67 -> ,50/1 (tar ,50/,50 -> 1/,50), larga 1/1 -> ,78/1 (tar ,75/1 -> ,80/1), sintética igual, claves click 8/9 -> 4/9,
+Breve: charla ,67/,67 -> ,50/1 (tar ,50/,50 -> 1/,50), larga 1/1 -> ,78/1 (tar ,75/1 -> ,80/1), sintética igual salvo claves 1/5 -> 4/5, claves click 8/9 -> 4/9,
 webinar 5/9 -> 5/9, charla 4/6 -> 5/6 (con 10 puntos clave los protegidos desplazan a los de contexto).
 
 Pérdidas por etapa (normal, 59 ítems gold; `eval/perdidas.py`, antes con el código anterior en frío):
