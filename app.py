@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import zipfile
+import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -192,15 +193,25 @@ async def upload(request: Request, name: str):
 
 
 # ---------- Reuniones ----------
+def meta(wd):
+    """work/<id>/meta.json: {"nombre": nombre a mostrar, "carpeta": carpeta}; no se renombra nada en disco."""
+    try:
+        return json.loads((Path(wd) / "meta.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def meetings():
     out = []
     for tf in sorted(pipeline.WORK.glob("*/transcript_*.json"), key=os.path.getmtime, reverse=True):
         v = next(tf.parent.glob("video.*"), None)
         asr = tf.stem.split("_", 1)[1]
         imp = json.loads(tf.read_text()).get("importada") if asr.startswith("imp") else None
+        mt = meta(tf.parent)
+        base = mt.get("nombre") or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
-                    "name": (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name) +
-                            (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
+                    "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""),
+                    "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
     return out
 
@@ -208,6 +219,65 @@ def meetings():
 @app.get("/api/meetings")
 def get_meetings():
     return meetings()
+
+
+@app.post("/api/meta")
+def set_meta(d: dict):
+    """Nombre y/o carpeta de una reunión (cadena vacía = quitar)."""
+    wd = pipeline.WORK / Path(d.get("id") or "").name
+    if not wd.is_dir():
+        raise HTTPException(404, "Reunión no encontrada")
+    m = meta(wd)
+    for k in ("nombre", "carpeta"):
+        if k in d:
+            v = str(d[k] or "").strip()[:120]
+            m.pop(k, None) if not v else m.__setitem__(k, v)
+    (wd / "meta.json").write_text(json.dumps(m, ensure_ascii=False))
+    return m
+
+
+@app.post("/api/carpeta")
+def carpeta(d: dict):
+    """Renombrar (nuevo) o borrar (sin nuevo) una carpeta: solo toca los meta.json; las reuniones nunca se borran."""
+    old, new = (d.get("nombre") or "").strip(), (d.get("nuevo") or "").strip()[:120]
+    for f in pipeline.WORK.glob("*/meta.json"):
+        m = meta(f.parent)
+        if m.get("carpeta") == old:
+            m.pop("carpeta") if not new else m.__setitem__("carpeta", new)
+            f.write_text(json.dumps(m, ensure_ascii=False))
+    return {}
+
+
+def _stream_zip(files):
+    """Zip sin compresión (el mp4 ya viene comprimido) generado al vuelo por una tubería: sin segunda copia en disco."""
+    r, w = os.pipe()
+
+    def write():
+        try:
+            with os.fdopen(w, "wb") as out, zipfile.ZipFile(out, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+                for src, arc in files:
+                    z.write(src, arc)
+        except OSError:  # el cliente cortó la descarga
+            pass
+    threading.Thread(target=write, daemon=True).start()
+    try:
+        while chunk := os.read(r, 1 << 20):
+            yield chunk
+    finally:
+        os.close(r)  # si el cliente corta, el hilo escritor recibe BrokenPipe y termina
+
+
+@app.get("/api/zipvideo/{mid}/{acta}")
+def zipvideo(mid: str, acta: str):
+    """Acta + vídeo donde el reproductor del informe lo espera (video.<ext> junto a index.html)."""
+    wd = pipeline.WORK / Path(mid).name
+    out, v = wd / Path(acta).name, next(wd.glob("video.*"), None)
+    if not (out / "index.html").exists() or not v or not v.exists():
+        raise HTTPException(404, "Sin acta o sin vídeo")
+    files = [(f, f.relative_to(out)) for f in out.rglob("*") if f.is_file() and f.name != v.name] + [(v, v.name)]
+    name = (meta(wd).get("nombre") or v.resolve().stem) + " (con vídeo).zip"
+    return StreamingResponse(_stream_zip(files), media_type="application/zip",
+                             headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name)})
 
 
 @app.get("/api/meeting/{mid}")
@@ -221,7 +291,8 @@ def meeting(mid: str):
     rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text())) for c in wd.glob("cortes_*.json")}
     conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*.mp4"))]
     imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text())["importada"] for f in wd.glob("transcript_imp*.json")}
-    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "importadas": imp}
+    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "importadas": imp,
+            "videomb": next((round(v.stat().st_size / 1e6) for v in wd.glob("video.*") if v.exists()), 0), **{k: meta(wd).get(k, "") for k in ("nombre", "carpeta")}}
 
 
 @app.get("/files/{mid}/{path:path}")
@@ -238,22 +309,36 @@ def files(mid: str, path: str):
 who = lambda s: (s["spk"] + ": " if s.get("spk") else "") + s["text"]  # con nombres (transcripción importada) las citas dicen quién habla
 
 
+def indice(sel):
+    """Índice RAG de una reunión ("id|asr") o de una carpeta ("c:nombre": la última transcripción de cada reunión de la carpeta)."""
+    if sel.startswith("c:"):
+        es = list({e["id"]: e for e in reversed(meetings()) if e["carpeta"] == sel[2:]}.values())
+        if not es:
+            raise HTTPException(400, "Carpeta vacía")
+        key = "c:" + repr([(e["sel"], e["label"]) for e in es])
+        if key not in _idx:
+            _idx[key] = rag.Multi([(e["label"], e["video"], indice(e["sel"])) for e in es])
+        return _idx[key]
+    if sel not in _idx:
+        wd, asr = sel.split("|")
+        _idx[sel] = rag.Index(str(pipeline.WORK / Path(wd).name), asr, THREADS)
+    return _idx[sel]
+
+
 @app.post("/api/preguntar")
 def preguntar(d: dict):
     sel, q = d.get("sel"), (d.get("q") or "").strip()
     if not sel or not q:
         raise HTTPException(400, "Elige una reunión y escribe la pregunta")
-    wd, asr = sel.split("|")
-    wd = str(pipeline.WORK / Path(wd).name)
     if job["state"] == "running":
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
 
     def events():
         line = lambda **k: json.dumps(k, ensure_ascii=False) + "\n"
         try:
-            if sel not in _idx:
-                _idx[sel] = rag.Index(wd, asr, THREADS)
-            idx = _idx[sel]
+            idx = indice(sel)
+            multi = idx.multi
+            inf = (lambda i: {"n": idx.names[idx.segs[i]["m"]], "v": idx.vids[idx.segs[i]["m"]]}) if multi else (lambda i: {})  # carpeta: reunión y vídeo de cada tramo
             gpu = pipeline.use_gpu(d.get("gpu"))
             if _llm.get("gpu") not in (None, gpu):  # cambió la casilla: otro servidor (solo uno a la vez en la GPU)
                 parar_llm()
@@ -265,13 +350,13 @@ def preguntar(d: dict):
                 if pipeline.NOTICE:
                     yield line(k="aviso", text=pipeline.NOTICE.pop())
                 if kind == "candidatos":
-                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200]} for i in v])
+                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200], **inf(i)} for i in v])
                 elif kind == "frase":
                     s = idx.segs[v["i"]]
                     refs = v.get("refs", [v["i"]])  # estilo interpretativo: puede citar varios tramos
-                    yield line(k="frase", t=s["s"], ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"], kind=v.get("kind", "dijo"),
-                               mas=[idx.segs[j]["s"] for j in refs[1:]],
-                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j in refs} for j in dict.fromkeys(k for r in refs for k in idx.window(r))])
+                    yield line(k="frase", t=s["s"], **inf(v["i"]), ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"], kind=v.get("kind", "dijo"),
+                               mas=[{"t": idx.segs[j]["s"], **inf(j)} for j in refs[1:]],
+                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j in refs, **inf(j)} for j in dict.fromkeys(k for r in refs for k in idx.window(r))])
                 elif kind == "nada":
                     yield line(k="nada", text=rag.NOT_SAID)
         except Exception as e:

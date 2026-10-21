@@ -15,6 +15,7 @@ WHY = re.compile(r"\bpor qu[eé]\b|\bmotivo|\braz[oó]n\b|\bcausa\b", re.I)
 REASON = {"porque", "motivo", "motivos", "motivacion", "motivaciones", "razon", "razones", "debido", "causa", "causas", "dado"}
 TOPK, RRF_K, POOL, MAX_SCREEN = 8, 60, 30, 2  # como mucho 2 trozos de pantalla en el top: si no, tapan la voz
 MIN_COS = float(os.environ.get("ACTAS_RAG_MIN_COS", 0.35))  # bajo esto: "No se menciona" sin LLM (calibrado en eval/)
+CAP_WORDS = 1300  # carpeta: palabras de fragmentos como mucho en el prompt
 MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificación descarta (medido: +10 pts de descartes)
 CTX_WORDS = 20  # palabras de contexto de cada vecino ±1 que se enseñan al LLM junto a cada fragmento
 NOT_SAID = "No se menciona en la reunión."
@@ -193,9 +194,11 @@ class Index:
                 sc += idf * tf * (k1 + 1) / (tf + norm)
         return sc
 
-    def search(self, q, k=TOPK):
+    multi, topk = False, TOPK
+
+    def search(self, q, k=None):
         """-> (índices de los k mejores por RRF, coseno denso máximo)."""
-        q0, q = q, expand(q)
+        q0, q, k = q, expand(q), k or self.topk
         dense = self.emb @ embed([q], True, self.threads)[0]
         rrf = Counter()
         for sc in (dense, self.bm25(q)):
@@ -238,6 +241,38 @@ class Index:
             return [i]
         j = self.voz.index(i)
         return self.voz[max(0, j - 1):j + 2]
+
+
+class Multi(Index):
+    """Varias reuniones (una carpeta) como un solo índice: mismo search/MMR sobre todos los tramos; cada tramo lleva su reunión (m)."""
+    multi, topk = True, 12
+
+    def __init__(self, parts):  # parts: [(nombre, url del vídeo, Index)]
+        ix = [p[2] for p in parts]
+        self.names, self.vids = [p[0] for p in parts], [p[1] for p in parts]
+        self.segs = [dict(s, m=m) for m, x in enumerate(ix) for s in x.segs]
+        self.emb, self.threads = np.vstack([x.emb for x in ix]), ix[0].threads
+        self.docs = [d for x in ix for d in x.docs]
+        self.df = Counter(w for d in self.docs for w in d)
+        self.len = np.concatenate([x.len for x in ix])
+        self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
+        self.lang = next((x.lang for x in ix if not x.lang.startswith("es")), "es")  # ponytail: una reunión en otro idioma obliga a citar literal en todas
+
+    def acta(self):
+        return None, []
+
+    def window(self, i):  # los vecinos no cruzan de reunión
+        return [j for j in super().window(i) if self.segs[j]["m"] == self.segs[i]["m"]]
+
+    def search(self, q, k=None):
+        ids, cos = super().search(q, k)
+        out, w = [], 0
+        for i in ids:  # tope de palabras: el contexto del LLM es fijo
+            w += len(self.segs[i]["text"].split())
+            if out and w > CAP_WORDS:
+                break
+            out.append(i)
+        return out, cos
 
 
 # ---------- verificación ----------
@@ -315,7 +350,7 @@ def prompt(idx, ids, q):
         b = [j for j in w if j > i]
         return " ‖ " + " ".join(([" ".join(idx.segs[a[0]]["text"].split()[-CTX_WORDS:])] if a else [])
                                + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else []))
-    rows = [f"[{n}] ({P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
+    rows = [f"[{n}] ({idx.names[idx.segs[i]['m']] + ', ' if idx.multi else ''}{P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
             f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
     nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if needs_ctx(q) else ""
     if WHY.search(q):
@@ -377,7 +412,7 @@ def answer(idx, q, url):
         return
     order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))  # cronológico: más legible
     buf, n_out, t1, first, seen = "", 0, time.time(), None, set()
-    for ch in stream(url, prompt(idx, order, q), len(order)):
+    for ch in stream(url, prompt(idx, order, q), len(order), system=SYSTEM + (SYSTEM_M if idx.multi else "")):
         if isinstance(ch, dict):
             st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
                       prompt_tok=ch.get("prompt_n"), gen_tok=ch.get("predicted_n"))
@@ -422,6 +457,11 @@ SYSTEM_EN = """
 Los fragmentos están en otro idioma: escribe tú en español, pero tras cada «Se dijo que <frase>» añade la cita literal \
 (de 5 a 20 palabras copiadas EXACTAS del fragmento, en su idioma) entre «», así: [n] Se dijo que <frase> «<cita>». La cita de \
 «porque se dijo que» también va tal cual, en el idioma del fragmento."""
+SYSTEM_M = """
+Los fragmentos son de VARIAS reuniones: el nombre de la reunión va delante de la hora. Cada línea cita fragmentos y la \
+aplicación muestra de qué reunión es cada uno, así que no escribas nombres de reunión en la frase. No juntes en una misma \
+línea fragmentos de reuniones distintas; si dos reuniones dicen cosas distintas, una línea para cada una. Las deducciones \
+siguen siendo deducciones, solo con la cita de su propio fragmento."""
 SYSTEM_G = """Resumes una reunión a partir de su resumen y de los momentos numerados de su acta.
 Escribe 3 líneas, cada una con su idea y el número del momento que la apoya: [n] <idea>. Solo lo que dice el acta, \
 sin inventar nombres, cifras ni conclusiones."""
@@ -488,7 +528,7 @@ def answer_i(idx, q, url):
             return
         order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))
         user = prompt(idx, order, q)
-        args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN), gram=grammar_i(len(order), quote=not es), max_tokens=420)
+        args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN) + (SYSTEM_M if idx.multi else ""), gram=grammar_i(len(order), quote=not es), max_tokens=420)
     buf, n_out, t1, first, seen, dijo, pend = "", 0, time.time(), None, set(), set(), []
     if general and resumen:
         n_out += 1

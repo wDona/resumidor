@@ -99,13 +99,38 @@ $("job-ok").onclick = () => { vista("nuevo"); cargarLista(); };
 
 // ---- reuniones previas y resultado ----
 let cur;
+const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
+const refrescarTodo = async () => { await cargarLista(); if (!$("preguntar").hidden) await cargarReuniones(); };
+const renombrar = fallo(async m => { const n = prompt("Nombre de la reunión (vacío = el original)", m.nombre || m.label); if (n !== null) { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); } });
+const mover = fallo(async (m, ms) => {
+  const ex = [...new Set(ms.map(x => x.carpeta).filter(Boolean))];
+  const c = prompt("Carpeta (nueva o existente" + (ex.length ? ": " + ex.join(", ") : "") + "). Vacío = sin carpeta", m.carpeta);
+  if (c !== null) { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); }
+});
+const carpetaOp = fallo(async (nombre, borrar) => {
+  const nuevo = borrar ? "" : prompt("Nuevo nombre de la carpeta", nombre);
+  if (nuevo === null || nuevo === nombre || (borrar && !confirm("Se quita la carpeta «" + nombre + "»; las reuniones pasan a «Sin carpeta» y no se borran."))) return;
+  await post("/api/carpeta", {nombre, nuevo}); await refrescarTodo();
+});
+const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
   const ms = await api("/api/meetings"); const ul = $("lista"); ul.replaceChildren();
-  const vistos = new Set();
-  for (const m of ms) {
-    if (vistos.has(m.id)) continue; vistos.add(m.id);
+  const un = unicas(ms), g = {};
+  un.forEach(m => (g[m.carpeta] ||= []).push(m));
+  const fila = m => {
     const b = el("button", {className: "sec", textContent: "Abrir"}); b.onclick = () => abrir(m.id).catch(err => alert(err.message));
-    ul.append(el("li", {}, el("div", {className: "n"}, el("div", {textContent: m.name}), el("div", {className: "d", textContent: new Date(m.mtime * 1000).toLocaleString("es")})), b));
+    const r = el("button", {className: "sec", textContent: "Renombrar"}); r.onclick = () => renombrar(m);
+    const c = el("button", {className: "sec", textContent: "Carpeta"}); c.onclick = () => mover(m, un);
+    return el("li", {}, el("div", {className: "n"}, el("div", {textContent: m.label}), el("div", {className: "d", textContent: new Date(m.mtime * 1000).toLocaleString("es")})), el("span", {}, b, " ", r, " ", c));
+  };
+  for (const k of [...Object.keys(g).filter(Boolean).sort(), ...(g[""] ? [""] : [])]) {
+    const sm = el("summary", {textContent: (k ? "📁 " + k : "Sin carpeta") + " (" + g[k].length + ") "});
+    if (k) {
+      const r = el("button", {className: "sec", textContent: "Renombrar carpeta"}), d = el("button", {className: "sec", textContent: "Quitar carpeta"});
+      r.onclick = e => { e.preventDefault(); carpetaOp(k); }; d.onclick = e => { e.preventDefault(); carpetaOp(k, true); };
+      sm.append(r, " ", d);
+    }
+    ul.append(el("details", {open: true}, sm, el("ul", {className: "list"}, ...g[k].map(fila))));
   }
 }
 async function abrir(id, acta) {
@@ -116,7 +141,8 @@ async function abrir(id, acta) {
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === $("sel-acta").value);
-  $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) $("dl-zip").href = a.zip;
+  $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
+  $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con vídeo (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
     (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : " · sin vídeo: sin capturas ni reproductor") + (imp.aviso ? ". " + imp.aviso : "") : "";
@@ -138,13 +164,22 @@ function pintarConds() {
 let reuniones = [];
 async function cargarReuniones() {
   const prev = $("reunion").value; reuniones = await api("/api/meetings");
-  $("reunion").replaceChildren(...reuniones.map(m => el("option", {value: m.sel, textContent: m.name})));
-  if (reuniones.some(m => m.sel === prev)) $("reunion").value = prev;
+  const g = {}; unicas(reuniones).forEach(m => m.carpeta && (g[m.carpeta] = (g[m.carpeta] || 0) + 1));
+  const cs = Object.keys(g).sort();
+  $("reunion").replaceChildren(...reuniones.map(m => el("option", {value: m.sel, textContent: (m.carpeta ? "📁 " + m.carpeta + " / " : "") + m.name})),
+    ...(cs.length ? [el("optgroup", {label: "Carpetas (todas sus reuniones)"}, ...cs.map(c => el("option", {value: "c:" + c, textContent: "📁 Carpeta " + c + " (" + g[c] + " reunion" + (g[c] > 1 ? "es" : "") + ")"})))] : []));
+  if ($("reunion").querySelector(`option[value="${CSS.escape(prev)}"]`)) $("reunion").value = prev;
   cambiarReunion();
 }
 function cambiarReunion() { const m = reuniones.find(m => m.sel === $("reunion").value); const v = $("qav"); v.hidden = !m || !m.video; if (m && m.video && !v.src.endsWith(m.video)) v.src = m.video; }
+$("renombrar").onclick = () => { const v = $("reunion").value; if (v.startsWith("c:")) return carpetaOp(v.slice(2)); const m = reuniones.find(m => m.sel === v); if (m) renombrar(m); };
 $("reunion").onchange = cambiarReunion; $("refrescar").onclick = cargarReuniones;
-const ts = t => el("a", {className: "ts", href: "#", textContent: "[" + mmss(t) + "]", onclick: e => { e.preventDefault(); const v = $("qav"); v.currentTime = Math.floor(t); v.play(); }});
+// v: undefined = vídeo del selector; en carpetas, la url del vídeo de esa reunión (null = reunión sin vídeo); n: nombre de la reunión
+const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: "[" + (n ? n + " · " : "") + mmss(t) + "]", onclick: e => {
+  e.preventDefault(); const q = $("qav"); if (v === null) return;
+  const go = () => { q.currentTime = Math.floor(t); q.play(); };
+  q.hidden = false; if (v && !q.src.endsWith(v)) { q.addEventListener("loadedmetadata", go, {once: true}); q.src = v; } else go();
+}});
 $("qform").onsubmit = async e => {
   e.preventDefault(); const q = $("pregunta").value.trim(); if (!q || !$("reunion").value) return;
   $("preguntar-b").disabled = true;
@@ -165,10 +200,10 @@ $("qform").onsubmit = async e => {
 };
 function evento(ev, cuerpo, frag, estado) {
   if (ev.k === "arranque") estado.textContent = "Arrancando el modelo de lenguaje…";
-  else if (ev.k === "candidatos") { estado.textContent = "Buscando en la reunión…"; frag.append(el("ol", {}, ...ev.items.map(i => el("li", {}, ts(i.t), " " + i.text)))); }
+  else if (ev.k === "candidatos") { estado.textContent = "Buscando en la reunión…"; frag.append(el("ol", {}, ...ev.items.map(i => el("li", {}, ts(i.t, i.v, i.n), " " + i.text)))); }
   else if (ev.k === "frase") {
-    const quote = el("blockquote"); ev.cita.forEach((c, n) => quote.append(...(n ? [el("br")] : []), el("span", {className: c.main ? "" : "o"}, ts(c.t), " " + c.text)));
-    cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {style: "font-style:italic"} : {}, ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t), ...(ev.mas || []).flatMap(t => [" ", ts(t)]),
+    const quote = el("blockquote"); ev.cita.forEach((c, n) => quote.append(...(n ? [el("br")] : []), el("span", {className: c.main ? "" : "o"}, ts(c.t, c.v, c.n), " " + c.text)));
+    cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {style: "font-style:italic"} : {}, ...(ev.n ? [el("b", {textContent: ev.n + ": "})] : []), ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t, ev.v, ev.n), ...(ev.mas || []).flatMap(m => [" ", ts(m.t, m.v, m.n)]),
       el("details", {}, el("summary", {textContent: "cita literal"}), quote)), estado);
   }
   else if (ev.k === "aviso") cuerpo.insertBefore(el("p", {}, el("small", {textContent: ev.text})), estado);

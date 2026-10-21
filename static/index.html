@@ -68,7 +68,7 @@
         </form>
         <div class="card">
           <h2>Reuniones anteriores</h2>
-          <ul class="list" id="lista"></ul>
+          <div class="list" id="lista"></div>
         </div>
       </div>
     </div>
@@ -87,6 +87,7 @@
         <button class="sec" id="volver">&larr; Volver</button>
         <label for="sel-acta">Acta</label><select id="sel-acta"></select>
         <a class="btn sec" id="dl-zip" download>Descargar acta (.zip)</a>
+        <a class="btn sec" id="dl-vid" download title="Acta y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
         <button class="sec" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
       </div>
       <p class="muted" id="imp-info"></p>
@@ -106,10 +107,11 @@
   </section>
 
   <section id="preguntar" hidden>
-    <p class="lead">Pregunta sobre una reunión ya procesada. Solo se responde con lo dicho en ella y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
+    <p class="lead">Pregunta sobre una reunión ya procesada o sobre todas las de una carpeta. Solo se responde con lo dicho en ella y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
     <div id="qlayout">
       <div class="card" id="qside">
         <div class="row"><label for="reunion">Reunión</label><select id="reunion"></select>
+          <button class="sec" id="renombrar" title="Renombrar la reunión (o la carpeta) elegida" aria-label="Renombrar">&#9998;</button>
           <button class="sec" id="refrescar" title="Actualizar lista" aria-label="Actualizar lista">&#8635;</button></div>
         <video id="qav" controls preload="metadata"></video>
       </div>

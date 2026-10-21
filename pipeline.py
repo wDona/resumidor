@@ -1540,9 +1540,9 @@ document.addEventListener('pointerup',up);document.addEventListener('pointercanc
 const v=document.getElementById('v');
 document.addEventListener('click',e=>{const a=e.target.closest('[data-t]');if(!a)return;e.preventDefault();
 v.currentTime=+a.dataset.t;v.play();});
-v.addEventListener('error',()=>{document.getElementById('pick').hidden=false});
+v.addEventListener('error',()=>{v.hidden=true;document.getElementById('pick').hidden=false});
 document.querySelector('#pick input').onchange=e=>{v.src=URL.createObjectURL(e.target.files[0]);
-document.getElementById('pick').hidden=true};"""
+document.getElementById('pick').hidden=true;v.hidden=false};"""
 
 
 def ts_link(t):
@@ -1685,7 +1685,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><video id="v" src="video{vext}" controls preload="metadata"></video>
-<p id="pick" hidden>No se encuentra el vídeo junto al informe. Ábrelo: <input type="file" accept="video/*"></p></div>
+<p id="pick" hidden>No se encuentra el vídeo junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="video/*"></p></div>
 <div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {nota}<h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
@@ -2017,7 +2017,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     out = wd / f"acta_{level}_{quality}{tag}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
-    for k in render(out, red.get("titulo") or stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
+    try:
+        nombre = json.loads((wd / "meta.json").read_text()).get("nombre")  # nombre puesto por el usuario (app.py)
+    except (OSError, ValueError):
+        nombre = None
+    for k in render(out, nombre or red.get("titulo") or stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
                     level, video.suffix if video else None, names, imp):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
