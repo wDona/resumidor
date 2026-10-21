@@ -101,17 +101,24 @@ $("job-ok").onclick = () => { vista("nuevo"); cargarLista(); };
 let cur;
 const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
 const refrescarTodo = async () => { await cargarLista(); if (!$("preguntar").hidden) await cargarReuniones(); };
-const renombrar = fallo(async m => { const n = prompt("Nombre de la reunión (vacío = el original)", m.nombre || m.label); if (n !== null) { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); } });
-const mover = fallo(async (m, ms) => {
-  const ex = [...new Set(ms.map(x => x.carpeta).filter(Boolean))];
-  const c = prompt("Carpeta (nueva o existente" + (ex.length ? ": " + ex.join(", ") : "") + "). Vacío = sin carpeta", m.carpeta);
-  if (c !== null) { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); }
-});
-const carpetaOp = fallo(async (nombre, borrar) => {
-  const nuevo = borrar ? "" : prompt("Nuevo nombre de la carpeta", nombre);
-  if (nuevo === null || nuevo === nombre || (borrar && !confirm("Se quita la carpeta «" + nombre + "»; las reuniones pasan a «Sin carpeta» y no se borran."))) return;
-  await post("/api/carpeta", {nombre, nuevo}); await refrescarTodo();
-});
+// formulario en la propia página (sin prompt/confirm): campo opcional + botón + Cancelar; Esc cancela
+function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
+  document.querySelector("form.inline")?.remove();
+  const f = el("form", {className: "inline row"}), c = el("button", {type: "button", className: "sec", textContent: "Cancelar"});
+  const i = valor != null ? el("input", {value: valor, ariaLabel: texto}) : null;
+  if (i && lista?.length) { i.setAttribute("list", "dl-carpetas"); f.append(el("datalist", {id: "dl-carpetas"}, ...lista.map(v => el("option", {value: v})))); }
+  f.append(el("span", {textContent: texto}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
+  c.onclick = () => f.remove();
+  f.onkeydown = e => e.key === "Escape" && f.remove();
+  f.onsubmit = e => { e.preventDefault(); fallo(async () => { await hecho(i ? i.value.trim() : ""); f.remove(); })(); };
+  donde.append(f); (i || c).focus(); i?.select();
+}
+const renombrar = (m, donde) => enLinea(donde, {valor: m.nombre || m.label, texto: "Nombre (vacío = el original)"},
+  async n => { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); });
+const mover = (m, ms, donde) => enLinea(donde, {valor: m.carpeta || "", lista: [...new Set(ms.map(x => x.carpeta).filter(Boolean))],
+  texto: "Carpeta (nueva o existente; vacío = sin carpeta)", boton: "Mover"}, async c => { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); });
+const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se quita la carpeta «" + nombre + "»: las reuniones pasan a «Sin carpeta» y no se borran.", boton: "Quitar"}
+  : {valor: nombre, texto: "Nuevo nombre de la carpeta"}, async nuevo => { if (!borrar && (!nuevo || nuevo === nombre)) return; await post("/api/carpeta", {nombre, nuevo}); await refrescarTodo(); });
 const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
   const ms = await api("/api/meetings"); const ul = $("lista"); ul.replaceChildren();
@@ -119,18 +126,20 @@ async function cargarLista() {
   un.forEach(m => (g[m.carpeta] ||= []).push(m));
   const fila = m => {
     const b = el("button", {className: "sec", textContent: "Abrir"}); b.onclick = () => abrir(m.id).catch(err => alert(err.message));
-    const r = el("button", {className: "sec", textContent: "Renombrar"}); r.onclick = () => renombrar(m);
-    const c = el("button", {className: "sec", textContent: "Carpeta"}); c.onclick = () => mover(m, un);
-    return el("li", {}, el("div", {className: "n"}, el("div", {textContent: m.label}), el("div", {className: "d", textContent: new Date(m.mtime * 1000).toLocaleString("es")})), el("span", {}, b, " ", r, " ", c));
+    const r = el("button", {className: "sec", textContent: "Renombrar"}), c = el("button", {className: "sec", textContent: "Carpeta"});
+    const li = el("li", {}, el("div", {className: "n"}, el("div", {textContent: m.label}), el("div", {className: "d", textContent: new Date(m.mtime * 1000).toLocaleString("es")})), el("span", {}, b, " ", r, " ", c));
+    r.onclick = () => renombrar(m, li); c.onclick = () => mover(m, un, li);
+    return li;
   };
   for (const k of [...Object.keys(g).filter(Boolean).sort(), ...(g[""] ? [""] : [])]) {
     const sm = el("summary", {textContent: (k ? "📁 " + k : "Sin carpeta") + " (" + g[k].length + ") "});
+    const ed = el("div");  // aquí sale el formulario de renombrar/quitar la carpeta
     if (k) {
       const r = el("button", {className: "sec", textContent: "Renombrar carpeta"}), d = el("button", {className: "sec", textContent: "Quitar carpeta"});
-      r.onclick = e => { e.preventDefault(); carpetaOp(k); }; d.onclick = e => { e.preventDefault(); carpetaOp(k, true); };
+      r.onclick = e => { e.preventDefault(); carpetaOp(k, false, ed); }; d.onclick = e => { e.preventDefault(); carpetaOp(k, true, ed); };
       sm.append(r, " ", d);
     }
-    ul.append(el("details", {open: true}, sm, el("ul", {className: "list"}, ...g[k].map(fila))));
+    ul.append(el("details", {open: true}, sm, ed, el("ul", {className: "list"}, ...g[k].map(fila))));
   }
 }
 async function abrir(id, acta) {
@@ -172,7 +181,7 @@ async function cargarReuniones() {
   cambiarReunion();
 }
 function cambiarReunion() { const m = reuniones.find(m => m.sel === $("reunion").value); const v = $("qav"); v.hidden = !m || !m.video; if (m && m.video && !v.src.endsWith(m.video)) v.src = m.video; }
-$("renombrar").onclick = () => { const v = $("reunion").value; if (v.startsWith("c:")) return carpetaOp(v.slice(2)); const m = reuniones.find(m => m.sel === v); if (m) renombrar(m); };
+$("renombrar").onclick = () => { const v = $("reunion").value, d = $("qside"); if (v.startsWith("c:")) return carpetaOp(v.slice(2), false, d); const m = reuniones.find(m => m.sel === v); if (m) renombrar(m, d); };
 $("reunion").onchange = cambiarReunion; $("refrescar").onclick = cargarReuniones;
 // v: undefined = vídeo del selector; en carpetas, la url del vídeo de esa reunión (null = reunión sin vídeo); n: nombre de la reunión
 const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: "[" + (n ? n + " · " : "") + mmss(t) + "]", onclick: e => {
