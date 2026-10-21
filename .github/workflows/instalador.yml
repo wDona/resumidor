@@ -56,7 +56,7 @@ jobs:
       - name: Compilar instalador
         run: |
           choco install innosetup -y --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}" installer\actas.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$('${{ needs.gate.outputs.v }}'.TrimStart('v'))" installer\actas.iss
           Get-Item installer\Output\Actas-setup.exe | Select Name, Length
 
       # los modelos se bajan dentro de la app instalada: se cachean en su carpeta
@@ -154,7 +154,7 @@ jobs:
 
       - name: Compilar .dmg
         timeout-minutes: 10
-        run: installer/macos/build.sh ${{ matrix.arch }} "${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}"
+        run: installer/macos/build.sh ${{ matrix.arch }} "$(sed 's/^v//' <<<'${{ needs.gate.outputs.v }}')"
 
       - uses: actions/upload-artifact@v4
         with:
