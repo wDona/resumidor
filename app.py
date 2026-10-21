@@ -213,6 +213,13 @@ def meetings():
                     "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""),
                     "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
+    seen = {}  # dos reuniones no se llaman igual: la más antigua se queda el nombre, las demás llevan « (2)», « (3)»…
+    for e in reversed(out):
+        lab, n = e["label"], 1
+        while seen.setdefault(lab.casefold(), e["id"]) != e["id"]:
+            n += 1
+            lab = f"{e['label']} ({n})"
+        e["name"], e["label"] = lab + e["name"][len(e["label"]):], lab
     return out
 
 
@@ -228,6 +235,9 @@ def set_meta(d: dict):
     if not wd.is_dir():
         raise HTTPException(404, "Reunión no encontrada")
     m = meta(wd)
+    nom = str(d.get("nombre") or "").strip()[:120]
+    if nom and any(e["id"] != wd.name and e["label"].casefold() == nom.casefold() for e in meetings()):
+        raise HTTPException(409, f"Ya hay otra reunión llamada «{nom}»")
     for k in ("nombre", "carpeta"):
         if k in d:
             v = str(d[k] or "").strip()[:120]
