@@ -40,11 +40,13 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). Hil
 (= físicos con hyperthreading; con más hilos que núcleos llama.cpp genera a menos de la mitad); `--threads` o
 `ACTAS_THREADS` (GUI) lo cambian.
 
-**Calidad Alta** (`--calidad alta`, campo `calidad` de la API, selector en la GUI): todo con el 4B. El map corre dos veces por bloque
-(la 2.ª con semilla 1 y temperatura 0,5) y se unen por voto: unión de puntos, decisiones y tareas; un punto en las dos pasadas sube +1
-la nota. Además `check_sources` (sí/no de cada decisión/tarea contra su bloque). `ACTAS_ALTA_ORD=1`: el modelo ordena los puntos
-(rango) en vez de puntuarlos. Sin 9B (`ACTAS_MAP_MODEL` sigue sirviendo para un experimento). Salida en `acta_<nivel>_<asr>_alta/`
-(`_alta_ord`); `eval/score.py --alta`. Medido en eval/ronda3.md §12: ≈1,9x el tiempo de LLM de Rápida, sin mejora de calidad.
+**Búsqueda a fondo de decisiones y tareas** (`--calidad alta` o `--fondo`, campo `calidad` de la API, selector «Alta» y botón «Buscar todas a
+fondo» junto al acta en la GUI): el acta normal más un repaso de TODA la transcripción en bloques de ~4000 caracteres (`ACTAS_FONDO_CHARS`)
+con un prompt que solo extrae decisiones y tareas (las mismas reglas que el map). En código: la cita debe estar en la transcripción, nada
+de textos que sean una marca, no repetir lo que el acta ya tiene (texto parecido o coseno >= 0,85 a <= 2 min) y después `verify()` (lectura
+de pantalla, condicionales, clasificación por LLM, responsable solo si lo dice el texto de alrededor). Lo hallado se funde en el acta, que
+se rehace en su carpeta (`fondo_<asr>_<hash>.json` en la caché) y pasa de «Lista automática: puede faltar alguna.» a «Búsqueda a fondo hecha».
+Cada decisión/tarea muestra su cita literal. Medido en eval/ronda3.md §18.
 
 Referencia (4 núcleos de un Ryzen 5500 con `taskset` emulando un HP ProBook 440 G8, `--asr rápido`, nivel breve):
 

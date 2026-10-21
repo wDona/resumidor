@@ -583,3 +583,28 @@ Se regenera ~/actas_comparar con `normal__4B_rapida` (base actual) y `normal__4B
 Corrección posterior (§17): las 2 «decisiones» «101:34» y «98:10» de larga base venían del map (el 4B escribió la marca como texto; está en la caché,
 no es de RESCUE ni del sin-tope). `fix_junk()` (map nuevo y `trim_caps` al pintar, así cubre cachés) rehace el texto con la cita literal o descarta si la cita
 tampoco sirve. Larga base: puntuación igual (,89/1, 4/5), ya sin textos que sean una marca.
+
+## 18. Búsqueda a fondo de decisiones y tareas (`buscar_a_fondo`) y fin del Alta antigua
+
+Se elimina el Alta antiguo (map x2 + voto, ORD, `check_sources`; sin mejora, §12). `--calidad alta` = acta normal + búsqueda a fondo.
+`buscar_a_fondo`: toda la transcripción en bloques iguales de ~4000 caracteres, prompt corto que solo extrae decisiones y tareas con las
+reglas del map (cortadas de MAP_PROMPT), cita literal y marca. Código: la cita debe estar en la transcripción (`find_quote`), `fix_junk`,
+fuera lo que repite al acta (`dedupe` + coseno >= 0,85 a <= 2 min) y luego `verify()` (lectura de pantalla, condicionales, clasificación por
+LLM; responsable/plazo solo si los dice el texto de alrededor, si no «—»). Se funde en acta.json y se rehace el HTML («Decisiones detectadas»,
+«Tareas detectadas», cita pequeña bajo cada una, nota «Lista automática: puede faltar alguna.» / «Búsqueda a fondo hecha…»). GUI: botón
+«Buscar todas a fondo» (POST /api/fondo, mismo trabajo en segundo plano que generar; start() para el LLM del chat). Probado con TestClient
+(carga en caché: POST 200, trabajo `fondo` hecho, nota y citas en el HTML, el zip mantiene su nombre, id inexistente 400).
+
+Normal, GPU, Rápida frente a Rápida + a fondo (dec/tar = P/R; «nuevas» = decisiones/tareas añadidas):
+
+| Reunión | Rápida dec / tar | + a fondo dec / tar | nuevas dec / tar | prohib | tiempo del pase | LLM total (Rápida, §13/§14) | razón |
+|---|---|---|---|---|---|---|---|
+| reunion_sintetica | 1/1 · 1/,80 | 1/1 · ,80/,80 | +1 / +1 | 0 | 16,5 s | 45 s | 0,37 |
+| charla_comite | ,67/,67 · 1/1 | ,40/,67 · 1/1 | +2 / 0 | 0 | 37,3 s | 111 s | 0,34 |
+| larga_cne | ,89/1 · 1/1 | ,82/1 · ,75/1 | +16 / +2 | 0 | 148,3 s | 300 s | 0,49 |
+
+Lectura: el recall no sube en ninguna (ya estaba al máximo en larga/charla; en la sintética el recall de tareas sigue en ,80) y la precisión
+baja: lo nuevo son sobre todo reformulaciones de lo que el acta ya tenía (el 4B copia la cita como texto, «se aprueba el presente informe»,
+«estamos de acuerdo con la redacción del acta…») que el dedup por texto/coseno no atrapa, y 1 tarea y 2 decisiones falsas en charla. Cuesta
+~0,35-0,5x el LLM completo. Con el gold actual no hay señal de que merezca la pena; el valor sería para actas con decisiones perdidas por el map
+(no las hay en estas 3). La mejora sería exigir que lo nuevo no tenga cita solapada con la de una existente (hoy solo texto).

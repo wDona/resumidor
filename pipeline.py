@@ -907,12 +907,12 @@ def chunk(segments):
     return semchunk(segments) if SEMCHUNK else chunk_eq(segments)
 
 
-def chunk_eq(segments):
+def chunk_eq(segments, cap=None):
     """Bloques del mismo tamaño, como mucho ~CHUNK_CHARS: n = ceil(total / CHUNK_CHARS) y se corta cada total / n. Ni
     bloque de cola diminuto (solo traería la despedida) ni uno gigante (la cola unida al anterior dejaba sin puntos los
     últimos 14 min de una reunión: el map da como mucho 10 por bloque)."""
     size = [len(x["text"]) + 9 for x in segments]
-    n = max(1, -(-sum(size) // CHUNK_CHARS))
+    n = max(1, -(-sum(size) // (cap or CHUNK_CHARS)))
     out, acc = [[] for _ in range(n)], 0
     for s, z in zip(segments, size):
         out[min(n - 1, int(acc + z / 2) * n // sum(size))].append(s)
@@ -1001,60 +1001,27 @@ RESCUE_PROMPT = ("Fragmento de una reunión (transcripción con errores). Redact
                  "toma ahí (qué se aplaza, designa o fija). Solo lo dicho.")
 
 
-# Alta: dos pasadas del map (la 2.ª con otra semilla y temperatura) unidas por voto; ACTAS_ALTA_ORD=1: el modelo ordena (rango) en vez de puntuar
-ORD = os.environ.get("ACTAS_ALTA_ORD") == "1"
-MAP_SCHEMA_ORD = {**MAP_SCHEMA, "properties": {**MAP_SCHEMA["properties"], "puntos": arr(
-    obj(texto=S(PT_MAX), rango={"enum": list(range(1, 10))}, t=TS), 9, 6)}}
-MAP_PROMPT_ORD = re.sub(r"importancia: 5 = .*?la mayoría 2-3\.", "rango: 1 = la idea más importante del fragmento (decisión, "
-                        "compromiso, cifra clave), 2 = la siguiente… 9 = la menos; sin repetir números; saludos, presentaciones, "
-                        "agradecimientos y logística, los últimos.", MAP_PROMPT, flags=re.S)
-assert MAP_PROMPT_ORD != MAP_PROMPT
-_stems = lambda x: {w[:5] for w in words(x) if len(w) >= 4}
+def anchor_items(m, segs, sw=None):
+    """Decisiones/tareas de un bloque: sin su cita en la transcripción, fuera; con ella, la marca pasa a la de la cita; el texto que
+    sea solo una marca se rehace con la cita (fix_junk)."""
+    t0, t1 = segs[0]["s"], segs[-1]["e"]
+    sw = sw or [words(s["text"]) for s in segs]
+    for k in ("decisiones", "tareas"):
+        keep = []
+        for it in m[k]:
+            own = parse_ts(it["t"])
+            f, t = find_quote(it["cita"], segs, sw, own if t0 - 5 <= own <= t1 + 5 else None)
+            if f < 0.5:
+                print(f"  descartada (cita no está en el bloque): {it.get('texto') or it['tarea']}", flush=True)
+            else:
+                keep.append({**it, "t": fmt(t)})
+        m[k] = fix_junk(keep, "texto" if k == "decisiones" else "tarea")
 
 
-def rank_to_score(pts):
-    """rango (1 = el primero) -> importancia 5/4/3/2 por cuantiles: 15 % / 25 % / 35 % / resto."""
-    n = len(pts)
-    for i, p in enumerate(sorted(pts, key=lambda p: p["rango"])):  # estable: empate = orden en que los listó
-        p["importancia"] = 5 if i < max(1, round(.15 * n)) else 4 if i < round(.4 * n) else 3 if i < round(.75 * n) else 2
-        del p["rango"]
-
-
-def vote(a, b):
-    """Une dos map del mismo bloque: un punto de b que repite uno de a (mismas raíces, cerca en el tiempo) sube su nota +1
-    (máx. 5); los demás de b se añaden. Decisiones y tareas: unión sin repetidos. `n0` = nº de puntos de una pasada."""
-    a["n0"] = len(a["puntos"])
-    left = list(a["puntos"])
-    for q in b["puntos"]:
-        sq = _stems(q["texto"])
-        sc = [(len(sq & _stems(p["texto"])) / max(1, min(len(sq), len(_stems(p["texto"])))), i) for i, p in enumerate(left)
-              if abs(parse_ts(p["t"]) - parse_ts(q["t"])) <= 90]
-        best = max(sc, default=(0, 0))
-        if best[0] >= 0.5 and len(sq) >= 3:
-            p = left.pop(best[1])
-            p["importancia"] = min(5, max(p["importancia"], q["importancia"]) + 1)
-        else:
-            a["puntos"].append(q)
-    for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
-        a[k] = dedupe(a[k] + b[k], key, k == "tareas")
-    return a
-
-
-def map_chunk(chat, segs, text, lang, kfs=(), alta=False):
-    """Alta: dos pasadas (la 2.ª con otra semilla y más temperatura) unidas por voto."""
-    if not alta:
-        return map_chunk1(chat, segs, text, lang, kfs)
-    return vote(map_chunk1(chat, segs, text, lang, kfs, order=ORD),
-                map_chunk1(chat, segs, text, lang, kfs, {"seed": 1, "temperature": 0.5}, ORD))
-
-
-def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
+def map_chunk(chat, segs, text, lang, kfs=()):
     """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
     la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
-    m = chat((MAP_PROMPT_ORD if order else MAP_PROMPT).format(lang=lang), text, MAP_SCHEMA_ORD if order else MAP_SCHEMA, MAP_MAX,
-             **(opt or {}))
-    if order:
-        rank_to_score(m["puntos"])
+    m = chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, MAP_MAX)
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     for p in m["puntos"]:
         p["texto"] = sentences(p["texto"], PT_MAX)
@@ -1077,16 +1044,7 @@ def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
         if RESCUE.search(w) and len(m["decisiones"]) < 5 and not any(abs(parse_ts(d["t"]) - s["s"]) < 90 for d in m["decisiones"]):
             ctx = "\n".join(f"[{fmt(x['s'])}] {x['text']}" for x in segs if s["s"] - 40 <= x["s"] <= s["s"] + 40)
             m["decisiones"].append({"cita": w[:100], "texto": chat(RESCUE_PROMPT, ctx, obj(texto=S(160)), 80)["texto"], "t": fmt(s["s"])})
-    for k in ("decisiones", "tareas"):
-        keep = []
-        for it in m[k]:
-            own = parse_ts(it["t"])
-            f, t = find_quote(it["cita"], segs, sw, own if t0 - 5 <= own <= t1 + 5 else None)
-            if f < 0.5:
-                print(f"  descartada (cita no está en el bloque): {it.get('texto') or it['tarea']}", flush=True)
-            else:
-                keep.append({**it, "t": fmt(t)})
-        m[k] = fix_junk(keep, "texto" if k == "decisiones" else "tarea")
+    anchor_items(m, segs, sw)
     return m
 
 
@@ -1118,8 +1076,7 @@ def select_points(maps, keep, cap=None, floor=0, uniq=False):
     recalificación de X» llenaban los 8 puntos clave y no quedaba sitio para el patrón de voto ni la suspensión."""
     allp = sorted((-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps)
                   for n, p in enumerate(m["puntos"]) if p["importancia"] > 1)
-    one = sum(m.get("n0", len(m["puntos"])) for m in maps) / max(1, sum(len(m["puntos"]) for m in maps))  # Alta: 2 pasadas, el mismo nº de puntos
-    k = min(max(1, floor or 0, round(keep * len(allp) * one)), cap or len(allp)) if allp else 0
+    k = min(max(1, floor or 0, round(keep * len(allp))), cap or len(allp)) if allp else 0
     g = min(k, len(maps))
     pick = []
 
@@ -1211,27 +1168,53 @@ def verify(chat, maps, segments, kfs, win=45):
     return out
 
 
-CHECK_PROMPT = """Compruebas una decisión o tarea propuesta para el acta contra el bloque de transcripción automática (con errores) \
-del que salió. respaldada = si: el bloque habla de eso como algo decidido o encargado (aunque las palabras difieran, haya \
-errores de transcripción o se decida en varias intervenciones). no: solo si el bloque no lo menciona, lo contradice o \
-es claramente otra cosa (hipótesis, opinión, algo ya hecho). Ante la duda, si."""
+FONDO_CHARS = int(os.environ.get("ACTAS_FONDO_CHARS", 4000))  # bloques pequeños: el modelo solo busca decisiones y tareas
+FONDO_NOTE = {False: "Lista automática: puede faltar alguna.",
+              True: "Búsqueda a fondo hecha: se repasó toda la transcripción; lista automática, aun así puede faltar alguna."}
+# las mismas reglas de decisión/tarea/cita que el map (se cortan de MAP_PROMPT: un solo sitio donde afinarlas)
+FONDO_PROMPT = ("Buscas SOLO decisiones y tareas en un fragmento de transcripción automática (con errores) con marcas [mm:ss]. Lo marcado "
+                "«(lectura en voz alta)» es alguien leyendo el documento que se ve en pantalla: es lectura, nunca una decisión ni una tarea "
+                "de hoy. «Hablante N:» es quien habla según la voz (automático).\n" +
+                MAP_PROMPT[MAP_PROMPT.index("decisiones:"):MAP_PROMPT.index("relato:")] +
+                "t = marca donde se dice. Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}.")
+FONDO_SCHEMA = obj(decisiones=MAP_SCHEMA["properties"]["decisiones"], tareas=MAP_SCHEMA["properties"]["tareas"])
+FONDO_DUP = 0.85  # coseno entre textos (a <= 2 min) a partir del cual una candidata repite una que el acta ya tiene
 
 
-def check_sources(chat, valid, inputs):
-    """Calidad Alta: cada decisión y tarea ya verificada se comprueba (sí/no) contra el bloque de donde salió; fuera las no
-    respaldadas. Ordenadas por bloque: el bloque va primero en el prompt y se lee una vez (caché de prefijo)."""
-    out = {}
-    for name, key in (("decisiones", "texto"), ("tareas", "tarea")):
-        keep = {}
-        for i, it in sorted(enumerate(valid[name]), key=lambda x: x[1]["b"]):
-            q = f"Bloque:\n{inputs[it['b']]}\n\nPropuesta: {it[key]}\nCita: «{it['cita']}»"
-            ok = chat(CHECK_PROMPT, q, obj(respaldada={"enum": ["si", "no"]}), 20)["respaldada"] == "si"
-            if ok:
-                keep[i] = it
-            else:
-                print(f"  descartada (sin respaldo en el bloque): {it[key]}", flush=True)
-        out[name] = [keep[i] for i in sorted(keep)]
-    return out
+def buscar_a_fondo(chat, segments, kfs, lang, maps, starts, cb=lambda f, m: None):
+    """Búsqueda a fondo de decisiones y tareas: recorre TODA la transcripción en bloques de ~FONDO_CHARS con un prompt que solo
+    extrae eso. Filtros en código: la cita debe estar en la transcripción (anchor_items), sin textos que sean una marca, sin
+    repetir lo que el acta ya tiene (dedupe + embeddings) y después verify() (mismas reglas que el map: lectura de pantalla,
+    condicionales, clasificación por LLM y responsable/plazo solo si los dice la transcripción de alrededor, si no «—»).
+    Devuelve {"decisiones": [...], "tareas": [...]} nuevas (con su cita), listas para fundir con merge_fondo."""
+    old = {"decisiones": [x for m in maps for x in m["decisiones"]], "tareas": [x for m in maps for x in m["tareas"]]}
+    new = {"decisiones": [], "tareas": []}
+    chunks = chunk_eq(segments, FONDO_CHARS)
+    for i, segs in enumerate(chunks):
+        cb(i / len(chunks), f"Buscando decisiones y tareas a fondo {i + 1}/{len(chunks)}…")
+        m = chat(FONDO_PROMPT.format(lang=lang), map_input(segs, kfs, segments), FONDO_SCHEMA, 700)
+        anchor_items(m, segs)
+        for k in new:
+            new[k] += m[k]
+    pm = [{"tema": m["tema"], "decisiones": [], "tareas": []} for m in maps]  # verify() lee el tema del bloque del map
+    for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
+        have = [x for x in old[k]]
+        fresh = [x for x in dedupe(have + new[k], key, k == "tareas") if any(x is n for n in new[k])]
+        if fresh and have:
+            v = embed([x[key] for x in fresh + have])
+            fresh = [x for j, x in enumerate(fresh) if not any(v[j] @ v[len(fresh) + h] >= FONDO_DUP and
+                                                              abs(parse_ts(x["t"]) - parse_ts(o["t"])) <= 120 for h, o in enumerate(have))]
+        for x in fresh:
+            pm[max(0, bisect.bisect_right(starts, parse_ts(x["t"]) + 1) - 1)][k].append(x)
+    return verify(chat, pm, segments, kfs)
+
+
+def merge_fondo(red, fo):
+    """Acta + lo hallado a fondo (ordenado por minuto, sin repetir) y la marca de búsqueda hecha."""
+    red = {**red, "fondo": True}
+    for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
+        red[k] = sorted(dedupe(red[k] + fo[k], key, k == "tareas"), key=lambda x: parse_ts(x["t"]))
+    return red
 
 
 PASS2 = os.environ.get("ACTAS_PASS2") == "1"
@@ -1405,7 +1388,7 @@ td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:to
 .strip img{display:block;height:64px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;cursor:zoom-out}
 #big img{max-width:96vw;max-height:90vh}#big span{color:#fff;margin-top:6px}
-details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
+.q{display:block;color:#616e7c;font-size:12px}details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
 
 JS = """document.addEventListener('click',e=>{const z=e.target.closest('a.z');if(z){e.preventDefault();
 const b=document.createElement('div');b.id='big';b.innerHTML='<img src="'+z.href+'"><span>'+z.dataset.l+'</span>';
@@ -1481,9 +1464,10 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                        [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1])
         body.append(f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p>"
                     f"<ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}")
-    dec = "".join(li(parse_ts(d["t"]), d["texto"])
+    quote = lambda x: f'<small class="q">«{esc(x["cita"])}»</small>' if x.get("cita") else ""  # la cita literal que lo respalda
+    dec = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}{quote(d)}</li>"
                   for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
-    tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}</td><td>{esc(t['responsable'])}</td>"
+    tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}{quote(t)}</td><td>{esc(t['responsable'])}</td>"
                     f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
     narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(0 if not i else t, nxt(i))}</div>"
                    for i, (t, x) in enumerate(rel))
@@ -1509,8 +1493,9 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {nota}<h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
 {f"<h2>Desarrollo de la reunión</h2>{narr}" if narr else ""}
-{f"<h2>Decisiones</h2><ul>{dec}</ul>" if dec else ""}
-{f"<h2>Tareas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else ""}
+{f"<h2>Decisiones detectadas</h2><ul>{dec}</ul>" if dec else ""}
+{f"<h2>Tareas detectadas</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else ""}
+{f'<p class="meta">{FONDO_NOTE[bool(red.get("fondo"))]}</p>' if dec or tasks else ""}
 {more}
 {desarrollo}
 <h2>Transcripción</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>
@@ -1523,7 +1508,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
     allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
     (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
-        "titulo": title, "duracion": round(dur), "nivel": level, "resumen": red["resumen"],
+        "titulo": title, "duracion": round(dur), "nivel": level, "fondo": bool(red.get("fondo")), "resumen": red["resumen"],
         "relato": [{"t": t, "texto": x} for t, x in rel],
         "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] and "items" not in s for s in secs)] +
                   [{"t": it["t"], "texto": it["texto"]} for s in secs for it in s.get("items", [])],
@@ -1652,16 +1637,25 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None):
-    """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor."""
+def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None):
+    """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
+    fondo (o calidad "alta"): además la búsqueda a fondo de decisiones y tareas (buscar_a_fondo). reuse=(id, calidad_asr): rehace el acta
+    de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo."""
     video = Path(video) if video else None
-    if not (video or transcript):
+    if reuse:
+        video = next((WORK / reuse[0]).glob("video.*"), None)
+        quality, transcript = reuse[1], None
+        names, speakers = (lambda d: (d["names"], d["speakers"]))(json.loads((WORK / reuse[0] / "nombres.json").read_text())) \
+            if (WORK / reuse[0] / "nombres.json").exists() else (None, False)
+    elif not (video or transcript):
         raise RuntimeError("Falta el vídeo o la transcripción")
+    fondo = fondo or calidad == "alta"
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
         th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
         quality = "imp" + th[:8]
-    wd = WORK / (video_id(video) if video else "t" + th[:16])
+    wd = WORK / (reuse[0] if reuse else video_id(video) if video else "t" + th[:16])
     wd.mkdir(parents=True, exist_ok=True)
+    (wd / "nombres.json").write_text(json.dumps({"names": names, "speakers": bool(speakers)}, ensure_ascii=False))
     timings = {}
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
     tf = wd / f"transcript_{quality}.json"
@@ -1713,20 +1707,16 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     starts = [c[0]["s"] for c in chunks]
     inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
-    alta = calidad == "alta"
-    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs,
-                                 *([f"alta2{ORD}", MAP_PROMPT_ORD, json.dumps(MAP_SCHEMA_ORD)] * alta)]).encode()).hexdigest()[:8]
-    vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
+    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
+    vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * PASS2).encode()).hexdigest()[:8]
-    if alta:  # map en dos pasadas con voto (caché propia); Alta añade además la comprobación sí/no de decisiones y tareas
-        vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
-        rh = hashlib.sha1((rh + vh).encode()).hexdigest()[:8]
-    tag = ("_alta" + "_ord" * ORD if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
+    tag = (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
-    vf0 = wd / f"valid_{quality}_{vh0}.json" if alta else vf
-    if len(maps) < len(chunks) or not vf.exists() or not rf.exists():
+    fh = hashlib.sha1((vh + FONDO_PROMPT + str(FONDO_CHARS) + str(FONDO_DUP)).encode()).hexdigest()[:8]
+    ff = wd / f"fondo_{quality}{tag}_{fh}.json"
+    if len(maps) < len(chunks) or not vf.exists() or not rf.exists() or (fondo and not ff.exists()):
         t0 = time.time()
         cb(0.6, "Arrancando modelo de lenguaje…")
         with llama(threads, gpu=gpu) as chat:
@@ -1734,23 +1724,27 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             t0 = time.time()
             for i in range(len(maps), len(chunks)):
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
-                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm, alta))
+                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
             maps = dedup_points(maps) if PASS2 else maps
-            if not vf0.exists():
-                vf0.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
-            if alta and not vf.exists():
-                cb(0.93, "Comprobando decisiones y tareas…")
-                vf.write_text(json.dumps(check_sources(chat, json.loads(vf0.read_text()), inputs), ensure_ascii=False))
+            if not vf.exists():
+                vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
             valid = json.loads(vf.read_text())
             if not rf.exists():
                 rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
+            if fondo and not ff.exists():
+                t0 = time.time()
+                ff.write_text(json.dumps(buscar_a_fondo(chat, tr["segments"], kfm, lang, maps, starts,
+                                                        lambda f, m: cb(0.93 + 0.06 * f, m)), ensure_ascii=False))
+                stage("fondo", t0)
     red = json.loads(rf.read_text())
+    if ff.exists():  # búsqueda a fondo hecha antes (o ahora): sus decisiones y tareas van al acta
+        red = merge_fondo(red, json.loads(ff.read_text()))
     timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
     maps = dedup_points(maps) if PASS2 else maps
@@ -1759,17 +1753,18 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
     print(score_hist(maps), flush=True)
 
+    stem = (video.resolve() if reuse and video else video or Path(transcript or wd.name)).stem
     out = wd / f"acta_{level}_{quality}{tag}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
-    for k in render(out, red.get("titulo") or (video or Path(transcript)).stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
+    for k in render(out, red.get("titulo") or stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
                     level, video.suffix if video else None, names, imp):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
             im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
             cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (224, 126), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 70])
-    zpath = wd / f"acta_{(video or Path(transcript)).stem}_{level}{tag}.zip"
+    zpath = wd / f"acta_{stem}_{level}{tag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
             z.write(f, f.relative_to(out))
@@ -1838,15 +1833,6 @@ def _selftest():
     n = [len(select_points(maps, LEVELS[lv]["keep"])) for lv in LEVELS]
     assert n == [2, 5, 10], n
     assert [x[2] for x in select_points(maps, 0.3)] == [5, 5, 5], "primero las notas altas"
-    va = {"puntos": [{"texto": "Se aprueba el presupuesto anual del proyecto", "importancia": 3, "t": "00:10"},
-                     {"texto": "Se presenta el nuevo equipo", "importancia": 2, "t": "01:00"}], "decisiones": [], "tareas": []}
-    vb = {"puntos": [{"texto": "El presupuesto anual del proyecto queda aprobado", "importancia": 4, "t": "00:20"},
-                     {"texto": "Hay un retraso en las obras del edificio", "importancia": 3, "t": "02:00"}], "decisiones": [], "tareas": []}
-    vm = vote(va, vb)
-    assert [p["importancia"] for p in vm["puntos"]] == [5, 2, 3] and vm["n0"] == 2, vm  # en las dos: max + 1; solo en b: se añade
-    rk = [{"rango": r} for r in (3, 1, 2, 4, 5, 6, 7, 8, 9)]
-    rank_to_score(rk)
-    assert [p["importancia"] for p in rk] == [4, 5, 4, 4, 3, 3, 3, 2, 2], rk
     assert len(select_points(maps, 1.0, 4)) == 4 and min(x[2] for x in select_points(maps, 1.0)) == 4, "1 = relleno, fuera"
     many = [pts(5, 5, 5, 3)] * 14  # 42 notas 5: breve reparte por tiempo, no se queda con los 8 primeros bloques
     assert sorted({x[3] for x in select_points(many, 0.2, 8)}) == [0, 2, 4, 6, 7, 9, 11, 13]
@@ -1977,6 +1963,12 @@ def _selftest():
     assert all(u[r[-1]][1] - u[r[0]][0] < MIN_KEEP for r in runs([n == 0 for *_, n in u], False) if any(map(gone, r))), "silencios primero"
     assert recommend_pct([[0, 10, 0], [10, 100, 4]]) == 20 and recommend_pct([[0, 90, 2], [90, 100, 5]]) == 70
     assert recommend_pct([[0, 20, 0], [20, 40, 1], [40, 100, 3]]) == 40
+    r = merge_fondo({"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:00"}], "tareas": []},
+                    {"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:05"},
+                                    {"texto": "Se aplaza la votación a la próxima sesión", "t": "02:00"}], "tareas": []})
+    assert [d["t"] for d in r["decisiones"]] == ["02:00", "10:00"] and r["fondo"], r
+    assert fix_junk([{"texto": "101:34", "cita": "se apruebe el informe"}, {"texto": "98:10", "cita": "ok"}], "texto") == \
+        [{"texto": "Se apruebe el informe", "cita": "se apruebe el informe"}]
     print("ok")
 
 
@@ -1987,7 +1979,8 @@ if __name__ == "__main__":
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
-    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: map en dos pasadas con voto + comprobación de decisiones/tareas")
+    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: además la búsqueda a fondo de decisiones y tareas")
+    ap.add_argument("--fondo", action="store_true", help="solo la búsqueda a fondo de decisiones y tareas (como alta)")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
@@ -2001,7 +1994,7 @@ if __name__ == "__main__":
         if time.time() - last[0] > 5 or f >= 1:
             last[0] = time.time()
             print(f"{f:5.0%} {m}", flush=True)
-    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion, calidad=a.calidad)
+    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion, calidad=a.calidad, fondo=a.fondo)
     print(out / "index.html", z, json.dumps(t), sep="\n")
     if a.condensar is not None and a.video:
         v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)

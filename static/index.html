@@ -53,7 +53,7 @@
               <select id="nivel"><option>breve</option><option selected>normal</option><option>detallado</option></select></div>
             <div class="field"><label for="calidad">Calidad del acta</label>
               <select id="calidad"><option value="rápida">Rápida</option><option value="alta">Alta</option></select>
-              <small id="info-alta">Alta tarda más (≈2x): lee cada bloque dos veces y comprueba cada decisión y tarea contra la transcripción.</small></div>
+              <small id="info-alta">Alta tarda más: además del acta busca a fondo todas las decisiones y tareas (repasa la transcripción entera). También se puede pedir después con «Buscar todas a fondo».</small></div>
             <div class="field"><label for="asr">Calidad de transcripción</label>
               <select id="asr"><option>rápido</option><option>calidad</option></select>
               <small>rápido = whisper small · calidad = large-v3-turbo (más lento)</small></div>
@@ -88,6 +88,7 @@
         <button class="sec" id="volver">&larr; Volver</button>
         <label for="sel-acta">Acta</label><select id="sel-acta"></select>
         <a class="btn sec" id="dl-zip" download>Descargar acta (.zip)</a>
+        <button class="sec" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
       </div>
       <p class="muted" id="imp-info"></p>
       <iframe id="acta-frame" title="Acta"></iframe>

@@ -59,6 +59,11 @@ $("form").onsubmit = async e => {
   if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }
   try { await post("/api/generar", params()); seguir(); } catch (err) { $("subida").textContent = err.message; }
 };
+$("fondo").onclick = async () => {
+  const a = cur.actas.find(a => a.name === $("sel-acta").value);
+  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, gpu: $("usar-gpu").checked}); seguir(); }
+  catch (err) { alert(err.message); }
+};
 $("condensar").onclick = async () => {
   try { await post("/api/condensar", {id: cur.id, asr: $("sel-acta").selectedOptions[0].dataset.asr, pct: +$("pct").value}); seguir(); }
   catch (err) { alert(err.message); }
@@ -69,7 +74,7 @@ function seguir() {
   const tick = async () => {
     const j = await api("/api/job").catch(() => null); if (!j) return;
     if (j.state === "running") {
-      $("job-t").textContent = j.kind === "condensar" ? "Generando vídeo condensado" : "Generando acta · " + (j.video || "");
+      $("job-t").textContent = j.kind === "condensar" ? "Generando vídeo condensado" : j.kind === "fondo" ? "Buscando decisiones y tareas a fondo · " + (j.video || "") : "Generando acta · " + (j.video || "");
       $("job-msg").textContent = j.msg; $("job-bar").style.width = Math.round(j.frac * 100) + "%";
       $("job-eta").textContent = Math.round(j.frac * 100) + " %" + (j.eta != null ? " · quedan unos " + (j.eta > 90 ? Math.round(j.eta / 60) + " min" : j.eta + " s") : "");
       return;
@@ -95,13 +100,13 @@ async function cargarLista() {
 }
 async function abrir(id, acta) {
   cur = await api("/api/meeting/" + id);
-  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.alta ? " · alta" : ""), "data-asr": a.asr})));
+  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.fondo ? " · a fondo" : ""), "data-asr": a.asr})));
   if (acta) s.value = acta;
   vista("res"); cambiarActa(); pintarConds();
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === $("sel-acta").value);
-  $("acta-frame").src = a.url; $("dl-zip").hidden = !a.zip; if (a.zip) $("dl-zip").href = a.zip;
+  $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) $("dl-zip").href = a.zip;
   const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
     (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : " · sin vídeo: sin capturas ni reproductor") + (imp.aviso ? ". " + imp.aviso : "") : "";
