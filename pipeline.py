@@ -603,36 +603,6 @@ def keyframes_map(video, wd, threads, dur, cb):
 
 
 # ---------- LLM (llama-server) ----------
-LLM_ALTA = "Qwen3.5-9B-Q4_0.gguf"  # calidad Alta: redacta el reduce (resumen, secciones, selección); el map y las comprobaciones, el 4B
-ALTA_MIN_GB = 12  # con menos RAM el 9B no cabe junto al SO: Alta sigue con el 4B (y sus pasos extra)
-
-
-def ram_gb():
-    """RAM total en GB (stdlib); 0 si no se sabe."""
-    try:
-        if os.name == "nt":
-            import ctypes
-
-            class MS(ctypes.Structure):
-                _fields_ = [("l", ctypes.c_ulong), ("u", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + \
-                           [(f"x{i}", ctypes.c_ulonglong) for i in range(5)]
-            m = MS()
-            m.l = ctypes.sizeof(m)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
-            return m.total / 2**30
-        if sys.platform == "darwin":
-            return int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30
-        return int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text()).group(1)) / 2**20
-    except Exception:
-        return 0
-
-
-def alta_model():
-    """Modelo grande para Alta, o None (no está descargado o la RAM no llega): Alta sigue con el 4B."""
-    p = ROOT / "models" / LLM_ALTA
-    return p if p.exists() and ram_gb() >= ALTA_MIN_GB else None
-
-
 def llm_model():
     p = ROOT / "models" / (os.environ.get("ACTAS_MAP_MODEL") or LLM[0])  # ACTAS_MAP_MODEL: otro .gguf para map+reduce (experimento)
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
@@ -673,9 +643,9 @@ def llama(threads, ctx=8192, model=None):
             except OSError:
                 time.sleep(0.5)
 
-        def chat(system, user, schema, max_tokens, repeat_penalty=1.0):
+        def chat(system, user, schema, max_tokens, repeat_penalty=1.0, temperature=0.2, seed=0):
             body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    "temperature": 0.2, "seed": 0, "max_tokens": max_tokens, "grammar": gbnf(schema),
+                    "temperature": temperature, "seed": seed, "max_tokens": max_tokens, "grammar": gbnf(schema),
                     "repeat_penalty": repeat_penalty}
             req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
                                          {"Content-Type": "application/json"})
@@ -916,10 +886,60 @@ RESCUE_PROMPT = ("Fragmento de una reunión (transcripción con errores). Redact
                  "toma ahí (qué se aplaza, designa o fija). Solo lo dicho.")
 
 
-def map_chunk(chat, segs, text, lang, kfs=()):
+# Alta: dos pasadas del map (la 2.ª con otra semilla y temperatura) unidas por voto; ACTAS_ALTA_ORD=1: el modelo ordena (rango) en vez de puntuar
+ORD = os.environ.get("ACTAS_ALTA_ORD") == "1"
+MAP_SCHEMA_ORD = {**MAP_SCHEMA, "properties": {**MAP_SCHEMA["properties"], "puntos": arr(
+    obj(texto=S(PT_MAX), rango={"enum": list(range(1, 10))}, t=TS), 9, 6)}}
+MAP_PROMPT_ORD = re.sub(r"importancia: 5 = .*?la mayoría 2-3\.", "rango: 1 = la idea más importante del fragmento (decisión, "
+                        "compromiso, cifra clave), 2 = la siguiente… 9 = la menos; sin repetir números; saludos, presentaciones, "
+                        "agradecimientos y logística, los últimos.", MAP_PROMPT, flags=re.S)
+assert MAP_PROMPT_ORD != MAP_PROMPT
+_stems = lambda x: {w[:5] for w in words(x) if len(w) >= 4}
+
+
+def rank_to_score(pts):
+    """rango (1 = el primero) -> importancia 5/4/3/2 por cuantiles: 15 % / 25 % / 35 % / resto."""
+    n = len(pts)
+    for i, p in enumerate(sorted(pts, key=lambda p: p["rango"])):  # estable: empate = orden en que los listó
+        p["importancia"] = 5 if i < max(1, round(.15 * n)) else 4 if i < round(.4 * n) else 3 if i < round(.75 * n) else 2
+        del p["rango"]
+
+
+def vote(a, b):
+    """Une dos map del mismo bloque: un punto de b que repite uno de a (mismas raíces, cerca en el tiempo) sube su nota +1
+    (máx. 5); los demás de b se añaden. Decisiones y tareas: unión sin repetidos. `n0` = nº de puntos de una pasada."""
+    a["n0"] = len(a["puntos"])
+    left = list(a["puntos"])
+    for q in b["puntos"]:
+        sq = _stems(q["texto"])
+        sc = [(len(sq & _stems(p["texto"])) / max(1, min(len(sq), len(_stems(p["texto"])))), i) for i, p in enumerate(left)
+              if abs(parse_ts(p["t"]) - parse_ts(q["t"])) <= 90]
+        best = max(sc, default=(0, 0))
+        if best[0] >= 0.5 and len(sq) >= 3:
+            p = left.pop(best[1])
+            p["importancia"] = min(5, max(p["importancia"], q["importancia"]) + 1)
+        else:
+            a["puntos"].append(q)
+    for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
+        a[k] = dedupe(a[k] + b[k], key, k == "tareas")[:7]
+    return a
+
+
+def map_chunk(chat, segs, text, lang, kfs=(), alta=False):
+    """Alta: dos pasadas (la 2.ª con otra semilla y más temperatura) unidas por voto."""
+    if not alta:
+        return map_chunk1(chat, segs, text, lang, kfs)
+    return vote(map_chunk1(chat, segs, text, lang, kfs, order=ORD),
+                map_chunk1(chat, segs, text, lang, kfs, {"seed": 1, "temperature": 0.5}, ORD))
+
+
+def map_chunk1(chat, segs, text, lang, kfs=(), opt=None, order=False):
     """Map de un bloque. Decisiones/tareas sin su cita en la transcripción se descartan (inventadas); su marca pasa a la de
     la cita. Las que se leen de la pantalla, las condicionales y el resto de dudas las decide verify()."""
-    m = chat(MAP_PROMPT.format(lang=lang), text, MAP_SCHEMA, MAP_MAX)
+    m = chat((MAP_PROMPT_ORD if order else MAP_PROMPT).format(lang=lang), text, MAP_SCHEMA_ORD if order else MAP_SCHEMA, MAP_MAX,
+             **(opt or {}))
+    if order:
+        rank_to_score(m["puntos"])
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     for p in m["puntos"]:
         p["texto"] = sentences(p["texto"], PT_MAX)
@@ -969,7 +989,8 @@ def select_points(maps, keep, cap=None, floor=0, uniq=False):
     recalificación de X» llenaban los 8 puntos clave y no quedaba sitio para el patrón de voto ni la suspensión."""
     allp = sorted((-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps)
                   for n, p in enumerate(m["puntos"]) if p["importancia"] > 1)
-    k = min(max(1, floor or 0, round(keep * len(allp))), cap or len(allp)) if allp else 0
+    one = sum(m.get("n0", len(m["puntos"])) for m in maps) / max(1, sum(len(m["puntos"]) for m in maps))  # Alta: 2 pasadas, el mismo nº de puntos
+    k = min(max(1, floor or 0, round(keep * len(allp) * one)), cap or len(allp)) if allp else 0
     g = min(k, len(maps))
     pick = []
 
@@ -1466,14 +1487,15 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     starts = [c[0]["s"] for c in chunks]
     inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
-    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
+    alta = calidad == "alta"
+    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs,
+                                 *([f"alta2{ORD}", MAP_PROMPT_ORD, json.dumps(MAP_SCHEMA_ORD)] * alta)]).encode()).hexdigest()[:8]
     vh0 = vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level])).encode()).hexdigest()[:8]
-    alta, big = calidad == "alta", alta_model()
-    if alta:  # el map y verify son los de Rápida (misma caché); Alta añade la comprobación y, si cabe, el 9B en el reduce
+    if alta:  # map en dos pasadas con voto (caché propia); Alta añade además la comprobación sí/no de decisiones y tareas
         vh = hashlib.sha1((vh + CHECK_PROMPT).encode()).hexdigest()[:8]
-        rh = hashlib.sha1((rh + vh + str(big)).encode()).hexdigest()[:8]
-    tag = ("_alta" if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE
+        rh = hashlib.sha1((rh + vh).encode()).hexdigest()[:8]
+    tag = ("_alta" + "_ord" * ORD if alta else "") + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
@@ -1486,7 +1508,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             t0 = time.time()
             for i in range(len(maps), len(chunks)):
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
-                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm))
+                maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm, alta))
                 mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
@@ -1498,15 +1520,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 cb(0.93, "Comprobando decisiones y tareas…")
                 vf.write_text(json.dumps(check_sources(chat, json.loads(vf0.read_text()), inputs), ensure_ascii=False))
             valid = json.loads(vf.read_text())
-            if not (big and alta) and not rf.exists():
+            if not rf.exists():
                 rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
             stage("reduce", t0)
-        if big and alta and not rf.exists():
-            t0 = time.time()
-            cb(0.95, "Redactando el acta (modelo grande)…")
-            with llama(threads, model=big) as chat:
-                rf.write_text(json.dumps(reduce_maps(chat, maps, json.loads(vf.read_text()), starts, level, lang), ensure_ascii=False))
-            stage("reduce_grande", t0)
     red = json.loads(rf.read_text())
     maps = mark_reading(maps, tr["segments"], kfm)
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
@@ -1593,6 +1609,15 @@ def _selftest():
     n = [len(select_points(maps, LEVELS[lv]["keep"])) for lv in LEVELS]
     assert n == [2, 5, 10], n
     assert [x[2] for x in select_points(maps, 0.3)] == [5, 5, 5], "primero las notas altas"
+    va = {"puntos": [{"texto": "Se aprueba el presupuesto anual del proyecto", "importancia": 3, "t": "00:10"},
+                     {"texto": "Se presenta el nuevo equipo", "importancia": 2, "t": "01:00"}], "decisiones": [], "tareas": []}
+    vb = {"puntos": [{"texto": "El presupuesto anual del proyecto queda aprobado", "importancia": 4, "t": "00:20"},
+                     {"texto": "Hay un retraso en las obras del edificio", "importancia": 3, "t": "02:00"}], "decisiones": [], "tareas": []}
+    vm = vote(va, vb)
+    assert [p["importancia"] for p in vm["puntos"]] == [5, 2, 3] and vm["n0"] == 2, vm  # en las dos: max + 1; solo en b: se añade
+    rk = [{"rango": r} for r in (3, 1, 2, 4, 5, 6, 7, 8, 9)]
+    rank_to_score(rk)
+    assert [p["importancia"] for p in rk] == [4, 5, 4, 4, 3, 3, 3, 2, 2], rk
     assert len(select_points(maps, 1.0, 4)) == 4 and min(x[2] for x in select_points(maps, 1.0)) == 4, "1 = relleno, fuera"
     many = [pts(5, 5, 5, 3)] * 14  # 42 notas 5: breve reparte por tiempo, no se queda con los 8 primeros bloques
     assert sorted({x[3] for x in select_points(many, 0.2, 8)}) == [0, 2, 4, 6, 7, 9, 11, 13]
@@ -1733,7 +1758,7 @@ if __name__ == "__main__":
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
-    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: 9B en el reduce + comprobación de decisiones/tareas")
+    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: map en dos pasadas con voto + comprobación de decisiones/tareas")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")

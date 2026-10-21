@@ -364,3 +364,34 @@ motivaciones expuestas»).
 | números inventados | 0 | 0 |
 | recuperación p50 | 0,12 s | 0,14 s (MMR) |
 | total p50 / p90 | 4,6 / 5,9 s | 4,6 / 7,5 s (p90 sube por ruido del revisor y de «por qué», +0,3 s de prompt) |
+
+## 12. Alta v2: map x2 con voto y ordenación en vez de nota (4B, sin 9B)
+
+Cambio: Alta ya no usa el 9B (queda `ACTAS_MAP_MODEL`). El map corre dos veces por bloque con el 4B (2.ª pasada: seed 1,
+temperatura 0,5) y `vote()` las une: puntos de la 2.ª que repiten uno de la 1.ª (>= 50 % de raíces, +-90 s) suben +1 la nota
+(máx. 5), los demás se añaden; decisiones y tareas = unión sin repetidos (`dedupe`, tope 7). `select_points` escala `keep` al
+nº de puntos de una pasada (`n0`) para que el nivel muestre el mismo nº de puntos que Rápida. Variante `ACTAS_ALTA_ORD=1`
+(`_alta_ord`): el esquema pide `rango` 1-9 (sin repetir) en vez de `importancia`; el rango pasa a nota por cuantiles
+(15 % -> 5, 25 % -> 4, 35 % -> 3, resto 2), así que ya no existe el 1 (saludos/logística quedan solo al final del rango).
+Rápida: byte a byte igual (acta.json de sintética con el código anterior y el nuevo, ambos en frío).
+Banco: GPU Vulkan, un servidor a la vez, nivel normal, ASR/OCR en caché; Rápida y Alta rehechas en frío (map+verify+reduce).
+
+| Reunión | Rápida D / T / claves | Alta-v2 (x2+voto) D / T / claves | Alta-v2 + orden D / T / claves |
+|---|---|---|---|
+| charla | ,67/,67 · 1/1 · 4/6 | ,67/,67 · 1/1 · 4/6 | ,67/,67 · 1/1 · 4/6 |
+| larga | ,83/,67 · 1/1 · 4/5 | ,83/**,33** · 1/1 · 5/5 | ,83/,67 · 1/1 · 4/5 |
+| click | — · — · 6/9 | — · — · **5/9** | — · — · 6/9 |
+| sintética | 1/1 · 1/,8 · 3/5 | **,80**/1 · 1/,8 · 3/5 | 1/1 · 1/,8 · 3/5 |
+| webinar | — · — · 9/9 | — · — · 9/9 | — · — · 9/9 |
+
+Prohibidas 0 en todo; resp✗ solo 1 en sintética (igual en los tres).
+
+Tiempo LLM (carga+map+reduce incl. verify y check, s): sintética 40/68/62, click 52/81/87, charla 91/178/200, webinar 117/197/202,
+larga 299/620/607. Total 600 / 1142 / 1158 s -> **1,90x** y **1,93x** Rápida.
+
+Lectura: el voto no sube el recall (larga D R baja de ,67 a ,33; la unión infla las notas 5, 26 de 104 puntos frente a 4 de 33 en
+charla, y aplana la selección; click pierde una clave; sintética mete una decisión falsa). Con ordenación las puntuaciones salen
+idénticas a Rápida en las 5 reuniones, pero al doble de coste. **El cuello de botella del recall no se arregla repitiendo el map con
+el mismo modelo**: la 2.ª pasada aporta poco que la 1.ª no tuviera. Recomendación: no vender Alta como más calidad; si se mantiene,
+quedarse con la variante de orden (empata con Rápida, sin empeorar) o volver a Alta = solo comprobación. La variante de orden
+queda tras `ACTAS_ALTA_ORD=1`.

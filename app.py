@@ -252,12 +252,6 @@ def latido():
     beat[0] = time.time()
 
 
-@app.get("/api/alta")
-def get_alta():
-    """Calidad Alta: ¿usa el 9B (grande) o, por RAM / modelo ausente, sigue con el 4B?"""
-    return {"grande": pipeline.alta_model() is not None, "ram": round(pipeline.ram_gb(), 1), "min": pipeline.ALTA_MIN_GB}
-
-
 @app.get("/api/modelos")
 def get_modelos():
     return models.status()

@@ -171,4 +171,3 @@ async function modelos() {
 $("mod-reint").onclick = async () => { await post("/api/modelos"); modelos(); };
 modelos();
 
-api("/api/alta").then(a => { if (!a.grande) $("info-alta").textContent = "Alta con el modelo pequeño (" + (a.ram < a.min ? "RAM " + a.ram + " GB < " + a.min + " GB" : "modelo grande no descargado") + "): mantiene las comprobaciones extra, pero no el modelo grande."; }).catch(() => {});
