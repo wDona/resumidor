@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 import models
 import pipeline
+import procs
 import rag
 import transcripts
 
@@ -28,6 +29,7 @@ STATIC, LOCK, JOBF = pipeline.ROOT / "static", pipeline.ROOT / ".actas.lock", pi
 UPLOADS = pipeline.ROOT / "uploads"
 TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
+IDLE_JOB = 180  # ídem con un trabajo en marcha (recarga o vuelta de la pestaña)
 app = FastAPI()
 beat = [time.time()]
 job = {"state": "idle"}  # state: idle | running | done | error; kind: acta | condensar
@@ -318,15 +320,17 @@ if __name__ == "__main__":
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
+    procs.cleanup_stale()
     LOCK.write_text(str(port))
     atexit.register(lambda: LOCK.unlink(missing_ok=True))
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
 
     def vigila():
-        while time.time() - beat[0] < IDLE:
+        while time.time() - beat[0] < (IDLE_JOB if job.get('state') == 'running' else IDLE):
             time.sleep(2)
         srv.should_exit = True
     threading.Thread(target=vigila, daemon=True).start()
     if not os.environ.get("ACTAS_NO_BROWSER"):  # CI/pruebas sin navegador
         threading.Timer(1, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
+    procs.on_signal(lambda: setattr(srv, "should_exit", True))
     srv.run()

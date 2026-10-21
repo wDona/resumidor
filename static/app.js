@@ -3,6 +3,8 @@ const api = (url, opt) => fetch(url, opt).then(async r => { if (!r.ok) throw new
 const post = (url, body) => api(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
 const mmss = t => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, p = n => String(n).padStart(2, "0"); return (h ? h + ":" + p(m) : p(m)) + ":" + p(s); };
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
+let corriendo = false;
+addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Se está generando un acta; si cierras, se cancelará"; } });
 setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000); fetch("/api/latido", {method: "POST"});
 
 // ---- pestañas ----
@@ -80,6 +82,7 @@ function seguir() {
   clearInterval(timer); vista("job"); $("job-ok").hidden = true; $("job-err").textContent = "";
   const tick = async () => {
     const j = await api("/api/job").catch(() => null); if (!j) return;
+    corriendo = j.state === "running";
     if (j.state === "running") {
       $("job-t").textContent = j.kind === "condensar" ? "Generando vídeo condensado" : j.kind === "fondo" ? "Buscando decisiones y tareas a fondo · " + (j.video || "") : "Generando acta · " + (j.video || "");
       $("job-msg").textContent = j.msg; $("job-bar").style.width = Math.round(j.frac * 100) + "%";

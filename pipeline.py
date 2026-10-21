@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+import procs
 import transcripts
 
 ROOT = Path(__file__).resolve().parent
@@ -707,7 +708,7 @@ class Srv:
         cmd = s.cmd(s.use)
         if s.use and os.environ.get("ACTAS_TEST_GPU_FAIL") and s.restarts == 0:
             cmd.append("--argumento-invalido")  # solo pruebas: fuerza el fallo de arranque en GPU
-        s.proc = subprocess.Popen(cmd, stdout=open(WORK / s.logname, "w"), stderr=subprocess.STDOUT)
+        s.proc = procs.spawn(cmd, stdout=open(WORK / s.logname, "w"), stderr=subprocess.STDOUT)
         for _ in range(600):
             if s.proc.poll() is not None:
                 return False
