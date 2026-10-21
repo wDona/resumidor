@@ -13,6 +13,19 @@ only = args[args.index("--m") + 1] if "--m" in args else None
 retr_only = "--solo-recuperacion" in args
 threads = int(os.environ.get("ACTAS_THREADS", 2))
 
+
+
+def invented(idx, f):
+    """Cifras de una frase mostrada que no están enteras en lo que cita (o en el acta si es resumen)."""
+    if not f["ok"]:
+        return 0  # no se enseña: sale la cita literal
+    t = " ".join(idx.segs[k]["text"] for j in f.get("refs", [f["i"]]) for k in idx.window(j))
+    if f.get("kind") == "resumen":
+        res, rel = idx.acta()
+        t = " ".join([res or ""] + [x for _, x in rel])
+    return len(rag.bad_nums(f["frase"], t))
+
+
 idxs, rows = {}, []
 url, proc = (None, None) if retr_only else rag.server(threads)
 fold = lambda t: " ".join(P.words(t))
@@ -64,6 +77,7 @@ try:
             r["ok"] = not nada and any(f["hit"] for f in frases) and r["must_ok"]
         else:
             r["ok"] = not nada and any(f["hit"] for f in frases) and r["must_ok"]
+        r["inv"] = sum(invented(idx, f) for f in frases)
         rows.append(r)
         print(f"{'✓' if r['ok'] else '✗'} {q['type'][:5]} {r.get('total')} s  {q['q']}  -> "
               + (rag.NOT_SAID + f" ({nada})" if nada else " | ".join(
@@ -94,6 +108,9 @@ print("general:", pct(by("general")), "· propósito:", pct(by("purpose")),
       "· deducciones con cita que no la respalda:", sum(r.get("ded_mal_citada", 0) for r in rows),
       "de", len(ded), "· deducciones con base «porque se dijo» verificada (antes de descartar):",
       pct([True] * sum(r.get("ded_base_ok", 0) for r in rows) + [False] * sum(r.get("ded_n", 0) - r.get("ded_base_ok", 0) for r in rows)), "· deducciones en trampas/ausentes:", sum(f.get("kind") == "deduce" for r in rows if r["type"] in ("trap", "absent") for f in r["frases"]))
+en = [r for r in rows if r["m"] == "demo_vscode"]
+print("números inventados en frases mostradas:", sum(r["inv"] for r in rows),
+      "· inglés (demo_vscode):", pct([r["ok"] for r in en]), "frases descartadas:", pct([not f["ok"] for r in en for f in r["frases"]]))
 print("falso 'no se menciona' en respondibles:", pct([bool(r["nada"]) for r in ans]),
       "· el LLM infirió en trampas (antes de verificar):", pct([r["raw_inference"] for r in rows if r["type"] == "trap"]))
 print("frases descartadas por la verificación:", pct([not f["ok"] for f in fr]))

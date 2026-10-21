@@ -154,6 +154,7 @@ class Index:
         self.len = np.array([sum(d.values()) for d in self.docs], float)
         self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
         self.wd = Path(wd)
+        self.lang = json.loads((self.wd / f"transcript_{quality}.json").read_text()).get("language") or "es"
 
     def acta(self):
         """(resumen, [(t, texto)...]) del acta breve (o la más corta que haya) de esta reunión; (None, []) si no hay."""
@@ -232,6 +233,33 @@ def verify(frase, allowed_text):
         if occ and all(neg(src, j) for j in occ) and not neg(fw, k):
             bad.append("no " + w)
     return bad
+
+
+def _nv(m):
+    """Lecturas posibles de una cifra: 34,75 = 34.75; 1.000 / 1,000 = 1000."""
+    r = {m.replace(",", ".")}
+    if re.fullmatch(r"\d{1,3}([.,]\d{3})+", m):
+        r.add(re.sub(r"[.,]", "", m))
+    return r
+
+
+NUMRE = r"\d+(?:[.,]\d+)*"
+
+
+def bad_nums(frase, text):
+    """Cifras de la frase que NO aparecen enteras en el texto citado (34,75 != 75). También cuenta las dichas en letra."""
+    have = set().union(*(_nv(m) for m in re.findall(NUMRE, text)), {NUM[w] for w in P.words(text) if w in NUM})
+    return [m for m in re.findall(NUMRE, frase) if not _nv(m) & have]
+
+
+QUOTE = re.compile(r"«([^»]+)»")
+
+
+def quote_ok(q, text):
+    """La cita (con «…» para saltos) es subcadena literal del texto, sin mayúsculas, tildes ni puntuación; >= 3 palabras."""
+    fold = lambda t: " " + " ".join(P.words(t)) + " "
+    parts = [fold(x) for x in re.split(r"…|\.\.\.", q) if P.words(x)]
+    return sum(len(p.split()) for p in parts) >= 3 and all(p in fold(text) for p in parts)
 
 
 # ---------- LLM ----------
@@ -370,24 +398,29 @@ Cada línea empieza por el número del fragmento que la apoya, o de dos si junta
 Dos tipos de línea, los hechos primero:
 [n] Se dijo que <lo que dicen los fragmentos sobre lo preguntado, con tus palabras, resumiendo o conectando varios \
 si hace falta; solo datos, nombres y cifras que aparezcan en ellos>.
-[n] Se deduce que <conclusión razonable; es una deducción, no un hecho dicho>, porque se dijo que <lo que dicen esos \
-fragmentos en que se apoya, con sus palabras>.
+[n] Se deduce que <conclusión razonable; es una deducción, no un hecho dicho>, porque se dijo que «<cita literal: de 5 a 20 \
+palabras copiadas EXACTAS del fragmento, sin cambiar nada>».
 Reglas: máximo 3 líneas «Se dijo» y 1 «Se deduce». La deducción solo si ayuda a responder (p. ej. el propósito de \
 una herramienta a partir de las funciones que se muestran); cada deducción cita el fragmento en que se apoya y no inventa \
 cifras ni hechos. Si la pregunta supone algo que los fragmentos no dicen, no lo des por cierto. \
 Si ningún fragmento trata lo preguntado, escribe solo: NINGUNO"""
+SYSTEM_EN = """
+Los fragmentos están en otro idioma: escribe tú en español, pero tras cada «Se dijo que <frase>» añade la cita literal \
+(de 5 a 20 palabras copiadas EXACTAS del fragmento, en su idioma) entre «», así: [n] Se dijo que <frase> «<cita>». La cita de \
+«porque se dijo que» también va tal cual, en el idioma del fragmento."""
 SYSTEM_G = """Resumes una reunión a partir de su resumen y de los momentos numerados de su acta.
 Escribe 3 líneas, cada una con su idea y el número del momento que la apoya: [n] <idea>. Solo lo que dice el acta, \
 sin inventar nombres, cifras ni conclusiones."""
 
 
-def grammar_i(n, general=False):
+def grammar_i(n, general=False, quote=False):
     refs = 'refs ::= "[" id "]" ("[" id "]")?\nid ::= ' + " | ".join(f'"{i}"' for i in range(1, n + 1))
-    txt = 'txt ::= [^\\n\\[\\]]{3,260}'
+    txt = 'txt ::= [^\\n\\[\\]«»"‖]{3,260}\nq ::= [^\\n\\[\\]«»]{12,160}\ndtxt ::= [^\\n\\[\\]«»"‖.]{3,200}'  # dtxt: una sola oración
     if general:
         return f'root ::= g{{2,3}}\ng ::= refs " " txt "\\n"\n{refs}\n{txt}'
-    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " Se dijo que " txt "\\n"\n'
-            f'e ::= refs " " ("Se deduce que" | "Probablemente") " " txt ", porque se dijo que " txt "\\n"\n{refs}\n{txt}')
+    dq = ' " «" q "»"' if quote else ""
+    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " Se dijo que " txt{dq} "\\n"\n'
+            f'e ::= refs " " ("Se deduce que" | "Probablemente") " " dtxt ", porque se dijo que «" q "»\\n"\n{refs}\n{txt}')
 
 
 LINE_I = re.compile(r"^((?:\[\d+\])+) (Se dijo que|Se deduce que|Probablemente)? ?(.+)")
@@ -400,6 +433,7 @@ def answer_i(idx, q, url):
     t0 = time.time()
     resumen, rel = idx.acta() if GEN_Q.search(q) else (None, [])
     general = bool(rel)
+    es = idx.lang.startswith("es")  # en otro idioma la frase (en español) no se puede comparar palabra a palabra: se exige la cita literal
     ids, cos = idx.search(q)
     st = {"recuperacion": round(time.time() - t0, 3), "cos": round(cos, 3)}
     allowed = None
@@ -418,10 +452,17 @@ def answer_i(idx, q, url):
             yield "fin", {**st, "total": round(time.time() - t0, 2)}
             return
         order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))
-        user, args = prompt(idx, order, q), dict(system=SYSTEM_I, gram=grammar_i(len(order)), max_tokens=420)
+        user = prompt(idx, order, q)
+        args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN), gram=grammar_i(len(order), quote=not es), max_tokens=420)
     buf, n_out, t1, first, seen, dijo = "", 0, time.time(), None, set(), set()
     ded_n = ded_ok = 0  # dijo: tramos citados por las líneas «Se dijo»
     text_of = lambda js: " ".join(idx.segs[k]["text"] for j in js for k in idx.window(j))
+
+    def check(frase, js):  # palabras sin respaldo (es) o ["cita"] si la cita literal no está (otro idioma)
+        if es:
+            return verify(frase, text_of(js))
+        m = QUOTE.search(frase)
+        return [] if m and quote_ok(m[1], text_of(js)) else ["cita"]
     for ch in stream(url, user, len(order), **args):
         if isinstance(ch, dict):
             st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
@@ -442,11 +483,13 @@ def answer_i(idx, q, url):
             if kind == "dijo":
                 if refs[0] in seen:
                     continue
-                miss = verify(frase, text_of(refs))
+                miss = check(frase, refs)
                 if miss and len(refs) == 1:  # el LLM a veces se equivoca de tramo: si sale entera de otro, es de ese
-                    j = next((j for j in order if j not in seen and not verify(frase, text_of([j]))), None)
+                    j = next((j for j in order if j not in seen and not check(frase, [j])), None)
                     if j is not None:
                         refs, miss = [j], []
+                if bad_nums(frase, text_of(refs)):
+                    continue  # cifra que no está entera en lo citado: se descarta la frase
                 if idx.segs[refs[0]]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
                     continue
                 if idx.segs[refs[0]]["kind"] == "pantalla":
@@ -455,15 +498,16 @@ def answer_i(idx, q, url):
                 dijo.update(refs)
             else:  # deducción / resumen: sin cifras inventadas
                 if kind == "deduce":
-                    frase = re.split(r"\.\s", frase + " ", 1)[0].rstrip(".") + "."  # una sola oración: el LLM a veces sigue con otra
+                    if "»" not in frase:
+                        frase = re.split(r"\.\s", frase + " ", 1)[0].rstrip(".") + "."  # una sola oración (la gramática ya cierra en la cita)
                     if not set(refs) <= dijo:
                         continue  # una deducción solo puede citar lo que ya sostiene los hechos de esta respuesta
                     ded_n += 1
-                    base = frase.split(", porque se dijo que ", 1)[-1]
-                    if verify(base, text_of(refs)):
-                        continue  # «porque se dijo que…» es una afirmación de hecho: misma verificación que «Se dijo»
+                    qm = QUOTE.search(frase.split(", porque se dijo que ", 1)[-1])
+                    if not qm or not quote_ok(qm[1], text_of(refs)):
+                        continue  # «porque se dijo que «…»» es un hecho: la cita tiene que ser literal del fragmento citado
                     ded_ok += 1
-                miss = [w for w in verify(frase, allowed or text_of(refs)) if w.isdigit() or w.startswith("no ")]
+                miss = bad_nums(frase, allowed or text_of(refs))
                 if miss:
                     continue
             n_out += 1
@@ -501,6 +545,11 @@ def _selftest():
     assert verify("Se dijo que se convocan a la próxima reunión.", "se convoca a la próxima reunión") == []  # conjugación
     assert verify("Se dijo que se reanudaría el martes.", "se reanudará el martes") == []
     assert verify("Se dijo que el plan vale 25 dólares.", "el plan valía 30 dólares") == ["25"]
+    assert bad_nums("Se dijo que son 75,75 dólares", "cuesta 34,75 dólares") == ["75,75"]
+    assert bad_nums("son 34.75 y 1000", "cuesta 34,75 y 1.000 mil") == []
+    assert bad_nums("son 75", "cuesta 34,75") == ["75"]
+    assert quote_ok("Lo que haría en MI ordenador", "dice: lo que haría, en mi ordenador, sería") and not quote_ok("lo que haré en mi ordenador", "lo que haría en mi ordenador")
+    assert quote_ok("lo que haría … sería presentarme", "lo que haría en mi ordenador sería presentarme") and not quote_ok("hola mundo", "hola mundo")
     g = grammar(3)
     assert '"1" | "2" | "3"' in g and "NINGUNO" in g
     print("selftest ok")

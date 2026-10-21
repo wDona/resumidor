@@ -235,3 +235,41 @@ vídeo de VS Code (la cita no cae en el `must` en inglés); la pregunta de prop�
 - Medir en el portátil: coste de las 2 pasadas de OCR y de la etapa de capturas.
 - Capturas: cara a 0:53 en charla; validar `collapse_typing` con más vídeos.
 - Nada de esta ronda está subido (sin push ni release).
+
+## 8. Chat gemma: deducciones con cita literal, cifras enteras, inglés
+
+Tres arreglos en `rag.py` (`answer_i`), mismas 62 preguntas, GPU Vulkan:
+
+1. **Base de la deducción = cita literal.** El LLM escribe `Se deduce que <conclusión>, porque se dijo que «<5-20 palabras copiadas>»`
+   (gramática: una sola oración, la cita entre «»). `quote_ok` comprueba que la cita es subcadena del fragmento citado (±1 vecino)
+   sin mayúsculas, tildes ni puntuación (`…` permite saltos; mínimo 3 palabras). Sin cita literal, la deducción se descarta.
+2. **Cifras enteras.** `bad_nums`: toda cifra de una frase (dijo, deduce, resumen) tiene que estar entera en lo que cita
+   (34,75 = 34.75; 1.000 = 1000; también cifras en letra del fragmento). Si no, se descarta la frase (antes solo se enseñaba la
+   cita literal, y «75,75» pasaba con «34,75» presente porque se miraban las cifras sueltas).
+3. **Inglés.** Causa: la frase en español nunca coincide palabra a palabra con la transcripción en inglés, así que `verify` la
+   descartaba siempre (50 % de frases descartadas en demo_vscode, solo quedaba la cita). Ahora, si `transcript.language` no es `es`,
+   el LLM responde en español y añade `«cita literal en inglés»` a cada «Se dijo que»; se verifica esa cita (no las palabras) y las cifras.
+
+| Métrica | Antes | Después |
+|---|---|---|
+| factual | 100 % (19/19) | 100 % (19/19) |
+| paráfrasis | 93 % (13/14) | 93 % (13/14) |
+| trampas | 100 % (11/11) | 82 % (9/11) |
+| ausentes | 100 % (7/7) | 100 % (7/7) |
+| general | 67 % (4/6) | 67 % (4/6) |
+| propósito | 100 % (5/5) | 100 % (5/5) |
+| deducciones supervivientes (base verificada / propuestas) | 32 % (7/22) | 77 % (20/26) |
+| deducciones mostradas | 6 | 19 |
+| números inventados en frases mostradas | 0 | 0 |
+| inglés (demo_vscode): ok / frases descartadas | 50 % (1/2) / 50 % (3/6) | 50 % (1/2) / 0 % (0/6) |
+| frases descartadas en total | 30 % (36/122) | 15 % (19/131) |
+| latencia p50 / p90 (GPU) | 4,8 / 6,3 s | 4,0 / 5,4 s |
+
+Notas: «números inventados» se mide con `bad_nums` sobre lo mostrado (`rag_score.py`); en esta tanda ya era 0 antes (el caso
+75,75 era del experimento anterior), así que el arreglo es una garantía, no una mejora medible; `selftest` cubre el caso.
+Las trampas bajan porque ahora sobreviven más deducciones y dos casos se cuelan: «¿Recomienda el ponente usar ClickMeeting?»
+(deducción «recomienda…», marcada y con cita literal, pero la palabra prohibida aparece) y «¿Qué color…métricas financieras?» (frase
+fiel al fragmento 21:57 que nombra azul/negro; la gramática distinta cambió qué líneas genera). La verificación de la cita
+garantiza que lo dicho es literal, no que la conclusión sea sensata. Inglés: las citas ya sobreviven, pero las 2 preguntas
+siguen sin dar ok en «general» (`must` en español, igual que antes); «¿Para qué sirve VS Code?» pasa con citas en inglés.
+Pendiente: las deducciones con propósito ligado al gold siguen siendo 20 % (1/5).
