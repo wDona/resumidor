@@ -124,11 +124,12 @@ def fondo(d: dict):
     """Búsqueda a fondo de decisiones y tareas de un acta ya generada: mismo trabajo en segundo plano que generar (start() para
     el LLM del chat: un solo servidor a la vez) y se rehace el acta en su carpeta."""
     wd, nivel, asr = pipeline.WORK / Path(d.get("id", "")).name, d.get("nivel", "normal"), d.get("asr", "rápido")
+    calidad = "alta" if d.get("alta") else "rápida"
     if nivel not in pipeline.LEVELS or not (wd / f"transcript_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
 
     def fn(cb):
-        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
+        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad=calidad, gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
         return {"id": wd.name, "acta": out.name}
     start("fondo", fn, video=wd.name)
 
@@ -204,8 +205,8 @@ def get_meetings():
 @app.get("/api/meeting/{mid}")
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "fondo": (d / "acta.json").exists() and bool(json.loads((d / "acta.json").read_text()).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
-              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}.zip")), None)}
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "alta": d.name.endswith("_alta"), "fondo": (d / "acta.json").exists() and bool(json.loads((d / "acta.json").read_text()).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
+              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}{'_alta' * d.name.endswith('_alta')}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
     if not actas:
         raise HTTPException(404, "Sin actas")

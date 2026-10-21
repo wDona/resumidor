@@ -61,7 +61,7 @@ $("form").onsubmit = async e => {
 };
 $("fondo").onclick = async () => {
   const a = cur.actas.find(a => a.name === $("sel-acta").value);
-  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, gpu: $("usar-gpu").checked}); seguir(); }
+  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, alta: a.alta, gpu: $("usar-gpu").checked}); seguir(); }
   catch (err) { alert(err.message); }
 };
 $("condensar").onclick = async () => {
@@ -100,7 +100,7 @@ async function cargarLista() {
 }
 async function abrir(id, acta) {
   cur = await api("/api/meeting/" + id);
-  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.fondo ? " · a fondo" : ""), "data-asr": a.asr})));
+  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.alta ? " · alta" : "") + (a.fondo ? " · a fondo" : ""), "data-asr": a.asr})));
   if (acta) s.value = acta;
   vista("res"); cambiarActa(); pintarConds();
 }

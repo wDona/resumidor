@@ -40,10 +40,15 @@ y en un `.zip` sin el vídeo (el informe ofrece abrirlo si no lo encuentra). Hil
 (= físicos con hyperthreading; con más hilos que núcleos llama.cpp genera a menos de la mitad); `--threads` o
 `ACTAS_THREADS` (GUI) lo cambian.
 
-**Búsqueda a fondo de decisiones y tareas** (`--calidad alta` o `--fondo`, campo `calidad` de la API, selector «Alta» y botón «Buscar todas a
-fondo» junto al acta en la GUI): el acta normal más un repaso de TODA la transcripción en bloques de ~4000 caracteres (`ACTAS_FONDO_CHARS`)
+**Calidad Alta** (`--calidad alta`, campo `calidad` de la API, selector en la GUI): el mismo 4B, con bloques del map de ~6000 caracteres cortados
+donde cambia el tema (EmbeddingGemma, como TextTiling; `ACTAS_SEMCHUNK=1` lo activa solo, `ACTAS_CHUNK_CHARS` cambia el tamaño) y una pasada 2 sobre los puntos
+(`ACTAS_PASS2=1`): los repetidos (coseno >= 0,93 y las mismas cifras) se funden y el LLM agrupa los de cada sección en viñetas con los números de punto que
+resume; en código se comprueba que no falte ningún punto ni ninguna cifra, hora o fecha (un reintento y, si sigue faltando, se añade tal cual). Salida en
+`acta_<nivel>_<asr>_alta/`. ≈2x el tiempo de LLM de Rápida (eval/ronda3.md §15-§17).
+
+**Búsqueda a fondo de decisiones y tareas** (`--fondo`, botón «Buscar todas a fondo» junto al acta en la GUI; no va incluida en Alta): el acta normal más un repaso de TODA la transcripción en bloques de ~4000 caracteres (`ACTAS_FONDO_CHARS`)
 con un prompt que solo extrae decisiones y tareas (las mismas reglas que el map). En código: la cita debe estar en la transcripción, nada
-de textos que sean una marca, no repetir lo que el acta ya tiene (texto parecido o coseno >= 0,85 a <= 2 min) y después `verify()` (lectura
+de textos que sean una marca, no repetir lo que el acta ya tiene (misma cita, o texto parecido a <= 60 s), decisiones nuevas solo si su cita trae una señal de acuerdo y después `verify()` (lectura
 de pantalla, condicionales, clasificación por LLM, responsable solo si lo dice el texto de alrededor). Lo hallado se funde en el acta, que
 se rehace en su carpeta (`fondo_<asr>_<hash>.json` en la caché) y pasa de «Lista automática: puede faltar alguna.» a «Búsqueda a fondo hecha».
 Cada decisión/tarea muestra su cita literal. Medido en eval/ronda3.md §18.

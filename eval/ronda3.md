@@ -640,3 +640,12 @@ Las 11 decisiones añadidas en larga (minuto: cita): 24:26 «se aproba el presid
 solicitud»; 111:35 «mi voto es abstención»; 135:41 «se ordena notificar la resolución». Son votos por informe reales (cada informe se vota), pero el gold agrupa el patrón
 de votación y las cuenta como falsos positivos; no suben el recall (ya 1). Las 2 tareas nuevas: aceptar parcialmente una solicitud (en realidad una recomendación) y reanudar la sesión
 al día siguiente a las 9:00 (esta sí es real). Con el gold actual la búsqueda a fondo no mejora P/R; su valor sería listar cada votación, a costa de ~0,4x el LLM.
+
+## 19. Calidad Alta = SEMCHUNK 6000 + PASS2
+
+`calidad=alta` (CLI, API, selector de la GUI) activa por sí sola el chunking semántico de 6000 caracteres y la pasada 2 con la comprobación de cifras;
+`ACTAS_SEMCHUNK`/`ACTAS_PASS2` siguen sirviendo para probar por separado. Rápida no cambia. La caché del map lleva el chunking en su hash (la entrada
+cambia) y la del reduce lleva PASS2; la salida va a `acta_<nivel>_<asr>_alta/`. La búsqueda a fondo ya NO va incluida en Alta: solo el botón (hay que decidir
+si se queda, §18). Probado con TestClient (`POST /api/generar` con calidad alta): reunion_sintetica (15 s, caches de ASR) y larga_cne (162 s, map en
+caché de §15) acaban en `acta_normal_rápido_alta`, la reunión los lista con `alta: true` y con zip. Problema abierto: con bloques de 6000 larga gana 2 «prohibidos» y 1
+responsable erróneo que salen del map (§16).

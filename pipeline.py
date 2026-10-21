@@ -871,13 +871,14 @@ def windows(segments, span):
     return out
 
 
-def semchunk(segments, span=45):
+def semchunk(segments, span=45, cap=None):
     """Como TextTiling: la similitud entre el bloque de 2 ventanas anterior y el posterior a cada hueco entre ventanas; se corta
-    donde es mínima (menos una bonificación si hay pausa o cambio de hablante) con tamaño entre 0,4 y 1 x CHUNK_CHARS."""
+    donde es mínima (menos una bonificación si hay pausa o cambio de hablante) con tamaño entre 0,4 y 1 x cap."""
+    cap = cap or CHUNK_CHARS
     size = [len(x["text"]) + 9 for x in segments]
     ws = windows(segments, span)
-    if len(ws) < 4 or sum(size) <= CHUNK_CHARS:
-        return chunk_eq(segments)
+    if len(ws) < 4 or sum(size) <= cap:
+        return chunk_eq(segments, cap)
     v = embed([" ".join(x["text"] for x in segments[a:b]) for a, b in ws])
     ws_sz = [sum(size[a:b]) for a, b in ws]
     sc = []  # sc[g]: puntuación del hueco entre ws[g] y ws[g+1] (menor = mejor corte)
@@ -886,12 +887,12 @@ def semchunk(segments, span=45):
         s0, s1 = segments[ws[g][1] - 1], segments[ws[g + 1][0]]
         sc.append(float(a @ b) / float(np.linalg.norm(a) * np.linalg.norm(b)) - 0.03 * min(2, max(0, s1["s"] - s0["e"]) / 1.5)
                   - 0.03 * (s0.get("spk") != s1.get("spk")))
-    lo, out, g0, left = 0.4 * CHUNK_CHARS, [], 0, sum(ws_sz)
-    while left > CHUNK_CHARS:
+    lo, out, g0, left = 0.4 * cap, [], 0, sum(ws_sz)
+    while left > cap:
         acc, best = 0, None
         for g in range(g0, len(ws) - 1):
             acc += ws_sz[g]
-            if acc > CHUNK_CHARS:
+            if acc > cap:
                 break
             if acc >= lo and left - acc >= lo and (best is None or sc[g] < sc[best]):
                 best = g
@@ -904,8 +905,11 @@ def semchunk(segments, span=45):
     return out
 
 
-def chunk(segments):
-    return semchunk(segments) if SEMCHUNK else chunk_eq(segments)
+ALTA_CHARS = 6000  # Alta: bloques más pequeños (más puntos por minuto), cortados donde cambia el tema
+
+
+def chunk(segments, alta=False):
+    return semchunk(segments, cap=ALTA_CHARS if alta and not os.environ.get("ACTAS_CHUNK_CHARS") else None) if SEMCHUNK or alta else chunk_eq(segments)
 
 
 def chunk_eq(segments, cap=None):
@@ -1333,7 +1337,7 @@ def group_section(chat, pts, ask_n, lang, mas):
     return sentences(res, c * 3 // 2), sorted(items, key=lambda i: i["t"])
 
 
-def reduce_maps(chat, maps, valid, starts, level, lang):
+def reduce_maps(chat, maps, valid, starts, level, lang, p2=False):
     """Reduce jerárquico, nunca se pasa de contexto ni recorta: (1) una sección por bloque del map (título = su tema,
     viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el título y el resumen
     global salen de los resúmenes de sección (breve: de los puntos elegidos). En los niveles con tope, las decisiones
@@ -1348,7 +1352,7 @@ def reduce_maps(chat, maps, valid, starts, level, lang):
         pts = [p for p in sel if p[3] == b]
         if pts:
             n, c = cfg["sec"]
-            if PASS2 and len(pts) > 1:
+            if p2 and len(pts) > 1:
                 mas = {(parse_ts(p["t"]), p["texto"]): p["mas"] for mm in maps for p in mm["puntos"] if p.get("mas")}
                 res, items = group_section(chat, pts, cfg["sec"], lang, mas)
                 secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res, "items": items})
@@ -1663,7 +1667,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
-    fondo (o calidad "alta"): además la búsqueda a fondo de decisiones y tareas (buscar_a_fondo). reuse=(id, calidad_asr): rehace el acta
+    calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo."""
     video = Path(video) if video else None
     if reuse:
@@ -1673,7 +1677,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             if (WORK / reuse[0] / "nombres.json").exists() else (None, False)
     elif not (video or transcript):
         raise RuntimeError("Falta el vídeo o la transcripción")
-    fondo = fondo or calidad == "alta"
+    alta = calidad == "alta"  # Alta = bloques semánticos de 6000 + pasada 2 (fusión de repetidos, viñetas agrupadas con comprobación de cifras)
+    p2 = PASS2 or alta
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
         th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
         quality = "imp" + th[:8]
@@ -1727,14 +1732,14 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         stage("ocr_map", t0)
     kfm = screens_map(json.loads(km.read_text()), vocab) if video else []
 
-    chunks = chunk(tr["segments"])
+    chunks = chunk(tr["segments"], alta)
     starts = [c[0]["s"] for c in chunks]
     inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * PASS2).encode()).hexdigest()[:8]
-    tag = (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "") + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
+    rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * p2).encode()).hexdigest()[:8]
+    tag = ("_alta" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
@@ -1755,12 +1760,12 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             t0 = time.time()
             cb(0.92, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
-            maps = dedup_points(maps) if PASS2 else maps
+            maps = dedup_points(maps) if p2 else maps
             if not vf.exists():
                 vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
             valid = json.loads(vf.read_text())
             if not rf.exists():
-                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang), ensure_ascii=False))
+                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2), ensure_ascii=False))
             stage("reduce", t0)
             if fondo and not ff.exists():
                 t0 = time.time()
@@ -1775,7 +1780,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         red = merge_fondo(red, json.loads(ff.read_text()))
     timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
-    maps = dedup_points(maps) if PASS2 else maps
+    maps = dedup_points(maps) if p2 else maps
     imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
     if video:  # el vídeo condensado necesita vídeo
         (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
@@ -2007,8 +2012,8 @@ if __name__ == "__main__":
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="rápido", choices=ASR_MODELS)
-    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: además la búsqueda a fondo de decisiones y tareas")
-    ap.add_argument("--fondo", action="store_true", help="solo la búsqueda a fondo de decisiones y tareas (como alta)")
+    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)")
+    ap.add_argument("--fondo", action="store_true", help="además, la búsqueda a fondo de decisiones y tareas")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
     ap.add_argument("--condensar", type=int, metavar="PCT", help="además, vídeo condensado quitando PCT %% (0 = el recomendado)")
