@@ -251,8 +251,8 @@ def error_descarga(ex, nav=""):
     if "drm" in t:
         return "Este sitio protege el vídeo (DRM): descárgalo a mano"
     if "cookie" in t or "keyring" in t or "dpapi" in t or "decrypt" in t or "database is locked" in t or "unsupported browser" in t:
-        return (f"No se pudieron leer las sesiones de {b}: ciérralo del todo y reintenta, o prueba con Firefox "
-                "(Chrome y Edge suelen bloquear esto en Windows)")
+        return (f"No se pudieron leer las sesiones de {b}: ciérralo del todo y reintenta" + (", o prueba con Firefox "
+                "(Chrome y Edge suelen bloquear esto en Windows)" if nav != "firefox" else ""))
     if "unsupported url" in t:
         return "Enlace no compatible: no se encontró ningún vídeo ni audio en esa dirección"
     if any(x in t for x in ("http error 401", "http error 403", "sign in", "log in", "login", "private", "members-only", "members only", "confirm you", "not a bot", "forbidden", "authentication", "age-restricted", "permission")):

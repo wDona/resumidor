@@ -110,3 +110,4 @@ header{gap:12px}.grow{flex:1}
  .pri,.nav[aria-current=true]{color:#0b1220}.bar{background:#333b46}
  #drop.over input,#drop-tr.over input{background:#1d2a44}
 }
+video.audio{height:54px;background:none}

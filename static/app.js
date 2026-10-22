@@ -272,6 +272,7 @@ function setQ(sel, video) {  // sel: "id|asr" o "c:carpeta"; video: url (null = 
   if (sel !== qsel) $("respuestas").replaceChildren();
   qsel = sel; $("qpanel").hidden = false; const v = $("qav"); v.hidden = !video;
   if (video && !v.src.endsWith(video)) v.src = video;
+  v.classList.toggle("audio", /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(video || ""));  // solo audio: barra de controles, sin caja negra
 }
 
 // v: undefined = vídeo del selector; en carpetas, la url del vídeo de esa reunión (null = reunión sin vídeo); n: nombre de la reunión
