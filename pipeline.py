@@ -2259,6 +2259,10 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if k:
             s["spk"] = k
 
+    if nube and nube.get("anonimizar"):  # nombres a seudonimizar: conocidos + los del modelo local (dentro del trabajo de la cola: nunca a la vez que otro LLM)
+        if llm_model():
+            cb(0.58, "Buscando nombres con el modelo local…")
+        nube = NB.con_nombres(nube, [wd], glosario or (), [*(names or {}).values(), *{s["spk"] for s in tr["segments"] if s.get("spk")}])
     kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
     if pic and not kf.exists():
         t0 = time.time()
@@ -2280,7 +2284,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     # como_redactar solo entra en rh (redacción): cambiarlo reutiliza el map y la verificación
     mh, vh, rh = cache_keys(P, model, inputs, level, p2, lang if idioma else None)
-    tag = (f"_p-{tpl['id']}" * (tpl["id"] != "acta") + f"_i-{idioma}" * bool(idioma) + f"_{calidad}" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
+    tag = (f"_p-{tpl['id']}" * (tpl["id"] != "acta") + f"_i-{idioma}" * bool(idioma) + f"_{calidad}" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "") + (f"_{NB.slot(nube)}" if nube else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"

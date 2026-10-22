@@ -233,3 +233,14 @@ def test_pipeline_marca_y_exports(srv, kr, tmp_path, monkeypatch):
     assert any("Redactado con" in p.text for p in Document(io.BytesIO(exportar.docx_bytes(cc))).paragraphs)
     # cache: la misma entrada en local usa otras claves (otro map_*.json)
     assert len(list(mid.glob("map_*.json"))) == 1
+
+
+def test_anonimiza_nombres_y_slot():
+    an = nube.Anon(["Ana López", "Carlos"])
+    env = an.ida("Ana López dijo que Carlos llama al 612345678; Ana López firma")
+    assert "Ana" not in env and "Carlos" not in env and "612345678" not in env
+    assert an.vuelta(env) == "Ana López dijo que Carlos llama al 612345678; Ana López firma"
+    a, b = (nube.slot(nube.norm({"proveedor": "openai", "modelo": m})) for m in ("gpt-5", "x"))
+    assert a != b and "_" not in a and nube.slot({"proveedor": "cli:claude", "modelo": ""}) == "nube-cli-claude"
+    assert nube.con_nombres({"anonimizar": False}) == {"anonimizar": False}
+    assert nube.con_nombres({"anonimizar": True}, [], ["Pedro Gil (jefe)", "Pozo"], ["Marta"], llm=False)["nombres"] == ["Marta", "Pedro Gil"]

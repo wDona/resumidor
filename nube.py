@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -124,7 +125,12 @@ def marca(cfg):
 def id_cache(cfg):
     """Entra en las claves de caché: nube y local (o dos proveedores/modelos) nunca comparten resultados."""
     p = cfg["proveedor"]
-    return f"nube:{p}:{cfg['modelo']}" + (f"@{cfg['url']}" if p == "propio" else "") + (":anon" if cfg.get("anonimizar") else "")
+    return f"nube:{p}:{cfg['modelo']}" + (f"@{cfg['url']}" if p == "propio" else "") + (":anon2" if cfg.get("anonimizar") else "")
+
+
+def slot(cfg):
+    """Parte del nombre de la versión: nube y local (o dos proveedores/modelos) con el mismo nivel y calidad no se pisan."""
+    return "nube-" + re.sub(r"[^a-z0-9.]+", "-", f"{cfg['proveedor'].replace('cli:', 'cli-')}-{cfg['modelo']}".lower()).strip("-")[:40]
 
 
 def permitida(plantilla=None, ajustes=None):
@@ -246,21 +252,94 @@ def _json(txt):
             raise ValueError(f"JSON mal formado ({e})") from None
 
 
-# ---------- anonimizar (solo regex: nada de LLM local) ----------
+# ---------- anonimizar: nombres conocidos (+ los del modelo local) y datos con formato (regex) ----------
+def _persona_glos(t):
+    """Término del glosario que parece una persona: varias palabras con mayúscula, o una sola si su definición lo dice."""
+    nom, _, d = t.partition(" (")
+    w = nom.split()
+    return nom if len(w) >= 2 and all(x[:1].isupper() for x in w) and not re.search(r"\d", nom) or \
+        len(w) == 1 and w[0][:1].isupper() and re.search(r"persona|responsable|director|jef[ae]|cliente|ingenier|técnic|gerente", d, re.I) else None
+
+
+def _ultima_acta(wd):
+    fs = list(wd.glob("acta_*/acta.json"))
+    try:
+        return json.loads(max(fs, key=lambda f: f.stat().st_mtime).read_text(encoding="utf-8")) if fs else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _nombres_llm(wds):
+    """Pasada del modelo local de actas sobre las transcripciones (con caché por texto en cada reunión). Llamar solo dentro de un trabajo de la cola
+    o de gpu_exclusiva(): arranca el LLM local."""
+    import hashlib
+
+    import privacidad
+    if not P.llm_model():
+        return []
+    out = []
+    for wd in wds:
+        fs = list(wd.glob("transcript_*.json"))
+        if not fs:
+            continue
+        try:
+            tx = [s["text"] for s in json.loads(max(fs, key=lambda f: f.stat().st_mtime).read_text())["segments"]]
+        except (OSError, ValueError, KeyError):
+            continue
+        h, cf = hashlib.sha1("\n".join(tx).encode()).hexdigest()[:12], wd / "nombres_llm.json"
+        try:
+            c = json.loads(cf.read_text())
+        except (OSError, ValueError):
+            c = {}
+        if h not in c:
+            c = {h: privacidad._llm_personas(tx) or []}
+            cf.write_text(json.dumps(c, ensure_ascii=False))
+        out += c[h]
+    return out
+
+
+def con_nombres(cfg, wds=(), glosario=(), extra=(), llm=True):
+    """cfg + «nombres» a seudonimizar: hablantes y responsables ya conocidos, personas del glosario de la carpeta y, si hay modelo local de actas
+    instalado, los que detecta (llm). Sin anonimizar: cfg tal cual."""
+    import privacidad
+    if not cfg or not cfg.get("anonimizar"):
+        return cfg
+    wds = [Path(w) for w in wds]
+    ns = [str(x) for x in extra]
+    for wd in wds:
+        ns += privacidad._nombres_conocidos({"segs": [], "d": wd / "x", "data": _ultima_acta(wd)})
+    ns += [p for g in glosario if (p := _persona_glos(str(g)))]
+    if llm:
+        ns += _nombres_llm(wds)
+    ok = []
+    for n in ns:
+        n = n.strip(" .—-")
+        if len(n) >= 3 and n.casefold() not in privacidad.GENERICOS and n not in ok and not re.fullmatch(r"Hablante \d+", n):
+            ok.append(n)
+    return {**cfg, "nombres": ok}
+
+
 class Anon:
-    """Cambia IBAN, DNI, teléfonos, correos… por [TIPO_n] antes de enviar y los devuelve en el resultado, en local."""
-    def __init__(s):
+    """Cambia nombres conocidos, IBAN, DNI, teléfonos, correos… por [TIPO_n] antes de enviar y los devuelve en el resultado, en local."""
+    def __init__(s, nombres=()):
+        import privacidad
         s.f, s.r, s.n = {}, {}, {}
+        s.rx = privacidad._reg_persona([(n, n) for n in nombres])[0]  # nombres completos y su nombre de pila/apellido suelto
+
+    def _ps(s, tipo, clave, etq, val):
+        ps = s.f.get((tipo, clave))
+        if not ps:
+            s.n[tipo] = s.n.get(tipo, 0) + 1
+            ps = s.f[(tipo, clave)] = f"[{etq}_{s.n[tipo]}]"
+            s.r[ps] = val
+        return ps
 
     def ida(s, t):
         import privacidad
+        if s.rx:
+            t = s.rx.sub(lambda m: s._ps("persona", m[0], "PERSONA", m[0]), t)
         for tipo, cl, val, a, b in reversed(privacidad.detectar_texto(t)):
-            ps = s.f.get((tipo, cl))
-            if not ps:
-                s.n[tipo] = s.n.get(tipo, 0) + 1
-                ps = s.f[(tipo, cl)] = f"[{privacidad.ETIQUETA[tipo].strip('[]')}_{s.n[tipo]}]"
-                s.r[ps] = val
-            t = t[:a] + ps + t[b:]
+            t = t[:a] + s._ps(tipo, cl, privacidad.ETIQUETA[tipo].strip("[]"), val) + t[b:]
         return t
 
     def vuelta(s, x):
@@ -339,7 +418,7 @@ def _http(cfg, msgs, schema, max_tokens, temperature, seed):
 
 def chat_fn(cfg):
     """chat(system, user, schema, max_tokens, ...) -> dict ya validado, con 1 reintento que le enseña el error al modelo."""
-    an = Anon() if cfg.get("anonimizar") else None
+    an = Anon(cfg.get("nombres", ())) if cfg.get("anonimizar") else None
     cli = cfg["proveedor"][4:] if cfg["proveedor"].startswith("cli:") else None
 
     def chat(system, user, schema, max_tokens, repeat_penalty=1.0, temperature=0.2, seed=0):
@@ -372,7 +451,7 @@ def backend(cfg):
 def texto(cfg, system, user, max_tokens=700):
     max_tokens = max(max_tokens, 700)  # los modelos de razonamiento gastan parte en pensar
     """Chat de texto libre (Preguntar). Con anonimizar, los datos viajan con seudónimos y vuelven en claro."""
-    an = Anon() if cfg.get("anonimizar") else None
+    an = Anon(cfg.get("nombres", ())) if cfg.get("anonimizar") else None
     s, u = (an.ida(system), an.ida(user)) if an else (system, user)
     if cfg["proveedor"].startswith("cli:"):
         out = _cli(cfg["proveedor"][4:], s + "\n\n" + u)
@@ -412,4 +491,4 @@ def info():
     e = estado()
     return {"proveedores": [{"id": k, "nombre": v[0], "url": e["urls"].get(k) or v[1], "lista": v[4], "clave": enmascarada(k), "confirmado": k in e["confirmado"],
                              "modelo": e["modelos"].get(k, ""), "json": v[2] == 2} for k, v in PROV.items()],
-            "clis": [{**c, "confirmado": c["id"] in e["confirmado"]} for c in detectar_clis()], "precios": e["precios"], "envia": ENVIA, "nunca": NUNCA, "cli_aviso": CLI_AVISO}
+            "clis": [{**c, "confirmado": c["id"] in e["confirmado"]} for c in detectar_clis()], "precios": e["precios"], "envia": ENVIA, "nunca": NUNCA, "cli_aviso": CLI_AVISO, "anon_modelo": bool(P.llm_model())}

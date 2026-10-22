@@ -45,7 +45,7 @@ function nubePanel(host, clave, pedirEstimacion) {
     }
     const an = el("input", {type: "checkbox", checked: s.anonimizar, onchange: () => { s.anonimizar = an.checked; }});
     kids.push(el("label", {className: "check"}, an, el("span", {textContent: " Anonimizar antes de enviar"})),
-      el("small", {textContent: "Cambia correos, teléfonos, DNI e IBAN por marcas y los devuelve en claro al recibir la respuesta. Solo reconoce esos datos: los nombres de persona no."}));
+      el("small", {textContent: "Se sustituyen: nombres conocidos" + (NB.info?.anon_modelo ? ", nombres detectados por el modelo local" : "") + ", DNI, teléfonos, emails, IBAN, tarjetas, matrículas. Revisa: nombres que no conozca la app pueden pasar. Se devuelven en claro al recibir la respuesta."}));
     P.est = el("small", {style: "margin-top:10px"}); P.precio = el("small");
     kids.push(P.est, P.precio, el("small", {textContent: "Con la nube no se usa el selector de calidad. Cada petición sale de este equipo hacia el proveedor elegido."}));
     host.append(el("div", {className: "card", style: "margin-top:16px"}, el("h3", {textContent: "Modelo en la nube", style: "margin-top:0"}), ...kids));

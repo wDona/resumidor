@@ -487,7 +487,7 @@ def _acta_fn(d):
         if carp0 and not reuse:  # seguimiento: ¿el documento nuevo cierra o cambia pendientes abiertos de la carpeta? (propone; nunca cierra)
             cb(0.99, "Revisando los pendientes de la carpeta…")
             try:
-                carpetas.seguimiento(carp0, _ms(carp0), out.parent.name, _llm_ctx(d), THREADS)
+                carpetas.seguimiento(carp0, _ms(carp0), out.parent.name, _llm_ctx(d, [m["id"] for m in _ms(carp0)], carpetas.terminos_prompt(carp0)), THREADS)
             except Cancelado:
                 raise
             except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
@@ -498,11 +498,12 @@ def _acta_fn(d):
     return fn
 
 
-def _llm_ctx(d):
+def _llm_ctx(d, mids=(), glos=()):
     """Contexto de un LLM de los actas (el nivel elegido) para las pasadas cortas sobre una carpeta."""
     calidad = d.get("calidad") or ("alta" if d.get("alta") else "rápida")
-    if d.get("nube"):
-        return lambda: nube.backend(d["nube"])
+    if d.get("nube"):  # corre dentro de un trabajo de la cola: la pasada del modelo local de nombres no coincide con otro LLM
+        cfg = nube.con_nombres(d["nube"], [pipeline.WORK / Path(m).name for m in mids], glos)
+        return lambda: nube.backend(cfg)
     return lambda: pipeline.llama(THREADS, model=pipeline.acta_model(calidad), gpu=d.get("gpu"), capas=pipeline.MOE.get(calidad, 0))
 
 
@@ -518,7 +519,7 @@ def _carpeta_job(op):
 
         def fn(cb):
             cb(0.05, "Arrancando modelo de lenguaje…")
-            ctx = _llm_ctx(d)
+            ctx = _llm_ctx(d, [m["id"] for m in _ms(c)], carpetas.terminos_prompt(c))
             if op == "seguimiento":
                 n = carpetas.seguimiento(c, _ms(c), d["mid"], ctx, THREADS)
                 return {"carpeta": c, "sugerencias": n}
@@ -1061,7 +1062,7 @@ def es_audio(v):
 
 
 def _calidad(name):
-    return next((q for q in pipeline.NIVELES if name.endswith("_" + q)), "rápida")
+    return next((q for q in pipeline.NIVELES if q in name.split("_")[3:]), "rápida")
 
 
 def _acta_json(d):
@@ -1075,7 +1076,7 @@ def _acta_json(d):
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
     # zip: acta_<vídeo>_<nivel><resto del nombre de la versión (plantilla, idioma, calidad…)>.zip
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "url": f"/api/vista/{wd.name}/{d.name}" if (d / exportar.EDITADA).is_file() else f"/files/{wd.name}/{d.name}/index.html", "editado": (d / exportar.EDITADA).is_file(),
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "nube": re.sub(r"^Redactado con | \(nube\)$", "", aj.get("nube") or "") or None, "url": f"/api/vista/{wd.name}/{d.name}" if (d / exportar.EDITADA).is_file() else f"/files/{wd.name}/{d.name}/index.html", "editado": (d / exportar.EDITADA).is_file(),
               "plantilla": aj.get("plantilla"), "doc": (aj.get("documento") or {}).get("singular", "acta"), "idioma": aj.get("idioma"), "mtime": (d / "index.html").stat().st_mtime,
               "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_')[1]}{''.join('_' + x for x in d.name.split('_')[3:])}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
@@ -1476,6 +1477,9 @@ def preguntar(d: dict):
             gpu = pipeline.use_gpu(d.get("gpu"))
             if d.get("nube"):  # nube: sin servidor local ni GPU; la respuesta lleva la marca
                 url = d["nube"]
+                if url.get("anonimizar"):  # nombres conocidos y los del modelo local (este va en exclusiva: nunca a la vez que la cola)
+                    with gpu_exclusiva():
+                        url = nube.con_nombres(url, [pipeline.WORK / m["id"] for m in ms], carpetas.terminos_prompt(cg))
                 yield line(k="marca", text=nube.marca(url))
             else:
                 if _llm.get("gpu") not in (None, gpu):  # cambió la casilla: otro servidor (solo uno a la vez en la GPU)
