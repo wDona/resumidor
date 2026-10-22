@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 
 import models
 import pipeline
+import carpetas
 import correo
 import dudas
 import exportar
@@ -356,6 +357,7 @@ def _acta_fn(d):
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
     nivel, asr, calidad, reuse = d.get("nivel", "normal"), d.get("asr", "calidad"), d.get("calidad", "rápida"), d.get("reuse")
+    carp0 = str(d.get("carpeta") or "").strip()[:120] or (meta(pipeline.WORK / Path(reuse).name).get("carpeta", "") if reuse else "")
 
     def fn(cb):
         dl = None
@@ -363,13 +365,52 @@ def _acta_fn(d):
             dl = descargar(url, bool(d.get("solo_audio")), d.get("navegador") or "", cb)
         out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
                                  reuse=(Path(reuse).name, asr) if reuse else None, plantilla=d.get("plantilla") or None,
-                                 idioma=d.get("idioma") or None, habla=d.get("habla") or None)
+                                 idioma=d.get("idioma") or carpetas.leer(carp0)["ajustes"]["idioma"] or None, habla=d.get("habla") or None,
+                                 glosario=carpetas.terminos_prompt(carp0) or None)  # glosario y idioma de la carpeta (vacíos: nada cambia)
         if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(out.parent).get("carpeta"):  # carpeta pedida al generar
             (out.parent / "meta.json").write_text(json.dumps({**meta(out.parent), "carpeta": carp}, ensure_ascii=False))
+        if carp0 and not reuse:  # seguimiento: ¿el documento nuevo cierra o cambia pendientes abiertos de la carpeta? (propone; nunca cierra)
+            cb(0.99, "Revisando los pendientes de la carpeta…")
+            try:
+                carpetas.seguimiento(carp0, _ms(carp0), out.parent.name, _llm_ctx(d), THREADS)
+            except Cancelado:
+                raise
+            except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
+                print("seguimiento:", ex, flush=True)
         return {"id": out.parent.name, "acta": out.name}
     return fn
+
+
+def _llm_ctx(d):
+    """Contexto de un LLM de los actas (el nivel elegido) para las pasadas cortas sobre una carpeta."""
+    calidad = d.get("calidad") or ("alta" if d.get("alta") else "rápida")
+    return lambda: pipeline.llama(THREADS, model=pipeline.acta_model(calidad), gpu=d.get("gpu"), capas=pipeline.MOE.get(calidad, 0))
+
+
+def _ms(c):
+    """Reuniones de una carpeta ("" = sin carpeta), la más reciente primero."""
+    return [m for m in meetings() if (m["carpeta"] or "") == c]
+
+
+def _carpeta_job(op):
+    """Trabajos en cola de una carpeta (un solo LLM a la vez): seguimiento | estado | comparar."""
+    def mk(d):
+        c = d["c"]
+
+        def fn(cb):
+            cb(0.05, "Arrancando modelo de lenguaje…")
+            ctx = _llm_ctx(d)
+            if op == "seguimiento":
+                n = carpetas.seguimiento(c, _ms(c), d["mid"], ctx, THREADS)
+                return {"carpeta": c, "sugerencias": n}
+            with ctx() as chat:
+                cb(0.5, "Redactando…")
+                (carpetas.redactar_estado(c, _ms(c), chat) if op == "estado" else carpetas.redactar_comparacion(c, _ms(c), d["a"], d["b"], chat))
+            return {"carpeta": c}
+        return fn
+    return mk
 
 
 @app.post("/api/generar")
@@ -445,7 +486,7 @@ def _condensar_fn(d):
     return fn
 
 
-FNS = {"acta": _acta_fn, "fondo": _fondo_fn, "condensar": _condensar_fn}
+FNS = {"acta": _acta_fn, "fondo": _fondo_fn, "condensar": _condensar_fn, **{k: _carpeta_job(k) for k in ("seguimiento", "estado", "comparar")}}
 
 
 # ---------- Vídeo de entrada ----------
@@ -607,6 +648,12 @@ def set_meta(d: dict):
     return m
 
 
+def anon_defecto(mid):
+    """¿Anonimizar por defecto este documento? La carpeta (si fija una opción) manda sobre el ajuste general."""
+    o = carpetas.leer(meta(pipeline.WORK / Path(mid).name).get("carpeta", ""))["ajustes"]["anon"]
+    return bool(o) if o is not None else bool((_ajustes() or {}).get("anonimizar_defecto"))
+
+
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
 AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
           "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es"}
@@ -700,6 +747,8 @@ def carpeta(d: dict):
         c["estilos"].pop(old, None) if not d["estilo"] else c["estilos"].__setitem__(old, d["estilo"])
         CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
         return {}
+    if old:
+        carpetas.renombrar(old, new)
     pl, es = c["plantillas"].pop(old, None), c["estilos"].pop(old, None)
     if new and pl:
         c["plantillas"][new] = pl
@@ -737,7 +786,7 @@ def _stream_zip(files):
 @app.get("/api/zipvideo/{mid}/{acta}")
 def zipvideo(mid: str, acta: str, anon: int | None = None):
     """Acta + vídeo (o audio) donde el reproductor del informe lo espera (video.<ext> junto a index.html). Con anon=1 (o por defecto en ajustes) -> 409: lo anonimizado nunca lleva vídeo ni audio."""
-    if bool(anon) if anon is not None else bool((_ajustes() or {}).get("anonimizar_defecto")):
+    if bool(anon) if anon is not None else anon_defecto(mid):
         raise HTTPException(409, "No se incluye vídeo ni audio en lo anonimizado: la voz y la imagen identifican" + ("" if anon else " (anonimizar_defecto activo; pasa anon=0 para el original)"))
     wd = pipeline.WORK / Path(mid).name
     out, v = wd / Path(acta).name, next(wd.glob("video.*"), None)
@@ -851,7 +900,7 @@ def exportar_doc(mid: str, ver: str, fmt: str = "docx", estilo: str | None = Non
 
 def _anon(mid, ver, anon):
     """¿Usar la copia anonimizada? anon explícito manda; si no, el ajuste anonimizar_defecto. 409 si se pide y aún no existe."""
-    on = bool(anon) if anon is not None else bool((_ajustes() or {}).get("anonimizar_defecto"))
+    on = bool(anon) if anon is not None else anon_defecto(mid)
     if on and not (pipeline.WORK / Path(mid).name / Path(ver).name / privacidad.ANON).is_file():
         raise HTTPException(409, "Falta la copia anonimizada de este documento: anonimízalo primero" + ("" if anon else " (o pasa anon=0)"))
     return on
@@ -972,6 +1021,159 @@ def del_plantilla(d: dict):
     return {}
 
 
+# ---------- Carpeta = expediente ----------
+def _c(d):
+    c = str((d or {}).get("c") or "").strip()
+    if c not in get_carpetas() and c:
+        raise HTTPException(404, "No existe esa carpeta")
+    return c
+
+
+def _ok(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except KeyError as ex:
+        raise HTTPException(404, ex.args[0] if ex.args else "No encontrado")
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.get("/api/exp")
+def exp_get(c: str):
+    """Expediente: tipo (etiqueta), datos con sugerencias por tipo, ajustes, glosario y contadores."""
+    c = _c({"c": c})
+    e, ms = carpetas.leer(c), _ms(c)
+    perfil = _carpetas()["plantillas"].get(c)
+    tipo = carpetas.tipo_de(e, perfil, ((_ajustes() or AJ_DEF)["nombres"]).get("carpeta"))
+    ps = carpetas.pendientes(c, ms)
+    return {"c": c, "tipo": tipo, "datos": e["datos"], "sugerencias": [k for k in carpetas.sugerencias(tipo) if k not in {x["k"] for x in e["datos"]}],
+            "aviso": "Guarda solo una referencia interna: nada que identifique a la persona." if tipo.casefold() in carpetas.SENSIBLES else "",
+            "ajustes": e["ajustes"], "perfil": perfil or "acta", "estilo": _carpetas()["estilos"].get(c, ""), "glosario": e["glosario"], "n_docs": len({m["id"] for m in ms}),
+            "pend": sum(p["estado"] == "abierto" for p in ps), "sug": sum(bool(p["sugerido"]) and p["estado"] == "abierto" for p in ps),
+            "anon_efectivo": bool(e["ajustes"]["anon"]) if e["ajustes"]["anon"] is not None else bool((_ajustes() or {}).get("anonimizar_defecto"))}
+
+
+@app.post("/api/exp/datos")
+def exp_datos(d: dict):
+    carpetas.guardar_datos(_c(d), d.get("tipo"), d.get("datos") or [])
+    return exp_get(d["c"])
+
+
+@app.post("/api/exp/ajustes")
+def exp_ajustes(d: dict):
+    """{c, anon: true|false|null (null = el ajuste general), idioma: "" (el de la reunión) | es en fr…}"""
+    if d.get("idioma") and d["idioma"] not in plantillas.IDIOMAS:
+        raise HTTPException(400, "Idioma no válido")
+    carpetas.guardar_ajustes(_c(d), d.get("anon"), d.get("idioma"))
+    return exp_get(d["c"])
+
+
+@app.get("/api/exp/pendientes")
+def exp_pendientes(c: str, estado: str = "abierto", resp: str = "", orden: str = "plazo"):
+    c = _c({"c": c})
+    return carpetas.listar(c, _ms(c), estado, resp, orden)
+
+
+@app.post("/api/exp/pendientes")
+def exp_pendiente(d: dict):
+    """{c, id, estado: abierto|hecho|descartado} · {c, texto, resp?, plazo?} (pendiente manual) · {c, id, borrar: true} (solo manuales)"""
+    c = _c(d)
+    if d.get("borrar"):
+        carpetas.borrar_manual(c, d.get("id", ""))
+    elif d.get("id"):
+        _ok(carpetas.set_estado, c, _ms(c), d["id"], d.get("estado"))
+    else:
+        return carpetas.añadir_manual(c, d.get("texto"), d.get("resp"), d.get("plazo"))
+    return {}
+
+
+@app.post("/api/exp/sugerencia")
+def exp_sugerencia(d: dict):
+    """{c, id, aceptar} (o {c, todas: true, aceptar: true}): confirma o rechaza «parece hecho» / «actualizado»; solo así se cierra un pendiente."""
+    c = _c(d)
+    ids = [p["id"] for p in carpetas.pendientes(c, _ms(c)) if p["sugerido"] and p["estado"] == "abierto"] if d.get("todas") else [d.get("id", "")]
+    for i in ids:
+        _ok(carpetas.resolver_sugerencia, c, _ms(c), i, bool(d.get("aceptar")))
+    return {"n": len(ids)}
+
+
+@app.post("/api/exp/seguimiento")
+def exp_seguimiento(d: dict):
+    """{c, mid, gpu?, calidad?}: repite el seguimiento de un documento de la carpeta (trabajo en cola)."""
+    c = _c(d)
+    if not any(m["id"] == d.get("mid") for m in _ms(c)):
+        raise HTTPException(404, "Ese documento no está en la carpeta")
+    falta(d, "fondo", False)
+    return start("seguimiento", {**d, "c": c}, c, d["mid"])
+
+
+@app.get("/api/exp/linea")
+def exp_linea(c: str):
+    c = _c({"c": c})
+    return carpetas.linea(c, _ms(c))
+
+
+@app.post("/api/exp/notas")
+def exp_notas(d: dict):
+    """{c, texto, fecha?: AAAA-MM-DD} añade una nota con fecha · {c, id, borrar: true} la quita."""
+    c = _c(d)
+    if d.get("borrar"):
+        carpetas.borrar_nota(c, d.get("id", ""))
+        return {}
+    return _ok(carpetas.añadir_nota, c, d.get("texto"), d.get("fecha"))
+
+
+@app.get("/api/exp/estado")
+def exp_estado(c: str):
+    """Estado actual: decisiones vigentes (y las sustituidas), pendientes abiertos, cambios desde el documento anterior y la redacción guardada."""
+    c = _c({"c": c})
+    return carpetas.estado_actual(c, _ms(c))
+
+
+@app.post("/api/exp/estado")
+def exp_estado_regenerar(d: dict):
+    """Encola la redacción del estado actual (LLM sobre los datos de arriba)."""
+    c = _c(d)
+    falta(d, "fondo", False)
+    return start("estado", {**d, "c": c}, c)
+
+
+@app.get("/api/exp/comparar")
+def exp_comparar(c: str, a: str, b: str):
+    """Diff determinista (embeddings) de decisiones, tareas y puntos clave entre dos documentos de la carpeta: nuevo, cambiado, ya no aparece."""
+    c = _c({"c": c})
+    return _ok(carpetas.comparar_ids, c, _ms(c), a, b)
+
+
+@app.post("/api/exp/comparar")
+def exp_comparar_redactar(d: dict):
+    """{c, a, b}: encola la redacción (LLM) de las diferencias; el diff no cambia."""
+    c = _c(d)
+    _ok(carpetas.comparar_ids, c, _ms(c), d.get("a"), d.get("b"))
+    falta(d, "fondo", False)
+    return start("comparar", {**d, "c": c}, c)
+
+
+@app.get("/api/exp/glosario")
+def exp_glosario(c: str, sugerir: int = 0, minimo: int = 3):
+    c = _c({"c": c})
+    return {"glosario": carpetas.leer(c)["glosario"], "sugeridos": carpetas.sugerir_glosario(c, _ms(c), minimo) if sugerir else []}
+
+
+@app.post("/api/exp/glosario")
+def exp_glosario_set(d: dict):
+    """{c, glosario: [{t, orto?, def?}], ignorar?: [términos sugeridos descartados]}"""
+    c = _c(d)
+    carpetas.glosario_set(c, d.get("glosario"), d.get("ignorar") or [])
+    return {"glosario": carpetas.leer(c)["glosario"]}
+
+
+@app.get("/api/carpetas/resumen")
+def carpetas_resumen():
+    """Para las tarjetas del inicio: {carpeta: {pend, sug, ultima}}."""
+    return carpetas.resumen_home(meetings())
+
+
 # ---------- Preguntar ----------
 who = lambda s: (s["spk"] + ": " if s.get("spk") else "") + s["text"]  # con nombres (transcripción importada) las citas dicen quién habla
 
@@ -997,11 +1199,19 @@ def preguntar(d: dict):
     sel, q = d.get("sel"), (d.get("q") or "").strip()
     if not sel or not q:
         raise HTTPException(400, "Elige una reunión y escribe la pregunta")
+    cg = sel[2:] if sel.startswith("c:") else meta(pipeline.WORK / Path(sel.split("|")[0]).name).get("carpeta", "")  # carpeta: su glosario y sus pendientes
+    ms = _ms(cg) if sel.startswith("c:") else [m for m in _ms(cg) if m["id"] == sel.split("|")[0]]
+    if (pq := carpetas.pregunta_pendientes(cg, ms, q)) is not None:  # «¿qué tiene pendiente Ana?»: lista determinista de los datos, sin LLM
+        vid = {m["id"]: m["video"] for m in ms}
+        its = [{k: p[k] for k in ("texto", "resp", "plazo", "fecha", "dias", "tipo", "mid", "ver", "doc", "t", "pronto", "vencido")} | {"v": vid.get(p["mid"])} for p in pq["items"]]
+        return StreamingResponse(iter([json.dumps({"k": "pendientes", "resp": pq["resp"], "items": its, "en": rag.lang_q(q)}, ensure_ascii=False) + "\n", json.dumps({"k": "fin"}) + "\n"]),
+                                 media_type="application/x-ndjson")
     if aux["on"] or any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
     falta(d, "preguntar")
     if not sel.startswith("c:") and _solo_acta(*sel.split("|")):
         raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede preguntar sobre ella")
+    og = lambda t: carpetas.ortografia(cg, t)  # ortografía del glosario en lo que se muestra (lo verificado no cambia)
 
     def events():
         line = lambda **k: json.dumps(k, ensure_ascii=False) + "\n"
@@ -1020,15 +1230,15 @@ def preguntar(d: dict):
                 if pipeline.NOTICE:
                     yield line(k="aviso", text=pipeline.NOTICE.pop())
                 if kind == "candidatos":
-                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": who(idx.segs[i])[:200], **inf(i)} for i in v])
+                    yield line(k="candidatos", items=[{"t": idx.segs[i]["s"], "text": og(who(idx.segs[i])[:200]), **inf(i)} for i in v])
                 elif kind == "frase":
                     s = idx.segs[v["i"]]
                     refs = v.get("refs", [v["i"]])  # estilo interpretativo: puede citar varios tramos
-                    yield line(k="frase", t=s["s"], **inf(v["i"]), ok=v["ok"], text=v["frase"] if v["ok"] else v["cita"], kind=v.get("kind", "dijo"),
+                    yield line(k="frase", t=s["s"], **inf(v["i"]), ok=v["ok"], text=og(v["frase"] if v["ok"] else v["cita"]), kind=v.get("kind", "dijo"),
                                mas=[{"t": idx.segs[j]["s"], **inf(j)} for j in refs[1:]],
-                               cita=[{"t": idx.segs[j]["s"], "text": who(idx.segs[j]), "main": j in refs, **inf(j)} for j in dict.fromkeys(k for r in refs for k in idx.window(r))])
+                               cita=[{"t": idx.segs[j]["s"], "text": og(who(idx.segs[j])), "main": j in refs, **inf(j)} for j in dict.fromkeys(k for r in refs for k in idx.window(r))])
                 elif kind == "nada":
-                    yield line(k="nada", text=rag.NOT_SAID)
+                    yield line(k="nada", text=rag.no_dice(q))
         except Exception as e:
             yield line(k="error", text=str(e))
         yield line(k="fin")

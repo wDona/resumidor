@@ -148,7 +148,7 @@ $("form").onsubmit = async e => {
 };
 
 // ---- cola de trabajos ----
-const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado"};
+const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado", seguimiento: "Seguimiento de pendientes", estado: "Resumen del estado", comparar: "Resumen de diferencias"};
 let cola = {n: 0, items: []}, vistos = new Set(), colaKey = "";
 const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
 const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
@@ -160,7 +160,7 @@ async function sondear() {
   vistos = act; cola = c; corriendo = c.n > 0;
   const k = c.items.map(e => e.id + e.state).join();
   if (fin.length) {  // algo terminó: refrescar lista y, si es la reunión abierta, su página
-    await cargarLista();
+    carpetaTrasCola(fin); await cargarLista();
     if (vistaAct === "res" && fin.some(e => e.state === "hecho" && e.mid === cur.id)) await abrir(cur.id, ver, true);
   } else if (k !== colaKey && vistaAct === "home") pintarHome();
   pintarCola(k); pintarPill();
@@ -210,7 +210,7 @@ function pintarCola(k) {
 
 // ---- reuniones y carpetas ----
 // fsel: undefined = inicio, null = todos los documentos, "" = sin carpeta, otro = esa carpeta
-let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel, desde;
+let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel, desde, RES = {};
 const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
 const refrescarTodo = async () => { await cargarLista(); if (vistaAct === "res") await abrir(cur.id, ver, true); };
 // formulario en la propia página (sin prompt/confirm): campo opcional + botón + Cancelar; Esc cancela
@@ -236,8 +236,8 @@ const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se
   });
 const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
-  [todas, carpetas, CP, CE, ESTILOS] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"),
-    api("/api/carpetas/estilos").catch(() => ({})), api("/api/estilos").catch(() => []), PL.length ? null : cargarPlant()]);
+  [todas, carpetas, CP, CE, ESTILOS, RES] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"),
+    api("/api/carpetas/estilos").catch(() => ({})), api("/api/estilos").catch(() => []), api("/api/carpetas/resumen").catch(() => ({})), PL.length ? null : cargarPlant()]);
   if (fsel && !carpetas.includes(fsel)) fsel = undefined;
   pintarHome();
 }
@@ -262,9 +262,10 @@ function pintarHome() {
     $("h-tit").textContent = "Inicio"; $("h-sub").textContent = todas.length ? "" : "Todavía no hay nada. Pulsa «" + nm("nuevo_boton") + "» para crear tu primer " + nm("documento") + " o «Importar» para abrir uno exportado.";
     $("proys-t").textContent = cap(pl(nm("carpeta")));
     const ult = c => todas.filter(m => (m.carpeta || "") === c).reduce((a, m) => Math.max(a, m.mtime), 0);
-    const card = c => { const n = todas.filter(m => (m.carpeta || "") === c).length;
+    const card = c => { const n = todas.filter(m => (m.carpeta || "") === c).length, r = RES[c] || {}, u = Math.max(ult(c), r.ultima || 0);
       return el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }}, el("b", {textContent: c || sinC()}),
-        el("small", {textContent: plural(n) + (n ? " · último " + fechaC(ult(c)) : "") + (CP[c] && PL.length ? " · " + plantDe(CP[c]).nombre : "")})); };
+        el("small", {textContent: plural(n) + (u ? " · última actividad " + fechaC(u) : "") + (CP[c] && PL.length ? " · " + plantDe(CP[c]).nombre : "")}),
+        ...(r.pend || r.sug ? [el("small", {className: "f-card-p"}, el("b", {textContent: (r.pend || 0) + (r.pend === 1 ? " pendiente" : " pendientes")}), r.sug ? " · " + r.sug + " por revisar" : "")] : [])); };
     const nueva = el("button", {className: "proy nueva", textContent: "+ " + cap(nm("carpeta")) + " nuevo", onclick: nuevaCarpeta});
     $("proys").replaceChildren(...carpetas.map(card), ...(todas.some(m => !m.carpeta) && carpetas.length ? [card("")] : []), nueva);
     const r = act.find(e => e.state === "marcha");
@@ -282,6 +283,7 @@ function pintarHome() {
     $("f-plant-l").hidden = !c;
     if (c) { $("f-plant").replaceChildren(...PL.map(t => new Option("Tipo por defecto: " + t.nombre, t.id))); $("f-plant").value = CP[c] || "acta"; }
   }
+  carpetaVista(!ini && fsel ? fsel : null);
   const ms = todas.filter(m => ini || fsel === null || (m.carpeta || "") === fsel).slice(0, ini ? 8 : 1e9);
   $("docs-t").textContent = ini ? "Documentos recientes" : fsel === null ? "Todos" : "Documentos";
   const nuevas = ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
@@ -402,6 +404,12 @@ function evento(ev, cuerpo, frag, estado) {
     const quote = el("blockquote"); ev.cita.forEach((c, n) => quote.append(...(n ? [el("br")] : []), el("span", {className: c.main ? "" : "o"}, ts(c.t, c.v, c.n), " " + c.text)));
     cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {style: "font-style:italic"} : {}, ...(ev.n ? [el("b", {textContent: ev.n + ": "})] : []), ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t, ev.v, ev.n), ...(ev.mas || []).flatMap(m => [" ", ts(m.t, m.v, m.n)]),
       el("details", {}, el("summary", {textContent: "cita literal"}), quote)), estado);
+  }
+  else if (ev.k === "pendientes") {  // pregunta sobre pendientes: lista determinista de los datos de la carpeta, con enlaces al minuto
+    const T = {es: ["Pendientes abiertos", "Pendiente de", "No hay pendientes abiertos", "plazo"], en: ["Open items", "Pending for", "No open items", "due"], fr: ["Points ouverts", "En attente pour", "Aucun point ouvert", "échéance"],
+      de: ["Offene Punkte", "Offen für", "Keine offenen Punkte", "Frist"], pt: ["Pendentes abertos", "Pendente de", "Nenhum pendente aberto", "prazo"], it: ["Aperti", "In sospeso per", "Nessuna attività aperta", "scadenza"]}[ev.en] || ["Open items", "Pending for", "No open items", "due"];
+    cuerpo.insertBefore(el("div", {}, el("p", {}, el("b", {textContent: ev.items.length ? (ev.resp ? T[1] + " " + ev.resp : T[0]) + " · " + ev.items.length : T[2]})),
+      el("ul", {className: "f-lst"}, ...ev.items.map(p => el("li", {}, p.texto + (ev.resp ? "" : p.resp ? " — " + p.resp : "") + (p.plazo ? " · " + T[3] + ": " + p.plazo : "") + " ", p.mid ? fLink(p) : "")))), estado);
   }
   else if (ev.k === "aviso") cuerpo.insertBefore(el("p", {}, el("small", {textContent: ev.text})), estado);
   else if (ev.k === "nada") cuerpo.insertBefore(el("p", {}, el("b", {textContent: ev.text})), estado);

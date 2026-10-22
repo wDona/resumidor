@@ -20,6 +20,33 @@ CAP_WORDS = 1300  # carpeta: palabras de fragmentos como mucho en el prompt
 MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificación descarta (medido: +10 pts de descartes)
 CTX_WORDS = 20  # palabras de contexto de cada vecino ±1 que se enseñan al LLM junto a cada fragmento
 NOT_SAID = "No se menciona en la reunión."
+# idioma de la PREGUNTA (el de la respuesta): palabras funcionales de cada idioma; gana el que más acierta, y el español en los empates
+LANG_W = {l: set(w.split()) for l, w in {
+    "es": "el la los las de del que qué quién quiénes cómo cuándo dónde cuánto cuántos por para con una un es son fue se su sus y en al lo le les más pero está hay sobre tiene dijo dijeron",
+    "en": "the what who when where why how did does do is are was were of to and in on for with about has have had which that this they their it be been will would said say",
+    "fr": "le la les des du de que qui quoi quand où pourquoi comment est sont était et en pour avec sur une un dans ce cette il elle ils ont dit",
+    "de": "der die das und ist sind war was wer wann wo warum wie nicht mit für auf von zu ein eine den dem hat haben wurde gesagt",
+    "pt": "o os as do da dos das que quem quando onde porque como foi são com para uma um em no na é não tem disse",
+    "it": "il lo gli dei del della che chi quando dove perché come è sono era con per una un nel nella non ha detto"}.items()}
+IDI_NOMBRE = {"es": "español", "en": "inglés (English)", "fr": "francés (français)", "de": "alemán (Deutsch)", "pt": "portugués (português)", "it": "italiano (italiano)"}
+FRASES = {  # idioma de la pregunta -> (se dijo, se deduce, probablemente, porque se dijo, no se menciona)
+    "es": ("Se dijo que", "Se deduce que", "Probablemente", "porque se dijo que", NOT_SAID),
+    "en": ("It was said that", "It follows that", "Probably", "because it was said that", "Not mentioned in the meeting."),
+    "fr": ("Il a été dit que", "On en déduit que", "Probablement", "car il a été dit que", "Ce n'est pas mentionné dans la réunion."),
+    "de": ("Es wurde gesagt, dass", "Daraus folgt, dass", "Wahrscheinlich", "weil gesagt wurde, dass", "Das wird in der Besprechung nicht erwähnt."),
+    "pt": ("Foi dito que", "Deduz-se que", "Provavelmente", "porque foi dito que", "Não é mencionado na reunião."),
+    "it": ("Si è detto che", "Se ne deduce che", "Probabilmente", "perché si è detto che", "Non viene menzionato nella riunione.")}
+
+
+def lang_q(q):
+    """Idioma de la pregunta (es en fr de pt it); en duda, español. Barato: cuenta palabras funcionales."""
+    ws = re.findall(r"[a-záéíóúñüàâçèêëîïôùûœäößì]+", q.lower())
+    sc = {l: sum(w in s for w in ws) + (l == "es" and "¿" in q) for l, s in LANG_W.items()}
+    return max(sc, key=lambda l: (sc[l], l == "es")) if any(sc.values()) else "es"
+
+
+def no_dice(q):
+    return FRASES.get(lang_q(q), FRASES["en"])[4]
 GEMMA = "gemma-4-E4B-it-Q4_0.gguf"
 
 
@@ -514,6 +541,11 @@ def answer(idx, q, url):
         yield "nada", "umbral"
         yield "fin", {**st, "total": round(time.time() - t0, 2)}
         return
+    if lang_q(q) != "es":  # este estilo no traduce: se enseñan los mejores fragmentos tal cual (citas literales)
+        for i in ids[:3]:
+            yield "frase", {"i": i, "frase": idx.segs[i]["text"], "ok": False, "faltan": [], "cita": idx.cita(i, q)}
+        yield "fin", {**st, "total": round(time.time() - t0, 2)}
+        return
     order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))  # cronológico: más legible
     buf, n_out, t1, first, seen = "", 0, time.time(), None, set()
     for ch in stream(url, prompt(idx, order, q), len(order), system=SYSTEM + (SYSTEM_M if idx.multi else "")):
@@ -557,10 +589,6 @@ Reglas: máximo 3 líneas «Se dijo» y 1 «Se deduce». La deducción solo si a
 una herramienta a partir de las funciones que se muestran); cada deducción cita el fragmento en que se apoya y no inventa \
 cifras ni hechos. Si la pregunta supone algo que los fragmentos no dicen, no lo des por cierto. \
 Si ningún fragmento trata lo preguntado, escribe solo: NINGUNO"""
-SYSTEM_EN = """
-Los fragmentos están en otro idioma: escribe tú en español, pero tras cada «Se dijo que <frase>» añade la cita literal \
-(de 5 a 20 palabras copiadas EXACTAS del fragmento, en su idioma) entre «», así: [n] Se dijo que <frase> «<cita>». La cita de \
-«porque se dijo que» también va tal cual, en el idioma del fragmento."""
 SYSTEM_M = """
 Los fragmentos son de VARIAS reuniones: el nombre de la reunión va delante de la hora. Cada línea cita fragmentos y la \
 aplicación muestra de qué reunión es cada uno, así que no escribas nombres de reunión en la frase. No juntes en una misma \
@@ -589,17 +617,32 @@ def judge(url, q, items):
     return [bool(re.search(rf"^{k}: SI", out, re.M)) for k in range(1, len(items) + 1)]
 
 
-def grammar_i(n, general=False, quote=False):
+def grammar_i(n, general=False, quote=False, ql="es", trad=False):
     refs = 'refs ::= "[" id "]" ("[" id "]")?\nid ::= ' + " | ".join(f'"{i}"' for i in range(1, n + 1))
     txt = 'txt ::= [^\\n\\[\\]«»"‖]{3,260}\nq ::= [^\\n\\[\\]«»]{12,160}\ndtxt ::= [^\\n\\[\\]«»"‖.]{3,200}'  # dtxt: una sola oración
     if general:
         return f'root ::= g{{2,3}}\ng ::= refs " " txt "\\n"\n{refs}\n{txt}'
-    dq = ' " «" q "»"' if quote else ""
-    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " Se dijo que " txt{dq} "\\n"\n'
-            f'e ::= refs " " ("Se deduce que" | "Probablemente") " " dtxt ", porque se dijo que «" q "»\\n"\n{refs}\n{txt}')
+    dq = ' " «" q "»"' + (' " (" tr ")"' if trad else "") if quote else ""
+    f = FRASES[ql]  # prefijos en el idioma de la pregunta (la gramática los fija: el parseo y la verificación no cambian)
+    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " {f[0]} " txt{dq} "\\n"\n'
+            f'e ::= refs " " ("{f[1]}" | "{f[2]}") " " dtxt ", {f[3]} «" q "»\\n"\n{refs}\n{txt}' + ('\ntr ::= [^\\n\\[\\]«»()]{3,200}' if trad else ""))
 
 
-LINE_I = re.compile(r"^((?:\[\d+\])+) (Se dijo que|Se deduce que|Probablemente)? ?(.+)")
+DIJO = {f[0] for f in FRASES.values()}
+LINE_I = re.compile(r"^((?:\[\d+\])+) (" + "|".join(re.escape(p) for p in sorted({x for f in FRASES.values() for x in f[:3]}, key=len, reverse=True)) + r")? ?(.+)")
+
+
+def system_i(ql, es, trad, multi):
+    """Prompt del estilo interpretativo para la pregunta (idioma ql): fragmentos en español y pregunta en español = el de siempre."""
+    f, s = FRASES[ql], SYSTEM_I
+    if ql != "es":
+        s = s.replace("Se dijo que", f[0]).replace("Se deduce que", f[1]).replace("porque se dijo que", f[3]) + f"\nEscribe la respuesta en {IDI_NOMBRE[ql]}, sea cual sea el idioma de los fragmentos."
+    if not es:
+        s += (f"\nLos fragmentos están en otro idioma que la pregunta: tras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del "
+              f"fragmento, en su idioma original) entre «», y justo después su traducción entre paréntesis, así: [n] {f[0]} <frase> «<cita original>» (<traducción de la cita>). "
+              f"La cita de «{f[3]}» también va tal cual, en el idioma del fragmento." if trad else
+              f"\nTras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del fragmento) entre «»; la cita de «{f[3]}» también va tal cual.")
+    return s + (SYSTEM_M if multi else "")
 
 
 def answer_i(idx, q, url):
@@ -609,7 +652,10 @@ def answer_i(idx, q, url):
     t0 = time.time()
     resumen, rel = idx.acta() if GEN_Q.search(q) else (None, [])
     general = bool(rel)
-    es = idx.lang.startswith("es")  # en otro idioma la frase (en español) no se puede comparar palabra a palabra: se exige la cita literal
+    ql = lang_q(q)  # la respuesta va en el idioma de la pregunta
+    fr_es = idx.lang.startswith("es")
+    es = fr_es and ql == "es"  # en otro idioma la frase no se puede comparar palabra a palabra con los fragmentos: se exige la cita literal
+    trad = not es and idx.lang[:2] != ql  # fragmentos y pregunta en idiomas distintos: la cita lleva su traducción entre paréntesis
     ids, cos = idx.search(q)
     st = {"recuperacion": round(time.time() - t0, 3), "cos": round(cos, 3)}
     allowed = None
@@ -632,7 +678,7 @@ def answer_i(idx, q, url):
             return
         order = sorted(ids, key=lambda i: (idx.segs[i]["kind"] != "voz", idx.segs[i]["s"]))
         user = prompt(idx, order, q)
-        args = dict(system=SYSTEM_I + ("" if es else SYSTEM_EN) + (SYSTEM_M if idx.multi else ""), gram=grammar_i(len(order), quote=not es), max_tokens=420)
+        args = dict(system=system_i(ql, es, trad, idx.multi), gram=grammar_i(len(order), quote=not es, ql=ql, trad=trad), max_tokens=420 + 120 * trad)
     buf, n_out, t1, first, seen, dijo, pend = "", 0, time.time(), None, set(), set(), []
     if general and resumen:
         n_out += 1
@@ -660,7 +706,7 @@ def answer_i(idx, q, url):
             refs = list(dict.fromkeys(order[int(x) - 1] for x in re.findall(r"\d+", m[1]) if 0 < int(x) <= len(order)))
             if not refs:
                 continue
-            kind = "resumen" if general else "dijo" if m[2] == "Se dijo que" else "deduce"
+            kind = "resumen" if general else "dijo" if m[2] in DIJO else "deduce"
             frase = (m[2] + " " if m[2] else "") + re.sub(r"</?[a-zA-Z][^>]*>", "", m[3]).strip()  # sin restos de HTML
             if kind == "dijo":
                 if refs[0] in seen:
@@ -674,7 +720,7 @@ def answer_i(idx, q, url):
                     continue  # cifra que no está entera en lo citado: se descarta la frase
                 if idx.segs[refs[0]]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
                     continue
-                if idx.segs[refs[0]]["kind"] == "pantalla":
+                if idx.segs[refs[0]]["kind"] == "pantalla" and ql == "es":
                     frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
                 seen.add(refs[0])
                 dijo.update(refs)
@@ -685,7 +731,7 @@ def answer_i(idx, q, url):
                     if not set(refs) <= dijo:
                         continue  # una deducción solo puede citar lo que ya sostiene los hechos de esta respuesta
                     ded_n += 1
-                    qm = QUOTE.search(frase.split(", porque se dijo que ", 1)[-1])
+                    qm = QUOTE.search(frase.split(", " + FRASES[ql][3] + " ", 1)[-1])
                     if not qm or not quote_ok(qm[1], text_of(refs)):
                         continue  # «porque se dijo que «…»» es un hecho: la cita tiene que ser literal del fragmento citado
                     ded_ok += 1
@@ -748,6 +794,16 @@ def _selftest():
     assert verify("Se dijo que se reanudaría el martes.", "se reanudará el martes") == []
     assert verify("Se dijo que el plan vale 25 dólares.", "el plan valía 30 dólares") == ["25"]
     assert bad_nums("Se dijo que son 75,75 dólares", "cuesta 34,75 dólares") == ["75,75"]
+    # idioma de la pregunta: la respuesta va en él; en duda, español
+    assert [lang_q(q) for q in ("¿Qué dijo Ana sobre el presupuesto?", "What did Ana say about the budget?", "Quand a eu lieu la réunion ?", "Wer hat das gesagt?",
+                                "presupuesto", "O que foi dito sobre o prazo?")] == ["es", "en", "fr", "de", "es", "pt"]
+    assert no_dice("Who left early?").startswith("Not mentioned") and no_dice("¿Quién se fue?") == NOT_SAID
+    for ql in FRASES:  # la gramática por idioma sigue pareciendo la de siempre en español, y la línea de cada idioma se reconoce
+        g = grammar_i(3, quote=True, ql=ql, trad=ql != "es")
+        assert f'" {FRASES[ql][0]} "' in g and (ql == "es" or "tr ::=" in g)
+        mt = LINE_I.match(f"[1] {FRASES[ql][0]} algo.")
+        assert mt and mt[2] in DIJO and mt[3] == "algo.", ql
+    assert grammar_i(3, quote=False) == grammar_i(3, quote=False, ql="es")
     assert bad_nums("son 34.75 y 1000", "cuesta 34,75 y 1.000") == []
     assert bad_nums("son 75", "cuesta 34,75") == ["75"]
     for fr, tx in [("30.000 euros", "unos treinta mil euros"), ("30.000", "30 mil"), ("2,5 millones", "dos millones y medio 2.500.000"), ("1.500", "mil quinientos"),

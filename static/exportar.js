@@ -44,7 +44,7 @@ function abrirAnon(p) {
   const esp = esperando("Buscando datos personales en el documento…"); b.append(...(p?.obsoleta ? [el("div", {className: "aviso w", textContent: "La copia anonimizada está obsoleta: el documento cambió después de crearla. Vuelve a anonimizarla."})] : []), esp);
   post(url + "/detectar", {}).then(r => {
     esp.stop(); esp.remove(); if (!d.open) return;
-    its = r.items.map(i => ({...i, incluir: !i.ia}));
+    its = r.items.map(i => ({...i, incluir: true}));  // privacidad: mejor ocultar de más (la IA marcada) que olvidar a una persona
     const tabla = el("div", {className: "tbl"}), cnt = el("div", {className: "b"}), lado = el("div", {className: "dg-s"});
     const pintar = () => {
       const gr = [...new Set(its.map(i => i.tipo))];

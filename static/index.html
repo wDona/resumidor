@@ -35,14 +35,15 @@
           <div><h1 id="ftit"></h1><p class="muted" id="fsub"></p></div>
           <div class="acc">
             <label for="f-plant" class="sr" id="f-plant-l">Tipo por defecto</label><select id="f-plant" hidden></select><select id="f-estilo" hidden aria-label="Estilo de organización por defecto"></select>
-            <button class="btn sec" id="f-preguntar" hidden>Preguntar</button>
+            <button class="btn pri" id="f-nuevo" hidden>+ Nuevo documento</button><button class="btn sec" id="f-preguntar" hidden>Preguntar</button>
             <button class="btn sec" id="f-ren" hidden>Renombrar</button>
             <button class="btn sec dng" id="f-quitar" hidden>Quitar</button>
             <!-- Fase posterior: resumen de tareas, comparación, línea de tiempo y pendientes de la carpeta -->
             <button class="btn sec" id="f-tareas" hidden>Tareas</button><button class="btn sec" id="f-comparar" hidden>Comparar</button>
           </div>
         </div>
-        <div id="ed-carpeta"></div><div id="f-ganchos" hidden></div>
+        <nav class="tabs" id="f-tabs" role="tablist" aria-label="Secciones de la carpeta" hidden></nav>
+        <div id="ed-carpeta"></div><div id="f-ganchos" hidden></div><div id="f-panel" hidden></div>
       </div>
       <div id="docs-w"><div class="sec-h"><h2 id="docs-t">Documentos recientes</h2></div>
         <div class="tabla" id="tabla"><table><thead><tr><th scope="col">Documento</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Duración</th><th scope="col">Versiones</th><th scope="col">Estado</th></tr></thead><tbody id="lista"></tbody></table><div class="vacio" id="vacio" hidden></div></div></div>
@@ -289,6 +290,7 @@
 <script src="app.js"></script>
 <script src="exportar.js"></script>
 <script src="ajustes.js"></script>
+<script src="carpeta.js"></script>
 <script src="plantillas.js"></script>
 <script src="modelos.js"></script>
 </body>

@@ -164,7 +164,9 @@ def pcm16k(video, start, length):
                                         capture_output=True, check=True).stdout, np.float32)
 
 
-def transcribe(video, quality, threads, dur, cb, t0=0):
+def transcribe(video, quality, threads, dur, cb, t0=0, hot=None):
+    """hot: términos del glosario de la carpeta (hotwords de faster-whisper; si esta versión no los tiene, initial_prompt)."""
+    import inspect
     from faster_whisper import WhisperModel
     quality, _, habla = quality.partition("-")  # "calidad-en": idioma forzado; "calidad-mezcla": se detecta en cada ventana
     name = ASR_MODELS[quality]
@@ -174,10 +176,12 @@ def transcribe(video, quality, threads, dur, cb, t0=0):
     model = WhisperModel(str(local) if (local / "model.bin").exists() else name, device="cpu", compute_type="int8", cpu_threads=threads)
     lang = [habla if habla in IDIOMAS else None]  # se detecta en la primera ventana y se fija para las demás
     mezcla, langs = habla == "mezcla", []
+    hot = ", ".join(re.sub(r"\s*\(.*", "", t) for t in hot or [])[:400]  # "Término (definición)" -> solo el término
+    kw = ({"hotwords": hot} if "hotwords" in inspect.signature(WhisperModel.transcribe).parameters else {"initial_prompt": hot}) if hot else {}
 
     def win(start, length):
         segs, info = model.transcribe(pcm16k(video, t0 + start, length), language=lang[0], vad_filter=True, word_timestamps=True,  # +palabras con tiempo y probabilidad (subtítulos), ~5-10 % más
-                                      beam_size=1 if name == "small" else 5, condition_on_previous_text=False)
+                                      beam_size=1 if name == "small" else 5, condition_on_previous_text=False, **kw)
         lang[0] = lang[0] or (None if mezcla else info.language)  # mezcla: cada ventana de ~30 s en el idioma que detecta
         langs.append(info.language)
         for s in segs:
@@ -1072,9 +1076,18 @@ GEN_CAP = {"breve": 5, "normal": 10, "detallado": None}  # elementos por secció
 campos = lambda s: [c for c in s["campos"] if c not in ("cita", "minuto", "t", "texto", "importancia")]
 
 
-def prompts(tpl=None, otro=False):
+def prompts(tpl=None, otro=False, glosario=None):
     """Prompts, esquema y tope del map y de la redacción para una plantilla (None: los de siempre, sin pasar por la plantilla).
-    otro: el documento va en otro idioma que la reunión (las citas se piden en el original)."""
+    otro: el documento va en otro idioma que la reunión (las citas se piden en el original). glosario: «términos de este proyecto» de la
+    carpeta, que se añaden al map y a la redacción; sin glosario, los prompts (y por tanto las cachés) son exactamente los de siempre."""
+    pr = _prompts(tpl, otro)
+    if not glosario:
+        return pr
+    nota = "\nTérminos de este proyecto (escríbelos exactamente así): " + "; ".join(glosario).replace("{", "(").replace("}", ")") + "."
+    return {**pr, **{k: pr[k] + nota for k in ("map", "sec", "sec2", "final")}}
+
+
+def _prompts(tpl=None, otro=False):
     if tpl is None:
         return {"map": MAP_PROMPT, "schema": MAP_SCHEMA, "map_max": MAP_MAX, "sec": SEC_PROMPT, "sec2": SEC2_PROMPT,
                 "final": FINAL_PROMPT, "faithful": FAITHFUL, "gen": [], "acta": True}
@@ -2133,12 +2146,13 @@ def eta():
 
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None,
-        plantilla=None, idioma=None, habla=None):
+        plantilla=None, idioma=None, habla=None, glosario=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
     calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo.
     plantilla: id o dict (plantillas.py; None = «Acta de reunión»); idioma: el del documento (None o "reunión" = el de la plantilla /
-    el de la reunión); habla: idioma de la reunión para el ASR (None = automático, código o "mezcla")."""
+    el de la reunión); habla: idioma de la reunión para el ASR (None = automático, código o "mezcla"). glosario: términos de la carpeta
+    (hotwords del ASR y «términos de este proyecto» en el map/redacción; None = nada, y cachés idénticas a las de siempre)."""
     import plantillas
     tpl = plantilla if isinstance(plantilla, dict) else plantillas.get(plantilla)
     idioma = idioma if idioma and idioma != "reunión" else tpl.get("idioma_acta", "reunión")
@@ -2197,7 +2211,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if not tf.exists():
         t0 = time.time()
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
-        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else transcribe(video, quality, threads, dur, pa)
+        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else transcribe(video, quality, threads, dur, pa, hot=glosario)
         tf.write_text(json.dumps(tr, ensure_ascii=False))
         stage("transcripción" if transcript else "asr", t0)
     tr = json.loads(tf.read_text())
@@ -2212,7 +2226,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if idioma:  # documento en un idioma elegido: las citas siguen en el original (traducción entre paréntesis)
         lang = IDIOMAS[idioma]
     otro = bool(idioma) and idioma != tr["language"]
-    P = prompts(tpl, otro)
+    P = prompts(tpl, otro, glosario)
     fondo = fondo and P["acta"]  # la búsqueda a fondo es de decisiones y tareas
 
     dh = hashlib.sha1(repr((DIAR_EMB, DIAR_PIECE, DIAR_MIN)).encode()).hexdigest()[:8]
@@ -2579,6 +2593,12 @@ def _selftest():
     k = lambda t: cache_keys(prompts(t), "m", ["x"], "normal", False)
     kc, ke, kq = k({**acta, "como_redactar": "Breve."}), k({**acta, "escala": {**ESCALA, "2": "otro"}}), k({**acta, "que_destacar": "cifras"})
     assert kc[:2] == k(acta)[:2] and kc[2] != k(acta)[2] and ke[0] != k(acta)[0] and kq[0] != k(acta)[0]
+    # glosario de carpeta: sin glosario (None o vacío) los prompts y las claves de caché son idénticos; con él cambian map y redacción y siguen
+    # siendo formateables aunque un término lleve llaves
+    assert prompts(acta, glosario=[]) == prompts(acta) and prompts(None, glosario=None) == prompts(None)
+    pg = prompts(acta, glosario=["Ana López", "Pozo {norte}"])
+    assert "Ana López" in pg["map"] and "Pozo (norte)" in pg["final"] and cache_keys(pg, "m", ["x"], "normal", False)[0] != k(acta)[0]
+    pg["map"].format(lang="es"), pg["sec"].format(n=1, faithful="", lang="es")
     for t in plantillas.SERIE:  # cada plantilla de serie da una gramática válida y un prompt que se puede formatear
         q = prompts(t, otro=True)
         assert "{" not in q["map"].format(lang="español") and gbnf(q["schema"]) and q["final"].format(src="", tldr="", pick="", what="", faithful="", lang="")
