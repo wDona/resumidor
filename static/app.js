@@ -94,6 +94,7 @@ function pintarNivel() {
 }
 
 // ---- vistas ----
+let qBuscar = "";
 let vistaAct = "home";
 const VISTAS = ["home", "nuevo", "grabar", "cola", "res", "preg", "ajustes", "uso"];
 const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
@@ -180,34 +181,41 @@ function pintarCola(k) {
   if (k !== colaKey) {
     colaKey = k; const it = cola.items, pend = it.filter(e => e.state === "pendiente");
     const bt = (e, txt, url, extra, lbl) => { const x = el("button", {className: "sec sm", textContent: txt, ariaLabel: lbl || txt}); x.onclick = fallo(async () => { x.disabled = true; await post(url, {id: e.id, ...extra}); await sondear(); }); return x; };
-    const ab = e => { const o = el("button", {className: "sec sm", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); return o; };
-    const card = (t, ...kids) => el("section", {className: "card"}, el("h2", {textContent: t}), ...kids);
-    const run = it.filter(e => e.state === "marcha").map(e => el("section", {className: "card curso"},
-      el("div", {className: "q-it"}, el("div", {className: "n"}, el("div", {className: "k", textContent: "En curso"}), el("h3", {textContent: titCola(e)}), el("div", {className: "d", id: "q-msg"})),
-        el("div", {className: "acc"}, bt(e, "Cancelar", "/api/cola/cancelar"))),
-      el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "q-bar"})), el("p", {className: "muted", id: "q-eta", style: "margin:8px 0 0"}),
+    const ab = e => { const o = el("button", {className: "sec ab", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); return o; };
+    const sec = (t, kids, cls = "", lado) => el("section", {className: "qs " + cls}, el("div", {className: "sec-h"}, el("h2", {textContent: t}), ...(lado ? [lado] : [])), el("div", {className: "qbox"}, ...kids));
+    const kind = e => e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind];
+    const xb = e => { const x = el("button", {className: "qx", textContent: "✕", ariaLabel: "Quitar de la cola", title: "Quitar"}); x.onclick = fallo(async () => { x.disabled = true; await post("/api/cola/cancelar", {id: e.id}); await sondear(); }); return x; };
+    const run = it.filter(e => e.state === "marcha").map(e => el("section", {className: "qcurso"},
+      el("div", {className: "q-it"}, el("div", {className: "n"}, el("div", {className: "k", textContent: "En curso"}), el("h3", {textContent: nombreDe(e)}), el("div", {className: "d", textContent: kind(e)})),
+        el("div", {className: "acc"}, ...(e.kind === "acta" || true ? [bt(e, "Cancelar", "/api/cola/cancelar")] : []))),
+      el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "q-bar"})),
+      el("div", {className: "q-pie"}, el("span", {id: "q-eta"}), el("span", {id: "q-msg"})),
       // Gancho: etapas del procesado (Audio, Transcripción, Capturas, Resumen…) cuando el proceso las exponga
       el("div", {id: "q-etapas", hidden: true})));
-    const esp = pend.map((e, i) => el("div", {className: "q-it"}, el("span", {className: "num", textContent: i + 1}),
-      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d", textContent: "En espera (" + (i + 1) + " de " + pend.length + ")"})),
-      el("div", {className: "acc"}, ...(simple() ? [] : [bt(e, "↑", "/api/cola/mover", {d: -1}, "Subir"), bt(e, "↓", "/api/cola/mover", {d: 1}, "Bajar")]), bt(e, "Quitar", "/api/cola/cancelar"))));
+    run.forEach(r => r.querySelector(".acc button").classList.add("dng"));
+    const esp = pend.map((e, i) => el("div", {className: "q-it"}, el("span", {className: "num", textContent: i + 2 - (it.some(x => x.state === "marcha") ? 0 : 1)}),
+      el("div", {className: "n"}, el("b", {textContent: nombreDe(e)}), el("div", {className: "d", textContent: kind(e) + " · en espera (" + (i + 1) + " de " + pend.length + ")"})),
+      el("div", {className: "acc"}, bt(e, "↑", "/api/cola/mover", {d: -1}, "Subir en la cola"), bt(e, "↓", "/api/cola/mover", {d: 1}, "Bajar en la cola"), xb(e))));
+    esp.forEach((r, i) => { const b = r.querySelectorAll(".acc button"); b[0].disabled = i === 0; b[1].disabled = i === esp.length - 1; b[0].classList.add("qi"); b[1].classList.add("qi"); });
     const mal = it.filter(e => e.state === "error" || e.state === "interrumpido").map(e => el("div", {className: "q-it"},
-      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d err", textContent: (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "")})),
+      el("div", {className: "n"}, el("b", {textContent: nombreDe(e) + " · " + (e.state === "interrumpido" ? "interrumpido" : "ha fallado")}), el("div", {className: "d", textContent: e.error || kind(e)})),
       el("div", {className: "acc"}, bt(e, "Reintentar", "/api/cola/reintentar"), bt(e, "Quitar", "/api/cola/quitar"))));
     const hec = it.filter(e => e.state === "hecho" || e.state === "cancelado").reverse().map(e => el("div", {className: "q-it"},
-      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d", textContent: e.state === "hecho" ? "Terminado" : "Cancelado"})),
-      el("div", {className: "acc"}, ...(e.state === "hecho" && e.result?.id ? [ab(e)] : []), bt(e, "Quitar", "/api/cola/quitar"))));
-    const lim = el("button", {className: "sec sm", textContent: "Limpiar", onclick: fallo(async () => { for (const e of it.filter(e => !ACT.includes(e.state) && e.state !== "error" && e.state !== "interrumpido")) await post("/api/cola/quitar", {id: e.id}); await sondear(); })});
-    $("q-lista").replaceChildren(...run, ...(pend.length ? [card("En espera · " + pend.length, ...esp)] : []),
-      ...(mal.length ? [Object.assign(card("Necesita tu ayuda · " + mal.length, ...mal), {className: "card ayuda"})] : []),
-      ...(hec.length ? [card("Terminados · " + hec.length, ...hec, el("div", {className: "row", style: "margin-top:10px"}, lim))] : []),
-      ...(!it.length ? [el("div", {className: "card vacio", textContent: "No hay trabajos. Crea un documento con «" + nm("nuevo_boton") + "»."})] : []));
+      el("div", {className: "n"}, el("b", {textContent: nombreDe(e)}), el("div", {className: "d", textContent: kind(e) + " · " + (e.state === "hecho" ? "terminado" : "cancelado")})),
+      el("div", {className: "acc"}, ...(e.state === "hecho" && e.result?.id ? [ab(e)] : []), xb2(e))));
+    function xb2(e) { const x = xb(e); x.onclick = fallo(async () => { x.disabled = true; await post("/api/cola/quitar", {id: e.id}); await sondear(); }); return x; }
+    const lim = el("button", {className: "link", textContent: "Limpiar", onclick: fallo(async () => { for (const e of it.filter(e => !ACT.includes(e.state) && e.state !== "error" && e.state !== "interrumpido")) await post("/api/cola/quitar", {id: e.id}); await sondear(); })});
+    const mas = el("div", {className: "qdrop"}, "Para añadir más al final, crea otro documento · ", el("a", {href: "#", textContent: "Nuevo documento", onclick: e => { e.preventDefault(); formNuevo(); }}));
+    $("q-lista").replaceChildren(...run, ...(pend.length ? [sec("En espera · " + pend.length, esp, "", el("span", {className: "d", textContent: "Se procesan en este orden"})), mas] : []),
+      ...(mal.length ? [sec("Necesita tu ayuda · " + mal.length, mal, "ayuda")] : []),
+      ...(hec.length ? [sec("Terminados · " + hec.length, hec, "", lim)] : []),
+      ...(!it.length ? [el("div", {className: "qbox vacio", textContent: "No hay trabajos. Crea un documento con «" + nm("nuevo_boton") + "»."})] : []));
     $("q-sub").textContent = pend.length || it.some(e => e.state === "marcha") ? (it.some(e => e.state === "marcha") ? "1 en curso" : "") + (pend.length ? (it.some(e => e.state === "marcha") ? " · " : "") + pend.length + " en espera" : "") + ". Puedes cerrar esta ventana de trabajo y seguir usando la aplicación." : "Se procesa un trabajo a la vez; el resto espera su turno.";
   }
   const r = cola.items.find(e => e.state === "marcha");
   if (r && $("q-bar")) {
     $("q-msg").textContent = r.msg; $("q-bar").style.width = Math.round(r.frac * 100) + "%";
-    $("q-eta").textContent = Math.round(r.frac * 100) + " %" + (r.eta != null ? " · quedan " + minutos(r.eta) : "");
+    $("q-eta").textContent = (r.eta != null ? "Quedan " + minutos(r.eta) : "En marcha") + " · " + Math.round(r.frac * 100) + " %";
   }
   const ep = $("en-proc-bar"); if (r && ep) { ep.style.width = Math.round(r.frac * 100) + "%"; $("en-proc-eta").textContent = r.msg + (r.eta != null ? " · quedan " + minutos(r.eta) : ""); }
 }
@@ -251,11 +259,11 @@ function pintarSide() {
   const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
   const item = (txt, act, f, n, extra = {}) => el("button", {className: "nav" + (extra.m ? " m" : ""), "aria-current": act ? "page" : "false", onclick: f}, el("span", {textContent: txt}), el("span", {className: "c" + (extra.a ? " a" : ""), textContent: n ?? ""}));
   const cl = item("Cola", false, () => { vista("cola"); sondear(); }, cola.n || "", {a: 1}); cl.lastChild.setAttribute("data-cola", "");
-  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), item(GR.activa ? "● Grabando…" : "● Grabar reunión", false, () => grabarAbrir(), "", {m: 1}), item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), cl,
+  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), cl, item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), item(GR.activa ? "● Grabando…" : "● Grabar reunión", false, () => grabarAbrir(), "", {m: 1}),
     el("div", {className: "t", textContent: cap(pl(nm("carpeta")))}),
     ...carpetas.map(c => item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c))), ...(sin || fsel === "" ? [item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1})] : []),
     item("+ " + cap(nm("carpeta")) + " nuevo", false, nuevaCarpeta, "", {m: 1}), el("hr"),
-    el("a", {className: "nav m", href: "#/ajustes/plantillas"}, el("span", {textContent: "Plantillas"})), el("a", {className: "nav m", href: "#/ajustes/general"}, el("span", {textContent: "Ajustes"})));
+    el("a", {className: "nav m", href: "#/ajustes/plantillas"}, el("span", {textContent: "Plantillas"})), el("a", {className: "nav m", href: "#/ajustes/general"}, el("span", {textContent: "Ajustes"})), el("button", {className: "nav m", onclick: () => $("b-importar").click()}, el("span", {textContent: "Importar"})));
 }
 const nuevaCarpeta = () => enLinea($("ed-home"), {valor: "", texto: "Nombre de la " + nm("carpeta").toLowerCase() + " nueva", boton: "Crear"}, async n => { if (!n) return; await post("/api/carpeta", {nuevo: n}); fsel = n; await cargarLista(); });
 function pintarHome() {
@@ -263,13 +271,15 @@ function pintarHome() {
   const ini = fsel === undefined, act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "Generando" : "En cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
   $("h-inicio").hidden = !ini; $("f-cab").hidden = ini; $("proys-w").hidden = !ini;
   if (ini) {
+    $("h-head").hidden = !!todas.length; pintarAsk();
     $("h-tit").textContent = "Inicio"; $("h-sub").textContent = todas.length ? "" : "Todavía no hay nada. Pulsa «" + nm("nuevo_boton") + "» para crear tu primer " + nm("documento") + " o «Importar» para abrir uno exportado.";
     $("proys-t").textContent = cap(pl(nm("carpeta")));
     const ult = c => todas.filter(m => (m.carpeta || "") === c).reduce((a, m) => Math.max(a, m.mtime), 0);
     const card = c => { const n = todas.filter(m => (m.carpeta || "") === c).length, r = RES[c] || {}, u = Math.max(ult(c), r.ultima || 0);
-      return el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }}, el("b", {textContent: c || sinC()}),
-        el("small", {textContent: plural(n) + (u ? " · última actividad " + fechaC(u) : "") + (CP[c] && PL.length ? " · " + plantDe(CP[c]).nombre : "")}),
-        ...(r.pend || r.sug ? [el("small", {className: "f-card-p"}, el("b", {textContent: (r.pend || 0) + (r.pend === 1 ? " pendiente" : " pendientes")}), r.sug ? " · " + r.sug + " por revisar" : "")] : [])); };
+      return el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }},
+        el("div", {className: "pt"}, el("b", {textContent: c || sinC()}), el("small", {textContent: (CP[c] && PL.length ? plantDe(CP[c]).nombre + " · " : "") + plural(n)})),
+        el("div", {className: "pf"}, ...(r.pend ? [el("b", {textContent: r.pend + (r.pend === 1 ? " pendiente" : " pendientes")})] : [el("span", {textContent: "Sin pendientes"})]),
+          ...(r.sug ? [el("span", {textContent: r.sug + " por revisar"})] : []), ...(u ? [el("span", {textContent: "Último: " + fechaC(u)})] : []))); };
     const nueva = el("button", {className: "proy nueva", textContent: "+ " + cap(nm("carpeta")) + " nuevo", onclick: nuevaCarpeta});
     $("proys").replaceChildren(...carpetas.map(card), ...(todas.some(m => !m.carpeta) && carpetas.length ? [card("")] : []), nueva);
     const r = act.find(e => e.state === "marcha");
@@ -277,6 +287,9 @@ function pintarHome() {
       el("div", {className: "r"}, el("strong", {textContent: r ? "Generando · " + nombreDe(r) : "En cola"}), el("span", {className: "muted", textContent: act.length > 1 ? (act.length - (r ? 1 : 0)) + " más en espera" : ""})),
       ...(r ? [el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "en-proc-bar"}))] : []),
       el("div", {className: "d muted"}, el("span", {id: "en-proc-eta"}), r ? " · " : "", el("a", {href: "#", textContent: "Ver cola", onclick: e => { e.preventDefault(); vista("cola"); sondear(); }})))] : []));
+    const rv = [...carpetas, ""].filter(c => (RES[c] || {}).sug || (RES[c] || {}).pend).map(c => { const q = RES[c];
+      return el("button", {className: "rev-i" + (q.sug ? " w" : ""), onclick: () => { fsel = c; pintarHome(); }}, el("b", {textContent: q.sug ? q.sug + (q.sug === 1 ? " sugerencia por revisar" : " sugerencias por revisar") : q.pend + (q.pend === 1 ? " pendiente abierto" : " pendientes abiertos")}), el("small", {textContent: c || sinC()})); });
+    $("rev-l").replaceChildren(...rv); $("rev").hidden = !act.length && !rv.length;
     pintarCola(colaKey);
   } else {
     const c = fsel; $("ftit").textContent = c === null ? cap(pl(nm("documento"))) : c === "" ? sinC() : c;
@@ -288,16 +301,15 @@ function pintarHome() {
     if (c) { $("f-plant").replaceChildren(...PL.map(t => new Option("Tipo por defecto: " + t.nombre, t.id))); $("f-plant").value = CP[c] || "acta"; }
   }
   carpetaVista(!ini && fsel ? fsel : null);
-  const ms = todas.filter(m => ini || fsel === null || (m.carpeta || "") === fsel).slice(0, ini ? 8 : 1e9);
-  $("docs-t").textContent = ini ? "Documentos recientes" : fsel === null ? "Todos" : "Documentos";
-  const nuevas = ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
+  const bus = qBuscar.trim().toLowerCase(), ms = todas.filter(m => (ini || fsel === null || (m.carpeta || "") === fsel) && (!bus || (m.label + " " + (m.carpeta || "")).toLowerCase().includes(bus))).slice(0, ini && !bus ? 8 : 1e9);
+  $("docs-t").textContent = bus ? "Resultados" : ini ? "Documentos recientes" : fsel === null ? "Todos" : "Documentos"; $("docs-todos").hidden = !ini || !!bus;
+  const nuevas = bus ? [] : ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
   const fila = m => {
     const e = act.find(e => e.mid === m.id), f = fechaC(m.mtime);
     return el("tr", {className: "f"}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: f}),
-      el("td", {textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}), el("td", {textContent: m.actas > 1 ? m.actas + " versiones" : ""}),
-      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : [])));
+      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : []), ...(m.actas > 1 && !e ? [el("span", {className: "badge", textContent: m.actas + " versiones"})] : [])));
   };
-  $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td"), el("td"), el("td"), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
+  $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td"), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
   $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
   $("vacio").textContent = "Aún no hay " + pl(nm("documento")) + (fsel ? " en «" + fsel + "»" : "") + ".";
   document.querySelectorAll("#tabla th")[1].hidden = false;
@@ -540,3 +552,16 @@ function pintarAcciones(a) {
     el("details", {className: "menu"}, el("summary", {textContent: "Exportar ▾"}), ex));
 }
 document.addEventListener("click", e => document.querySelectorAll("details.menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+
+// ---- inicio: buscar y preguntar ----
+$("buscar").oninput = e => { qBuscar = e.target.value; if (vistaAct !== "home") { fsel = null; vista("home"); } pintarHome(); };
+$("docs-todos").onclick = e => { e.preventDefault(); fsel = null; pintarHome(); };
+const SUG = ["¿Qué tengo pendiente esta semana?", "¿Quién se comprometió a qué en la última reunión?", "¿Qué ha cambiado desde el mes pasado?"];
+function pintarAsk() {
+  const sel = $("ask-c"), v = sel.value, sin = todas.some(m => !m.carpeta);
+  $("ask").hidden = !todas.length;
+  sel.replaceChildren(...carpetas.map(c => new Option(c, c)), ...(sin ? [new Option(sinC(), "")] : [])); if ([...sel.options].some(o => o.value === v)) sel.value = v;
+  sel.hidden = sel.options.length < 2; $("ask-s").replaceChildren(...SUG.map(t => el("button", {type: "button", textContent: t, onclick: () => { $("ask-q").value = t; $("ask").requestSubmit(); }})));
+}
+$("ask").onsubmit = e => { e.preventDefault(); const q = $("ask-q").value.trim(), c = $("ask-c").value; if (!q) return $("ask-q").focus();
+  fsel = c; $("preg-tit").textContent = "Preguntar · " + (c || sinC()); $("p-fcarpeta").append($("qpanel")); setQ("c:" + c); vista("preg"); $("pregunta").value = q; $("qform").requestSubmit(); $("ask-q").value = ""; };

@@ -173,4 +173,4 @@ function grabando() {
 }
 // la página se abre con una grabación en marcha (se cerró la pestaña) o con grabaciones sin cerrar
 api("/api/grabar/estado").then(e => { GR.activa = !!e.activa; if (e.activa) grabarAbrir(); else if (e.recuperables.length) aviso("Hay una grabación sin cerrar: Grabar reunión › Recuperar grabación"); }).catch(() => {});
-{ const h = $("n-grabar"); h.hidden = false; h.append(el("button", {type: "button", className: "sec", textContent: "● Grabar una reunión en directo", onclick: () => grabarAbrir()})); }
+{ const h = $("n-grabar"); h.hidden = false; h.append(el("button", {type: "button", className: "sec grab", onclick: () => grabarAbrir()}, el("span", {className: "ring", ariaHidden: "true"}, el("i")), el("b", {textContent: "Grabar ahora"}), el("small", {textContent: "Micro + audio del sistema"}))); }

@@ -11,12 +11,11 @@
 <header class="top"><div class="top-in">
   <a href="#" id="inicio" class="logo" aria-label="Actas, ir al inicio">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg><span>Actas</span></a>
-  <!-- Gancho: búsqueda global (fase posterior) -->
-  <div id="h-buscar" class="grow" hidden></div><span class="grow"></span>
+  <label class="srch" id="h-buscar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span class="sr">Buscar</span><input type="search" id="buscar" placeholder="Buscar documentos…" autocomplete="off"></label><span class="grow"></span>
   <button class="pill" id="b-cola" aria-controls="v-cola"><span class="mini" id="cola-mini" hidden><i></i></span><span><strong>Cola</strong><span class="t2" id="cola-txt"></span></span></button>
-  <button class="btn sec" id="b-importar" title="Abrir un documento exportado (.zip)">Importar</button>
-  <button class="btn sec" id="b-ajustes">Ajustes</button>
-  <button class="btn pri" id="nueva">+ Nuevo</button>
+  <button class="btn sec" id="b-importar" title="Abrir un documento exportado (.zip)" hidden>Importar</button>
+  <button class="btn sec" id="b-ajustes" hidden>Ajustes</button>
+  <button class="btn sec" id="nueva">+ Nuevo</button>
 </div></header>
 <main>
   <!-- ===== Inicio ===== -->
@@ -26,10 +25,15 @@
       <!-- Ganchos de fases posteriores (ocultos): Pendientes, Para revisar, Preguntar a todo, grabar en vivo -->
       <div id="ed-home"></div><div id="h-pendientes" hidden></div><div id="h-preguntar" hidden></div>
       <div id="h-inicio">
-        <div class="head"><h1 id="h-tit">Inicio</h1><p class="muted" id="h-sub"></p></div>
-        <div id="en-proc"></div>
-        <div id="proys-w"><div class="sec-h"><h2 id="proys-t">Proyectos</h2></div><div class="proys" id="proys"></div></div>
+      <div class="head" id="h-head"><h1 id="h-tit">Inicio</h1><p class="muted" id="h-sub"></p></div>
+      <form class="ask" id="ask" hidden><h1 id="ask-t">Pregunta a tus actas</h1>
+        <div class="row"><label for="ask-q" class="sr">Pregunta</label><input id="ask-q" placeholder="¿Qué se decidió sobre el presupuesto de mantenimiento?" autocomplete="off">
+          <label for="ask-c" class="sr">Dónde buscar</label><select id="ask-c"></select><button class="pri" id="ask-b">Preguntar</button></div>
+        <div class="sug" id="ask-s"></div>
+        <div class="ask-n">Responde con citas y el minuto exacto de cada reunión. Todo en este equipo.</div></form>
+      <section class="rev" id="rev" hidden aria-labelledby="rev-t"><h2 id="rev-t">Para revisar</h2><div id="en-proc"></div><div id="rev-l"></div></section>
       </div>
+      <section id="proys-w"><div class="sec-h"><h2 id="proys-t">Proyectos</h2></div><div class="proys" id="proys"></div></section>
       <div id="f-cab" hidden>
         <div class="f-head">
           <div><h1 id="ftit"></h1><p class="muted" id="fsub"></p></div>
@@ -45,8 +49,8 @@
         <nav class="tabs" id="f-tabs" role="tablist" aria-label="Secciones de la carpeta" hidden></nav>
         <div id="ed-carpeta"></div><div id="f-ganchos" hidden></div><div id="f-panel" hidden></div>
       </div>
-      <div id="docs-w"><div class="sec-h"><h2 id="docs-t">Documentos recientes</h2></div>
-        <div class="tabla" id="tabla"><table><thead><tr><th scope="col">Documento</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Duración</th><th scope="col">Versiones</th><th scope="col">Estado</th></tr></thead><tbody id="lista"></tbody></table><div class="vacio" id="vacio" hidden></div></div></div>
+      <section id="docs-w" class="tabla"><div class="sec-h"><h2 id="docs-t">Documentos recientes</h2><a href="#" id="docs-todos">Ver todos</a></div>
+        <div id="tabla"><table><thead><tr><th scope="col">Documento</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Estado</th></tr></thead><tbody id="lista"></tbody></table><div class="vacio" id="vacio" hidden></div></div></section>
     </div>
   </section>
 
@@ -60,17 +64,16 @@
       <section class="card" id="f-fuente-c">
         <p class="sub solo-av">1 · Origen</p>
         <div id="f-fuente">
-          <div class="drop" id="drop"><div class="t" id="drop-t">Arrastra un vídeo o un audio</div>
+          <div class="drop" id="drop"><svg class="solo-sim ico" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg><div class="t" id="drop-t"><span class="solo-av">Arrastra un vídeo o un audio</span><span class="solo-sim">Arrastra vídeo o audio</span></div>
             <div class="row"><label for="ruta" class="sr">Vídeo o audio de la reunión</label><input id="ruta" readonly placeholder="Ningún archivo elegido (o suelta uno aquí)"><button type="button" id="elegir" class="sec">Elegir archivo</button></div>
             <small id="subida"></small></div>
-          <!-- Gancho: grabar en vivo (fase posterior) -->
-          <div id="n-grabar" hidden></div><div id="n-notas" class="card" hidden></div>
-          <div class="field"><label for="enlace">o pega un enlace</label>
-            <input id="enlace" type="url" placeholder="https://… (vídeo, audio, pódcast, reunión grabada)">
+          <div class="tile" id="t-enlace"><div class="field"><label for="enlace"><span class="solo-av">o pega un enlace</span><span class="solo-sim">Pegar enlace</span></label>
+            <input id="enlace" type="url" placeholder="https://…" title="Vídeo, audio, pódcast o reunión grabada">
             <label class="check solo-av" id="l-solo-audio" hidden title="Baja solo el sonido: la descarga es más rápida, pero el documento no llevará capturas de pantalla" style="margin-top:8px"><input type="checkbox" id="solo-audio"> <span>Descargar solo el audio (más rápido; sin capturas de pantalla)</span></label></div>
-          <div class="field solo-av"><label for="navegador">Usar sesión del navegador</label>
+          <div class="field"><label for="navegador"><span class="solo-av">Usar sesión del navegador</span><span class="solo-sim">Cookies de</span></label>
             <select id="navegador"><option value="">Ninguno</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="safari">Safari</option></select>
-            <small>Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small></div>
+            <small class="solo-av">Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small></div></div>
+          <div id="n-grabar" hidden></div><div id="n-notas" class="card" hidden></div>
           <div class="field solo-av"><label for="ruta-tr">Transcripción (opcional)</label>
             <div class="row" id="drop-tr"><input id="ruta-tr" readonly placeholder="Teams, Zoom, Meet, Otter… (.vtt .srt .txt .docx)">
               <button type="button" id="elegir-tr" class="sec">Elegir</button><button type="button" id="quitar-tr" class="sec" hidden aria-label="Quitar transcripción">&times;</button></div>
@@ -92,8 +95,8 @@
         <div class="field solo-sim" id="sp-bloque"><label id="sp-ql">Calidad</label>
           <div class="chips" id="sp-cal" role="radiogroup" aria-labelledby="sp-ql" style="margin-bottom:6px">
             <button type="button" role="radio" class="chip" data-q="r" aria-checked="true"><b>Rápido</b><small>Menos espera</small></button>
-            <button type="button" role="radio" class="chip" data-q="c" aria-checked="false"><b>Calidad</b><small id="sp-hint">Mejor resultado, tarda más</small></button>
-          </div></div>
+            <button type="button" role="radio" class="chip" data-q="c" aria-checked="false"><b>Calidad</b><small>Mejor resultado, tarda más</small></button>
+          </div><small id="sp-hint">Mejor resultado, tarda más</small></div>
         <div class="field solo-av" id="bloque-calidad"><label id="cal-l">Calidad del documento</label>
           <select id="calidad" hidden><option value="rápida">Rápida</option></select>
           <div id="cal-niv" role="radiogroup" aria-labelledby="cal-l"></div>
@@ -143,10 +146,10 @@
   <!-- ===== Cola ===== -->
   <section id="v-grabar" class="page" hidden></section>
 
-  <section id="v-cola" class="cola-w" hidden>
-    <a class="back" href="#" id="cola-volver">&larr; Inicio</a>
-    <div class="head"><h1>Cola</h1><p class="muted" id="q-sub">Se procesa un trabajo a la vez; el resto espera su turno. Puedes seguir usando la aplicación.</p></div>
-    <div id="q-lista" aria-live="polite"></div>
+  <section id="v-cola" hidden>
+    <div class="dh"><div class="qh-in"><a class="back" href="#" id="cola-volver">&larr; Inicio</a>
+      <h1>Cola</h1><p class="muted" id="q-sub">Se procesa un trabajo a la vez; el resto espera su turno. Puedes seguir usando la aplicación.</p></div></div>
+    <div class="cola-w"><div id="q-lista" aria-live="polite"></div></div>
   </section>
 
   <!-- ===== Documento ===== -->
