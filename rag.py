@@ -501,6 +501,11 @@ def server(threads, ctx=None, gpu=None):
 
 def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):
     """Genera los trozos de texto del LLM; el último elemento es el dict de tiempos de llama-server."""
+    if isinstance(url, dict):  # modelo en la nube (nube.py): una llamada, el texto entero y sin tiempos; la verificación posterior es la de siempre
+        import nube
+        yield nube.texto(url, system, user, max_tokens) + "\n"
+        yield {}
+        return
     body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0, "max_tokens": max_tokens, "grammar": gram or grammar(n), "stream": True,
             "cache_prompt": False, "chat_template_kwargs": {"enable_thinking": False}}

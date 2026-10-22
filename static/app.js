@@ -17,7 +17,7 @@ setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000);
 // ---- elegir vídeo y transcripción ----
 const INFO_TR = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor.";
 let ruta = "", rutaTr = "", hablaTr = false;
-const setRuta = p => { ruta = p; $("ruta").value = p; typeof notasForm === "function" && notasForm(p); };
+const setRuta = p => { ruta = p; $("ruta").value = p; typeof notasForm === "function" && notasForm(p); typeof nubeForm !== "undefined" && nubeForm.estimar(); };
 const setTr = async p => {
   rutaTr = ""; hablaTr = false; $("ruta-tr").value = p; $("quitar-tr").hidden = !p;
   try {
@@ -26,6 +26,7 @@ const setTr = async p => {
       $("info-tr").textContent = r.formato + " · " + r.segmentos + " segmentos · " + (hablaTr ? r.hablantes.length + " hablantes con nombre" : "sin nombres de hablantes");
     }
   } catch (err) { $("ruta-tr").value = ""; $("quitar-tr").hidden = true; $("info-tr").textContent = err.message; }
+  typeof nubeForm !== "undefined" && nubeForm.estimar();
   $("hablantes").disabled = hablaTr; if (hablaTr) $("hablantes").checked = false; $("hint-hab").hidden = !hablaTr;
 };
 $("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = INFO_TR; };
@@ -136,13 +137,14 @@ function formNuevo(m, a) {
 }
 $("enlace").oninput = () => { const v = !!$("enlace").value.trim(); $("l-solo-audio").hidden = !v; if (!v) $("solo-audio").checked = false; };  // «solo audio» solo con enlace
 const params = () => ({carpeta: reuse ? "" : $("n-carpeta").value === NUEVA_C ? $("n-carpeta-nueva").value.trim() : $("n-carpeta").value, video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
-  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple()});
+  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple(), nube: nubeParams("f")});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
   try {
     let dest = reuse ? "" : $("n-carpeta").value;
     if (dest === NUEVA_C) { dest = $("n-carpeta-nueva").value.trim(); if (!dest) { $("form-err").textContent = "Escribe el nombre de la " + nm("carpeta").toLowerCase() + " nueva"; return; } await post("/api/carpeta", {nuevo: dest}); }
+    if (!await nubeOk("f")) return;
     const r = await post("/api/generar", params());
     if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); }
     $("form-err").textContent = ""; vista("cola"); sondear();
@@ -389,7 +391,8 @@ $("qform").onsubmit = async e => {
   box.append(cuerpo, frag); $("respuestas").prepend(box);
   const estado = el("p", {textContent: "Buscando en la reunión…"}); cuerpo.append(estado);
   try {
-    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: qsel, q, gpu: $("usar-gpu").checked})});
+    if (!await nubeOk("q")) throw new Error("Cancelado: no se ha enviado nada");
+    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: qsel, q, gpu: $("usar-gpu").checked, nube: nubeParams("q")})});
     if (!r.ok) throw new Error(det(await r.json().catch(() => ({})), r.statusText));
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) {
@@ -401,7 +404,8 @@ $("qform").onsubmit = async e => {
   estado.remove(); frag.open = false; $("preguntar-b").disabled = false; $("pregunta").value = "";
 };
 function evento(ev, cuerpo, frag, estado) {
-  if (ev.k === "arranque") estado.textContent = "Arrancando el modelo de lenguaje…";
+  if (ev.k === "marca") cuerpo.insertBefore(el("p", {}, el("small", {textContent: "☁ " + ev.text})), estado);
+  else if (ev.k === "arranque") estado.textContent = "Arrancando el modelo de lenguaje…";
   else if (ev.k === "candidatos") { estado.textContent = "Buscando en la reunión…"; frag.append(el("ol", {}, ...ev.items.map(i => el("li", {}, ts(i.t, i.v, i.n), " " + i.text)))); }
   else if (ev.k === "frase") {
     const quote = el("blockquote"); ev.cita.forEach((c, n) => quote.append(...(n ? [el("br")] : []), el("span", {className: c.main ? "" : "o"}, ts(c.t, c.v, c.n), " " + c.text)));
@@ -441,7 +445,8 @@ function plantForm(id) {  // selector «Tipo»: en modo simple, solo los perfile
 }
 $("plantilla").onchange = () => {
   const t = plantDe($("plantilla").value); if (!t) return;
-  $("generar").textContent = "Generar " + t.documento.singular; $("info-plant").textContent = t.descripcion + (t.nube_permitida ? "" : " Solo en este equipo.");
+  $("generar").textContent = "Generar " + t.documento.singular; $("info-plant").textContent = t.descripcion + (t.nube_permitida ? "" : " Solo en este equipo (datos especialmente protegidos: RGPD art. 9 y secreto profesional).");
+  if (typeof nubePlantilla === "function") nubePlantilla(t);
   $("idioma").options[0].textContent = "Según la plantilla (" + (IDI[t.idioma_acta] || t.idioma_acta) + ")"; $("idioma").onchange();
 };
 $("idioma").onchange = () => {  // aviso: fuera de es/en conviene un modelo mayor

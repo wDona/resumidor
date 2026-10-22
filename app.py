@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 import models
+import nube
 import pipeline
 import carpetas
 import correo
@@ -70,6 +71,116 @@ try:  # reinicio: lo que estaba en marcha ya no tiene hilo (se puede reintentar)
             e.update(state="interrumpido", error="El trabajo se interrumpió al cerrar la aplicación")
 except (OSError, ValueError):
     pass
+
+
+# ---------- Modelos en la nube (opcionales; nube.py) ----------
+def _nube_spec(d, tpl=None):
+    """Si el trabajo pide nube: la valida (visible en Ajustes, plantilla que la permite, primera vez confirmada, clave o CLI) y deja en d["nube"]
+    la configuración normalizada (sin clave). Sin d["nube"] no hace nada."""
+    if not d.get("nube"):
+        d.pop("nube", None)
+        return None
+    ok, why = nube.permitida(tpl, _ajustes())
+    if not ok:
+        raise HTTPException(403, why)
+    try:
+        cfg = nube.norm(d["nube"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    p = cfg["proveedor"]
+    if p not in nube.estado()["confirmado"]:
+        raise HTTPException(409, {"msg": "Confirma antes el envío de texto a este proveedor", "confirmar": p})
+    if p.startswith("cli:"):
+        if not nube.cli_ruta(p[4:]):
+            raise HTTPException(400, f"No se encuentra {nube.CLIS[p[4:]][0]} en este equipo")
+    elif not nube.clave(p) and p != "propio":
+        raise HTTPException(400, f"Falta la clave de {nube.PROV[p][0]}")
+    d["nube"] = cfg
+    return cfg
+
+
+def _tpl_de(mid):
+    """Plantilla de la última versión de la reunión (para saber si admite la nube)."""
+    try:
+        f = max((pipeline.WORK / Path(mid).name).glob("acta_*/acta.json"), key=lambda x: x.stat().st_mtime)
+        n = json.loads(f.read_text(encoding="utf-8")).get("plantilla")
+        return next((t for t in plantillas.todas() if t["nombre"] == n), None) if n else None
+    except (ValueError, OSError):
+        return None
+
+
+@app.get("/api/nube")
+def get_nube():
+    a = _ajustes() or AJ_DEF
+    return {**nube.info(), "visible": bool(a.get("nube_visible", True)), "anonimizar_defecto": bool(a.get("anonimizar_defecto"))}
+
+
+@app.post("/api/nube/clave")
+def nube_clave(d: dict):
+    """Guarda la clave en el llavero del sistema (vacía = la borra). Nunca se devuelve: solo enmascarada."""
+    if d.get("proveedor") not in nube.PROV:
+        raise HTTPException(400, "Proveedor no válido")
+    try:
+        nube.poner_clave(d["proveedor"], str(d.get("clave") or ""))
+    except RuntimeError as ex:
+        raise HTTPException(400, str(ex))
+    return nube.info()
+
+
+@app.post("/api/nube/url")
+def nube_url(d: dict):
+    p, u = d.get("proveedor"), str(d.get("url") or "").strip().rstrip("/")
+    if p not in nube.PROV or u and not u.startswith(("https://", "http://")):
+        raise HTTPException(400, "Dirección no válida")
+    nube.guardar(urls={**nube.estado()["urls"], p: u})
+    return nube.info()
+
+
+@app.post("/api/nube/modelos")
+def nube_modelos(d: dict):
+    """Lista los modelos del proveedor (GET /models con su clave); lista vacía = escribir el nombre a mano."""
+    return {"modelos": nube.modelos(d.get("proveedor"), str(d.get("url") or "").strip() or None)}
+
+
+@app.post("/api/nube/confirmar")
+def nube_confirmar(d: dict):
+    p = d.get("proveedor")
+    if p not in nube.PROV and p not in [c["id"] for c in nube.detectar_clis()]:
+        raise HTTPException(400, "Proveedor no válido")
+    e = nube.estado()
+    nube.guardar(confirmado=sorted({*e["confirmado"], p}), modelos={**e["modelos"], **({p: str(d["modelo"])[:100]} if d.get("modelo") else {})})
+    return nube.info()
+
+
+@app.post("/api/nube/precios")
+def nube_precios(d: dict):
+    """Precio editable por modelo (USD por millón de tokens: entrada, salida); vacío lo quita."""
+    m = str(d.get("modelo") or "").strip()[:100]
+    if not m:
+        raise HTTPException(400, "Falta el modelo")
+    pr = dict(nube.estado()["precios"])
+    try:
+        pr[m] = [float(d["entrada"]), float(d["salida"])]
+    except (KeyError, TypeError, ValueError):
+        pr.pop(m, None)
+    nube.guardar(precios=pr)
+    return nube.info()
+
+
+@app.post("/api/nube/estimar")
+def nube_estimar(d: dict):
+    """Tokens (y coste si hay precio) antes de ejecutar: de los caracteres, de los minutos de la reunión (~900 car./min) o de la transcripción."""
+    ch = int(d.get("chars") or 0) or int(float(d.get("minutos") or 0) * 900)
+    if not ch and d.get("reuse"):
+        tf = pipeline.WORK / Path(d["reuse"]).name / f"transcript_{d.get('asr', 'calidad')}.json"
+        ch = sum(len(x["text"]) for x in json.loads(tf.read_text())["segments"]) if tf.is_file() else 0
+    if not ch and d.get("video") and Path(d["video"]).is_file():
+        ch = int(pipeline.duration(Path(d["video"])) / 60 * 900)
+    if not ch and d.get("transcripcion") and Path(d["transcripcion"]).is_file():
+        ch = Path(d["transcripcion"]).stat().st_size
+    if not ch:
+        raise HTTPException(400, "Sin datos para estimar: elige antes el vídeo o la transcripción")
+    return nube.estimar(ch, {"modelo": str(d.get("modelo") or "")})
 
 
 # ---------- LLM compartido por «Preguntar» ----------
@@ -281,8 +392,8 @@ def niveles():
 
 
 def falta(d, accion, video=True):
-    """409 con lo que falta instalar (la interfaz abre Modelos con ese aviso)."""
-    txt, ids = models.faltan(accion, d.get("calidad") or ("alta" if d.get("alta") else "rápida"), video)
+    """409 con lo que falta instalar (la interfaz abre Modelos con ese aviso). Con nube no hace falta el modelo redactor local."""
+    txt, ids = models.faltan(accion, d.get("calidad") or ("alta" if d.get("alta") else "rápida"), video, bool(d.get("nube")))
     if ids:
         raise HTTPException(409, {"msg": txt, "faltan": ids})
 
@@ -368,7 +479,7 @@ def _acta_fn(d):
         out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
                                  reuse=(Path(reuse).name, asr) if reuse else None, plantilla=d.get("plantilla") or None,
                                  idioma=d.get("idioma") or carpetas.leer(carp0)["ajustes"]["idioma"] or None, habla=d.get("habla") or None,
-                                 glosario=carpetas.terminos_prompt(carp0) or None, pistas=d.get("pistas") or None)  # glosario y idioma de la carpeta (vacíos: nada cambia)
+                                 glosario=carpetas.terminos_prompt(carp0) or None, pistas=d.get("pistas") or None, nube=d.get("nube"))  # glosario y idioma de la carpeta (vacíos: nada cambia)
         if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(out.parent).get("carpeta"):  # carpeta pedida al generar
@@ -390,6 +501,8 @@ def _acta_fn(d):
 def _llm_ctx(d):
     """Contexto de un LLM de los actas (el nivel elegido) para las pasadas cortas sobre una carpeta."""
     calidad = d.get("calidad") or ("alta" if d.get("alta") else "rápida")
+    if d.get("nube"):
+        return lambda: nube.backend(d["nube"])
     return lambda: pipeline.llama(THREADS, model=pipeline.acta_model(calidad), gpu=d.get("gpu"), capas=pipeline.MOE.get(calidad, 0))
 
 
@@ -442,8 +555,9 @@ def generar(d: dict):
         raise HTTPException(400, str(ex))
     if (d.get("idioma") or "reunión") not in plantillas.IDIOMAS or (d.get("habla") or "auto") not in ("auto", "mezcla", *pipeline.IDIOMAS):
         raise HTTPException(400, "Idioma no válido")
+    _nube_spec(d, plantillas.get(d.get("plantilla") or None))
     n = next(x for x in niveles() if x["id"] == d.get("calidad", "rápida"))
-    if n["estado"] == "no":
+    if n["estado"] == "no" and not d.get("nube"):
         raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
     falta(d, "generar", bool(video.is_file() or url or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
     return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse and not url else url[:80] if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
@@ -458,6 +572,7 @@ def fondo(d: dict):
         raise HTTPException(400, "Genera primero el acta")
     if _solo_acta(wd.name, asr):
         raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede buscar a fondo")
+    _nube_spec(d)
     falta(d, "fondo")
     return start("fondo", d, wd.name, wd.name)
 
@@ -466,7 +581,7 @@ def _fondo_fn(d):
     wd, nivel, asr = pipeline.WORK / Path(d["id"]).name, d.get("nivel", "normal"), d.get("asr", "calidad")
 
     def fn(cb):
-        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad=d.get("calidad") or ("alta" if d.get("alta") else "rápida"), gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
+        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad=d.get("calidad") or ("alta" if d.get("alta") else "rápida"), gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr), nube=d.get("nube"))
         return {"id": wd.name, "acta": out.name}
     return fn
 
@@ -1343,6 +1458,10 @@ def preguntar(d: dict):
                                  media_type="application/x-ndjson")
     if aux["on"] or any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
+    if d.get("nube"):  # también los documentos de una plantilla «solo en este equipo» quedan fuera de la nube
+        for m in ms:
+            _nube_spec({"nube": d["nube"]}, _tpl_de(m["id"]))
+        _nube_spec(d)
     falta(d, "preguntar")
     if not sel.startswith("c:") and _solo_acta(*sel.split("|")):
         raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede preguntar sobre ella")
@@ -1355,13 +1474,18 @@ def preguntar(d: dict):
             multi = idx.multi
             inf = (lambda i: {"n": idx.names[idx.segs[i]["m"]], "v": idx.vids[idx.segs[i]["m"]]}) if multi else (lambda i: {})  # carpeta: reunión y vídeo de cada tramo
             gpu = pipeline.use_gpu(d.get("gpu"))
-            if _llm.get("gpu") not in (None, gpu):  # cambió la casilla: otro servidor (solo uno a la vez en la GPU)
-                parar_llm()
-            if not _llm.get("url"):
-                yield line(k="arranque")
-                _llm["url"], _llm["proc"] = rag.server(THREADS, gpu=gpu)
-                _llm["gpu"] = gpu
-            for kind, v in rag.answer(idx, q, _llm["url"]):
+            if d.get("nube"):  # nube: sin servidor local ni GPU; la respuesta lleva la marca
+                url = d["nube"]
+                yield line(k="marca", text=nube.marca(url))
+            else:
+                if _llm.get("gpu") not in (None, gpu):  # cambió la casilla: otro servidor (solo uno a la vez en la GPU)
+                    parar_llm()
+                if not _llm.get("url"):
+                    yield line(k="arranque")
+                    _llm["url"], _llm["proc"] = rag.server(THREADS, gpu=gpu)
+                    _llm["gpu"] = gpu
+                url = _llm["url"]
+            for kind, v in rag.answer(idx, q, url):
                 if pipeline.NOTICE:
                     yield line(k="aviso", text=pipeline.NOTICE.pop())
                 if kind == "candidatos":

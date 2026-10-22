@@ -1976,7 +1976,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
 <body><main><div id="side"><{med} id="v" src="video{vext}" controls preload="metadata"></{med}>
 <button type="button" id="pip" hidden>Imagen en imagen</button><p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
 <div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
-generado {time.strftime('%Y-%m-%d %H:%M')}</p>
+generado {time.strftime('%Y-%m-%d %H:%M')}{esc(' · ' + extra['nube']) if (extra or {}).get('nube') else ''}</p>
 {nota}{chr(10).join(parts)}
 </div></main><script>{JS}</script></body></html>"""
     if not marcas:  # plantilla sin marcas de tiempo
@@ -2145,7 +2145,7 @@ def ritmo(k):
 
 def eta():
     """Segundos que faltan: lo que queda de la fase en curso (a su ritmo real desde el 10 %) más lo previsto para las siguientes."""
-    if not ETA:
+    if "t0" not in ETA:  # (con nube no hay ritmos medidos)
         return None
     e, f = time.time() - ETA["t0"], ETA["f"]
     return round((e * (1 - f) / f if f >= 0.1 else max(ETA["exp"] - e, 0)) + ETA["rest"])
@@ -2153,7 +2153,7 @@ def eta():
 
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None,
-        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None):
+        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None, nube=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
     calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo.
@@ -2161,7 +2161,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     el de la reunión); habla: idioma de la reunión para el ASR (None = automático, código o "mezcla"). glosario: términos de la carpeta
     (hotwords del ASR y «términos de este proyecto» en el map/redacción; None = nada, y cachés idénticas a las de siempre).
     pistas: {«Hablante N»: wav} de una grabación (grabar.py): se transcribe cada pista y el hablante sale gratis. Las notas del usuario
-    (work/<id>/notas.json) entran en el documento tras el reduce (no tocan prompts ni cachés; sin notas, todo igual)."""
+    (work/<id>/notas.json) entran en el documento tras el reduce (no tocan prompts ni cachés; sin notas, todo igual).
+    nube: configuración de nube.py (norm()) para redactar con un modelo en la nube en vez del local (sin GPU); None = local, todo igual."""
     import grabar
     import plantillas
     tpl = plantilla if isinstance(plantilla, dict) else plantillas.get(plantilla)
@@ -2194,9 +2195,15 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
     tf = wd / f"transcript_{quality}.json"
     dur = duration(video) if video else json.loads(tf.read_text())["segments"][-1]["e"] if tf.exists() else 0
-    model = acta_model(calidad)
-    if not model or not model.exists():
-        raise RuntimeError(f"Falta el modelo del nivel «{NIVELES[calidad][0]}»: descárgalo desde Calidad del acta")
+    if nube:  # nube y local no comparten caché: el id (proveedor + modelo [+ anonimizado]) sustituye a la ruta del gguf en las claves
+        import nube as NB
+        model = NB.id_cache(nube)
+        LL = lambda: NB.backend(nube)
+    else:
+        model = acta_model(calidad)
+        if not model or not model.exists():
+            raise RuntimeError(f"Falta el modelo del nivel «{NIVELES[calidad][0]}»: descárgalo desde Calidad del acta")
+        LL = lambda: llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0))
     rk = functools.partial(ritmo_key, alta=calidad if alta else "", gpu=use_gpu(gpu))
     # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
     todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
@@ -2211,7 +2218,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             del todo[n]
             if n == name:
                 break
-        if dur:
+        if dur and not nube:  # los ritmos medidos son de los modelos locales
             ETA.update(t0=time.time(), f=0, exp=w * ritmo(rk(name)) * dur, rest=sum(v * ritmo(rk(n)) * dur for n, v in todo.items()))
 
         def p(f, m):
@@ -2283,8 +2290,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if len(maps) < len(chunks) or not vf.exists() or not rf.exists() or (fondo and not ff.exists()):
         t0, n0 = time.time(), len(maps)
         todo.update(map=(len(chunks) - n0) / len(chunks), reduce=float(not rf.exists()), fondo=float(fondo and not ff.exists()))
-        fase("llm_carga", 0.6, 0.6)(0, "Arrancando modelo de lenguaje…")
-        with llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0)) as chat:
+        fase("llm_carga", 0.6, 0.6)(0, "Conectando con la nube…" if nube else "Arrancando modelo de lenguaje…")
+        with LL() as chat:
             stage("llm_carga", t0)
             t0 = time.time()
             fase("map", 0.6, 0.9)
@@ -2329,7 +2336,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         cx = json.loads(cf.read_text()) if cf.exists() else {}
         if falta := [n for n in pend if kx(n) not in cx]:
             cb(0.94, "Leyendo tus notas…")
-            with llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0)) as chat:
+            with LL() as chat:
                 for n in falta:
                     cx[kx(n)] = grabar.extraer(me, chat, n, tr["segments"], P, lang, model)
             cf.write_text(json.dumps(cx, ensure_ascii=False))
@@ -2342,7 +2349,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         trad = json.loads(tq.read_text()) if tq.exists() else {}
         if falta := list(dict.fromkeys(q for q in qs if q not in trad)):
             cb(0.95, "Traduciendo las citas…")
-            with llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0)) as chat:
+            with LL() as chat:
                 trad.update(traducir(chat, falta, lang))
             tq.write_text(json.dumps(trad, ensure_ascii=False))
         red["trad"] = trad
@@ -2363,7 +2370,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     for k in render(out, nombre or red.get("titulo") or stem, dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
                     starts, tr["segments"], level, video.suffix if video else None, names, imp, audio, P, op.get("marcas", True),
                     ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {}) |
-                    ({"idioma": idioma} if idioma else {}) | ({"notas_usuario": filas} if filas else {}), filas):
+                    ({"idioma": idioma} if idioma else {}) | ({"nube": NB.marca(nube)} if nube else {}) | ({"notas_usuario": filas} if filas else {}), filas):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
@@ -2388,7 +2395,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     (wd / f"timings_{quality}_{level}{tag}{ntag}.json").write_text(json.dumps(timings))
     r = ritmos()  # lo medido en este equipo afina el tiempo restante de las siguientes actas
     for n, t in timings.items():
-        if n in RITMO0 and t >= 1 and dur >= 600:  # vídeos cortos: el arranque fijo pesa demasiado y falsearía el ritmo
+        if n in RITMO0 and t >= 1 and dur >= 600 and not nube:  # vídeos cortos: el arranque fijo pesa demasiado y falsearía el ritmo
             k, v = rk(n), t / dur / ((len(chunks) - n0) / len(chunks) if n == "map" else 1)
             r[k] = round((r[k] + v) / 2 if k in r else v, 4)
     RITMOS.write_text(json.dumps(r))

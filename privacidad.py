@@ -12,7 +12,7 @@ import pipeline as P
 
 ANON, ANON_TR, ANON_IMG, ANON_META = "acta_anonima.json", "transcript_anonimo.json", "img_anon", "anon.json"
 LETRAS = "TRWAGMYFPDXBNJZSQVHLCKE"
-SIN_REEMPLAZO = {"img", "plantilla", "nivel"}  # claves de los datos que nunca se tocan
+SIN_REEMPLAZO = {"img", "plantilla", "nivel", "nube"}  # claves de los datos que nunca se tocan
 GENERICOS = {"todos", "equipo", "todo el equipo", "nadie", "por definir", "pendiente", "sin asignar", "—", "-", "n/a"}
 STOP = {"de", "del", "la", "el", "los", "las", "y", "da", "do", "van", "von"}
 

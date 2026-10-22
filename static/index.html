@@ -132,11 +132,11 @@
       <div class="gen">
         <div class="otros">
           <button type="button" class="link solo-sim" id="av-form">Opciones avanzadas</button>
-          <!-- Gancho: usar un modelo en la nube (fase posterior) -->
           <span id="n-nube" class="solo-nube" hidden></span>
         </div>
         <button class="pri" id="generar">Generar documento</button>
       </div>
+      <div id="nube-f" class="solo-nube"></div>
     </form>
   </section>
 
@@ -210,6 +210,7 @@
     <p class="muted">Solo se responde con lo dicho en la reunión y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
     <form class="card row" id="qform"><label for="pregunta" class="sr">Pregunta</label>
       <input id="pregunta" placeholder="Escribe tu pregunta…"><button class="pri" id="preguntar-b">Preguntar</button></form>
+    <div class="otros solo-nube"><span id="nube-q-l" hidden></span></div><div id="nube-q" class="solo-nube"></div>
     <div id="respuestas"></div>
   </div>
 
@@ -297,5 +298,6 @@
 <script src="plantillas.js"></script>
 <script src="modelos.js"></script>
 <script src="grabar.js"></script>
+<script src="nube.js"></script>
 </body>
 </html>
