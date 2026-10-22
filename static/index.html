@@ -99,7 +99,7 @@
           <label for="enlace">o pega un enlace</label>
           <input id="enlace" type="url" placeholder="https://… (vídeo, audio, podcast, reunión grabada)">
           <div class="row av-f">
-            <label class="check"><input type="checkbox" id="solo-audio"> Solo audio</label>
+            <label class="check" id="l-solo-audio" hidden title="Baja solo el sonido: la descarga es más rápida, pero el documento no llevará capturas de pantalla"><input type="checkbox" id="solo-audio"> Descargar solo el audio (más rápido; sin capturas de pantalla)</label>
             <label for="navegador">Usar sesión del navegador</label>
             <select id="navegador"><option value="">Ninguno</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="safari">Safari</option></select>
           </div>
@@ -131,7 +131,7 @@
           <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
       </div>
       <div class="cols av-f">
-        <div class="field"><label for="plantilla">Plantilla</label><select id="plantilla"></select><small id="info-plant"></small></div>
+        <div class="field" id="f-plantilla"><label for="plantilla">Plantilla</label><select id="plantilla"></select><small id="info-plant"></small></div>
         <div class="field"><label for="idioma">Idioma del documento</label><select id="idioma"></select>
           <small id="hint-idioma" class="warn" hidden></small><small>Las citas literales quedan en el idioma original, con la traducción entre paréntesis.</small></div>
       </div>

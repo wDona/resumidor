@@ -31,7 +31,7 @@ import rag
 import transcripts
 
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
-STATIC, LOCK, COLA = pipeline.ROOT / "static", pipeline.ROOT / ".actas.lock", pipeline.WORK / "cola.json"
+STATIC, LOCK, COLA = pipeline.ROOT / "static", (pipeline.WORK if os.environ.get("ACTAS_WORK") else pipeline.ROOT) / ".actas.lock", pipeline.WORK / "cola.json"
 UPLOADS = pipeline.ROOT / "uploads"
 TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
@@ -76,6 +76,7 @@ def parar_llm():
 
 
 atexit.register(parar_llm)
+atexit.register(rag.emb_stop)
 
 
 # ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
@@ -846,16 +847,97 @@ def bajar_modelos(d: dict | None = None):
 
 
 @app.get("/api/modelos/encontrados")
-def modelos_encontrados():
-    return {"encontrados": models.escanear(), "config": json.loads(pipeline.MODELOS.read_text()) if pipeline.MODELOS.exists() else {}}
+def modelos_encontrados(emb: bool = False):
+    """GGUF del equipo (emb=true: solo de embeddings) + la configuración (niveles, extra y roles)."""
+    return {"encontrados": models.escanear(emb), "config": json.loads(pipeline.MODELOS.read_text()) if pipeline.MODELOS.exists() else {}}
 
 
 @app.post("/api/modelos/usar")
 def usar_modelo(d: dict):
-    """{ruta, nivel: calidad | "pers" | "", nombre?}"""
+    """{ruta, nivel: calidad | "pers" | "chat" | "emb" | "", nombre?}"""
     if not models.usar(d.get("ruta", ""), d.get("nivel", ""), d.get("nombre", "")):
-        raise HTTPException(400, "Elige un fichero .gguf")
-    return modelos_encontrados()
+        raise HTTPException(400, "Elige un fichero .gguf y un nivel válido")
+    parar_llm(), rag.emb_stop(), _idx.clear()  # el chat y el índice se rehacen con el modelo nuevo
+    return {**modelos_encontrados(), "roles": models.roles()}
+
+
+@app.get("/api/modelos/roles")
+def get_roles():
+    """Búsqueda (emb) y Chat de Preguntar (chat): modelo en uso, si es el de serie y si cabe en este equipo."""
+    return models.roles()
+
+
+@app.post("/api/modelos/roles/quitar")
+def quitar_rol(d: dict):
+    if d.get("rol") not in models.ROLES:
+        raise HTTPException(400, "Rol no válido")
+    models.quitar_rol(d["rol"])
+    parar_llm(), rag.emb_stop(), _idx.clear()
+    return models.roles()
+
+
+@app.post("/api/modelos/hf/info")
+def hf_info(d: dict):
+    """{entrada: URL de Hugging Face o «usuario/repo[/fichero.gguf]»} -> ficheros .gguf con su tamaño."""
+    try:
+        return models.hf_info(d.get("entrada", ""))
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    except OSError as ex:
+        raise HTTPException(502, "No se pudo consultar Hugging Face: " + str(ex)[:150])
+
+
+@app.post("/api/modelos/hf/bajar")
+def hf_bajar(d: dict):
+    """{repo, fichero, nivel: calidad | "pers" | "chat" | "emb", bytes?, nombre?}: descarga y asigna; el progreso sale en GET /api/modelos."""
+    try:
+        models.hf_bajar(d.get("repo", ""), d.get("fichero", ""), d.get("nivel", "pers"), d.get("nombre", ""), int(d.get("bytes") or 0))
+    except (ValueError, RuntimeError) as ex:
+        raise HTTPException(400, str(ex))
+    return models.status()
+
+
+# ---------- Perfiles de uso propios (se suman a los de serie del asistente) ----------
+PERFILES = pipeline.WORK / "perfiles_uso.json"
+
+
+def _perfiles():
+    try:
+        d = json.loads(PERFILES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return d if isinstance(d, list) else []
+
+
+@app.get("/api/perfiles-uso")
+def get_perfiles():
+    return _perfiles()
+
+
+@app.post("/api/perfiles-uso")
+def set_perfil(d: dict):
+    """Crea (sin id) o edita (con id) un perfil de uso: {id?, nombre, plantillas, carpeta, documento, nuevo_boton, nube, anonimizar}."""
+    nombre = str(d.get("nombre") or "").strip()[:60]
+    ids = {t["id"] for t in plantillas.todas()}
+    pl = [x for x in dict.fromkeys(d.get("plantillas") or []) if x in ids]
+    if not nombre or not pl:
+        raise HTTPException(400, "Pon un nombre y elige al menos una plantilla")
+    txt = lambda k, v: str(d.get(k) or v).strip()[:40] or v
+    ps = _perfiles()
+    pid = d.get("id") or "u-" + hashlib.sha1((nombre + str(time.time())).encode()).hexdigest()[:8]
+    if d.get("id") and not any(p["id"] == pid for p in ps):
+        raise HTTPException(404, "No existe ese perfil")
+    p = {"id": pid, "nombre": nombre, "plantillas": pl, "carpeta": txt("carpeta", "Carpeta"), "documento": txt("documento", "documento"),
+         "nuevo_boton": txt("nuevo_boton", "+ Nuevo"), "nube": bool(d.get("nube", True)), "anonimizar": bool(d.get("anonimizar", False))}
+    pipeline.WORK.mkdir(exist_ok=True)
+    PERFILES.write_text(json.dumps([p if x["id"] == pid else x for x in ps] + ([] if any(x["id"] == pid for x in ps) else [p]), ensure_ascii=False, indent=1), encoding="utf-8")
+    return p
+
+
+@app.post("/api/perfiles-uso/borrar")
+def del_perfil(d: dict):
+    PERFILES.write_text(json.dumps([p for p in _perfiles() if p["id"] != d.get("id")], ensure_ascii=False, indent=1), encoding="utf-8")
+    return _perfiles()
 
 
 @app.post("/api/modelos/borrar")

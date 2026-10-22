@@ -4,7 +4,7 @@ import atexit, ctypes, json, os, signal, subprocess, sys, threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-PIDF = ROOT / "work" / "llama_pids.json"
+PIDF = (Path(os.environ["ACTAS_WORK"]) if os.environ.get("ACTAS_WORK") else ROOT / "work") / "llama_pids.json"
 _REG, _lock, _job = [], threading.Lock(), [None]
 
 

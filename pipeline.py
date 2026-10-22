@@ -11,7 +11,7 @@ import procs
 import transcripts
 
 ROOT = Path(__file__).resolve().parent
-WORK = ROOT / "work"
+WORK = Path(os.environ["ACTAS_WORK"]) if os.environ.get("ACTAS_WORK") else ROOT / "work"  # ACTAS_WORK: datos y lock aparte (pruebas)
 STEP = 1                      # s entre muestras de vídeo (un cambio que dure < 1 s se pierde)
 THUMB_W, THUMB_H = 128, 72    # miniatura en gris para detectar cambios
 CROP = 0.05                   # franjas de arriba/abajo ignoradas (barra de menús con reloj/batería, dock)
@@ -629,8 +629,9 @@ NIVELES = {"rápida": ("Rápida", None, 1), "alta": ("Alta", None, 2), "alta9": 
 
 
 BASE = tuple(NIVELES)
-MODELOS = WORK / "modelos.json"  # {"levels": {calidad: ruta .gguf que sustituye al de serie}, "extra": [{ruta, nombre} = niveles «Personalizado»]}
-OVER, PERS = {}, {}  # calidad -> ruta; id de nivel personalizado -> ruta
+MODELOS = WORK / "modelos.json"  # {"levels": {calidad: ruta .gguf que sustituye al de serie}, "extra": [{ruta, nombre} = niveles «Personalizado»], "roles": {chat|emb: ruta .gguf}}
+OVER, PERS, ROLES = {}, {}, {}  # calidad -> ruta; id de nivel personalizado -> ruta; rol ("chat" | "emb") -> ruta .gguf que sustituye al de serie
+
 
 
 def pers_id(ruta):
@@ -645,7 +646,8 @@ def cargar_modelos():
         c = {}
     for q in [q for q in NIVELES if q not in BASE]:
         del NIVELES[q]
-    OVER.clear(), PERS.clear()
+    OVER.clear(), PERS.clear(), ROLES.clear()
+    ROLES.update({r: p for r, p in (c.get("roles") or {}).items() if r in ("chat", "emb") and isinstance(p, str)})
     OVER.update({q: r for q, r in c.get("levels", {}).items() if q in BASE})
     for e in c.get("extra", []):
         PERS[pers_id(e["ruta"])] = e["ruta"]

@@ -35,11 +35,13 @@ def chat_choice(gpu=None):
 
 def chat_model():
     """Modelo del chat según la memoria (chat_choice): gemma-4-E4B o el 4B de las actas."""
+    if (r := P.ROLES.get("chat")) and Path(r).is_file():  # modelo propio elegido en Ajustes (mismas reglas de memoria)
+        return Path(r)
     return P.ROOT / "models" / GEMMA if chat_choice(_gpu_chat[0])[0] else P.llm_model()
 
 
 def interp():
-    return chat_model().name == GEMMA
+    return chat_model().name == GEMMA  # estilo interpretativo solo con gemma; un modelo propio usa el estilo literal
 
 STOP = set("""a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
 cuales cuando de del desde donde dos el ella ellas ello ellos en entre era eran es esa esas ese eso esos esta estas este
@@ -126,8 +128,50 @@ REPO, ONNX = "onnx-community/embeddinggemma-300m-ONNX", "onnx/model_quantized.on
 QP, DP = "task: search result | query: ", "title: none | text: "  # prompts oficiales de EmbeddingGemma
 
 
+def emb_id():
+    """Identifica el modelo de embeddings (clave de las cachés del índice): el ONNX de serie o el .gguf elegido."""
+    r = P.ROLES.get("emb")
+    return f"{r}:{Path(r).stat().st_size}" if r and Path(r).is_file() else ONNX
+
+
+# prefijos de consulta/documento según la familia del GGUF (por el nombre del fichero); sin coincidencia: sin prefijo
+PREF = [("nomic", "search_query: ", "search_document: "), ("embeddinggemma", QP, DP), ("bge-m3", "", ""), ("bge", "Represent this sentence for searching relevant passages: ", ""),
+        ("e5", "query: ", "passage: "), ("gte", "", "")]
+_es = {}  # servidor llama-server --embedding en marcha: {"id", "url", "proc"}
+
+
+def emb_server(threads=2):
+    """llama-server --embedding del modelo elegido (en CPU, solo mientras haga falta)."""
+    if _es.get("id") != emb_id():
+        emb_stop()
+        m = Path(P.ROLES["emb"])
+        url, proc = P.launch(m, 4096, threads, ["--embedding", "-b", "2048", "-ub", "2048"], "llama-server-emb.log", False)
+        _es.update(id=emb_id(), url=url, proc=proc)
+    return _es["url"]
+
+
+def emb_stop():
+    if _es.get("proc"):
+        _es["proc"].terminate()
+    _es.clear()
+
+
+def embed_gguf(texts, query, threads):
+    name = Path(P.ROLES["emb"]).name.lower()
+    qp, dp = next(((q, d) for k, q, d in PREF if k in name), ("", ""))
+    url, out = emb_server(threads), []
+    for b in range(0, len(texts), 16):
+        body = json.dumps({"input": [(qp if query else dp) + t for t in texts[b:b + 16]]}).encode()
+        r = json.loads(urllib.request.urlopen(urllib.request.Request(url + "/v1/embeddings", body, {"Content-Type": "application/json"}), timeout=600).read())
+        out += [d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"])]
+    v = np.array(out, np.float32).reshape(len(texts), -1)
+    return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
+
+
 def embed(texts, query=False, threads=2):
     global _enc
+    if emb_id() != ONNX:
+        return embed_gguf(texts, query, threads)
     if _enc is None:
         import onnxruntime as ort
         from huggingface_hub import hf_hub_download
@@ -157,10 +201,14 @@ class Index:
         self.segs = units(wd, quality)
         texts = [s["text"] for s in self.segs]
         import hashlib
-        h = hashlib.sha1("\0".join([ONNX, *texts]).encode()).hexdigest()[:8]
+        h = hashlib.sha1("\0".join([emb_id(), *texts]).encode()).hexdigest()[:8]  # la clave incluye el modelo de embeddings: cambiarlo reindexa
         f = Path(wd) / f"rag_{quality}_{h}.npy"
-        self.emb = np.load(f) if f.exists() else embed(texts, False, threads)
-        if not f.exists():
+        if f.exists():
+            self.emb = np.load(f)
+        else:
+            if any(Path(wd).glob(f"rag_{quality}_*.npy")):
+                P.NOTICE[:] = ["Se reindexarán las reuniones al preguntar"]
+            self.emb = embed(texts, False, threads)
             np.save(f, self.emb)
         self.threads = threads
         self.docs = [Counter(terms(t)) for t in texts]

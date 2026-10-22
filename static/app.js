@@ -102,12 +102,13 @@ function formNuevo(m, a) {
   plantForm(CP[m ? m.carpeta || "" : fsel || ""] || "acta");
   vista("nuevo"); formSimple(m);
 }
+$("enlace").oninput = () => { const v = !!$("enlace").value.trim(); $("l-solo-audio").hidden = !v; if (!v) $("solo-audio").checked = false; };  // «solo audio» solo con enlace
 const params = () => ({video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
   hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple()});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
-  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
+  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
 };
 
 // ---- cola de trabajos ----
@@ -163,7 +164,7 @@ function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
   if (i && lista?.length) { i.setAttribute("list", "dl-carpetas"); f.append(el("datalist", {id: "dl-carpetas"}, ...lista.map(v => el("option", {value: v})))); }
   f.append(el("span", {textContent: texto}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
   c.onclick = () => f.remove();
-  f.onkeydown = e => e.key === "Escape" && f.remove();
+  f.onkeydown = e => { if (e.key === "Escape") f.remove(); };  // sin devolver false: un on* que devuelve false cancela la tecla (no se podía escribir)
   f.onsubmit = e => { e.preventDefault(); fallo(async () => { await hecho(i ? i.value.trim() : ""); f.remove(); })(); };
   donde.append(f); (i || c).focus(); i?.select();
 }

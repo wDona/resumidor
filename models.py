@@ -102,14 +102,15 @@ def faltan(accion, calidad="rápida", video=True):
     m = "rápida" if calidad in ("rápida", "alta") else calidad
     llm = lambda: [] if (f := P.acta_model(calidad)) and f.is_file() or m not in CAT else [m]
     hay = any(instalado(i) for i in LLMS) or any(Path(r).is_file() for r in P.OVER.values())
+    rol = lambda r: bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file()  # rol sustituido por un .gguf propio
     if accion == "preguntar":
-        ids = [i for i in ["busq"] + ([] if instalado("chat") or hay else ["chat" if P.chat_model()[0] == "gemma" else "rápida"]) if not instalado(i)]
+        ids = [i for i in ([] if rol("emb") else ["busq"]) + ([] if rol("chat") or instalado("chat") or hay else ["chat" if P.chat_model()[0] == "gemma" else "rápida"]) if not instalado(i)]
         txt = "Para preguntar necesitas: "
     else:
-        ids = [i for i in (["voz", "peq"] * bool(video)) + ["busq"] if not instalado(i)] + llm()
+        ids = [i for i in (["voz", "peq"] * bool(video)) + ([] if rol("emb") else ["busq"]) if not instalado(i)] + llm()
         txt = "Para generar actas necesitas: " if accion == "generar" else "Para la búsqueda a fondo necesitas: "
-    rol = {"voz": "voz", "busq": "búsqueda", "peq": "OCR y hablantes", "chat": "un modelo de chat"}
-    return (txt + " + ".join(rol.get(i, "un modelo redactor") for i in ids) + " (instálalos en Modelos).", ids) if ids else ("", [])
+    nom = {"voz": "voz", "busq": "búsqueda", "peq": "OCR y hablantes", "chat": "un modelo de chat"}
+    return (txt + " + ".join(nom.get(i, "un modelo redactor") for i in ids) + " (instálalos en Modelos).", ids) if ids else ("", [])
 
 
 def sha(p):
@@ -183,9 +184,10 @@ def status():
 
 
 # ---------- Modelos GGUF que el usuario ya tiene ----------
-def escanear():
+def escanear(emb=False):
     """GGUF de otros programas (LM Studio, Ollama, Hugging Face, Jan, GPT4All) + models/ + los añadidos a mano. Rápido: nombre y tamaño, sin hashes.
-    -> [{nombre, ruta, bytes, origen, estado, necesita}]; sin vision (mmproj), embeddings ni ficheros < 500 MB."""
+    -> [{nombre, ruta, bytes, origen, estado, necesita}]; sin vision (mmproj), embeddings ni ficheros < 500 MB.
+    emb=True: al revés, solo modelos de embeddings (cualquier tamaño)."""
     h, env = Path.home(), os.environ
     hub = Path(env.get("HF_HUB_CACHE") or Path(env.get("HF_HOME") or h / ".cache/huggingface") / "hub")
     ollama = [Path(env["OLLAMA_MODELS"])] if env.get("OLLAMA_MODELS") else []
@@ -201,7 +203,8 @@ def escanear():
         try:
             r = p.resolve()
             n = r.stat().st_size
-            if r in vistos or not r.is_file() or (not libre and (n < 500e6 or re.search(r"mmproj|embed|rerank|bge-|e5-", nombre, re.I))):
+            es_emb = bool(re.search(r"embed|bge-|e5-|gte-|nomic", nombre, re.I)) and not re.search(r"mmproj|rerank", nombre, re.I)
+            if r in vistos or not r.is_file() or (not libre and (not es_emb if emb else n < 500e6 or es_emb or re.search(r"mmproj|rerank", nombre, re.I))):
                 return
             with open(r, "rb") as fh:
                 if fh.read(4) != b"GGUF":
@@ -225,29 +228,118 @@ def escanear():
             add(o / "blobs" / dg.replace(":", "-"), f"{mf.parent.name}:{mf.name}", "Ollama")
     try:
         for e in json.loads(P.MODELOS.read_text()).get("extra", []):
-            add(Path(e["ruta"]), e["nombre"], "Añadido", True)
+            add(Path(e["ruta"]), e["nombre"], "Añadido", not emb)
     except (OSError, ValueError):
         pass
     return out
 
 
-def usar(ruta, nivel, nombre=""):
-    """Guarda en P.MODELOS que `ruta` (se referencia, no se copia) sustituye al modelo de `nivel`, o es un nivel «Personalizado» (nivel="pers");
-    nivel="" la quita. -> False si no es un .gguf."""
-    p = Path(ruta)
-    if p.suffix.lower() != ".gguf" or not p.is_file():
-        return False
+ROLES = ("chat", "emb")  # roles intercambiables: chat de Preguntar y búsqueda (embeddings)
+
+
+def _cfg():
     try:
-        c = json.loads(P.MODELOS.read_text())
+        return json.loads(P.MODELOS.read_text())
     except (OSError, ValueError):
-        c = {}
+        return {}
+
+
+def usar(ruta, nivel, nombre=""):
+    """Guarda en P.MODELOS que `ruta` (se referencia, no se copia) sustituye al modelo de `nivel` (una calidad), es un nivel «Personalizado»
+    (nivel="pers") o hace de rol ("chat" = Preguntar, "emb" = búsqueda por embeddings); nivel="" la quita de todo. -> False si no es un .gguf
+    o el nivel no existe."""
+    p = Path(ruta)
+    if p.suffix.lower() != ".gguf" or not p.is_file() or nivel not in (*P.BASE, *ROLES, "pers", ""):
+        return False
+    c = _cfg()
     lv, ex = c.get("levels", {}), [e for e in c.get("extra", []) if e["ruta"] != str(p)]
     lv = {q: r for q, r in lv.items() if r != str(p)}
+    ro = {r: x for r, x in c.get("roles", {}).items() if x != str(p) and r != nivel}
     if nivel in P.BASE:
         lv[nivel] = str(p)
+    elif nivel in ROLES:
+        ro[nivel] = str(p)
     elif nivel == "pers":
         ex.append({"ruta": str(p), "nombre": nombre or P.llm_label(p)})
     P.MODELOS.parent.mkdir(exist_ok=True)
-    P.MODELOS.write_text(json.dumps({"levels": lv, "extra": ex}, ensure_ascii=False, indent=1))
+    P.MODELOS.write_text(json.dumps({"levels": lv, "extra": ex, "roles": ro}, ensure_ascii=False, indent=1))
     P.cargar_modelos()
     return True
+
+
+def quitar_rol(rol):
+    """Vuelve al modelo de serie de ese rol."""
+    c = _cfg()
+    c.get("roles", {}).pop(rol, None)
+    P.MODELOS.write_text(json.dumps(c, ensure_ascii=False, indent=1))
+    P.cargar_modelos()
+
+
+def roles():
+    """Estado de los roles: {rol: {ruta, nombre, bytes, estado, necesita, defecto}}; estado = reglas de memoria (ok/aviso/no) como los demás modelos."""
+    out = {}
+    for r, nom in (("chat", "Gemma 4 E4B / Qwen (según memoria)"), ("emb", "EmbeddingGemma (ONNX)")):
+        p = P.ROLES.get(r)
+        if p and Path(p).is_file():
+            n = Path(p).stat().st_size
+            e, need = P.evaluar(n, None)
+            out[r] = {"ruta": p, "nombre": P.llm_label(Path(p)), "bytes": n, "estado": e, "necesita": round(need, 1), "defecto": False}
+        else:
+            out[r] = {"ruta": None, "nombre": nom, "defecto": True}
+    out["emb"]["reindexa"] = "Se reindexarán las reuniones al preguntar" if not out["emb"]["defecto"] else ""
+    return out
+
+
+# ---------- Modelos de Hugging Face (repo + fichero, o URL) ----------
+HFDIR = "hf"  # models/hf/<repo>/<fichero>
+
+
+def hf_parse(entrada):
+    """«https://huggingface.co/u/r/resolve/main/f.gguf», «u/r/f.gguf» o «u/r» -> (repo, fichero o None); ValueError si no vale."""
+    e = entrada.strip().removeprefix(HF).removeprefix("hf.co/")
+    m = re.match(r"([\w.-]+/[\w.-]+)(?:/(?:resolve|blob)/[^/]+/(.+?)|/(.+\.gguf))?(?:\?.*)?$", e)
+    if not m:
+        raise ValueError("Escribe una URL de Hugging Face o «usuario/repo» (con «/fichero.gguf» si quieres uno concreto)")
+    f = m[2] or m[3]
+    if f and not f.lower().endswith(".gguf"):
+        raise ValueError("El fichero debe ser un .gguf")
+    return m[1], f
+
+
+def hf_info(entrada, abrir=urllib.request.urlopen):
+    """Qué se descargaría: {repo, archivos: [{fichero, bytes, estado, necesita}]} (todos los .gguf del repo o el indicado, con su tamaño)."""
+    repo, f = hf_parse(entrada)
+    r = json.loads(abrir(urllib.request.Request(f"{HF}api/models/{repo}/tree/main?recursive=1", headers={"User-Agent": "actas"}), timeout=20).read())
+    out = []
+    for x in r:
+        n = x.get("name") or x.get("path", "")
+        if x.get("type") == "file" and n.lower().endswith(".gguf") and not re.search(r"mmproj", n, re.I) and (f is None or n == f):
+            b = (x.get("lfs") or {}).get("size") or x.get("size", 0)
+            e, need = P.evaluar(b, None)
+            out.append({"fichero": n, "bytes": b, "estado": e, "necesita": round(need, 1)})
+    if not out:
+        raise ValueError("No hay ningún .gguf" + (f" «{f}»" if f else "") + f" en {repo}")
+    return {"repo": repo, "archivos": out}
+
+
+def hf_bajar(repo, fichero, nivel, nombre="", tam=0):
+    """Baja (reanudable) models/hf/<repo>/<fichero> y al terminar lo asigna a `nivel` (calidad, "pers", "chat" o "emb"). Estado: el de /api/modelos."""
+    hf_parse(f"{repo}/{fichero}")
+    if nivel not in (*P.BASE, *ROLES, "pers"):
+        raise ValueError("Nivel no válido")
+    f = (f"{HFDIR}/{repo}/{fichero}", f"{HF}{repo}/resolve/main/{fichero}", None, tam)
+    with _lock:
+        if st["state"] == "running":
+            raise RuntimeError("Ya hay una descarga en marcha")
+        st.update(state="running", msg="Empezando…", done=0, total=tam)
+
+    def run_():
+        try:
+            st["msg"] = f"Descargando {Path(fichero).name}…"
+            fetch(f)
+            if not usar(str(M / f[0]), nivel, nombre):
+                raise RuntimeError("No es un .gguf válido")
+            st.update(state="done", done=st["total"], msg="Listo")
+        except Exception as e:
+            st.update(state="error", msg="No se pudo descargar: " + str(e)[:200])
+    threading.Thread(target=run_, daemon=True).start()

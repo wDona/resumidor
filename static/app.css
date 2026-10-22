@@ -146,3 +146,4 @@ input[type=radio]{width:auto!important}
 @media(max-width:860px){header button{padding:6px 10px;font-size:14px}.fila,.fila-v{grid-template-columns:minmax(0,1fr) 96px}}
 .plant .list button{white-space:normal}
 @media(max-width:860px){.row.av-f{flex-wrap:wrap}}
+body.simple #f-plantilla{display:none}  /* el perfil ya se elige con las tarjetas */
