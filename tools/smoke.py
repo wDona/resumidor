@@ -48,7 +48,7 @@ try:
         except OSError:
             time.sleep(1)
     print("ping ok", flush=True)
-    call("/api/modelos", {})
+    call("/api/modelos", {"ids": ["voz", "busq", "peq", "rápida"]} if MIN else {})  # CI: voz, búsqueda, OCR y el 4B (nada se instala solo); completo: los recomendados
     wait("/api/modelos", "state", "done", "modelos", 3600)
     t0 = time.time()
     call("/api/generar", {"video": video, "nivel": "breve" if MIN else "normal", "asr": "calidad"})

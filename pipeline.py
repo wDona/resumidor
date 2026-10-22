@@ -610,10 +610,70 @@ def llm_model():
     return p if p.exists() else next(iter(sorted(ROOT.glob("models/*.gguf"))), None)
 
 
-def llm_label():
+# calidad -> LLM del acta (map+reduce); rápida y alta usan el 4B (llm_model). Opcionales: los baja models.py al elegirlos
+LLM_DE = {"alta9": "Qwen3.5-9B-Q4_0.gguf", "muyalta": "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf", "maxima": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"}
+MOE = {"muyalta": 30, "maxima": 40}  # calidad -> capas de los MoE (~4B activos por token): si no caben en VRAM, expertos en RAM (moe_args)
+# calidad -> (nombre, recomendado (VRAM GB, RAM GB, Apple GB) o None = siempre, veces el tiempo de Rápida; orientativo)
+NIVELES = {"rápida": ("Rápida", None, 1), "alta": ("Alta", None, 2), "alta9": ("Alta+", (8, 0, 16), 4),
+           "muyalta": ("Muy alta", (8, 32, 24), 8), "maxima": ("Máxima", (8, 32, 32), 10)}
+
+
+BASE = tuple(NIVELES)
+MODELOS = WORK / "modelos.json"  # {"levels": {calidad: ruta .gguf que sustituye al de serie}, "extra": [{ruta, nombre} = niveles «Personalizado»]}
+OVER, PERS = {}, {}  # calidad -> ruta; id de nivel personalizado -> ruta
+
+
+def pers_id(ruta):
+    return "p" + hashlib.sha1(str(ruta).encode()).hexdigest()[:6]
+
+
+def cargar_modelos():
+    """Lee MODELOS y añade a NIVELES un nivel «Personalizado: <nombre>» (modo Alta, ~4x) por cada modelo extra."""
+    try:
+        c = json.loads(MODELOS.read_text())
+    except (OSError, ValueError):
+        c = {}
+    for q in [q for q in NIVELES if q not in BASE]:
+        del NIVELES[q]
+    OVER.clear(), PERS.clear()
+    OVER.update({q: r for q, r in c.get("levels", {}).items() if q in BASE})
+    for e in c.get("extra", []):
+        PERS[pers_id(e["ruta"])] = e["ruta"]
+        NIVELES[pers_id(e["ruta"])] = ("Personalizado: " + e["nombre"], None, 4)
+
+
+def acta_model(calidad="rápida"):
+    """Ruta del LLM de esta calidad (ACTAS_MAP_MODEL manda; puede no existir si no se ha bajado)."""
+    if os.environ.get("ACTAS_MAP_MODEL"):
+        return llm_model()
+    if r := OVER.get(calidad) or PERS.get(calidad):
+        return Path(r)
+    f = LLM_DE.get(calidad)
+    return ROOT / "models" / f if f else llm_model()
+
+
+def evaluar(size, rec, ram=None, vram_mb=None, mac=None):
+    """-> (estado, necesita_gb): "ok" | "aviso" (no recomendado, más lento) | "no" (no cabe). size en bytes; necesita = fichero + 1,5 GB
+    (contexto/KV/arranque). Cabe si necesita <= RAM*0,85 + VRAM (Apple: memoria unificada = RAM). rec = (VRAM GB, RAM GB, Apple GB).
+    ponytail: umbrales con margen (8 GB de VRAM = 8000 MB, 32 GB de RAM = 30) porque el sistema reporta algo menos que el nominal."""
+    ram = ram_gb() if ram is None else ram
+    mac = MAC_ARM if mac is None else mac
+    vram_mb = 0 if mac else gpu_info()["vram_mb"] if vram_mb is None else vram_mb
+    need = size / 2**30 + 1.5
+    if need > ram * 0.85 + vram_mb / 1024:
+        return "no", need
+    if rec is None or (ram >= rec[2] if mac else vram_mb >= rec[0] * 1000 and ram >= max(rec[1] - 2, 0)):
+        return "ok", need
+    return "aviso", need
+
+
+def llm_label(m=None):
     """Nombre del modelo de las actas para la interfaz, p. ej. Qwen3.5-4B."""
-    m = llm_model()
+    m = m or llm_model()
     return re.sub(r"[-_.](Q\d\w*|UD-\w+|MXFP4)\.gguf$|\.gguf$", "", m.name) if m else "sin modelo"
+
+
+cargar_modelos()
 
 
 def llama_exe(gpu=False):
@@ -766,7 +826,7 @@ def call(url, fn):
         return fn()
 
 
-def launch(model, ctx, threads, extra, logname, gpu=None):
+def launch(model, ctx, threads, extra, logname, gpu=None, gpu_args=None):
     """Arranca llama-server -> (url, proc). En GPU (-ngl auto: descarga parcial según la VRAM libre) y, si no arranca
     (p. ej. sin memoria), un reintento en CPU."""
     g = use_gpu(gpu)
@@ -778,25 +838,36 @@ def launch(model, ctx, threads, extra, logname, gpu=None):
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
         srv = Srv(lambda u, exe=exe, port=port: [str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1", *extra,
-                                                 *(["-ngl", "99" if MAC_ARM else "auto"] if u else (["-dev", "none"] if "vulkan" in str(exe) else [])),
+                                                 *(gpu_args or ["-ngl", "99" if MAC_ARM else "auto"] if u else (["-dev", "none"] if "vulkan" in str(exe) else [])),
                                                  "--host", "127.0.0.1", "--port", str(port)], use, logname, port)
         if srv.start():
             _SRV[srv.url] = srv
             return srv.url, srv
         if not use:
             raise RuntimeError(f"llama-server terminó (ver {WORK / logname})")
-        print("  llama-server no arrancó en GPU (ver log); reintento en CPU", flush=True)
+        (WORK / logname).replace(WORK / (logname + ".gpu"))  # el reintento en CPU sobrescribiría el log del fallo
+        print(f"  llama-server no arrancó en GPU (ver {logname}.gpu); reintento en CPU", flush=True)
+
+
+def moe_args(model, capas):
+    """Flags de GPU para un MoE mayor que la VRAM: todo a la GPU salvo los expertos de las primeras N capas (en RAM), con ~55 % de la VRAM
+    para expertos (el resto: atención, KV, escritorio). `-ngl auto`/--fit falló con Qwen3.6-35B en Vulkan (device lost). None = flags por defecto."""
+    v, s = gpu_info()["vram_mb"] / 1024, Path(model).stat().st_size / 2**30
+    if MAC_ARM or not capas or not v or s < v * 0.8:
+        return None
+    return ["-ngl", "99", "--n-cpu-moe", str(capas - int(capas * v * 0.55 / s))]
 
 
 @contextlib.contextmanager
-def llama(threads, ctx=8192, model=None, gpu=None):
+def llama(threads, ctx=8192, model=None, gpu=None, capas=0):
     # sin caché de prompts en RAM (8 GB por defecto); 2 checkpoints del estado (modelo híbrido: sin ellos
     # no se reutiliza nada; cada uno ≈ 50 MB, los 32 de serie eran +3 GB): así el prompt de sistema,
     # igual en todos los bloques del map y en cada verificación, se lee una sola vez (-11 s por llamada
     # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
     # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
-    url, proc = launch(model or llm_model(), ctx, threads, ["-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none"],
-                       "llama-server.log", gpu)
+    model = model or llm_model()
+    url, proc = launch(model, ctx, threads, ["-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none"],
+                       "llama-server.log", gpu, moe_args(model, capas))
     try:
         def chat(system, user, schema, max_tokens, repeat_penalty=1.0, temperature=0.2, seed=0):
             body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -1850,7 +1921,7 @@ ETA = {}  # fase en curso del trabajo (la lee /api/job)
 
 
 def ritmo_key(fase, alta, gpu):
-    return fase + "|alta" * (alta and fase in ("map", "reduce")) + "|gpu" * (gpu and fase in ("llm_carga", "map", "reduce", "fondo"))
+    return fase + f"|{alta}" * bool(alta and fase in ("map", "reduce")) + "|gpu" * (gpu and fase in ("llm_carga", "map", "reduce", "fondo"))
 
 
 def ritmos():
@@ -1861,7 +1932,7 @@ def ritmos():
 
 
 def ritmo(k):
-    return ritmos().get(k) or RITMO0[k.split("|")[0]] * (2 if "|alta" in k else 1) / (4 if "|gpu" in k else 1)
+    return ritmos().get(k) or RITMO0[k.split("|")[0]] * (NIVELES[next((x for x in k.split("|")[1:] if x in NIVELES), "rápida")][2]) / (4 if "|gpu" in k else 1)
 
 
 def eta():
@@ -1887,7 +1958,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             if (WORK / reuse[0] / "nombres.json").exists() else (None, False)
     elif not (video or transcript):
         raise RuntimeError("Falta el vídeo o la transcripción")
-    alta = calidad == "alta"  # Alta = bloques semánticos de 6000 + pasada 2 (fusión de repetidos, viñetas agrupadas con comprobación de cifras)
+    alta = calidad != "rápida"  # Alta = bloques semánticos de 6000 + pasada 2 (fusión de repetidos, viñetas agrupadas con comprobación de cifras)
     p2 = PASS2 or alta
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
         th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
@@ -1899,7 +1970,10 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
     tf = wd / f"transcript_{quality}.json"
     dur = duration(video) if video else json.loads(tf.read_text())["segments"][-1]["e"] if tf.exists() else 0
-    rk = functools.partial(ritmo_key, alta=alta, gpu=use_gpu(gpu))
+    model = acta_model(calidad)
+    if not model or not model.exists():
+        raise RuntimeError(f"Falta el modelo del nivel «{NIVELES[calidad][0]}»: descárgalo desde Calidad del acta")
+    rk = functools.partial(ritmo_key, alta=calidad if alta else "", gpu=use_gpu(gpu))
     # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
     todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
             ("capturas+ocr", video and not (wd / "frames2.json").exists()), ("ocr_map", video and not (wd / "frames_map.json").exists()),
@@ -1967,10 +2041,10 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     starts = [c[0]["s"] for c in chunks]
     inputs = [map_input(c, kfm, tr["segments"]) for c in chunks]
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
-    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(llm_model()), *inputs]).encode()).hexdigest()[:8]
+    mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(model), *inputs]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
     rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * p2).encode()).hexdigest()[:8]
-    tag = ("_alta" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
+    tag = (f"_{calidad}" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(mf.read_text()) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
@@ -1981,7 +2055,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         t0, n0 = time.time(), len(maps)
         todo.update(map=(len(chunks) - n0) / len(chunks), reduce=float(not rf.exists()), fondo=float(fondo and not ff.exists()))
         fase("llm_carga", 0.6, 0.6)(0, "Arrancando modelo de lenguaje…")
-        with llama(threads, gpu=gpu) as chat:
+        with llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0)) as chat:
             stage("llm_carga", t0)
             t0 = time.time()
             fase("map", 0.6, 0.9)
@@ -2044,6 +2118,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
             z.write(f, f.relative_to(out))
+        z.write(tf, "transcript.json")  # para importar el acta en otro equipo y poder preguntar sobre ella
     # vídeo junto al informe para el reproductor: como mucho una copia por vídeo (en wd), y de ahí enlace a cada nivel
     if video:
         src = wd / f"video{video.suffix}"
@@ -2265,7 +2340,7 @@ if __name__ == "__main__":
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="calidad", choices=ASR_MODELS)
-    ap.add_argument("--calidad", default="rápida", choices=("rápida", "alta"), help="alta: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)")
+    ap.add_argument("--calidad", default="rápida", choices=tuple(NIVELES), help="alta/alta9/muyalta/maxima: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)")
     ap.add_argument("--fondo", action="store_true", help="además, la búsqueda a fondo de decisiones y tareas")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")

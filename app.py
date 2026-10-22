@@ -1,8 +1,10 @@
 """Interfaz web local (FastAPI + página estática): vídeo -> acta HTML, vídeo condensado y preguntas. `uv run app.py`."""
 import atexit
+import hashlib
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -210,7 +212,27 @@ def cola_mover(d: dict):
 def gpu():
     """GPU + RAM + modelo del chat con y sin GPU (la interfaz elige según la casilla)."""
     return {**pipeline.gpu_info(), "ram_gb": pipeline.ram_gb(), "chat_gpu": rag.chat_choice(True), "chat_cpu": rag.chat_choice(False),
-            "llm": pipeline.llm_label()}
+            "llm": pipeline.llm_label(), "niveles": niveles()}
+
+
+def niveles():
+    """Calidades del acta (de serie + personalizadas) con su modelo, estado en este equipo (ok/aviso/no), si está instalado y su tamaño."""
+    out = []
+    for q, n in pipeline.NIVELES.items():
+        m, path = "rápida" if q == "alta" else q, pipeline.acta_model(q)
+        inst, pers = bool(path and path.is_file()), q in pipeline.PERS or q in pipeline.OVER
+        size = path.stat().st_size if inst else models.tam(m)
+        e, need = pipeline.evaluar(size, n[1])
+        out.append({"id": q, "nombre": n[0], "modelo": pipeline.llm_label(path) if pers else models.CAT[m][0] if m in models.CAT else n[0], "tiempo": n[2], "m": m, "estado": e,
+                    "instalado": inst, "bytes": size, "necesita": round(need, 1), "pers": pers})
+    return out
+
+
+def falta(d, accion, video=True):
+    """409 con lo que falta instalar (la interfaz abre Modelos con ese aviso)."""
+    txt, ids = models.faltan(accion, d.get("calidad") or ("alta" if d.get("alta") else "rápida"), video)
+    if ids:
+        raise HTTPException(409, {"msg": txt, "faltan": ids})
 
 
 def _acta_fn(d):
@@ -235,10 +257,16 @@ def generar(d: dict):
     if reuse:
         if not (pipeline.WORK / Path(reuse).name / f"transcript_{d.get('asr')}.json").exists():
             raise HTTPException(400, "Reunión no encontrada")
+        if _solo_acta(reuse, d.get("asr")):
+            raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede rehacer")
     elif not (video.is_file() or tr):
         raise HTTPException(400, "Elige un vídeo o una transcripción")
-    if d.get("nivel", "normal") not in pipeline.LEVELS or d.get("asr", "calidad") not in pipeline.ASR_MODELS and not reuse or d.get("calidad", "rápida") not in ("rápida", "alta"):
+    if d.get("nivel", "normal") not in pipeline.LEVELS or d.get("asr", "calidad") not in pipeline.ASR_MODELS and not reuse or d.get("calidad", "rápida") not in pipeline.NIVELES:
         raise HTTPException(400, "Opción no válida")
+    n = next(x for x in niveles() if x["id"] == d.get("calidad", "rápida"))
+    if n["estado"] == "no":
+        raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
+    falta(d, "generar", bool(video.is_file() or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
     return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
 
 
@@ -249,6 +277,9 @@ def fondo(d: dict):
     wd, nivel, asr = pipeline.WORK / Path(d.get("id", "")).name, d.get("nivel", "normal"), d.get("asr", "calidad")
     if nivel not in pipeline.LEVELS or not (wd / f"transcript_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
+    if _solo_acta(wd.name, asr):
+        raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede buscar a fondo")
+    falta(d, "fondo")
     return start("fondo", d, wd.name, wd.name)
 
 
@@ -256,7 +287,7 @@ def _fondo_fn(d):
     wd, nivel, asr = pipeline.WORK / Path(d["id"]).name, d.get("nivel", "normal"), d.get("asr", "calidad")
 
     def fn(cb):
-        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad="alta" if d.get("alta") else "rápida", gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
+        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad=d.get("calidad") or ("alta" if d.get("alta") else "rápida"), gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
         return {"id": wd.name, "acta": out.name}
     return fn
 
@@ -266,6 +297,8 @@ def condensar(d: dict):
     wd, asr = pipeline.WORK / Path(d["id"]).name, d.get("asr", "calidad")
     if not (wd / f"cortes_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
+    if _solo_acta(wd.name, asr):
+        raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede buscar a fondo")
     return start("condensar", d, wd.name, wd.name)
 
 
@@ -287,11 +320,52 @@ def pick(d: dict = None):
     """Diálogo nativo de Tk en un subproceso (Tk no admite hilos ajenos al principal): devuelve la ruta real, sin copiar.
     {"tipo": "transcripcion"} elige una transcripción en vez de un vídeo."""
     tipo = ("Transcripción", "*" + " *".join(TR_EXT)) if (d or {}).get("tipo") == "transcripcion" else \
-        ("Vídeo", "*.mp4 *.mkv *.webm *.mov *.avi *.m4v")
+        ("Modelo GGUF", "*.gguf") if (d or {}).get("tipo") == "modelo" else ("Vídeo", "*.mp4 *.mkv *.webm *.mov *.avi *.m4v")
     code = ("import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
             f"print(f.askopenfilename(title='Elegir {tipo[0].lower()}', filetypes=[{tipo!r}, ('Todos', '*')]))")
     p = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, text=True, encoding="utf-8")
     return {"path": p.stdout.strip()}
+
+
+ZIP_OK = re.compile(r"index\.html|acta\.json|transcript\.json|video\.[A-Za-z0-9]{2,4}|img/[\w.\-]+")
+
+
+@app.post("/api/importar")
+def importar(d: dict):
+    """Importa un acta exportada por la app (zip ligero o «con vídeo»): se valida el zip (solo ficheros esperados, sin rutas fuera,
+    tamaños razonables) y se crea una reunión en work/ visible sin modelos. Con transcript.json también se podrá preguntar."""
+    zp = Path(d.get("path", ""))
+    if zp.suffix.lower() != ".zip" or not zp.is_file() or not zipfile.is_zipfile(zp):
+        raise HTTPException(400, "Elige un .zip de acta exportado por la aplicación")
+    with zipfile.ZipFile(zp) as z:
+        infos = [i for i in z.infolist() if not i.is_dir()]
+        names = {i.filename for i in infos}
+        vid = lambda i: i.filename.startswith("video.")
+        if not (infos and {"index.html", "acta.json"} <= names) or any(not ZIP_OK.fullmatch(i.filename) for i in infos) or len(names) != len(infos):
+            raise HTTPException(400, "El zip no es un acta de esta aplicación")
+        if sum(i.file_size for i in infos) > 20 * 2**30 or any(i.file_size > 300 * 2**20 or i.file_size > 1000 * max(i.compress_size, 1024) for i in infos if not vid(i)):
+            raise HTTPException(400, "El zip tiene un tamaño sospechoso")
+        try:
+            acta = json.loads(z.read("acta.json"))
+            tr = json.loads(z.read("transcript.json")) if "transcript.json" in names else None
+        except ValueError:
+            raise HTTPException(400, "El zip está dañado")
+        h = hashlib.sha1(f"{zp.name}|{zp.stat().st_size}|{zp.stat().st_mtime_ns}".encode()).hexdigest()
+        wd, nivel = pipeline.WORK / ("z" + h[:15]), acta.get("nivel") if acta.get("nivel") in pipeline.LEVELS else "normal"
+        out = wd / f"acta_{nivel}_zip{h[15:21]}"
+        shutil.rmtree(out, ignore_errors=True)
+        (out / "img").mkdir(parents=True)
+        for i in infos:
+            dst = (wd / i.filename) if vid(i) else (wd / f"transcript_zip{h[15:21]}.json") if i.filename == "transcript.json" else out / i.filename
+            with z.open(i) as src, open(dst, "wb") as f:
+                shutil.copyfileobj(src, f)
+    if tr is None:
+        (wd / f"transcript_zip{h[15:21]}.json").write_text(json.dumps({"segments": [], "language": "es", "solo_acta": True}))
+    for v in wd.glob("video.*"):
+        pipeline.put_file(v, out / v.name)
+    nombre = re.sub(r"( \(con vídeo\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
+    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre}, ensure_ascii=False))
+    return {"id": wd.name}
 
 
 @app.post("/api/transcripcion")
@@ -319,6 +393,13 @@ async def upload(request: Request, name: str):
 
 
 # ---------- Reuniones ----------
+def _solo_acta(mid, asr):
+    try:
+        return bool(json.loads((pipeline.WORK / Path(mid).name / f"transcript_{asr}.json").read_text()).get("solo_acta"))
+    except (OSError, ValueError):
+        return False
+
+
 def meta(wd):
     """work/<id>/meta.json: {"nombre": nombre a mostrar, "carpeta": carpeta}; no se renombra nada en disco."""
     try:
@@ -343,13 +424,14 @@ def meetings():
     for tf in sorted(pipeline.WORK.glob("*/transcript_*.json"), key=os.path.getmtime, reverse=True):
         v = next(tf.parent.glob("video.*"), None)
         asr = tf.stem.split("_", 1)[1]
-        imp = json.loads(tf.read_text()).get("importada") if asr.startswith("imp") else None
+        tj = json.loads(tf.read_text()) if asr.startswith(("imp", "zip")) else {}
+        imp = tj.get("importada")
         mt = meta(tf.parent)
         base = mt.get("nombre") or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
-                    "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""),
+                    "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""), "sin": bool(tj.get("solo_acta")),
                     **dict(zip(("actas", "dur"), res.setdefault(tf.parent.name, resumen(tf.parent)))),
-                    "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
+                    "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp or asr.startswith("zip") else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
     seen = {}  # dos reuniones no se llaman igual: la más antigua se queda el nombre, las demás llevan « (2)», « (3)»…
     for e in reversed(out):
@@ -446,17 +528,21 @@ def zipvideo(mid: str, acta: str):
     out, v = wd / Path(acta).name, next(wd.glob("video.*"), None)
     if not (out / "index.html").exists() or not v or not v.exists():
         raise HTTPException(404, "Sin acta o sin vídeo")
-    files = [(f, f.relative_to(out)) for f in out.rglob("*") if f.is_file() and f.name != v.name] + [(v, v.name)]
+    files = [(f, f.relative_to(out)) for f in out.rglob("*") if f.is_file() and f.name != v.name] + [(v, v.name)] + [(t, "transcript.json") for t in wd.glob(f"transcript_{Path(acta).name.split('_')[2]}.json")]
     name = (meta(wd).get("nombre") or v.resolve().stem) + " (con vídeo).zip"
     return StreamingResponse(_stream_zip(files), media_type="application/zip",
                              headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name)})
 
 
+def _calidad(name):
+    return next((q for q in pipeline.NIVELES if name.endswith("_" + q)), "rápida")
+
+
 @app.get("/api/meeting/{mid}")
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "alta": d.name.endswith("_alta"), "fondo": (d / "acta.json").exists() and bool(json.loads((d / "acta.json").read_text()).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
-              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}{'_alta' * d.name.endswith('_alta')}.zip")), None)}
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": (q := _calidad(d.name)), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": (d / "acta.json").exists() and bool(json.loads((d / "acta.json").read_text()).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
+              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}{("_" + q) * (q != "rápida")}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
     if not actas:
         raise HTTPException(404, "Sin actas")
@@ -484,7 +570,7 @@ who = lambda s: (s["spk"] + ": " if s.get("spk") else "") + s["text"]  # con nom
 def indice(sel):
     """Índice RAG de una reunión ("id|asr") o de una carpeta ("c:nombre": la última transcripción de cada reunión de la carpeta)."""
     if sel.startswith("c:"):
-        es = list({e["id"]: e for e in reversed(meetings()) if e["carpeta"] == sel[2:]}.values())
+        es = list({e["id"]: e for e in reversed(meetings()) if e["carpeta"] == sel[2:] and not e["sin"]}.values())
         if not es:
             raise HTTPException(400, "Carpeta vacía")
         key = "c:" + repr([(e["sel"], e["label"]) for e in es])
@@ -504,6 +590,9 @@ def preguntar(d: dict):
         raise HTTPException(400, "Elige una reunión y escribe la pregunta")
     if any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
+    falta(d, "preguntar")
+    if not sel.startswith("c:") and _solo_acta(*sel.split("|")):
+        raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede preguntar sobre ella")
 
     def events():
         line = lambda **k: json.dumps(k, ensure_ascii=False) + "\n"
@@ -549,9 +638,34 @@ def get_modelos():
 
 
 @app.post("/api/modelos")
-def bajar_modelos():
-    models.start()
+def bajar_modelos(d: dict | None = None):
+    """Instala esenciales + los modelos elegidos {ids:[...]}; sin ids, los recomendados."""
+    models.start((d or {}).get("ids"))
     return models.status()
+
+
+@app.get("/api/modelos/encontrados")
+def modelos_encontrados():
+    return {"encontrados": models.escanear(), "config": json.loads(pipeline.MODELOS.read_text()) if pipeline.MODELOS.exists() else {}}
+
+
+@app.post("/api/modelos/usar")
+def usar_modelo(d: dict):
+    """{ruta, nivel: calidad | "pers" | "", nombre?}"""
+    if not models.usar(d.get("ruta", ""), d.get("nivel", ""), d.get("nombre", "")):
+        raise HTTPException(400, "Elige un fichero .gguf")
+    return modelos_encontrados()
+
+
+@app.post("/api/modelos/borrar")
+def borrar_modelo(d: dict):
+    if not models.borrar(d.get("id", "")):
+        raise HTTPException(400, "No se puede borrar ese modelo")
+    return models.status()
+
+
+if os.environ.get("ACTAS_MODELOS") == "recomendados":  # instalación sin interfaz (CI): sin elegir
+    models.start()
 
 
 @app.get("/api/ping")

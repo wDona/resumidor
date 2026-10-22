@@ -1,5 +1,7 @@
 const $ = id => document.getElementById(id);
-const api = (url, opt) => fetch(url, opt).then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText); return r.json(); });
+// 409 {msg, faltan}: falta instalar modelos -> se abre Modelos con el aviso
+const det = (j, st) => { const d = j.detail; if (d && d.faltan) { abrirModelos(d.msg, d.faltan); return d.msg; } return d || st; };
+const api = (url, opt) => fetch(url, opt).then(async r => { if (!r.ok) throw new Error(det(await r.json().catch(() => ({})), r.statusText)); return r.json(); });
 const post = (url, body) => api(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
 const mmss = t => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, p = n => String(n).padStart(2, "0"); return (h ? h + ":" + p(m) : p(m)) + ":" + p(s); };
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") || k.startsWith("aria-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
@@ -50,9 +52,27 @@ api("/api/gpu").then(g => {
   const ram = () => $("info-ram").textContent = `RAM: ${g.ram_gb || "?"} GB` + (g.ok && g.vram_mb ? ` · VRAM: ${Math.round(g.vram_mb / 1024)} GB (${g.name})` : g.ok && g.igpu ? ` · ${g.name}: gráfica integrada (usa la RAM del sistema)` : "") + " · " + chat() + (g.ram_gb && g.ram_gb < 8 ? ". Poca RAM: el proceso puede ir muy lento o fallar" : "");
   ram();
   c.onchange = () => { ram(); try { localStorage.setItem("usar-gpu", c.checked ? "1" : "0"); } catch {} };
-  const al = g.llm; $("calidad").options[0].textContent = `Rápida (${al})`; $("calidad").options[1].textContent = `Alta (${al}, 2 pasadas)`;
+  niveles(g.niveles);
 }).catch(() => {});
-$("calidad").onchange = () => { $("aviso-alta").hidden = $("calidad").value !== "alta"; };
+let NIV = [];
+const GB = b => (b / 1e9).toFixed(1).replace(".", ",") + " GB";
+const nivelInfo = q => NIV.find(n => n.id === q);
+// selector de calidad: modelo entre paréntesis; "no cabe" deshabilitado; no instalado -> botón Descargar
+function niveles(l) {
+  NIV = l; const c = $("calidad"), v = c.value;
+  c.innerHTML = ""; for (const n of l) c.add(new Option(`${n.nombre} (${n.modelo})` + (n.estado === "no" ? " — no cabe" : !n.instalado ? ` — no instalado, ${GB(n.bytes)}` : ""), n.id));
+  l.forEach((n, i) => c.options[i].disabled = n.estado === "no");
+  c.value = l.some(n => n.id === v && n.estado !== "no") ? v : "rápida"; c.onchange();
+}
+$("calidad").onchange = () => {
+  const n = nivelInfo($("calidad").value); if (!n) return;
+  const t = [n.tiempo > 1 && `Tarda aprox. ${n.tiempo}× lo que Rápida`, n.estado === "no" && `No cabe en este equipo (necesita ~${Math.ceil(n.necesita)} GB de memoria)`,
+    n.estado === "aviso" && "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", n.pers && "Modelo no probado con la app: la calidad del acta puede variar"].filter(Boolean);
+  $("aviso-alta").textContent = t.join(". "); $("aviso-alta").hidden = !t.length;
+  $("bajar-nivel").hidden = n.instalado; $("bajar-nivel").textContent = `Descargar ${n.modelo} (${GB(n.bytes)})`;
+  $("info-alta").hidden = n.id === "rápida";
+};
+$("bajar-nivel").onclick = async () => { await post("/api/modelos", {ids: [nivelInfo($("calidad").value).m]}); abrirModelos(); };
 
 // ---- vistas: home (carpetas + reuniones) | nuevo | cola | res (reunión) | preg (carpeta) ----
 let vistaAct = "home";
@@ -74,7 +94,7 @@ function formNuevo(m, a) {
   $("f-fuente").hidden = $("f-hab").hidden = !!m; $("form-err").textContent = "";
   if (m) {  // propone la primera combinación que aún no existe
     const hay = n => cur.actas.some(x => x.name === n);
-    const [n, c] = ["normal", "breve", "detallado"].flatMap(n => ["rápida", "alta"].map(c => [n, c])).find(([n, c]) => !hay(`acta_${n}_${a.asr}${c === "alta" ? "_alta" : ""}`)) || [a.nivel, a.alta ? "alta" : "rápida"];
+    const [n, c] = ["normal", "breve", "detallado"].flatMap(n => NIV.map(q => q.id).map(c => [n, c])).find(([n, c]) => !hay(`acta_${n}_${a.asr}${c === "rápida" ? "" : "_" + c}`)) || [a.nivel, a.calidad];
     $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
   }
   vista("nuevo");
@@ -185,7 +205,7 @@ $("f-preguntar").onclick = () => { $("preg-tit").textContent = "Preguntar · �
 
 // ---- página de una reunión ----
 const cap = s => s[0].toUpperCase() + s.slice(1);
-const defecto = a => [cap(a.nivel), a.alta ? "Alta" : "Rápida", a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => x !== "alta").join(" ")].filter(Boolean).join(" · ");
+const defecto = a => [cap(a.nivel), (nivelInfo(a.calidad)?.nombre || "Rápida") + (nivelInfo(a.calidad)?.pers ? " · " + nivelInfo(a.calidad).modelo : ""), a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => !(x in {alta:1, alta9:1, muyalta:1, maxima:1} || /^p[0-9a-f]{6}$/.test(x))).join(" ")].filter(Boolean).join(" · ");
 const etiqueta = a => cur.versiones[a.name] || defecto(a);
 async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
@@ -199,7 +219,7 @@ const tab = p => {
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   if (p !== "p-video") $("vvideo").pause();
-  if (p === "p-preg") { $("p-preg").append($("qpanel")); setQ(cur.id + "|" + cur.actas.find(a => a.name === ver).asr, cur.videourl); }
+  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr, cur.videourl); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Acta importada sin transcripción: no se puede preguntar" : ""; }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
 function pintarVers() {
@@ -222,7 +242,7 @@ function cambiarActa() {
 }
 $("fondo").onclick = async () => {
   const a = cur.actas.find(a => a.name === ver);
-  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, alta: a.alta, gpu: $("usar-gpu").checked}); aviso("Añadido a la cola"); sondear(); }
+  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, calidad: a.calidad, gpu: $("usar-gpu").checked}); aviso("Añadido a la cola"); sondear(); }
   catch (err) { alert(err.message); }
 };
 $("condensar").onclick = async () => {
@@ -266,7 +286,7 @@ $("qform").onsubmit = async e => {
   const estado = el("p", {textContent: "Buscando en la reunión…"}); cuerpo.append(estado);
   try {
     const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: qsel, q, gpu: $("usar-gpu").checked})});
-    if (!r.ok) throw new Error((await r.json()).detail);
+    if (!r.ok) throw new Error(det(await r.json().catch(() => ({})), r.statusText));
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) {
       const {done, value} = await rd.read(); if (done) break;
@@ -292,19 +312,75 @@ function evento(ev, cuerpo, frag, estado) {
 // ---- arranque ----
 cargarLista().then(sondear); setInterval(sondear, 2000);
 
-// ---- primera vez: descarga de modelos (bloquea la página hasta terminar) ----
-async function modelos() {
-  let m = await api("/api/modelos").catch(() => null);
-  if (!m || (!m.need && m.state !== "running")) return $("modelos").hidden = true;
-  $("modelos").hidden = false; $("mod-reint").hidden = true;
-  if (m.falta && m.state === "idle") $("mod-gb").textContent = "unos " + (m.falta / 1e9).toFixed(1).replace(".", ",") + " GB de modelos";
-  if (m.state === "idle") m = await post("/api/modelos");
-  const p = Math.min(100, Math.round(m.done / m.total * 100));
+// ---- modelos: elegir qué instalar (primera vez y desde «Modelos»); GGUF ya presentes en el equipo ----
+const BADGE = {ok: "Recomendado", aviso: "Usable (no recomendado)", no: "No compatible"};
+const AV = {aviso: "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", no: n => `Tu equipo no tiene memoria suficiente para este modelo (necesita ~${Math.ceil(n)} GB): no se podrá usar`};
+let MOD = null, primera = false;
+const avisoM = (e, need) => e === "aviso" ? AV.aviso : e === "no" ? AV.no(need) : "";
+const total = () => MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id)?.checked).reduce((a, c) => a + c.bytes, 0);
+function pintarModelos(m, faltan = []) {
+  MOD = m; const L = $("mod-lista"); L.innerHTML = "";
+  for (const c of m.catalogo) {
+    const d = document.createElement("div"); d.className = "mrow";
+    d.innerHTML = `<label><input type="checkbox" id="mc-${c.id}" ${c.instalado ? "checked disabled" : ""}> <span><b></b> <span class="muted"></span></span><span class="grow"></span><span class="b"></span><span>${c.instalado ? "instalado" : GB(c.bytes)}</span></label><small class="warn" hidden></small>`;
+    d.querySelector("b").textContent = c.nombre; d.querySelector(".muted").textContent = c.uso; d.querySelector(".b").textContent = BADGE[c.estado] + (c.rec ? "" : "");
+    const w = d.querySelector(".warn"), cb = d.querySelector("input");
+    const act = () => { const t = c.estado !== "ok" && (cb.checked && !c.instalado || c.instalado && c.estado === "no") ? avisoM(c.estado, c.necesita) : ""; w.textContent = t; w.hidden = !t; $("mod-total").textContent = "Descarga total: " + GB(total()); $("mod-inst").textContent = `Instalar seleccionados (${GB(total())})`; };
+    cb.onchange = act; if (c.instalado) act();
+    if (c.instalado && (c.id !== "chat" || true)) { const q = document.createElement("button"); q.className = "sec"; q.textContent = "Quitar"; q.onclick = async () => { if (confirm(`¿Quitar ${c.nombre} y liberar ${GB(c.bytes)}?`)) try { pintarModelos(await post("/api/modelos/borrar", {id: c.id})); niveles((await api("/api/gpu")).niveles); } catch (e) { alert(e.message); } }; d.append(q); }
+    L.append(d);
+  }
+  for (const i of faltan) if ($("mc-" + i)) $("mc-" + i).checked = true;
+  $("mod-total").textContent = "Descarga total: " + GB(total()); $("mod-inst").textContent = `Instalar seleccionados (${GB(total())})`;
+  for (const c of m.catalogo) $("mc-" + c.id).onchange();
+}
+async function pintarEncontrados() {
+  const r = await api("/api/modelos/encontrados"), L = $("mod-enc-lista"), lv = r.config.levels || {}, ex = (r.config.extra || []).map(e => e.ruta); L.innerHTML = "";
+  for (const e of r.encontrados) {
+    const d = document.createElement("div"); d.className = "mrow";
+    const cur = Object.keys(lv).find(q => lv[q] === e.ruta) || (ex.includes(e.ruta) ? "pers" : "");
+    d.innerHTML = `<label><span><b></b> <span class="muted"></span></span><span class="grow"></span><span class="b"></span><span>${GB(e.bytes)}</span></label><small class="warn" ${e.estado === "no" ? "" : "hidden"}></small><select><option value="">Usar para: —</option>${["rápida", "alta", "alta9", "muyalta", "maxima"].map(q => `<option value="${q}">Usar para: ${q === "alta9" ? "Alta+" : q[0].toUpperCase() + q.slice(1).replace("muyalta", "Muy alta")}</option>`).join("")}<option value="pers">Añadir como nivel Personalizado</option></select>`;
+    d.querySelector("b").textContent = e.nombre; d.querySelector(".muted").textContent = `${e.origen} · ${e.ruta}`; d.querySelector(".b").textContent = BADGE[e.estado];
+    d.querySelector(".warn").textContent = AV.no(e.necesita); d.querySelector("select").value = cur;
+    d.querySelector("select").onchange = async ev => { await post("/api/modelos/usar", {ruta: e.ruta, nivel: ev.target.value, nombre: e.nombre}); niveles((await api("/api/gpu")).niveles); pintarEncontrados(); };
+    L.append(d);
+  }
+  if (!r.encontrados.length) L.innerHTML = '<p class="muted">No se encontró ninguno.</p>';
+}
+$("mod-enc").ontoggle = () => $("mod-enc").open && pintarEncontrados();
+$("mod-add").onclick = async () => { const r = (await post("/api/pick", {tipo: "modelo"})).path; if (r) { try { await post("/api/modelos/usar", {ruta: r, nivel: "pers"}); niveles((await api("/api/gpu")).niveles); } catch (e) { alert(e.message); } pintarEncontrados(); } };
+async function abrirModelos(msg, faltan) {
+  const m = await fetch("/api/modelos").then(r => r.json()).catch(() => null); if (!m) return;
+  $("modelos").hidden = false; history.replaceState(null, "", "#/modelos");
+  $("mod-intro").textContent = msg || "Elige qué modelos instalar. Se descargan una sola vez y después funciona sin internet; si se corta, sigue donde se quedó. Sin modelos puedes ver e importar actas.";
+  if (m.state === "running" || m.state === "error") return seguir(m);
+  $("mod-prog").hidden = true; $("mod-botones").hidden = false; pintarModelos(m, faltan);
+}
+async function instalar(ids) {
+  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true; $("mod-msg").textContent = "Empezando…";
+  seguir(await post("/api/modelos", ids ? {ids} : {})); 
+}
+async function seguir(m) {
+  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true;
+  const p = m.total ? Math.min(100, Math.round(m.done / m.total * 100)) : 0;
   $("mod-msg").textContent = m.msg; $("mod-bar").style.width = p + "%";
   $("mod-pct").textContent = p + " % · " + (m.done / 1e9).toFixed(2) + " de " + (m.total / 1e9).toFixed(2) + " GB";
   if (m.state === "error") { $("mod-reint").hidden = false; return; }
-  setTimeout(modelos, 1000);
+  if (m.state === "done") { niveles((await api("/api/gpu")).niveles); $("mod-prog").hidden = true; abrirModelos(); return; }
+  setTimeout(async () => seguir(await api("/api/modelos")), 1000);
 }
-$("mod-reint").onclick = async () => { await post("/api/modelos"); modelos(); };
-modelos();
+$("mod-rec").onclick = () => instalar(null);
+$("mod-selrec").onclick = () => { for (const c of MOD.catalogo) if (!c.instalado) $("mc-" + c.id).checked = MOD.recomendados.includes(c.id); MOD.catalogo.forEach(c => $("mc-" + c.id).onchange()); };
+$("mod-inst").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id).checked).map(c => c.id));
+$("mod-reint").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id)?.checked).map(c => c.id));
+const cerrarMod = () => { $("modelos").hidden = true; if (location.hash === "#/modelos") history.replaceState(null, "", location.pathname); };
+$("mod-cerrar").onclick = cerrarMod; $("b-modelos").onclick = () => abrirModelos();
+addEventListener("hashchange", () => location.hash === "#/modelos" ? abrirModelos() : $("modelos").hidden = true);
+if (location.hash === "#/modelos") abrirModelos();  // sin ruta: la app abre en el inicio y no instala nada
+// ---- importar un acta exportada (.zip) ----
+$("b-importar").onclick = async () => {
+  $("b-importar").disabled = true;
+  try { const r = (await post("/api/pick", {tipo: "zip"})).path; if (r) { const m = await post("/api/importar", {path: r}); await cargarLista(); aviso("Acta importada"); abrir?.(m.id); } }
+  catch (e) { aviso(e.message); } finally { $("b-importar").disabled = false; }
+};
 

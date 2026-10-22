@@ -8,19 +8,35 @@
 </head>
 <body>
 <div id="modelos" hidden>
-  <div class="card narrow">
-    <h2>Primer arranque: descargando modelos</h2>
-    <p>La aplicación necesita descargar <span id="mod-gb">sus modelos</span> (voz, resumen y búsqueda) una sola vez. Después funciona sin internet. Si se corta, vuelve a abrirla: sigue donde se quedó.</p>
-    <p id="mod-msg" aria-live="polite"></p>
-    <div class="bar"><div id="mod-bar"></div></div>
-    <p class="muted" id="mod-pct"></p>
-    <button class="pri" id="mod-reint" hidden>Reintentar</button>
+  <div class="card narrow wide">
+    <h2 id="mod-tit">Modelos</h2>
+    <p id="mod-intro"></p>
+    <div id="mod-lista"></div>
+    <details id="mod-enc"><summary>Modelos encontrados en este equipo</summary>
+      <small>Se usan donde están (no se copian). Modelo no probado con la app: la calidad del acta puede variar.</small>
+      <div id="mod-enc-lista"></div>
+      <button class="sec" id="mod-add">Añadir modelo (.gguf)…</button></details>
+    <p class="muted" id="mod-total"></p>
+    <div class="row wrap" id="mod-botones">
+      <button class="pri" id="mod-rec">Instalar recomendados</button>
+      <button class="sec" id="mod-selrec">Seleccionar recomendados</button>
+      <button class="pri" id="mod-inst">Instalar seleccionados</button>
+      <button class="sec" id="mod-cerrar">Cerrar</button>
+    </div>
+    <div id="mod-prog" hidden>
+      <p id="mod-msg" aria-live="polite"></p>
+      <div class="bar"><div id="mod-bar"></div></div>
+      <p class="muted" id="mod-pct"></p>
+      <button class="pri" id="mod-reint" hidden>Reintentar</button>
+    </div>
   </div>
 </div>
 <header>
   <h1><a href="#" id="inicio">Actas</a></h1>
   <span class="grow"></span>
   <button class="pri" id="nueva">+ Nueva acta</button>
+  <button class="sec" id="b-importar">Importar acta (.zip)</button>
+  <button class="sec" id="b-modelos">Modelos</button>
   <button class="sec" id="b-cola" aria-controls="v-cola">Cola · <span id="n-cola">0</span></button>
 </header>
 <main>
@@ -77,7 +93,8 @@
         <!-- Calidad: bloque aislado (selector y su texto de ayuda) por si cambian los modelos/opciones -->
         <div class="field" id="bloque-calidad"><label for="calidad">Calidad del acta</label>
           <select id="calidad"><option value="rápida">Rápida</option><option value="alta">Alta</option></select>
-          <small id="aviso-alta" class="warn" hidden>Alta tarda aprox. el doble que Rápida</small>
+          <small id="aviso-alta" class="warn" hidden></small>
+          <button class="sec" id="bajar-nivel" type="button" hidden></button>
           <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
       </div>
       <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>

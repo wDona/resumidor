@@ -46,6 +46,12 @@ donde cambia el tema (EmbeddingGemma, como TextTiling; `ACTAS_SEMCHUNK=1` lo act
 resume; en código se comprueba que no falte ningún punto ni ninguna cifra, hora o fecha (un reintento y, si sigue faltando, se añade tal cual). Salida en
 `acta_<nivel>_<asr>_alta/`. ≈2x el tiempo de LLM de Rápida (eval/ronda3.md §15-§17).
 
+**Niveles de calidad** (`pipeline.NIVELES`): Rápida (Qwen3.5-4B), Alta (4B, pasada 2), Alta+ (Qwen3.5-9B), Muy alta (Gemma 4 26B-A4B) y Máxima (Qwen3.6-35B-A3B); salida
+en `acta_<nivel>_<asr>_<calidad>/`. Los modelos grandes son opcionales (`models.CAT`): nada se instala solo, se eligen en «Modelos» (`/#/modelos`). Un nivel se
+bloquea si `fichero + 1,5 GB > RAM*0,85 + VRAM` y avisa si no cumple lo recomendado (`pipeline.evaluar`; prueba: `python tools/check_niveles.py`). Los MoE usan `-ngl auto`
+(llama.cpp `--fit` deja los expertos en RAM si no caben en VRAM). Se pueden usar GGUF ya presentes en el equipo (LM Studio, Ollama, Hugging Face, Jan, GPT4All; `work/modelos.json`).
+Las actas se exportan en zip (con `transcript.json`) y se importan con «Importar acta (.zip)» sin necesidad de modelos. `ACTAS_MODELOS=recomendados` instala los recomendados al arrancar (CI).
+
 **Búsqueda a fondo de decisiones y tareas** (`--fondo`, botón «Buscar todas a fondo» junto al acta en la GUI; no va incluida en Alta): el acta normal más un repaso de TODA la transcripción en bloques de ~4000 caracteres (`ACTAS_FONDO_CHARS`)
 con un prompt que solo extrae decisiones y tareas (las mismas reglas que el map). En código: la cita debe estar en la transcripción, nada
 de textos que sean una marca, no repetir lo que el acta ya tiene (misma cita, o texto parecido a <= 60 s), decisiones nuevas solo si su cita trae una señal de acuerdo y después `verify()` (lectura
