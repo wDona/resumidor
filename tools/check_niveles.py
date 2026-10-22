@@ -21,6 +21,13 @@ for nom, (ram, vram, mac, esp) in casos.items():
         assert r == e, (nom, q, r, e)
 assert P.evaluar(2.6e9, None, 8, 0, False)[0] == "ok"  # Rápida/Alta nunca avisan
 
+fake = lambda ok: (lambda i: ("ok" if i in ok else "no", 0))
+t_ = ("voz", "busq", "peq", "rápida", "chat")
+assert models.recomendados(fake(t_ + ("alta9", "muyalta", "maxima"))) == [*t_[:4], "maxima", "chat"]
+assert models.recomendados(fake(t_ + ("alta9",))) == [*t_[:4], "alta9", "chat"]
+assert models.recomendados(fake(t_)) == list(t_)
+assert models.recomendados(fake(("rápida", "alta9")))== ["rápida", "alta9"]
+
 with tempfile.TemporaryDirectory() as t:  # escáner: LM Studio, HF, Ollama con manifest, mmproj/pequeño descartados
     t = Path(t)
     def gguf(p, n=600_000_000):

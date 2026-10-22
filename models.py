@@ -81,8 +81,11 @@ def estado(i):
     return ("aviso" if i == "chat" and e == "ok" and P.chat_model()[0] != "gemma" else e), need
 
 
-def recomendados():
-    return [i for i in CAT if estado(i)[0] == "ok"]
+def recomendados(est=estado):
+    """Esenciales + Rápida + UN redactor mayor (el nivel más alto «ok»; Alta+ si no hay otro) + chat si procede; el resto, solo con badge."""
+    ok_ = [i for i in CAT if est(i)[0] == "ok"]
+    mayor = [i for i in ok_ if i in LLMS and i != "rápida"]
+    return [i for i in ok_ if i not in LLMS or i == "rápida" or i == (mayor[-1] if mayor else None)]
 
 
 def catalogo():
