@@ -232,7 +232,7 @@ def detectar(c, llm=True):
                 if len(ej) < 3:
                     ej.append(_ctx(t, m.start(), m.end()))
         if cnt or n in conocidos:
-            grupos[("persona", n)] = {"tipo": "persona", "valor": n, "n": cnt, "ejemplos": ej, "sugerido": f"Persona {_letra(k)}"}
+            grupos[("persona", n)] = {"tipo": "persona", "valor": n, "n": cnt, "ejemplos": ej, "sugerido": f"Persona {_letra(k)}", "ia": n not in conocidos}
             k += 1
     fr = frames(c["d"].parent)
     return {"items": sorted(grupos.values(), key=lambda g: (g["tipo"] == "persona", g["tipo"], -g["n"])), "sin_modelo": sin_modelo,
@@ -283,9 +283,14 @@ def aplicar(c, items):
     sus = Sustituidor(items)
     d = c["d"]
     cuenta = [0]
+    try:  # el nombre de la reunión (meta.json) con un dato marcado dentro: también se sustituye entero en el contenido
+        nom = str(json.loads((d.parent / "meta.json").read_text()).get("nombre") or "").strip()
+    except (OSError, ValueError):
+        nom = ""
+    nom = nom if len(nom) >= 3 and sus.toca(nom) else ""
 
     def f(t):
-        n = sus(t)
+        n = sus(t.replace(nom, NEUTRO) if nom else t)
         cuenta[0] += n != t
         return n
     data = _mapa(c["data"], f)
@@ -326,6 +331,9 @@ def aplicar(c, items):
     res = {"reemplazos": cuenta[0], "difuminadas": borrosas, "omitidas": omitidas}
     (d / ANON_META).write_text(json.dumps({**res, "items": [i for i in items if i.get("incluir", True)], "ts": int(time.time()), "fuente": fuente(c)}, ensure_ascii=False), encoding="utf-8")
     return res
+
+
+NEUTRO = "Documento anonimizado"
 
 
 def fuente(c):

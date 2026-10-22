@@ -137,7 +137,7 @@ function pintarAjustes() {
     card("Nombres", el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     card("Privacidad", ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
       chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
-      chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Próximamente: se guarda tu preferencia.")));
+      chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")));
   $("aj-general").append(Object.assign(card("Estilos de organización", el("p", {className: "muted", textContent: "Cabecera, pie, color, logo y firmas que llevan los documentos que exportas. Cada " + nm("carpeta").toLowerCase() + " puede tener uno por defecto."}), el("div", {id: "est-w"})), {className: "card solo-av"}));
   pintarEstilos();
   if (focoModo) { focoModo = false; document.querySelector("#modo-g input:checked")?.focus(); }

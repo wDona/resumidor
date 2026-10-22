@@ -57,6 +57,9 @@ def carga(mid, ver, anon=False, dudas=False):
          "segs": json.loads(tf.read_text()).get("segments", []) if tf.is_file() else [],
             "doc": (data.get("documento") or tpl.get("documento") or {}).get("singular", "acta"),
          "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime)}
+    if anon:  # título y nombres de fichero neutros: nada del nombre de la reunión ni de la carpeta
+        c["data"] = {**data, "titulo": f"Documento anonimizado – {c['fecha']:%Y-%m-%d}"}
+        c["carpeta"] = ""
     if dudas:
         import dudas as DU
         c["dudas"] = DU.calcular(mid, ver)["dudas"]

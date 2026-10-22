@@ -1,5 +1,6 @@
 """Interfaz web local (FastAPI + página estática): vídeo -> acta HTML, vídeo condensado y preguntas. `uv run app.py`."""
 import atexit
+import contextlib
 import functools
 import hashlib
 import json
@@ -93,9 +94,42 @@ def start(kind, spec, video, mid=""):
     return {"id": e["id"]}
 
 
+aux = {"on": False, "espera": 0}  # tarea suelta con LLM (anonimizar, correo): excluyente con la cola y con «Preguntar»
+
+
+@contextlib.contextmanager
+def gpu_exclusiva():
+    """Espera a que no haya trabajo en marcha, para el LLM del chat y retiene la GPU (un solo modelo a la vez); al salir reanuda la cola."""
+    with jlock:
+        aux["espera"] += 1
+    try:
+        while True:
+            with jlock:
+                if not aux["on"] and not any(e["state"] == "marcha" for e in cola):
+                    aux["on"] = True
+                    break
+            time.sleep(1)
+    finally:
+        with jlock:
+            aux["espera"] -= 1
+    try:
+        parar_llm()
+        yield
+    finally:
+        aux["on"] = False
+        kick()
+
+
+@app.get("/api/aux")
+def get_aux():
+    return {"estado": "ejecutando" if aux["on"] else "esperando" if aux["espera"] else ""}
+
+
 def kick():
     """Arranca el siguiente pendiente si no hay ninguno en marcha (se llama al encolar y al terminar cada trabajo)."""
     with jlock:
+        if aux["on"]:
+            return
         e = next((e for e in cola if e["state"] == "marcha"), None) or next((e for e in cola if e["state"] == "pendiente"), None)
         if not e or e["state"] == "marcha":
             return
@@ -827,7 +861,9 @@ def _anon(mid, ver, anon):
 @app.post("/api/anonimizar/{mid}/{ver}/detectar")
 def anon_detectar(mid: str, ver: str, d: dict | None = None):
     """{items:[{tipo,valor,n,ejemplos,sugerido}], sin_modelo, capturas_sin_cajas}. Cuerpo opcional {llm:false} para saltar la pasada del modelo."""
-    return _ex(lambda: privacidad.detectar(exportar.carga(mid, ver), (d or {}).get("llm", True)))
+    llm = (d or {}).get("llm", True)
+    with gpu_exclusiva() if llm else contextlib.nullcontext():
+        return _ex(lambda: privacidad.detectar(exportar.carga(mid, ver), llm))
 
 
 @app.post("/api/anonimizar/{mid}/{ver}/aplicar")
@@ -855,7 +891,8 @@ def anon_borrar(mid: str, ver: str):
 def post_correo(mid: str, ver: str, d: dict):
     """{modo:"todos"|"responsable", tono:"formal"|"cercano"|"breve", idioma?, adjuntar_pdf?, anon?} -> {correos:[{para,asunto,texto,html,eml_url}], eml_url, llm, aviso?}"""
     an = _anon(mid, ver, d.get("anon"))
-    return _ex(correo.generar, mid, ver, d.get("modo", "todos"), d.get("tono", "formal"), d.get("idioma") or "es", bool(d.get("adjuntar_pdf")), an)
+    with gpu_exclusiva():
+        return _ex(correo.generar, mid, ver, d.get("modo", "todos"), d.get("tono", "formal"), d.get("idioma") or "es", bool(d.get("adjuntar_pdf")), an)
 
 
 @app.get("/api/correo/{mid}/{ver}/eml/{n}")
@@ -960,7 +997,7 @@ def preguntar(d: dict):
     sel, q = d.get("sel"), (d.get("q") or "").strip()
     if not sel or not q:
         raise HTTPException(400, "Elige una reunión y escribe la pregunta")
-    if any(e["state"] == "marcha" for e in cola):
+    if aux["on"] or any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
     falta(d, "preguntar")
     if not sel.startswith("c:") and _solo_acta(*sel.split("|")):

@@ -2,8 +2,9 @@
 fusionados por RRF; el LLM solo elige tramos y escribe una frase en estilo indirecto con sus palabras; el código
 comprueba que cada palabra de contenido de la frase está en el tramo citado (o sus vecinos) y si no, la cambia por la
 cita literal. Cada pregunta es independiente: ni historial ni caché de prompt."""
-import json, os, re, socket, subprocess, sys, time, urllib.request
+import json, os, re, unicodedata, socket, subprocess, sys, time, urllib.request
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -343,21 +344,75 @@ def verify(frase, allowed_text):
     return bad
 
 
+NUMRE = r"\d+(?:[.,]\d+)*"
+MULT = {"mil": 1000, "k": 1000, "millon": 10**6, "millones": 10**6}
+ESP = {**{k: int(v) for k, v in NUM.items() if k != "mil"}, **{f"veinti{w}": 20 + i for i, w in enumerate("uno dos tres cuatro cinco seis siete ocho nueve".split(), 1)},
+       **{k: v for k, v in zip("doscientos trescientos cuatrocientos quinientos seiscientos setecientos ochocientos novecientos".split(), range(200, 1000, 100))}}
+
+
+def _dec(x):
+    return format(Decimal(x).normalize(), "f")
+
+
 def _nv(m):
-    """Lecturas posibles de una cifra: 34,75 = 34.75; 1.000 / 1,000 = 1000."""
-    r = {m.replace(",", ".")}
+    """Lecturas posibles de una cifra: 34,75 = 34.75; 1.000 / 1,000 = 1000 (valores como cadena normalizada)."""
+    r = set()
     if re.fullmatch(r"\d{1,3}([.,]\d{3})+", m):
-        r.add(re.sub(r"[.,]", "", m))
+        r.add(_dec(re.sub(r"[.,]", "", m)))
+    if len(re.findall(r"[.,]", m)) <= 1 and not re.fullmatch(r"\d{1,3}(\.\d{3})+", m):  # 30.000 es treinta mil, no 30,0
+        r.add(_dec(m.replace(",", ".")))
     return r
 
 
-NUMRE = r"\d+(?:[.,]\d+)*"
+def _mult(v, w):
+    return {_dec(Decimal(x) * MULT[w]) for x in v}
+
+
+def cantidades(text, spoken=True):
+    """[(etiqueta, {valores})] de las cantidades del texto: cifras (34,75; 1.000), con multiplicador (30 mil, 2,5 millones, 3k)
+    y, con spoken, en letra (treinta y cinco, dos mil quinientos). Una sola normalización para el chat y para las dudas."""
+    t = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    tk = re.findall(NUMRE + r"|[a-z0-9]+|%", t)
+    out, i = [], 0
+    while i < len(tk):
+        w = tk[i]
+        nxt = tk[i + 1] if i + 1 < len(tk) else ""
+        if re.fullmatch(NUMRE, w):
+            v = _nv(w)
+            if nxt in MULT and v:
+                out.append((f"{w} {nxt}", _mult(v, nxt)))
+                i += 1
+            elif v:
+                out.append((w, v))
+        elif spoken and (w in ESP or w == "mil" or (w in ("un", "una") and nxt in MULT)):
+            tot = cur = 0
+            seen = False
+            while i < len(tk):
+                w = tk[i]
+                if w in ESP or w in ("un", "una"):
+                    cur += ESP.get(w, 1)
+                elif w in ("mil", "millon", "millones"):
+                    if w == "mil":
+                        tot += (cur or 1) * 1000
+                    else:
+                        tot = (tot + cur or 1) * 10**6
+                    cur = 0
+                elif w == "y" and i + 1 < len(tk) and tk[i + 1] in ESP:
+                    pass
+                else:
+                    break
+                seen = True
+                i += 1
+            out.append((str(tot + cur), {str(tot + cur)}))
+            continue
+        i += 1
+    return out
 
 
 def bad_nums(frase, text):
-    """Cifras de la frase que NO aparecen enteras en el texto citado (34,75 != 75). También cuenta las dichas en letra."""
-    have = set().union(*(_nv(m) for m in re.findall(NUMRE, text)), {NUM[w] for w in P.words(text) if w in NUM})
-    return [m for m in re.findall(NUMRE, frase) if not _nv(m) & have]
+    """Cifras de la frase que NO aparecen enteras en el texto citado (34,75 != 75; 30.000 = 30 mil = treinta mil)."""
+    have = set().union(set(), *(v for _, v in cantidades(text)))
+    return [m for m, v in cantidades(frase, False) if not v & have]
 
 
 QUOTE = re.compile(r"«([^»]+)»")
@@ -693,8 +748,12 @@ def _selftest():
     assert verify("Se dijo que se reanudaría el martes.", "se reanudará el martes") == []
     assert verify("Se dijo que el plan vale 25 dólares.", "el plan valía 30 dólares") == ["25"]
     assert bad_nums("Se dijo que son 75,75 dólares", "cuesta 34,75 dólares") == ["75,75"]
-    assert bad_nums("son 34.75 y 1000", "cuesta 34,75 y 1.000 mil") == []
+    assert bad_nums("son 34.75 y 1000", "cuesta 34,75 y 1.000") == []
     assert bad_nums("son 75", "cuesta 34,75") == ["75"]
+    for fr, tx in [("30.000 euros", "unos treinta mil euros"), ("30.000", "30 mil"), ("2,5 millones", "dos millones y medio 2.500.000"), ("1.500", "mil quinientos"),
+                   ("30 mil", "30.000"), ("3k", "3000"), ("35", "treinta y cinco"), ("20 %", "veinte por ciento"), ("2.000.000", "dos millones"), ("21", "veintiuno")]:
+        assert bad_nums(fr, tx) == [], (fr, tx)
+    assert bad_nums("30.000", "treinta") == ["30.000"] and bad_nums("35", "treinta y cinco mil") == ["35"] and bad_nums("30 mil", "30") == ["30 mil"]
     assert quote_ok("Lo que haría en MI ordenador", "dice: lo que haría, en mi ordenador, sería") and not quote_ok("lo que haré en mi ordenador", "lo que haría en mi ordenador")
     assert quote_ok("lo que haría … sería presentarme", "lo que haría en mi ordenador sería presentarme") and not quote_ok("hola mundo", "hola mundo")
     g = grammar(3)

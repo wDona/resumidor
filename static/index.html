@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Actas</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -173,6 +174,9 @@
           </div>
         </div>
         <p class="muted" id="imp-info"></p>
+        <div class="dud" id="dud-bar" hidden><span class="sw"></span><strong id="dud-n"></strong>
+          <button class="sec sm" id="dud-ant" aria-label="Duda anterior" title="Anterior">&larr;</button><button class="sec sm" id="dud-sig" aria-label="Duda siguiente" title="Siguiente">&rarr;</button>
+          <label class="check"><input type="checkbox" id="dud-ver"> <span>Mostrar dudas</span></label></div>
         <iframe id="acta-frame" title="Documento"></iframe>
       </div>
       <div id="p-preg" role="tabpanel" hidden></div>
@@ -283,6 +287,7 @@
   <div class="row wrap"><button class="sec" id="dc-imp">Importar</button><button class="pri" id="dc-crear">Crear</button></div>
 </dialog>
 <script src="app.js"></script>
+<script src="exportar.js"></script>
 <script src="ajustes.js"></script>
 <script src="plantillas.js"></script>
 <script src="modelos.js"></script>
