@@ -12,6 +12,7 @@ dependencies = [
     "sherpa-onnx>=1.13.8",
     "sherpa-onnx-core==1.13.8",
     "uvicorn>=0.54.0",
+    "yt-dlp>=2026.10.21",
 ]
 
 [tool.uv]

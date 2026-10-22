@@ -1,5 +1,6 @@
 """Interfaz web local (FastAPI + página estática): vídeo -> acta HTML, vídeo condensado y preguntas. `uv run app.py`."""
 import atexit
+import functools
 import hashlib
 import json
 import os
@@ -235,15 +236,87 @@ def falta(d, accion, video=True):
         raise HTTPException(409, {"msg": txt, "faltan": ids})
 
 
+# ---------- Descarga desde un enlace (yt-dlp) ----------
+NAVEGADORES = {"firefox": "Firefox", "chrome": "Chrome", "edge": "Edge", "safari": "Safari"}
+
+
+def url_valida(url):
+    u = urllib.parse.urlsplit(url)
+    return u.scheme in ("http", "https") and bool(u.netloc)
+
+
+def error_descarga(ex, nav=""):
+    """Mensaje claro en español a partir del texto de la excepción de yt-dlp (DownloadError, CookieLoadError…)."""
+    t, b = f"{type(ex).__name__} {ex}".lower(), NAVEGADORES.get(nav, "el navegador")
+    if "drm" in t:
+        return "Este sitio protege el vídeo (DRM): descárgalo a mano"
+    if "cookie" in t or "keyring" in t or "dpapi" in t or "decrypt" in t or "database is locked" in t or "unsupported browser" in t:
+        return (f"No se pudieron leer las sesiones de {b}: ciérralo del todo y reintenta, o prueba con Firefox "
+                "(Chrome y Edge suelen bloquear esto en Windows)")
+    if "unsupported url" in t:
+        return "Enlace no compatible: no se encontró ningún vídeo ni audio en esa dirección"
+    if any(x in t for x in ("http error 401", "http error 403", "sign in", "log in", "login", "private", "members-only", "members only", "confirm you", "not a bot", "forbidden", "authentication", "age-restricted", "permission")):
+        return (f"Sin permiso: el enlace no es público. Inicia sesión en ese sitio con {b} y elígelo arriba, o descárgalo a mano" if nav else
+                "Sin permiso: el enlace no es público. Inicia sesión en ese sitio con tu navegador y elígelo arriba en «Usar sesión del navegador», o descárgalo a mano")
+    if any(x in t for x in ("http error 404", "http error 410", "not found", "removed", "no longer available", "unavailable", "expired", "does not exist", "deleted")):
+        return "El enlace ya no existe: no se encuentra, lo han quitado o ha caducado"
+    if any(x in t for x in ("urlopen", "name or service", "name resolution", "timed out", "connection", "network", "getaddrinfo", "unable to download", "ssl")):
+        return "Error de red: no se pudo descargar. Revisa la conexión a internet y reintenta"
+    return "No se pudo descargar el enlace: " + re.sub(r"^(ERROR: )?(\[[^\]]+\] )?", "", str(ex).strip().splitlines()[0] if str(ex).strip() else type(ex).__name__)[:200]
+
+
+def descargar(url, solo_audio, nav, cb, dest=None):
+    """Baja url a UPLOADS/enlaces/<tmp>/ y devuelve la ruta del fichero (video o solo audio). Fase del trabajo en cola:
+    el progreso va al cb del trabajo. Las cookies del navegador las lee yt-dlp en memoria: no se guardan ni se registran."""
+    import tempfile
+    import yt_dlp
+    (UPLOADS / "enlaces").mkdir(parents=True, exist_ok=True)
+    dest = Path(dest or tempfile.mkdtemp(dir=UPLOADS / "enlaces"))
+    vistos = []
+
+    def hook(h):
+        if h["status"] != "downloading":
+            return
+        if h["filename"] not in vistos:
+            vistos.append(h["filename"])
+        n = len((h.get("info_dict") or {}).get("requested_formats") or [1])
+        tot = h.get("total_bytes") or h.get("total_bytes_estimate") or 0
+        f = ((len(vistos) - 1) + (h["downloaded_bytes"] / tot if tot else 0)) / max(n, len(vistos))
+        e = h.get("eta")
+        cb(min(f, 1), f"Descargando… {f * 100:.0f} %" + (f" · faltan {int(e) // 60}:{int(e) % 60:02d}" if e else ""))
+    opts = {"outtmpl": str(dest / "%(title).80B.%(ext)s"), "windowsfilenames": True, "noplaylist": True, "quiet": True, "no_warnings": True,
+            "noprogress": True, "progress_hooks": [hook], "format": "bestaudio/best" if solo_audio else "bv*+ba/b", "format_sort": ["res:1080", "ext"],
+            "retries": 3, "socket_timeout": 30, "color": "never"}
+    if nav:
+        opts["cookiesfrombrowser"] = (nav,)
+    try:
+        with yt_dlp.YoutubeDL(opts) as y:
+            info = y.extract_info(url, download=True)
+    except Exception as ex:
+        if isinstance(ex, Cancelado):
+            raise
+        raise RuntimeError(error_descarga(ex, nav)) from None
+    f = next((Path(r["filepath"]) for r in (info or {}).get("requested_downloads") or [] if r.get("filepath")), None)
+    f = f if f and f.is_file() else max(dest.glob("*.*"), key=lambda x: x.stat().st_size, default=None)
+    if not f:
+        raise RuntimeError("No se pudo descargar el enlace: no se obtuvo ningún fichero")
+    return f
+
+
 def _acta_fn(d):
-    video, tr = Path(d.get("video") or ""), d.get("transcripcion") or ""
+    video, tr, url = Path(d.get("video") or ""), d.get("transcripcion") or "", (d.get("enlace") or "").strip()
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
     nivel, asr, calidad, reuse = d.get("nivel", "normal"), d.get("asr", "calidad"), d.get("calidad", "rápida"), d.get("reuse")
 
     def fn(cb):
-        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
+        dl = None
+        if url:  # la descarga es la 1.ª fase del trabajo; luego sigue el proceso normal con el fichero bajado
+            dl = descargar(url, bool(d.get("solo_audio")), d.get("navegador") or "", cb)
+        out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
                                  reuse=(Path(reuse).name, asr) if reuse else None)
+        if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
+            shutil.rmtree(dl.parent, ignore_errors=True)
         return {"id": out.parent.name, "acta": out.name}
     return fn
 
@@ -251,7 +324,11 @@ def _acta_fn(d):
 @app.post("/api/generar")
 def generar(d: dict):
     """Encola un acta nueva (video/transcripcion) u otra versión de una reunión ya procesada (reuse = id, asr = su transcripción)."""
-    video, tr, reuse = Path(d.get("video") or ""), d.get("transcripcion") or "", d.get("reuse")
+    video, tr, reuse, url = Path(d.get("video") or ""), d.get("transcripcion") or "", d.get("reuse"), (d.get("enlace") or "").strip()
+    if url and not url_valida(url):
+        raise HTTPException(400, "El enlace debe empezar por http:// o https://")
+    if d.get("navegador") and d["navegador"] not in NAVEGADORES:
+        raise HTTPException(400, "Navegador no válido")
     if tr and (Path(tr).suffix.lower() not in TR_EXT or not Path(tr).is_file()):
         raise HTTPException(400, "La transcripción debe ser un fichero .vtt, .srt, .txt o .docx")
     if reuse:
@@ -259,15 +336,15 @@ def generar(d: dict):
             raise HTTPException(400, "Reunión no encontrada")
         if _solo_acta(reuse, d.get("asr")):
             raise HTTPException(400, "Esta acta se importó sin transcripción: no se puede rehacer")
-    elif not (video.is_file() or tr):
-        raise HTTPException(400, "Elige un vídeo o una transcripción")
+    elif not (video.is_file() or tr or url):
+        raise HTTPException(400, "Elige un vídeo, un audio, un enlace o una transcripción")
     if d.get("nivel", "normal") not in pipeline.LEVELS or d.get("asr", "calidad") not in pipeline.ASR_MODELS and not reuse or d.get("calidad", "rápida") not in pipeline.NIVELES:
         raise HTTPException(400, "Opción no válida")
     n = next(x for x in niveles() if x["id"] == d.get("calidad", "rápida"))
     if n["estado"] == "no":
         raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
-    falta(d, "generar", bool(video.is_file() or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
-    return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
+    falta(d, "generar", bool(video.is_file() or url or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
+    return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse and not url else url[:80] if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
 
 
 @app.post("/api/fondo")
@@ -320,7 +397,7 @@ def pick(d: dict = None):
     """Diálogo nativo de Tk en un subproceso (Tk no admite hilos ajenos al principal): devuelve la ruta real, sin copiar.
     {"tipo": "transcripcion"} elige una transcripción en vez de un vídeo."""
     tipo = ("Transcripción", "*" + " *".join(TR_EXT)) if (d or {}).get("tipo") == "transcripcion" else \
-        ("Modelo GGUF", "*.gguf") if (d or {}).get("tipo") == "modelo" else ("Vídeo", "*.mp4 *.mkv *.webm *.mov *.avi *.m4v")
+        ("Modelo GGUF", "*.gguf") if (d or {}).get("tipo") == "modelo" else ("Vídeo o audio", "*.mp4 *.mkv *.webm *.mov *.avi *.m4v *.mp3 *.m4a *.wav *.ogg *.opus *.flac *.aac")
     code = ("import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
             f"print(f.askopenfilename(title='Elegir {tipo[0].lower()}', filetypes=[{tipo!r}, ('Todos', '*')]))")
     p = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, text=True, encoding="utf-8")
@@ -363,7 +440,7 @@ def importar(d: dict):
         (wd / f"transcript_zip{h[15:21]}.json").write_text(json.dumps({"segments": [], "language": "es", "solo_acta": True}))
     for v in wd.glob("video.*"):
         pipeline.put_file(v, out / v.name)
-    nombre = re.sub(r"( \(con vídeo\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
+    nombre = re.sub(r"( \(con (vídeo|audio)\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
     (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre}, ensure_ascii=False))
     return {"id": wd.name}
 
@@ -523,15 +600,27 @@ def _stream_zip(files):
 
 @app.get("/api/zipvideo/{mid}/{acta}")
 def zipvideo(mid: str, acta: str):
-    """Acta + vídeo donde el reproductor del informe lo espera (video.<ext> junto a index.html)."""
+    """Acta + vídeo (o audio) donde el reproductor del informe lo espera (video.<ext> junto a index.html)."""
     wd = pipeline.WORK / Path(mid).name
     out, v = wd / Path(acta).name, next(wd.glob("video.*"), None)
     if not (out / "index.html").exists() or not v or not v.exists():
         raise HTTPException(404, "Sin acta o sin vídeo")
     files = [(f, f.relative_to(out)) for f in out.rglob("*") if f.is_file() and f.name != v.name] + [(v, v.name)] + [(t, "transcript.json") for t in wd.glob(f"transcript_{Path(acta).name.split('_')[2]}.json")]
-    name = (meta(wd).get("nombre") or v.resolve().stem) + " (con vídeo).zip"
+    name = (meta(wd).get("nombre") or v.resolve().stem) + (" (con audio).zip" if es_audio(v) else " (con vídeo).zip")
     return StreamingResponse(_stream_zip(files), media_type="application/zip",
                              headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(name)})
+
+
+@functools.lru_cache(maxsize=64)
+def _es_audio(path, mtime):
+    return not pipeline.has_video(path)
+
+
+def es_audio(v):
+    try:
+        return _es_audio(str(v), v.stat().st_mtime_ns)
+    except OSError:
+        return False
 
 
 def _calidad(name):
@@ -547,9 +636,9 @@ def meeting(mid: str):
     if not actas:
         raise HTTPException(404, "Sin actas")
     rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text())) for c in wd.glob("cortes_*.json")}
-    conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*.mp4"))]
+    conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*")) if c.suffix in (".mp4", ".m4a")]
     imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text())["importada"] for f in wd.glob("transcript_imp*.json")}
-    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "videourl": next((f"/files/{wd.name}/{v.name}" for v in wd.glob("video.*")), None), "versiones": meta(wd).get("versiones", {}), "importadas": imp,
+    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "audio": any(es_audio(v) for v in wd.glob("video.*")), "videourl": next((f"/files/{wd.name}/{v.name}" for v in wd.glob("video.*")), None), "versiones": meta(wd).get("versiones", {}), "importadas": imp,
             "videomb": next((round(v.stat().st_size / 1e6) for v in wd.glob("video.*") if v.exists()), 0), **{k: meta(wd).get(k, "") for k in ("nombre", "carpeta")}}
 
 

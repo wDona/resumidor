@@ -99,12 +99,12 @@ function formNuevo(m, a) {
   }
   vista("nuevo");
 }
-const params = () => ({video: reuse ? "" : ruta, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
+const params = () => ({video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
   hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
-  if (!reuse && !ruta && !rutaTr) { $("form-err").textContent = "Elige un vídeo o una transcripción"; return; }
-  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
+  if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
+  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
 };
 
 // ---- cola de trabajos ----
@@ -212,7 +212,9 @@ async function abrir(id, acta, quedar) {
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
   ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
   $("cab-carpeta").textContent = cur.carpeta || "Todas"; $("cab-titulo").textContent = cur.m.label;
-  $("t-video").hidden = !cur.video; if (cur.video) $("vvideo").src = cur.videourl; else $("vvideo").removeAttribute("src");
+  const au = cur.audio; $("t-video").hidden = !cur.video; $("t-video").textContent = au ? "Audio" : "Vídeo"; $("vvideo").style.height = au ? "54px" : "";
+  $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
+  if (cur.video) $("vvideo").src = cur.videourl; else $("vvideo").removeAttribute("src");
   vista("res"); pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
 }
 const tab = p => {
@@ -233,10 +235,10 @@ function pintarVers() {
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver);
   $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
-  $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con vídeo (" + cur.videomb + " MB)";
+  $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
-    (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : " · sin vídeo: sin capturas ni reproductor") + (imp.aviso ? ". " + imp.aviso : "") : "";
+    (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : (cur.audio ? " · solo audio: sin capturas" : " · sin vídeo: sin capturas ni reproductor")) + (imp.aviso ? ". " + imp.aviso : "") : "";
   $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("cond").hidden = !cur.video;
   const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }
 }

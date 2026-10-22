@@ -70,12 +70,22 @@
       <p class="muted" id="form-sub">Resumen, capturas de la pantalla compartida y marcas de tiempo que saltan al momento del vídeo. Todo se procesa en este equipo.</p>
       <div id="f-fuente">
         <div class="field">
-          <label for="ruta">Vídeo de la reunión</label>
+          <label for="ruta">Vídeo o audio de la reunión</label>
           <div class="row" id="drop">
-            <input id="ruta" readonly placeholder="Ningún vídeo elegido (o suelta uno aquí)">
-            <button type="button" id="elegir" class="sec">Elegir vídeo</button>
+            <input id="ruta" readonly placeholder="Ningún archivo elegido (o suelta uno aquí)">
+            <button type="button" id="elegir" class="sec">Elegir archivo</button>
           </div>
           <small id="subida"></small>
+        </div>
+        <div class="field">
+          <label for="enlace">o pega un enlace</label>
+          <input id="enlace" type="url" placeholder="https://… (vídeo, audio, podcast, reunión grabada)">
+          <div class="row">
+            <label class="check"><input type="checkbox" id="solo-audio"> Solo audio</label>
+            <label for="navegador">Usar sesión del navegador</label>
+            <select id="navegador"><option value="">Ninguno</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="safari">Safari</option></select>
+          </div>
+          <small>Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small>
         </div>
         <div class="field">
           <label for="ruta-tr">Transcripción (opcional)</label>
@@ -147,9 +157,9 @@
     </div>
     <div id="p-preg" hidden></div>
     <div id="p-video" hidden>
-      <video id="vvideo" controls preload="metadata"></video>
+      <video id="vvideo" class="vv" controls preload="metadata"></video>
       <div class="card cond" id="cond">
-        <h2>Vídeo condensado</h2>
+        <h2 id="cond-t">Vídeo condensado</h2>
         <div class="row">
           <label for="pct">% del vídeo a quitar</label>
           <input type="range" id="pct" min="10" max="90" value="40"><output id="pct-o">40</output>

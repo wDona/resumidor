@@ -82,10 +82,10 @@ def estado(i):
 
 
 def recomendados(est=estado):
-    """Esenciales + Rápida + UN redactor mayor (el nivel más alto «ok»; Alta+ si no hay otro) + chat si procede; el resto, solo con badge."""
+    """Esenciales + Rápida + UN redactor mayor (Alta+ si está «ok»; si no, el nivel más alto «ok») + chat si procede; el resto, solo con badge."""
     ok_ = [i for i in CAT if est(i)[0] == "ok"]
     mayor = [i for i in ok_ if i in LLMS and i != "rápida"]
-    return [i for i in ok_ if i not in LLMS or i == "rápida" or i == (mayor[-1] if mayor else None)]
+    return [i for i in ok_ if i not in LLMS or i == "rápida" or i == ("alta9" if "alta9" in mayor else mayor[-1] if mayor else None)]
 
 
 def catalogo():

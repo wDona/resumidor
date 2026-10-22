@@ -23,7 +23,8 @@ assert P.evaluar(2.6e9, None, 8, 0, False)[0] == "ok"  # Rápida/Alta nunca avis
 
 fake = lambda ok: (lambda i: ("ok" if i in ok else "no", 0))
 t_ = ("voz", "busq", "peq", "rápida", "chat")
-assert models.recomendados(fake(t_ + ("alta9", "muyalta", "maxima"))) == [*t_[:4], "maxima", "chat"]
+assert models.recomendados(fake(t_ + ("alta9", "muyalta", "maxima"))) == [*t_[:4], "alta9", "chat"]  # Alta+ gana si está ok
+assert models.recomendados(fake(t_ + ("muyalta", "maxima"))) == [*t_[:4], "maxima", "chat"]  # sin Alta+, el más alto
 assert models.recomendados(fake(t_ + ("alta9",))) == [*t_[:4], "alta9", "chat"]
 assert models.recomendados(fake(t_)) == list(t_)
 assert models.recomendados(fake(("rápida", "alta9")))== ["rápida", "alta9"]

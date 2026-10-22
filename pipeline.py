@@ -123,6 +123,13 @@ def video_id(path):
     return h.hexdigest()[:16]
 
 
+def has_video(path):
+    """False si el fichero es solo audio (la carátula incrustada de un mp3/m4a no cuenta como vídeo)."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream_disposition=attached_pic", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True).stdout.split()
+    return "0" in out
+
+
 def duration(path):
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
                          capture_output=True, text=True, check=True).stdout
@@ -1580,7 +1587,7 @@ def pick_shots(kfs, sel, n):
 # ---------- Informe HTML ----------
 CSS = """body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;color:#1f2933;background:#f4f5f7}
 main{display:grid;grid-template-columns:minmax(320px,44%) 1fr;gap:24px;padding:16px;max-width:1500px;margin:auto}
-#side{position:sticky;top:16px;align-self:start}video{width:100%;background:#000;border-radius:6px}
+#side{position:sticky;top:16px;align-self:start}video,audio{width:100%;background:#000;border-radius:6px}audio{background:none}
 @media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#f4f5f7}}
 h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9dee4;padding-bottom:4px;margin-top:1.6em}
 .spk{font-size:13px;color:#616e7c;margin-right:6px}a.ts{font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#1d5fd1;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}span.ts{font:600 13px system-ui,sans-serif;color:#616e7c;margin-right:6px}
@@ -1690,9 +1697,9 @@ def trim_caps(red, maps, cfg, segments=()):
             fix(it, "texto", 420)
 
 
-def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None):
+def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None, audio=False):
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
-    vídeo (las marcas no son enlaces). imp: datos de la transcripción importada (nota y participantes)."""
+    vídeo (las marcas no son enlaces). audio: el medio es solo audio (<audio> en vez de <video>). imp: datos de la transcripción importada (nota y participantes)."""
     cfg = LEVELS[level]
     trim_caps(red, maps, cfg, segments)
     at = [s["s"] for s in segments]
@@ -1762,10 +1769,11 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                 + (f", desfase aplicado {imp['desfase']:+.0f} s" if vext and not imp["aviso"] else "") + ")."
                 + (f" <b>{esc(imp['aviso'])}</b>" if imp["aviso"] else "") + "</p>"
                 + (f'<p class="meta">Participantes: {esc(", ".join(imp["hablantes"]))}.</p>' if imp["hablantes"] else ""))
+    med = "audio" if audio else "video"
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Acta — {esc(title)}</title><style>{CSS}</style></head>
-<body><main><div id="side"><video id="v" src="video{vext}" controls preload="metadata"></video>
-<p id="pick" hidden>No se encuentra el vídeo junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="video/*"></p></div>
+<body><main><div id="side"><{med} id="v" src="video{vext}" controls preload="metadata"></{med}>
+<p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
 <div><h1>Acta: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {nota}<h2>Resumen</h2><div class="tldr">{esc(red['resumen'])}</div>
@@ -1893,21 +1901,23 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
     keeps = condense_plan(units, pct)
     if not keeps:
         raise RuntimeError("No queda nada que conservar: baja el porcentaje")
-    video, out = next(wd.glob("video.*")), wd / f"condensado_{pct}.mp4"
-    graph = "".join(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];"
+    video = next(wd.glob("video.*"))
+    solo = not has_video(video)  # solo audio: salida .m4a sin imagen
+    out = wd / f"condensado_{pct}.{'m4a' if solo else 'mp4'}"
+    graph = "".join(f"{'' if solo else f'[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];'}"
                     f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
                     f"afade=d={FADE},afade=t=out:st={b - a - FADE:.3f}:d={FADE}[a{i}];" for i, (a, b) in enumerate(keeps))
-    graph += "".join(f"[v{i}][a{i}]" for i in range(len(keeps))) + f"concat=n={len(keeps)}:v=1:a=1[v][a]"
+    graph += "".join(f"{'' if solo else f'[v{i}]'}[a{i}]" for i in range(len(keeps))) + f"concat=n={len(keeps)}:v={int(not solo)}:a=1{'' if solo else '[v]'}[a]"
     script = wd / "condensado.ffgraph"
     script.write_text(graph)
     kept = sum(b - a for a, b in keeps)
     t0 = time.time()
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-/filter_complex", str(script), "-map", "[v]",
-                          "-map", "[a]", *h264(threads), "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-/filter_complex", str(script), *(() if solo else ("-map", "[v]")),
+                          "-map", "[a]", *(() if solo else h264(threads)), "-c:a", "aac", "-b:a", "96k" if not solo else "64k", "-movflags", "+faststart",
                           "-progress", "pipe:1", "-nostats", str(out)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     for line in p.stdout:
         if line.startswith("out_time_us=") and line[12:].strip().isdigit():
-            cb(min(int(line[12:]) / 1e6 / kept, 1), f"Codificando vídeo condensado… {fmt(int(line[12:]) / 1e6)} / {fmt(kept)}")
+            cb(min(int(line[12:]) / 1e6 / kept, 1), f"Codificando condensado… {fmt(int(line[12:]) / 1e6)} / {fmt(kept)}")
     if p.wait():
         raise RuntimeError("ffmpeg: " + p.stderr.read()[-500:])
     return out, pct, {"tramos": len(keeps), "dur": round(units[-1][1]), "queda": round(kept), "s": round(time.time() - t0, 1)}
@@ -1963,6 +1973,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
         th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
         quality = "imp" + th[:8]
+    audio = bool(video) and not has_video(video)  # solo audio: sin capturas, OCR ni reproductor de vídeo
+    pic = video and not audio
     wd = WORK / (reuse[0] if reuse else video_id(video) if video else "t" + th[:16])
     wd.mkdir(parents=True, exist_ok=True)
     (wd / "nombres.json").write_text(json.dumps({"names": names, "speakers": bool(speakers)}, ensure_ascii=False))
@@ -1976,7 +1988,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     rk = functools.partial(ritmo_key, alta=calidad if alta else "", gpu=use_gpu(gpu))
     # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
     todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
-            ("capturas+ocr", video and not (wd / "frames2.json").exists()), ("ocr_map", video and not (wd / "frames_map.json").exists()),
+            ("capturas+ocr", pic and not (wd / "frames2.json").exists()), ("ocr_map", pic and not (wd / "frames_map.json").exists()),
             ("llm_carga", True), ("map", True), ("reduce", True), ("fondo", fondo)) if on}
 
     def fase(name, lo, hi):
@@ -2023,19 +2035,19 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             s["spk"] = k
 
     kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
-    if video and not kf.exists():
+    if pic and not kf.exists():
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, fase("capturas+ocr", 0.5, 0.55)), ensure_ascii=False))
         stage("capturas+ocr", t0)
     vocab = {w for s in tr["segments"] for w in words(s["text"])}
     # lo que ve el informe: solo pantallas (sin caras ni cámaras), con las rachas de escritura reducidas
-    kfs = collapse_typing([k for k in screens(json.loads(kf.read_text()), vocab) if k["screen"]]) if video else []
+    kfs = collapse_typing([k for k in screens(json.loads(kf.read_text()), vocab) if k["screen"]]) if pic else []
     km = wd / "frames_map.json"  # lo que lee el LLM: el muestreo y la deduplicación de siempre (misma caché del map)
-    if video and not km.exists():
+    if pic and not km.exists():
         t0 = time.time()
         km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, fase("ocr_map", 0.55, 0.6)), ensure_ascii=False))
         stage("ocr_map", t0)
-    kfm = screens_map(json.loads(km.read_text()), vocab) if video else []
+    kfm = screens_map(json.loads(km.read_text()), vocab) if pic else []
 
     chunks = chunk(tr["segments"], alta)
     starts = [c[0]["s"] for c in chunks]
@@ -2105,7 +2117,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     except (OSError, ValueError):
         nombre = None
     for k in render(out, nombre or red.get("titulo") or stem, dur, tr["language"], red, maps, kfs, starts, tr["segments"],
-                    level, video.suffix if video else None, names, imp):
+                    level, video.suffix if video else None, names, imp, audio):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
