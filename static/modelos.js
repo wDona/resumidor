@@ -17,6 +17,17 @@ async function pintarTabModelos() {
   pintarModelos(m, p.faltan); modSimple(m);
   if (p.rec) $("mod-selrec").click();
   if (!simple() || document.body.classList.contains("mod-todos")) { pintarEncontrados(); pintarRoles(); }
+  if (!simple()) pintarNiveles();
+}
+// niveles de calidad (design/Ajustes.dc.html): qué modelo usa cada nivel, si cabe en este equipo y descarga del que falte
+async function pintarNiveles() {
+  const g = await api("/api/gpu").catch(() => null); if (!g) return;
+  const EQ = {ok: ["Cómodo", "ok"], aviso: ["Lento", "w"], no: ["No cabe", "no"]};
+  $("mod-niv-sub").textContent = "Este equipo: " + (g.ok ? g.name + (g.vram_mb ? " · " + Math.round(g.vram_mb / 1024) + " GB de VRAM" : "") : "sin GPU") + " · " + (g.ram_gb || "?") + " GB de RAM.";
+  $("mod-niv-t").replaceChildren(...g.niveles.map(n => el("tr", {}, el("td", {className: "b", textContent: n.nombre}), el("td", {textContent: n.modelo}),
+    el("td", {className: "eq " + (EQ[n.estado]?.[1] || ""), textContent: EQ[n.estado]?.[0] || ""}),
+    el("td", {}, n.instalado ? el("span", {className: "muted", textContent: "Instalado"}) : el("button", {className: "sec sm", textContent: (n.estado === "no" ? "Descargar igualmente · " : "Descargar · ") + GB(n.bytes),
+      onclick: fallo(async () => { await post("/api/modelos", {ids: [n.m]}); pintarTabModelos(); })})))));
 }
 function pintarModelos(m, faltan = []) {
   MOD = m; const L = $("mod-lista"); L.replaceChildren();

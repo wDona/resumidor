@@ -22,8 +22,7 @@
   <section id="v-home">
     <nav id="side" aria-label="Principal"></nav>
     <div id="contenido">
-      <!-- Ganchos de fases posteriores (ocultos): Pendientes, Para revisar, Preguntar a todo, grabar en vivo -->
-      <div id="ed-home"></div><div id="h-pendientes" hidden></div><div id="h-preguntar" hidden></div>
+      <div id="ed-home"></div>
       <div id="h-inicio">
       <div class="head" id="h-head"><h1 id="h-tit">Inicio</h1><p class="muted" id="h-sub"></p></div>
       <form class="ask" id="ask" hidden><h1 id="ask-t">Pregunta a tus actas</h1>
@@ -31,7 +30,10 @@
           <label for="ask-c" class="sr">Dónde buscar</label><select id="ask-c"></select><button class="pri" id="ask-b">Preguntar</button></div>
         <div class="sug" id="ask-s"></div>
         <div class="ask-n">Responde con citas y el minuto exacto de cada reunión. Todo en este equipo.</div></form>
-      <section class="rev" id="rev" hidden aria-labelledby="rev-t"><h2 id="rev-t">Para revisar</h2><div id="en-proc"></div><div id="rev-l"></div></section>
+      <div class="h-fila">
+        <section class="box h-pend" id="h-pend" hidden aria-labelledby="h-pend-t"><div class="sec-h"><h2 id="h-pend-t">Pendientes</h2><span class="muted" id="h-pend-n"></span></div><ul class="h-pl" id="h-pend-l"></ul></section>
+        <section class="box rev" id="rev" hidden aria-labelledby="rev-t"><h2 id="rev-t">Para revisar</h2><div id="en-proc"></div><div id="rev-l"></div></section>
+      </div>
       </div>
       <section id="proys-w"><div class="sec-h"><h2 id="proys-t">Proyectos</h2></div><div class="proys" id="proys"></div></section>
       <div id="f-cab" hidden>
@@ -42,12 +44,10 @@
             <button class="btn pri" id="f-nuevo" hidden>+ Nuevo documento</button><button class="btn sec" id="f-preguntar" hidden>Preguntar</button>
             <button class="btn sec" id="f-ren" hidden>Renombrar</button>
             <button class="btn sec dng" id="f-quitar" hidden>Quitar</button>
-            <!-- Fase posterior: resumen de tareas, comparación, línea de tiempo y pendientes de la carpeta -->
-            <button class="btn sec" id="f-tareas" hidden>Tareas</button><button class="btn sec" id="f-comparar" hidden>Comparar</button>
           </div>
         </div>
         <nav class="tabs" id="f-tabs" role="tablist" aria-label="Secciones de la carpeta" hidden></nav>
-        <div id="ed-carpeta"></div><div id="f-ganchos" hidden></div><div id="f-panel" hidden></div>
+        <div id="ed-carpeta"></div><div id="f-panel" hidden></div>
       </div>
       <section id="docs-w" class="tabla"><div class="sec-h"><h2 id="docs-t">Documentos recientes</h2><a href="#" id="docs-todos">Ver todos</a></div>
         <div id="tabla"><table><thead><tr><th scope="col">Documento</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Estado</th></tr></thead><tbody id="lista"></tbody></table><div class="vacio" id="vacio" hidden></div></div></section>
@@ -69,7 +69,7 @@
             <small id="subida"></small></div>
           <div class="tile" id="t-enlace"><div class="field"><label for="enlace"><span class="solo-av">o pega un enlace</span><span class="solo-sim">Pegar enlace</span></label>
             <input id="enlace" type="url" placeholder="https://…" title="Vídeo, audio, pódcast o reunión grabada">
-            <label class="check solo-av" id="l-solo-audio" hidden title="Baja solo el sonido: la descarga es más rápida, pero el documento no llevará capturas de pantalla" style="margin-top:8px"><input type="checkbox" id="solo-audio"> <span>Descargar solo el audio (más rápido; sin capturas de pantalla)</span></label></div>
+            <label class="check solo-av" id="l-solo-audio" hidden title="Baja solo el sonido: la descarga es más rápida, pero el documento no llevará capturas de pantalla"><input type="checkbox" id="solo-audio"> <span>Descargar solo el audio (más rápido; sin capturas de pantalla)</span></label></div>
           <div class="field"><label for="navegador"><span class="solo-av">Usar sesión del navegador</span><span class="solo-sim">Cookies de</span></label>
             <select id="navegador"><option value="">Ninguno</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="safari">Safari</option></select>
             <small class="solo-av">Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small></div></div>
@@ -83,17 +83,18 @@
 
       <section class="card">
         <p class="sub solo-av">2 · Qué documento</p>
-        <div class="cols">
+        <div class="cols c3">
           <div class="field"><label for="n-carpeta" id="n-carpeta-l">Guardar en</label><select id="n-carpeta"></select>
-            <input id="n-carpeta-nueva" aria-label="Nombre nuevo" placeholder="Nombre" hidden style="margin-top:8px"></div>
-          <div class="field" id="f-plantilla"><label for="plantilla" id="plantilla-l">Tipo</label><select id="plantilla"></select><small id="info-plant"></small></div>
+            <input id="n-carpeta-nueva" class="mt8" aria-label="Nombre nuevo" placeholder="Nombre" hidden></div>
+          <div class="field" id="f-plantilla"><label for="plantilla" id="plantilla-l">Tipo</label><select id="plantilla"></select><small id="info-plant"></small>
+            <a class="solo-av sm-l" href="#/ajustes/plantillas">Editar plantillas</a></div>
+          <div class="field solo-av"><fieldset><legend id="nivel-l">Nivel de detalle</legend>
+            <div class="seg" role="radiogroup" aria-labelledby="nivel-l" id="seg-nivel"></div>
+            <select id="nivel" hidden><option>breve</option><option selected>normal</option><option>detallado</option></select>
+            <small>Breve: puntos clave y capturas. Normal y Detallado: detalle por secciones.</small></fieldset></div>
         </div>
-        <div class="field solo-av"><fieldset><legend id="nivel-l">Nivel de detalle</legend>
-          <div class="seg" role="radiogroup" aria-labelledby="nivel-l" id="seg-nivel"></div>
-          <select id="nivel" hidden><option>breve</option><option selected>normal</option><option>detallado</option></select>
-          <small>Breve: puntos clave y capturas. Normal y Detallado: detalle por secciones.</small></fieldset></div>
         <div class="field solo-sim" id="sp-bloque"><label id="sp-ql">Calidad</label>
-          <div class="chips" id="sp-cal" role="radiogroup" aria-labelledby="sp-ql" style="margin-bottom:6px">
+          <div class="chips" id="sp-cal" role="radiogroup" aria-labelledby="sp-ql">
             <button type="button" role="radio" class="chip" data-q="r" aria-checked="true"><b>Rápido</b><small>Menos espera</small></button>
             <button type="button" role="radio" class="chip" data-q="c" aria-checked="false"><b>Calidad</b><small>Mejor resultado, tarda más</small></button>
           </div><small id="sp-hint">Mejor resultado, tarda más</small></div>
@@ -101,12 +102,12 @@
           <select id="calidad" hidden><option value="rápida">Rápida</option></select>
           <div id="cal-niv" role="radiogroup" aria-labelledby="cal-l"></div>
           <small class="warn" id="aviso-alta" hidden></small>
-          <button class="sec sm" id="bajar-nivel" type="button" hidden style="margin-top:8px"></button>
+          <button class="sec sm mt8" id="bajar-nivel" type="button" hidden></button>
           <small id="info-alta">Alta y superiores: bloques más pequeños cortados donde cambia el tema, viñetas agrupadas sin repetidos y cifras y fechas comprobadas.</small></div>
       </section>
 
       <section class="card solo-av">
-        <p class="sub">3 · Idiomas y hablantes</p>
+        <p class="sub">3 · Idiomas</p>
         <div class="cols">
           <div class="field"><label for="habla">Idioma de la reunión</label>
             <select id="habla"><option value="auto">Automático</option><option value="es">Español</option><option value="en">Inglés</option>
@@ -116,30 +117,33 @@
           <div class="field"><label for="idioma">Idioma del documento</label><select id="idioma"></select>
             <small id="hint-idioma" class="warn" hidden></small><small>Las citas literales quedan en el idioma original, con la traducción entre paréntesis.</small></div>
         </div>
-        <div id="f-hab">
-          <label class="check"><input type="checkbox" id="hablantes"> <span>Separar quién habla (experimental)</span></label>
-          <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
-          <div class="field" style="margin-top:10px"><label for="nombres">Nombres de los hablantes (opcional)</label>
-            <input id="nombres" placeholder="Hablante 1=Ana, Hablante 2=Luis">
-            <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
-        </div>
       </section>
 
       <section class="card solo-av">
-        <p class="sub">4 · Rendimiento</p>
-        <label class="check"><input type="checkbox" id="usar-gpu" disabled> <span>Usar GPU</span></label>
-        <small id="info-gpu"></small><small id="info-ram"></small>
+        <p class="sub">4 · Hablantes y equipo</p>
+        <div class="cols hab-g">
+          <div class="g-gpu"><label class="check"><input type="checkbox" id="usar-gpu" disabled> <span>Usar GPU</span></label>
+            <small id="info-gpu"></small><small id="info-ram"></small></div>
+          <div id="f-hab">
+            <div class="g-sep"><label class="check"><input type="checkbox" id="hablantes"> <span>Separar quién habla <span class="badge">experimental</span></span></label>
+              <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small></div>
+            <div class="field g-nom"><label for="nombres">Nombres de los hablantes (opcional)</label>
+              <input id="nombres" placeholder="Hablante 1=Ana, Hablante 2=Luis">
+              <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
+          </div>
+        </div>
       </section>
 
+      <div id="nube-f" class="solo-nube"></div>
       <p class="err" id="form-err" role="alert"></p>
       <div class="gen">
+        <div class="gen-res solo-av" id="gen-res"></div>
         <div class="otros">
           <button type="button" class="link solo-sim" id="av-form">Opciones avanzadas</button>
           <span id="n-nube" class="solo-nube" hidden></span>
         </div>
         <button class="pri" id="generar">Generar documento</button>
       </div>
-      <div id="nube-f" class="solo-nube"></div>
     </form>
   </section>
 
@@ -156,9 +160,11 @@
   <section id="v-res" hidden>
     <div class="dh"><div class="dh-in">
       <div class="dh-top">
-        <div><a class="back" href="#" id="volver">&larr; <span id="cab-carpeta">Inicio</span></a>
+        <div class="dh-t"><a class="back" href="#" id="volver">&larr; <span id="cab-carpeta">Inicio</span></a>
           <h1 id="cab-titulo"></h1><div class="meta" id="cab-meta"></div></div>
-        <div class="row"><button class="sec" id="m-ren">Renombrar</button><button class="sec" id="m-mover">Mover</button></div>
+        <div class="acc"><button class="sec" id="m-ren">Renombrar</button><button class="sec" id="m-mover">Mover</button>
+          <!-- #acta-acciones: Correo, Editar y Exportar (exportar.js / pintarAcciones) -->
+          <span id="acta-acciones" hidden></span></div>
       </div>
       <nav class="tabs" role="tablist" id="mtabs" aria-label="Secciones del documento">
         <button role="tab" aria-selected="true" data-p="p-acta" id="t-acta">Documento</button>
@@ -172,31 +178,41 @@
         <div class="dbar">
           <div class="row wrap" id="vers" role="group" aria-label="Versiones"></div>
           <div class="acc">
-            <!-- Gancho de la fase de edición/exportación: #acta-acciones se muestra y se rellena desde allí (Editar, Exportar ▾…) -->
-            <span id="acta-acciones" hidden></span>
             <button class="sec solo-av" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
             <a class="btn sec" id="dl-zip" download>Descargar (.zip)</a>
-            <a class="btn pri" id="dl-vid" download title="Documento y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
+            <a class="btn sec" id="dl-vid" download title="Documento y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
           </div>
         </div>
         <p class="muted" id="imp-info"></p>
-        <div class="dud" id="dud-bar" hidden><span class="sw"></span><strong id="dud-n"></strong>
-          <button class="sec sm" id="dud-ant" aria-label="Duda anterior" title="Anterior">&larr;</button><button class="sec sm" id="dud-sig" aria-label="Duda siguiente" title="Siguiente">&rarr;</button>
-          <label class="check"><input type="checkbox" id="dud-ver"> <span>Mostrar dudas</span></label></div>
-        <iframe id="acta-frame" title="Documento"></iframe>
+        <div class="doc-g">
+          <nav class="doc-i" id="doc-i" aria-label="En este documento" hidden></nav>
+          <div class="doc-m">
+            <div class="dud" id="dud-bar" hidden><span class="sw" aria-hidden="true"></span><span class="dud-t"><strong id="dud-n"></strong> · revisa antes de enviar</span>
+              <span class="dud-r" id="dud-r" aria-live="polite"></span>
+              <span class="dud-b"><button class="sec qi" id="dud-ant" aria-label="Dudoso anterior" title="Anterior">&larr;</button><button class="sec" id="dud-sig">Siguiente dudoso</button>
+              <label class="check"><input type="checkbox" id="dud-ver"> <span>Mostrar</span></label></span></div>
+            <iframe id="acta-frame" title="Documento"></iframe>
+          </div>
+        </div>
       </div>
-      <div id="p-preg" role="tabpanel" hidden></div>
+      <div id="p-preg" role="tabpanel" hidden>
+        <div class="preg-g">
+          <aside class="preg-a"><div class="box vbox" id="qbox"><div id="qslot" aria-hidden="true"></div><p class="vnota">Pulsa cualquier minuto de una respuesta para saltar a ese momento.</p></div>
+            <p class="muted">Solo se responde con lo dicho en la reunión, con la marca que salta al vídeo. Si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p></aside>
+          <div class="preg-m" id="p-preg-m"></div>
+        </div>
+      </div>
       <div id="p-video" role="tabpanel" hidden>
         <div id="vslot" aria-hidden="true"></div>
-        <div class="card" id="cond" style="margin-top:20px">
-          <h2 id="cond-t">Vídeo condensado</h2>
-          <p class="muted" id="rec">Primero los silencios largos, después lo menos importante según el documento.</p>
-          <div class="row wrap"><label for="pct">% a quitar</label><input type="range" id="pct" min="10" max="90" value="40"><output id="pct-o" for="pct">40</output>
-            <button class="sec" id="condensar">Generar vídeo condensado</button></div>
-          <ul class="list" id="conds"></ul>
+        <section class="card cond" id="cond">
+          <div class="cond-h"><h2 id="cond-t">Vídeo condensado</h2>
+          <p class="muted" id="rec">Primero los silencios largos, después lo menos importante según el documento.</p></div>
+          <div class="row wrap cond-r"><label for="pct">% a quitar</label><input type="range" id="pct" min="10" max="90" value="40"><output id="pct-o" for="pct">40</output>
+            <button class="pri" id="condensar">Generar vídeo condensado</button></div>
+          <ul class="list conds" id="conds"></ul>
           <video id="cvideo" controls preload="metadata" hidden></video>
-        </div>
-        <div class="card" id="p-notas" style="margin-top:20px"></div>
+        </section>
+        <div class="card" id="p-notas"></div>
       </div>
     </div>
   </section>
@@ -230,6 +246,8 @@
 
       <div id="aj-modelos" role="tabpanel" hidden>
         <p class="lead muted" id="mod-intro"></p>
+        <section class="card solo-av mod-niv"><div class="mod-niv-h"><h2>Niveles de calidad</h2><p class="muted" id="mod-niv-sub"></p></div>
+          <div class="tbl"><table><thead><tr><th scope="col">Nivel</th><th scope="col">Modelo</th><th scope="col">En este equipo</th><th scope="col">Estado</th></tr></thead><tbody id="mod-niv-t"></tbody></table></div></section>
         <div class="card solo-sim" id="mod-simple">
           <h2>Lo necesario para crear documentos</h2>
           <p id="mod-s-txt"></p>
@@ -253,10 +271,10 @@
           </div>
         </div>
         <div class="card prog" id="mod-prog" hidden>
-          <p id="mod-msg" aria-live="polite" style="margin:0 0 8px"></p>
+          <p id="mod-msg" aria-live="polite"></p>
           <div class="bar"><div id="mod-bar"></div></div>
-          <p class="muted" id="mod-pct" style="margin:8px 0 0"></p>
-          <button class="pri" id="mod-reint" hidden style="margin-top:8px">Reintentar</button>
+          <p class="muted" id="mod-pct"></p>
+          <button class="pri mt8" id="mod-reint" hidden>Reintentar</button>
         </div>
       </div>
 
@@ -274,7 +292,7 @@
   </section>
 
   <!-- ===== Asistente de primer arranque ===== -->
-  <section id="v-uso" class="page" hidden><div class="card narrow" id="uso-cuerpo"></div></section>
+  <section id="v-uso" class="page" hidden><div class="uso"><ol class="pasos" id="uso-pasos" aria-label="Pasos" hidden></ol><div class="card" id="uso-cuerpo"></div></div></section>
 </main>
 
 <!-- Reproductor flotante: sigue sonando al cambiar de pestaña; las marcas [mm:ss] lo mueven -->

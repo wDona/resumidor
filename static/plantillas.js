@@ -11,9 +11,9 @@ async function nuevaPlant() {
 function pintarPlant() {
   const nav = t => el("button", {className: "nav", "aria-current": t.id === pSel ? "page" : "false", onclick: () => { pSel = t.id; pintarPlant(); }}, el("span", {textContent: t.nombre}), el("span", {className: "c", textContent: t.serie && t.editable ? "modificada" : ""}));
   const tuyas = PL.filter(t => !t.serie), serie = PL.filter(t => t.serie);
-  $("plant-lista").replaceChildren(el("button", {className: "pri", textContent: "+ Nueva plantilla", style: "margin-bottom:8px", onclick: fallo(nuevaPlant)}),
+  $("plant-lista").replaceChildren(el("button", {className: "pri", textContent: "+ Nueva plantilla", onclick: fallo(nuevaPlant)}),
     ...(tuyas.length ? [el("div", {className: "t", textContent: "Tuyas"}), ...tuyas.map(nav)] : []), el("div", {className: "t", textContent: "De serie"}), ...serie.map(nav),
-    el("div", {className: "row wrap", style: "margin-top:12px"}, el("label", {className: "btn sec sm", htmlFor: "plant-imp", textContent: "Importar .json", style: "margin:0;font-weight:400"})));
+    el("div", {className: "row wrap pie"}, el("label", {className: "btn sec sm", htmlFor: "plant-imp", textContent: "Importar .json"})));
   const t = plantDe(pSel); pe = structuredClone(t); delete pe.serie; delete pe.editable; pintarEd(t);
 }
 const campo = (lab, inp) => el("div", {className: "field"}, el("label", {textContent: lab}), inp);

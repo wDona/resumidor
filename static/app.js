@@ -73,7 +73,7 @@ function niveles(l) {
 }
 function pintarCal() {
   $("cal-niv").replaceChildren(...NIV.map(n => {
-    const b = el("button", {type: "button", role: "radio", className: "chip", "aria-checked": n.id === $("calidad").value, "aria-disabled": n.estado === "no",
+    const b = el("button", {type: "button", role: "radio", className: "chip niv" + (n.instalado ? "" : " sin") + (n.estado === "aviso" ? " lento" : ""), "aria-checked": n.id === $("calidad").value, "aria-disabled": n.estado === "no",
       onclick: () => { if (n.estado === "no") return; $("calidad").value = n.id; $("calidad").onchange(); }},
       el("b", {textContent: n.nombre}), el("small", {textContent: n.modelo + " · " + (!n.instalado ? "sin instalar" : ESTADO[n.estado] || "")}));
     return b;
@@ -134,8 +134,13 @@ function formNuevo(m, a) {
     $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
   }
   pintarNivel(); plantForm(CP[m ? m.carpeta || "" : typeof fsel === "string" ? fsel : ""] || "acta");
-  vista("nuevo"); formSimple(m);
+  vista("nuevo"); formSimple(m); genRes();
 }
+function genRes() {
+  const o = s => s.options[s.selectedIndex]?.text || "", c = $("n-carpeta").value === NUEVA_C ? $("n-carpeta-nueva").value.trim() || "Proyecto nuevo" : o($("n-carpeta"));
+  $("gen-res").textContent = [!reuse && c, o($("plantilla")), cap($("nivel").value), nivelInfo($("calidad").value)?.nombre, !reuse && o($("habla")), $("usar-gpu").checked ? "GPU" : "CPU"].filter(Boolean).join(" · ");
+}
+$("form").addEventListener("input", genRes); $("form").addEventListener("change", genRes); $("form").addEventListener("click", () => setTimeout(genRes));
 $("enlace").oninput = () => { const v = !!$("enlace").value.trim(); $("l-solo-audio").hidden = !v; if (!v) $("solo-audio").checked = false; };  // «solo audio» solo con enlace
 const params = () => ({carpeta: reuse ? "" : $("n-carpeta").value === NUEVA_C ? $("n-carpeta-nueva").value.trim() : $("n-carpeta").value, video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
   hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple(), nube: nubeParams("f")});
@@ -154,7 +159,7 @@ $("form").onsubmit = async e => {
 
 // ---- cola de trabajos ----
 const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado", seguimiento: "Seguimiento de pendientes", estado: "Resumen del estado", comparar: "Resumen de diferencias"};
-let cola = {n: 0, items: []}, vistos = new Set(), colaKey = "";
+let cola = {n: 0, items: []}, vistos = new Set(), colaKey = null;  // null: la cola aún no se ha pintado (también vacía)
 const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
 const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
 const titCola = e => (e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind]) + " · " + nombreDe(e);
@@ -188,10 +193,8 @@ function pintarCola(k) {
     const run = it.filter(e => e.state === "marcha").map(e => el("section", {className: "qcurso"},
       el("div", {className: "q-it"}, el("div", {className: "n"}, el("div", {className: "k", textContent: "En curso"}), el("h3", {textContent: nombreDe(e)}), el("div", {className: "d", textContent: kind(e)})),
         el("div", {className: "acc"}, ...(e.kind === "acta" || true ? [bt(e, "Cancelar", "/api/cola/cancelar")] : []))),
-      el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "q-bar"})),
-      el("div", {className: "q-pie"}, el("span", {id: "q-eta"}), el("span", {id: "q-msg"})),
-      // Gancho: etapas del procesado (Audio, Transcripción, Capturas, Resumen…) cuando el proceso las exponga
-      el("div", {id: "q-etapas", hidden: true})));
+      e.kind === "acta" ? el("ol", {className: "fases", id: "q-fases", ariaLabel: "Fases"}) : el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "q-bar"})),
+      el("div", {className: "q-pie"}, el("span", {id: "q-eta"}), el("span", {id: "q-msg"}))));
     run.forEach(r => r.querySelector(".acc button").classList.add("dng"));
     const esp = pend.map((e, i) => el("div", {className: "q-it"}, el("span", {className: "num", textContent: i + 2 - (it.some(x => x.state === "marcha") ? 0 : 1)}),
       el("div", {className: "n"}, el("b", {textContent: nombreDe(e)}), el("div", {className: "d", textContent: kind(e) + " · en espera (" + (i + 1) + " de " + pend.length + ")"})),
@@ -213,11 +216,24 @@ function pintarCola(k) {
     $("q-sub").textContent = pend.length || it.some(e => e.state === "marcha") ? (it.some(e => e.state === "marcha") ? "1 en curso" : "") + (pend.length ? (it.some(e => e.state === "marcha") ? " · " : "") + pend.length + " en espera" : "") + ". Puedes cerrar esta ventana de trabajo y seguir usando la aplicación." : "Se procesa un trabajo a la vez; el resto espera su turno.";
   }
   const r = cola.items.find(e => e.state === "marcha");
-  if (r && $("q-bar")) {
-    $("q-msg").textContent = r.msg; $("q-bar").style.width = Math.round(r.frac * 100) + "%";
+  if (r && $("q-eta")) {
+    $("q-msg").textContent = r.msg; if ($("q-bar")) $("q-bar").style.width = Math.round(r.frac * 100) + "%"; pintarFases(r);
     $("q-eta").textContent = (r.eta != null ? "Quedan " + minutos(r.eta) : "En marcha") + " · " + Math.round(r.frac * 100) + " %";
   }
   const ep = $("en-proc-bar"); if (r && ep) { ep.style.width = Math.round(r.frac * 100) + "%"; $("en-proc-eta").textContent = r.msg + (r.eta != null ? " · quedan " + minutos(r.eta) : ""); }
+}
+
+// fases de «Generar documento»: tramos fijos de la barra de pipeline.run (asr 0–45 %, hablantes y capturas 45–60 %, resumen 60–92 %, redacción y repasos 92–100 %);
+// con enlace, antes va la descarga (su propia barra 0–100 %, mensaje «Descargando…»)
+const FASES = [["Transcripción", 0, .45], ["Capturas y OCR", .45, .6], ["Resumen", .6, .92], ["Redacción", .92, 1]];
+function pintarFases(r) {
+  const ol = $("q-fases"); if (!ol) return;
+  const baja = /^Descargando/.test(r.msg || ""), fs = [...(/^https?:/i.test(r.video || "") ? [["Descarga", -1, 0]] : []), ...FASES];
+  ol.replaceChildren(...fs.map(([t, lo, hi]) => {
+    const f = lo < 0 ? (baja ? r.frac : 1) : baja ? 0 : Math.max(0, Math.min(1, (r.frac - lo) / (hi - lo))), on = lo < 0 ? baja : !baja && r.frac >= lo && r.frac < hi, i = el("i");
+    i.style.width = Math.round(f * 100) + "%";
+    return el("li", on ? {className: "on", "aria-current": "step"} : {className: f >= 1 ? "ok" : ""}, el("div", {className: "bar"}, i), el("span", {textContent: t + (on ? " · " + Math.round(f * 100) + " %" : f >= 1 ? " ✓" : "")}));
+  }));
 }
 
 // ---- reuniones y carpetas ----
@@ -229,9 +245,9 @@ const refrescarTodo = async () => { await cargarLista(); if (vistaAct === "res")
 function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
   document.querySelector("form.inline-f")?.remove();
   const f = el("form", {className: "inline-f row wrap"}), c = el("button", {type: "button", className: "sec", textContent: "Cancelar"});
-  const i = valor != null ? el("input", {value: valor, ariaLabel: texto, style: "flex:1 1 220px"}) : null;
+  const i = valor != null ? el("input", {value: valor, ariaLabel: texto, className: "il-i"}) : null;
   if (i && lista?.length) { i.setAttribute("list", "dl-carpetas"); f.append(el("datalist", {id: "dl-carpetas"}, ...lista.map(v => el("option", {value: v})))); }
-  f.append(el("span", {textContent: texto, style: "flex:1 1 100%"}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
+  f.append(el("span", {textContent: texto, className: "il-t"}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
   c.onclick = () => f.remove();
   f.onkeydown = e => { if (e.key === "Escape") f.remove(); };
   f.onsubmit = e => { e.preventDefault(); fallo(async () => { await hecho(i ? i.value.trim() : ""); f.remove(); })(); };
@@ -251,17 +267,28 @@ async function cargarLista() {
   [todas, carpetas, CP, CE, ESTILOS, RES] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"),
     api("/api/carpetas/estilos").catch(() => ({})), api("/api/estilos").catch(() => []), api("/api/carpetas/resumen").catch(() => ({})), PL.length ? null : cargarPlant()]);
   if (fsel && !carpetas.includes(fsel)) fsel = undefined;
-  pintarHome();
+  pintarHome(); typeof homePend === "function" && homePend();
 }
 const plural = n => n + " " + (n === 1 ? nm("documento") : pl(nm("documento")));
 const fechaC = t => new Date(t * 1000).toLocaleDateString("es", {day: "numeric", month: "short"});
+let arrastrando = null;
+const soltable = (n, c) => {
+  n.addEventListener("dragover", e => { if (arrastrando) { e.preventDefault(); n.classList.add("drop"); } });
+  n.addEventListener("dragleave", () => n.classList.remove("drop"));
+  n.addEventListener("drop", fallo(async e => {
+    e.preventDefault(); n.classList.remove("drop"); const m = arrastrando; arrastrando = null;
+    if (!m || (m.carpeta || "") === c) return;
+    await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); aviso("Movido a " + (c || sinC()));
+  }));
+  return n;
+};
 function pintarSide() {
   const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
   const item = (txt, act, f, n, extra = {}) => el("button", {className: "nav" + (extra.m ? " m" : ""), "aria-current": act ? "page" : "false", onclick: f}, el("span", {textContent: txt}), el("span", {className: "c" + (extra.a ? " a" : ""), textContent: n ?? ""}));
   const cl = item("Cola", false, () => { vista("cola"); sondear(); }, cola.n || "", {a: 1}); cl.lastChild.setAttribute("data-cola", "");
   $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), cl, item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), item(GR.activa ? "● Grabando…" : "● Grabar reunión", false, () => grabarAbrir(), "", {m: 1}),
     el("div", {className: "t", textContent: cap(pl(nm("carpeta")))}),
-    ...carpetas.map(c => item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c))), ...(sin || fsel === "" ? [item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1})] : []),
+    ...carpetas.map(c => soltable(item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c)), c)), ...(sin || fsel === "" ? [soltable(item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1}), "")] : []),
     item("+ " + cap(nm("carpeta")) + " nuevo", false, nuevaCarpeta, "", {m: 1}), el("hr"),
     el("a", {className: "nav m", href: "#/ajustes/plantillas"}, el("span", {textContent: "Plantillas"})), el("a", {className: "nav m", href: "#/ajustes/general"}, el("span", {textContent: "Ajustes"})), el("button", {className: "nav m", onclick: () => $("b-importar").click()}, el("span", {textContent: "Importar"})));
 }
@@ -276,10 +303,10 @@ function pintarHome() {
     $("proys-t").textContent = cap(pl(nm("carpeta")));
     const ult = c => todas.filter(m => (m.carpeta || "") === c).reduce((a, m) => Math.max(a, m.mtime), 0);
     const card = c => { const n = todas.filter(m => (m.carpeta || "") === c).length, r = RES[c] || {}, u = Math.max(ult(c), r.ultima || 0);
-      return el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }},
+      return soltable(el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }},
         el("div", {className: "pt"}, el("b", {textContent: c || sinC()}), el("small", {textContent: (CP[c] && PL.length ? plantDe(CP[c]).nombre + " · " : "") + plural(n)})),
         el("div", {className: "pf"}, ...(r.pend ? [el("b", {textContent: r.pend + (r.pend === 1 ? " pendiente" : " pendientes")})] : [el("span", {textContent: "Sin pendientes"})]),
-          ...(r.sug ? [el("span", {textContent: r.sug + " por revisar"})] : []), ...(u ? [el("span", {textContent: "Último: " + fechaC(u)})] : []))); };
+          ...(r.sug ? [el("span", {textContent: r.sug + " por revisar"})] : []), ...(u ? [el("span", {textContent: "Último: " + fechaC(u)})] : []))), c); };
     const nueva = el("button", {className: "proy nueva", textContent: "+ " + cap(nm("carpeta")) + " nuevo", onclick: nuevaCarpeta});
     $("proys").replaceChildren(...carpetas.map(card), ...(todas.some(m => !m.carpeta) && carpetas.length ? [card("")] : []), nueva);
     const r = act.find(e => e.state === "marcha");
@@ -306,8 +333,10 @@ function pintarHome() {
   const nuevas = bus ? [] : ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
   const fila = m => {
     const e = act.find(e => e.mid === m.id), f = fechaC(m.mtime);
-    return el("tr", {className: "f"}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: f}),
-      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : []), ...(m.actas > 1 && !e ? [el("span", {className: "badge", textContent: m.actas + " versiones"})] : [])));
+    const tr = el("tr", {className: "f", draggable: true, ondragstart: ev => { arrastrando = m; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", m.id); }, ondragend: () => { arrastrando = null; }}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: f}),
+      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : []), ...(m.actas > 1 && !e ? [el("span", {className: "badge", textContent: m.actas + " versiones"})] : []),
+        el("button", {className: "sec sm fila-mv", textContent: "Mover", ariaLabel: "Mover " + m.label, onclick: () => mover(m, tr.lastChild)})));
+    return tr;
   };
   $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td"), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
   $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
@@ -341,16 +370,19 @@ const tab = p => {
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   ubicar();
   if (p === "p-video" && typeof notasRes === "function") notasRes();
-  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; }
+  if (p === "p-preg") { $("p-preg-m").append($("qpanel")); $("qbox").hidden = !cur.video; const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; ubicar(); }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
 function pintarVers() {
-  const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec", textContent: "✎", ariaLabel: "Renombrar esta versión", title: "Renombrar esta versión", style: "min-height:40px"}), otra = el("button", {className: "sec", textContent: "+ Otra versión", style: "min-height:40px;font-size:14px"});
+  const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec sm", textContent: "Renombrar versión", title: "Renombrar esta versión"}), otra = el("button", {className: "sec sm", textContent: "+ Otra versión"});
   ren.onclick = () => enLinea($("ed-res"), {valor: etiqueta(a), texto: "Nombre de la versión (vacío = el original)"}, async n => {
     await post("/api/meta", {id: cur.id, version: ver, vnombre: n === defecto(a) ? "" : n}); cur.versiones = (await api("/api/meeting/" + cur.id)).versiones; pintarVers();
   });
   otra.onclick = () => formNuevo(cur.m, a);
-  $("vers").replaceChildren(...(simple() ? [] : [el("div", {className: "seg", role: "tablist"}, ...cur.actas.map(x => el("button", {role: "tab", textContent: etiqueta(x) + (x.editado ? " · editado" : ""), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})))]), ...(simple() ? [] : [ren]), otra);
+  const txt = x => etiqueta(x) + (x.editado ? " · editado" : ""), pon = n => { ver = n; pintarVers(); cambiarActa(); };
+  const sel = cur.actas.length <= 3 ? el("div", {className: "seg vseg", role: "tablist", ariaLabel: "Versiones"}, ...cur.actas.map(x => el("button", {role: "tab", textContent: txt(x), "aria-selected": x.name === ver, onclick: () => pon(x.name)})))
+    : el("label", {className: "vsel"}, el("span", {textContent: "Versión"}), el("select", {onchange: e => pon(e.target.value)}, ...cur.actas.map(x => Object.assign(new Option(txt(x), x.name), {selected: x.name === ver}))));
+  $("vers").replaceChildren(...(simple() ? [] : [sel, ren]), otra);
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver), nd = a.doc || "acta"; editando = false; pintarAcciones(a);
@@ -421,7 +453,7 @@ function evento(ev, cuerpo, frag, estado) {
   else if (ev.k === "candidatos") { estado.textContent = "Buscando en la reunión…"; frag.append(el("ol", {}, ...ev.items.map(i => el("li", {}, ts(i.t, i.v, i.n), " " + i.text)))); }
   else if (ev.k === "frase") {
     const quote = el("blockquote"); ev.cita.forEach((c, n) => quote.append(...(n ? [el("br")] : []), el("span", {className: c.main ? "" : "o"}, ts(c.t, c.v, c.n), " " + c.text)));
-    cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {style: "font-style:italic"} : {}, ...(ev.n ? [el("b", {textContent: ev.n + ": "})] : []), ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t, ev.v, ev.n), ...(ev.mas || []).flatMap(m => [" ", ts(m.t, m.v, m.n)]),
+    cuerpo.insertBefore(el("p", ev.kind === "deduce" ? {className: "ded"} : {}, ...(ev.n ? [el("b", {textContent: ev.n + ": "})] : []), ev.ok ? ev.text : "Se dijo: «" + ev.text + "» ", ev.ok ? "" : el("small", {textContent: "(texto literal: la frase del modelo no se pudo verificar)"}), " ", ts(ev.t, ev.v, ev.n), ...(ev.mas || []).flatMap(m => [" ", ts(m.t, m.v, m.n)]),
       el("details", {}, el("summary", {textContent: "cita literal"}), quote)), estado);
   }
   else if (ev.k === "pendientes") {  // pregunta sobre pendientes: lista determinista de los datos de la carpeta, con enlaces al minuto
@@ -483,13 +515,13 @@ function mpSeek(t, url, nombre) {
   if (url && !v.src.endsWith(url)) { mpCargar(url, nombre, esAudio(url)); v.addEventListener("loadedmetadata", go, {once: true}); v.src = url; }
   else { MP().hidden = false; MP().classList.remove("min"); ubicar(); go(); }
 }
-function ubicar() {  // en la pestaña Vídeo/Audio el reproductor se coloca grande sobre su hueco; en las demás flota abajo a la derecha
-  const m = MP(), full = vistaAct === "res" && tabAct === "p-video" && !$("p-video").hidden;
-  m.classList.toggle("full", full);
-  if (full) { const r = $("vslot").getBoundingClientRect(); Object.assign(m.style, {left: r.left + scrollX + "px", top: r.top + scrollY + "px", width: r.width + "px"}); $("vslot").style.height = m.offsetHeight + "px"; }
-  else { $("vslot").style.height = ""; if (!m.dataset.arrastrado) Object.assign(m.style, {left: "", top: "", width: ""}); }
+function ubicar() {  // en las pestañas Vídeo/Audio y Preguntar el reproductor se coloca sobre su hueco; en las demás flota abajo a la derecha
+  const m = MP(), slot = vistaAct !== "res" ? null : tabAct === "p-video" && !$("p-video").hidden ? $("vslot") : tabAct === "p-preg" && !$("p-preg").hidden && !$("qbox").hidden ? $("qslot") : null;
+  m.classList.toggle("full", !!slot); for (const s of [$("vslot"), $("qslot")]) if (s !== slot) s.style.height = "";
+  if (slot) { const r = slot.getBoundingClientRect(); Object.assign(m.style, {left: r.left + scrollX + "px", top: r.top + scrollY + "px", width: r.width + "px"}); slot.style.height = m.offsetHeight + "px"; }
+  else if (!m.dataset.arrastrado) Object.assign(m.style, {left: "", top: "", width: ""});
 }
-addEventListener("resize", ubicar);
+addEventListener("resize", ubicar); new ResizeObserver(() => !MP().hidden && ubicar()).observe(MP());  // el vídeo cambia de alto al cargar: el hueco lo sigue
 $("mp-x").onclick = mpCerrar;
 $("mp-min").onclick = () => { MP().classList.toggle("min"); $("mp-min").setAttribute("aria-label", MP().classList.contains("min") ? "Restaurar" : "Minimizar"); };
 $("mp-pip").onclick = () => (document.pictureInPictureElement ? document.exitPictureInPicture() : VID().requestPictureInPicture()).catch(e => aviso("No se pudo abrir imagen en imagen: " + e.message));
@@ -499,10 +531,29 @@ $("mp-bar").onpointerdown = e => {  // arrastrar (opcional) desde la barra
   const mv = ev => { m.dataset.arrastrado = 1; Object.assign(m.style, {right: "auto", bottom: "auto", left: Math.max(0, Math.min(innerWidth - 60, ev.clientX - dx)) + "px", top: Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px"}); };
   const up = () => { $("mp-bar").removeEventListener("pointermove", mv); $("mp-bar").removeEventListener("pointerup", up); }; $("mp-bar").addEventListener("pointermove", mv); $("mp-bar").addEventListener("pointerup", up);
 };
+// dentro de la app el documento se lee como en design/DocResumen.dc.html (solo la vista: exportar no cambia)
+const DOC_CSS = "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}" +
+  ":root{--bg2:#f8f9fb}@media(prefers-color-scheme:dark){:root{--bg2:#1a1f26}}body{max-width:none;padding:36px 44px}@media(max-width:700px){body{padding:20px 16px}}" +
+  "h2{scroll-margin-top:16px}.meta+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:19px;line-height:1.55}" +
+  "h2+ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}h2+ul>li{background:var(--bg2);border-radius:10px;padding:12px 16px}" +
+  "table{border:1px solid var(--line2);border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden}th{background:var(--bg2);padding:10px}td{padding:12px 10px}" +
+  "details{border:1px solid var(--line2);border-radius:10px;padding:12px 16px;margin:8px 0}summary{cursor:pointer;font-weight:600;min-height:28px}";
+// «En este documento»: los apartados (h2) del documento con cuántos elementos tienen; se marca el que se está leyendo
+function docIndice(d) {
+  const hs = [...d.querySelectorAll("h2")], nav = $("doc-i"); nav.hidden = hs.length < 3;
+  const its = hs.map((h, i) => {
+    h.id ||= "s" + i; const nx = h.nextElementSibling, n = !nx ? 0 : /^(UL|OL)$/.test(nx.tagName) ? nx.children.length : nx.tagName === "TABLE" ? nx.querySelectorAll("tr").length - 1 : 0;
+    return el("a", {href: "#" + h.id, onclick: e => { e.preventDefault(); h.scrollIntoView({behavior: "smooth", block: "start"}); }}, el("span", {textContent: h.textContent}), el("span", {className: "c", textContent: n > 0 ? n : ""}));
+  });
+  nav.replaceChildren(el("div", {className: "t", textContent: "En este documento"}), ...its,
+    ...(cur?.video ? [el("p", {className: "doc-n"}, "Cada ", el("span", {className: "ts", textContent: "mm:ss"}), " salta a ese momento del " + (cur.audio ? "audio" : "vídeo") + ".")] : []));
+  const spy = () => { let k = 0; hs.forEach((h, i) => { if (h.getBoundingClientRect().top < 90) k = i; }); its.forEach((a, i) => a.setAttribute("aria-current", i === k ? "true" : "false")); };
+  d.defaultView.addEventListener("scroll", spy, {passive: true}); spy();
+}
 // el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
 $("acta-frame").onload = () => {
   let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
-  d.head.append(Object.assign(d.createElement("style"), {textContent: "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}"}));
+  d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d);
   d.addEventListener("click", e => {
     const a = e.target.closest("[data-t]"); if (!a || !cur?.video) return;
     e.preventDefault(); e.stopImmediatePropagation();
@@ -527,7 +578,7 @@ async function descargar(fmt, extra = "") {
   const a = el("a", {href: URL.createObjectURL(await r.blob()), download: nombre}); document.body.append(a); a.click(); a.remove(); aviso("Descargado: " + nombre);
 }
 function pintarAcciones(a) {
-  const box = $("acta-acciones"); box.hidden = false; box.style.display = "contents";
+  const box = $("acta-acciones"); box.hidden = false;
   if (editando) {
     box.replaceChildren(el("span", {className: "ed-bar"}, "Editando: haz clic en cualquier texto del documento.",
       el("button", {className: "pri sm", textContent: "Guardar", onclick: fallo(async () => {
@@ -537,19 +588,21 @@ function pintarAcciones(a) {
       el("button", {className: "sec sm", textContent: "Descartar", onclick: () => { editando = false; cambiarActa(); }})));
     return;
   }
-  const mas = el("div", {hidden: simple()}), ex = el("div", {className: "pop"}), item = (f, t, extra) => el("button", {type: "button", textContent: t, onclick: fallo(async () => { box.querySelector("details").open = false; await exportar(f, extra()); })});
+  // menú Exportar (design/Documento.dc.html): formatos de documento | tareas, notas y subtítulos | opciones
+  const sep = () => el("div", {className: "sep", role: "separator"}), mas = el("div", {className: "pop-g", hidden: simple()}), ex = el("div", {className: "pop", role: "menu", ariaLabel: "Exportar"});
+  const item = (f, t, extra) => el("button", {type: "button", role: "menuitem", textContent: t, onclick: fallo(async () => { box.querySelector("details").open = false; await exportar(f, extra()); })});
   const hab = el("input", {type: "checkbox", id: "ex-hab"}), evt = el("input", {type: "checkbox", id: "ex-evt"});
-  mas.append(el("div", {className: "t", textContent: "Más formatos"}), ...FMT.slice(2).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
-    el("label", {className: "check", style: "font-size:14px"}, evt, "Calendario: como un solo evento"), el("label", {className: "check", style: "font-size:14px"}, hab, "Subtítulos: con quien habla"));
-  ex.append(...(ESTILOS.length ? [el("div", {className: "t", textContent: "Estilo"}), (s => { s.append(new Option("El de la carpeta", "auto"), new Option("Sin estilo", "none"), ...ESTILOS.map(e => new Option(e.nombre, e.id))); return s; })(el("select", {id: "ex-est", ariaLabel: "Estilo de organización"}))] : []),
-    el("div", {className: "t", textContent: "Exportar como"}), item("docx", FMT[0][1], () => ""), item("pdf", FMT[1][1], () => ""),
-    el("div", {className: "t", textContent: "Opciones"}),
+  mas.append(sep(), ...["ics", "csv_todoist", "csv_jira", "obsidian", "notion", "srt", "vtt"].map(f => FMT.find(x => x[0] === f)).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
+    el("label", {className: "check"}, evt, "Calendario: como un solo evento"), el("label", {className: "check"}, hab, "Subtítulos: con quien habla"));
+  ex.append(...(ESTILOS.length ? [el("div", {className: "t", textContent: "Estilo"}), (s => { s.append(new Option("El de la carpeta", "auto"), new Option("Sin estilo", "none"), ...ESTILOS.map(e => new Option(e.nombre, e.id))); return s; })(el("select", {id: "ex-est", ariaLabel: "Estilo de organización"})), sep()] : []),
+    ...FMT.slice(0, 3).map(([f, t]) => item(f, t, () => "")),
+    ...(simple() ? [el("button", {type: "button", className: "link mas", textContent: "Más formatos…", onclick: e => { mas.hidden = false; e.currentTarget.remove(); }})] : []), mas, sep(),
     el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-anon", checked: anonOn(), onchange: e => { anonSel = e.target.checked; zipAnon(); }}), "Anonimizar"),
-    el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-dud"}), "Incluir marcas de dudas"),
-    ...(simple() ? [el("button", {type: "button", className: "link", textContent: "Más…", style: "padding:0 12px", onclick: e => { mas.hidden = false; e.currentTarget.remove(); }})] : []), mas);
-  box.replaceChildren(el("button", {className: "sec", textContent: "Correo", title: "Borrador de correo con el resumen y las tareas", onclick: abrirCorreo}), el("button", {className: "sec", textContent: "Editar", title: "Corregir el texto del documento", onclick: () => { editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); }}),
+    el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-dud"}), "Incluir marcas de confianza"));
+  box.replaceChildren(el("button", {className: "sec", textContent: "Editar", title: "Corregir el texto del documento", onclick: () => { tab("p-acta"); editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); }}),
+    el("button", {className: "sec", textContent: "Correo", title: "Borrador de correo con el resumen y las tareas", onclick: abrirCorreo}),
     ...(a.editado ? [el("button", {className: "sec", textContent: "Restaurar original", onclick: fallo(async () => { if (!confirm("¿Volver al texto original? Se pierden tus ediciones de esta versión.")) return; await post(`/api/doc/${cur.id}/${ver}/restaurar`); await abrir(cur.id, ver, true); aviso("Original restaurado"); })})] : []),
-    el("details", {className: "menu"}, el("summary", {textContent: "Exportar ▾"}), ex));
+    el("details", {className: "menu"}, el("summary", {className: "pri", textContent: "Exportar"}), ex));
 }
 document.addEventListener("click", e => document.querySelectorAll("details.menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
 

@@ -44,6 +44,23 @@ async function fRender() {
 const fRe = () => { fsucio = true; return fRender(); };
 const H = (t, ...k) => el("div", {className: "sec-h"}, el("h2", {textContent: t}), ...k);
 
+// ---- inicio: pendientes abiertos de todas las carpetas (vencidos y con plazo primero) ----
+let hpSeq = 0;
+async function homePend() {
+  const cs = carpetas.filter(c => RES[c]?.pend), n = ++hpSeq;
+  const rs = await Promise.all(cs.map(c => api("/api/exp/pendientes?" + new URLSearchParams({c, estado: "abierto", orden: "plazo"}))
+    .then(r => r.items.filter(p => p.estado === "abierto").map(p => ({...p, c}))).catch(() => [])));
+  if (n !== hpSeq) return;
+  const its = rs.flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
+  $("h-pend").hidden = !its.length; $("h-pend-n").textContent = its.length > 5 ? "5 de " + its.length : "";
+  $("h-pend-l").replaceChildren(...its.slice(0, 5).map(p => {
+    const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); await cargarLista(); })});
+    const f = p.vencido ? el("b", {className: "hp-f err", textContent: "Vencido"}) : el("span", {className: "hp-f" + (p.pronto ? " w" : ""), textContent: p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")});
+    return el("li", {}, chk, el("div", {className: "hp-t"}, el("span", {textContent: p.texto}),
+      el("small", {}, el("a", {href: "#", textContent: p.c, onclick: e => { e.preventDefault(); fsel = p.c; ftab = "pendientes"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}), p.resp ? " · " + p.resp : "")), f);
+  }));
+}
+
 // ---- banner «parece hecho» ----
 function bannerSug(c, sug) {
   if (!sug.length) return [];

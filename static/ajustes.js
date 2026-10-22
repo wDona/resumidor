@@ -64,7 +64,7 @@ async function abrirUso(primera) {
   if (!PL.length) await cargarPlant().catch(() => {});
   await cargarUP();
   const sel = new Set(primera ? [] : AJ.uso), cuerpo = $("uso-cuerpo"), U = usos();
-  const resumen = el("div", {className: "resumen"}), ok = el("button", {className: "pri", textContent: primera ? "Siguiente" : "Aplicar", disabled: !sel.size});
+  const resumen = el("div", {className: "resumen"}), ok = el("button", {className: "pri", textContent: primera ? "Siguiente: modelos" : "Aplicar", disabled: !sel.size});
   const nombresDe = us => ({carpeta: us[0].c, documento: us[0].d || "documento", nuevo_boton: us[0].nb || "+ Nuevo"});
   const act = () => {
     const us = U.filter(u => sel.has(u.id)); ok.disabled = !us.length; resumen.hidden = !us.length; if (!us.length) return;
@@ -82,17 +82,18 @@ async function abrirUso(primera) {
     aplicar();
     if (primera) { irInicio(); $("d-crear").showModal(); } else { abrirAjustes("general"); aviso("Guardado"); }
   });
+  $("uso-pasos").hidden = !primera;
+  $("uso-pasos").replaceChildren(el("li", {className: "on", "aria-current": "step"}, el("b", {textContent: "1"}), "Para qué lo usas"), el("li", {}, el("b", {textContent: "2"}), "Modelos"));
   cuerpo.replaceChildren(
-    ...(primera ? [el("ol", {className: "pasos"}, el("li", {className: "on"}, el("b", {textContent: "1"}), "Para qué lo usas"), el("li", {}, el("b", {textContent: "2"}), "Modelos"))] : []),
-    el("h1", {textContent: "¿Para qué vas a usar la app?"}),
-    el("p", {className: "muted", style: "margin:6px 0 16px", textContent: "Elige uno o varios. Solo prepara perfiles y nombres; puedes cambiarlo todo después en Ajustes sin perder nada."}),
+    el("div", {className: "uso-h"}, el("h1", {textContent: "¿Para qué vas a usar la app?"}),
+    el("p", {className: "muted", textContent: "Elige uno o varios. Solo prepara perfiles y nombres; puedes cambiarlo todo después en Ajustes sin perder nada."})),
     el("div", {className: "chips", role: "group", ariaLabel: "Usos"}, ...U.map(u => el("button", {type: "button", role: "checkbox", className: "chip", "aria-checked": sel.has(u.id),
       onclick: e => { sel.has(u.id) ? sel.delete(u.id) : sel.add(u.id); e.currentTarget.setAttribute("aria-checked", sel.has(u.id)); act(); }},
       el("b", {textContent: u.t}), el("small", {textContent: u.p.length ? u.p.map(p => PL.find(t => t.id === p)?.nombre).filter(Boolean).join(" · ") : "Eliges tú los perfiles y los nombres"})))),
     el("p", {}, el("button", {className: "link", type: "button", textContent: "+ Crear un perfil de uso propio", onclick: () => abrirAjustes("perfiles", "nuevo")})),
     resumen,
-    el("div", {className: "row wrap"}, ok, primera ? el("button", {className: "sec", textContent: "Saltar, configurar luego", onclick: fallo(async () => { AJ = await post("/api/ajustes", {}); aplicar(); irInicio(); })})
-      : el("button", {className: "sec", textContent: "Cancelar", onclick: () => abrirAjustes("general")})));
+    el("div", {className: "row wrap entre"}, primera ? el("button", {className: "link", textContent: "Saltar, configurar luego", onclick: fallo(async () => { AJ = await post("/api/ajustes", {}); aplicar(); irInicio(); })})
+      : el("button", {className: "sec", textContent: "Cancelar", onclick: () => abrirAjustes("general")}), ok));
   act(); vista("uso");
 }
 $("dc-imp").onclick = () => { $("d-crear").close(); aviso("Usa «Importar» para abrir un documento exportado (.zip)"); };

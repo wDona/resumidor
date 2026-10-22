@@ -6,7 +6,7 @@ const TIPOS = {persona: "Nombre de persona", email: "Email", telefono: "Teléfon
 function dialogo(titulo, sub, cls = "") {
   const d = el("dialog", {className: "gr " + cls}), b = el("div", {className: "dg-b"}), f = el("div", {className: "dg-f"});
   d.append(el("div", {className: "dg-h"}, el("div", {}, el("h2", {textContent: titulo}), el("div", {className: "muted", textContent: sub})),
-    el("button", {type: "button", className: "sec", ariaLabel: "Cerrar", textContent: "×", onclick: () => d.close()})), b, f);
+    el("button", {type: "button", className: "sec qi", ariaLabel: "Cerrar", textContent: "×", onclick: () => d.close()})), b, f);
   d.onclose = () => d.remove(); document.body.append(d); d.showModal();
   return {d, b, f};
 }
@@ -47,14 +47,15 @@ function abrirAnon(p) {
     its = r.items.map(i => ({...i, incluir: true}));  // privacidad: mejor ocultar de más (la IA marcada) que olvidar a una persona
     const tabla = el("div", {className: "tbl"}), cnt = el("div", {className: "b"}), lado = el("div", {className: "dg-s"});
     const pintar = () => {
-      const gr = [...new Set(its.map(i => i.tipo))];
-      tabla.replaceChildren(el("table", {}, el("thead", {}, el("tr", {}, el("th", {style: "width:36px"}), el("th", {textContent: "Encontrado"}), el("th", {textContent: "Se sustituye por"}))),
-        ...gr.map(t => el("tbody", {}, el("tr", {className: "gh"}, el("td", {colSpan: 3, textContent: TIPOS[t] || t})), ...its.filter(i => i.tipo === t).map(i => el("tr", {className: i.ia ? "ia" : ""},
+      const gr = [...new Set(its.map(i => i.tipo))];  // agrupados por tipo, con su columna (design/Anonimizar.dc.html)
+      tabla.replaceChildren(el("table", {}, el("thead", {}, el("tr", {}, el("th", {className: "w-chk"}, el("span", {className: "sr", textContent: "Ocultar"})), el("th", {textContent: "Encontrado"}), el("th", {textContent: "Tipo"}), el("th", {textContent: "Se sustituye por"}))),
+        el("tbody", {}, ...gr.flatMap(t => its.filter(i => i.tipo === t)).map(i => el("tr", {className: i.ia ? "ia" : ""},
           el("td", {}, el("input", {type: "checkbox", checked: i.incluir, ariaLabel: "Ocultar", onchange: e => { i.incluir = e.target.checked; cuenta(); }})),
           el("td", {}, i.manual ? el("input", {type: "text", value: i.valor, placeholder: "Texto exacto a ocultar", ariaLabel: "Texto a ocultar", oninput: e => { i.valor = e.target.value; }}) : el("span", {}, el("b", {textContent: i.valor}),
-            el("span", {className: "muted", textContent: ` · ${i.n} ${i.n === 1 ? "vez" : "veces"}${i.ia ? " · posible nombre (IA)" : ""}`}), ...(i.ejemplos?.[0] ? [el("small", {textContent: "…" + i.ejemplos[0] + "…"})] : []))),
-          el("td", {}, el("input", {type: "text", value: i.sugerido, ariaLabel: "Seudónimo", oninput: e => { i.sugerido = e.target.value; }}))))))));
-      if (!its.length) tabla.replaceChildren(el("p", {className: "muted", style: "padding:12px", textContent: "No se encontró nada que ocultar. Añade a mano lo que falte."}));
+            el("span", {className: "muted", textContent: ` · ${i.n} ${i.n === 1 ? "vez" : "veces"}`}), ...(i.ejemplos?.[0] ? [el("small", {textContent: "…" + i.ejemplos[0] + "…"})] : []))),
+          el("td", {className: "tipo", textContent: i.ia ? "Posible nombre (IA)" : TIPOS[i.tipo] || i.tipo}),
+          el("td", {}, el("input", {type: "text", value: i.sugerido, ariaLabel: "Seudónimo", oninput: e => { i.sugerido = e.target.value; }})))))));
+      if (!its.length) tabla.replaceChildren(el("p", {className: "vacio", textContent: "No se encontró nada que ocultar. Añade a mano lo que falte."}));
       cuenta();
     };
     const cuenta = () => { const n = its.filter(i => i.incluir).length; cnt.textContent = `Se va a ocultar · ${n} ${n === 1 ? "elemento" : "elementos"}`; ok.disabled = false; };
@@ -62,8 +63,8 @@ function abrirAnon(p) {
       ? `${r.capturas_sin_cajas.length} captura(s) sin cajas del OCR (transcripción anterior): si contienen datos marcados se omitirán de la copia.` : "Las capturas con datos marcados se difuminan por zonas; si no se pueden localizar, se omiten."}),
       el("div", {className: "nota"}, el("div", {textContent: "Sin vídeo ni audio: una exportación anonimizada nunca los incluye."}), el("div", {textContent: "La detección no es perfecta. Revisa la lista antes de compartir."})));
     b.append(...(r.sin_modelo ? [el("div", {className: "aviso w", textContent: "No hay modelo instalado para buscar nombres: solo se detectan datos con formato (DNI, IBAN…) y los nombres del propio documento. Añade a mano los demás."})] : []),
-      el("div", {className: "dg-g"}, el("div", {className: "dg-m"}, el("div", {className: "row wrap", style: "justify-content:space-between;margin:0"}, cnt,
-        el("button", {type: "button", className: "sec sm", textContent: "+ añadir", onclick: () => { its.push({tipo: "otro", valor: "", n: 0, ejemplos: [], sugerido: "[OCULTO]", incluir: true, manual: true}); pintar(); tabla.querySelector("tr:last-child input[type=text]")?.focus(); }})), tabla), lado));
+      el("div", {className: "dg-g"}, el("div", {className: "dg-m"}, el("div", {className: "row wrap entre"}, cnt,
+        el("button", {type: "button", className: "sec sm", textContent: "+ Añadir texto", onclick: () => { its.push({tipo: "otro", valor: "", n: 0, ejemplos: [], sugerido: "[OCULTO]", incluir: true, manual: true}); pintar(); tabla.querySelector("tr:last-child input[type=text]")?.focus(); }})), tabla), lado));
     pintar();
   }).catch(err => { esp.stop(); esp.remove(); b.append(el("p", {className: "err", textContent: err.message})); });
   ok.onclick = fallo(async () => {
@@ -99,7 +100,7 @@ function abrirCorreo() {
       const r = await post(`/api/correo/${cur.id}/${ver}`, {modo: modo.value, tono: tono.value, idioma: idi.value, adjuntar_pdf: pdf.checked, anon: an.checked});
       esp.stop(); if (!d.open) return;
       out.replaceChildren(...(r.aviso ? [el("div", {className: "aviso w", textContent: r.aviso})] : []), ...(r.llm ? [] : [el("small", {textContent: "Apertura y cierre de plantilla (sin modelo local)."})]), ...r.correos.map(c => el("div", {className: "co"},
-        el("div", {className: "row wrap", style: "justify-content:space-between;margin:0"}, el("div", {}, el("b", {textContent: "Para: " + c.para}), el("div", {className: "muted", textContent: c.asunto})), el("div", {className: "row"},
+        el("div", {className: "row wrap entre"}, el("div", {}, el("b", {textContent: "Para: " + c.para}), el("div", {className: "muted", textContent: c.asunto})), el("div", {className: "row"},
           el("button", {type: "button", className: "sec sm", textContent: "Copiar", onclick: fallo(async function () { await copiar(c); this.textContent = "Copiado"; setTimeout(() => this.textContent = "Copiar", 1800); })}),
           el("a", {className: "btn sec sm", href: c.eml_url, download: "", textContent: "Descargar .eml"}))), el("pre", {textContent: c.texto}))));
     } catch (err) { esp.stop(); out.replaceChildren(el("p", {className: "err", textContent: err.message})); } finally { go.disabled = false; }
@@ -119,10 +120,12 @@ async function pintarDudas() {
   let d; try { d = fr.contentDocument; } catch { return; } if (!d?.body || editando || !cur || d.location.href === "about:blank") return;
   const mid = cur.id, v = ver, r = await api(`/api/dudas/${mid}/${v}`).catch(() => null);
   if (!r || mid !== cur.id || v !== ver || fr.contentDocument !== d) return;
-  if (!d.getElementById("dd-css")) d.head.append(Object.assign(d.createElement("style"), {id: "dd-css", textContent: ".dd{background:#fde68a;color:inherit;border-radius:3px;cursor:help;padding:0 2px}.dd.on{outline:2px solid #d4a514}.dd-off .dd{background:none;padding:0;cursor:auto}"}));
-  for (const e of d.querySelectorAll("[data-p]")) { const m = r.dudas[e.dataset.p]; if (m?.length) { e.classList.add("dd"); e.title = m.join(". "); } }
+  if (!d.getElementById("dd-css")) d.head.append(Object.assign(d.createElement("style"), {id: "dd-css", textContent: ".dd{background:#fde68a;color:inherit;border-radius:3px;cursor:help;padding:0 2px;position:relative}.dd.on{outline:2px solid #d4a514}" +
+    ".dd:hover::after,.dd.on::after{content:attr(data-tip);position:absolute;left:0;top:calc(100% + 6px);z-index:5;width:max-content;max-width:min(360px,80vw);background:#1f2933;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 12px;border-radius:8px;white-space:normal;pointer-events:none}" +
+    ".dd-off .dd{background:none;padding:0;cursor:auto}.dd-off .dd::after{display:none}"}));
+  for (const e of d.querySelectorAll("[data-p]")) { const m = r.dudas[e.dataset.p]; if (m?.length) { e.classList.add("dd"); e.dataset.tip = m.join(". "); } }
   const n = dudMarcas().length; if (!n) return;
-  bar.hidden = false; $("dud-n").textContent = `${n} ${n === 1 ? "parte" : "partes"} a revisar`; aplicarDudas();
+  bar.hidden = false; $("dud-n").textContent = `${n} ${n === 1 ? "fragmento dudoso" : "fragmentos dudosos"}`; $("dud-r").textContent = ""; aplicarDudas();
 }
 function aplicarDudas() {
   const on = $("dud-ver").checked; lsSet("dudas", on);
@@ -132,6 +135,7 @@ function aplicarDudas() {
 function saltaDuda(k) {
   const m = dudMarcas(); if (!m.length) return; m.forEach(e => e.classList.remove("on"));
   dudIx = (dudIx + k + m.length) % m.length; const e = m[dudIx]; e.classList.add("on"); e.scrollIntoView({block: "center", behavior: "smooth"});
+  $("dud-r").textContent = `${dudIx + 1} de ${m.length}: ${e.dataset.tip}`;
 }
 $("dud-ver").checked = lsGet("dudas", true); $("dud-ver").onchange = aplicarDudas; $("dud-ant").onclick = () => saltaDuda(-1); $("dud-sig").onclick = () => saltaDuda(1);
 { const prev = $("acta-frame").onload; $("acta-frame").onload = function (e) { prev?.call(this, e); pintarDudas(); }; }
