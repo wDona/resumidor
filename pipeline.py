@@ -149,7 +149,7 @@ def windowed(transcribe_win, dur, win, pad=30):
             if not final and s >= win:
                 nxt = start + s
                 break
-            out.append((start + s, start + e, txt, *([[{**x, "s": round(start + x["s"], 2), "e": round(start + x["e"], 2)} for x in wd[0]]] if wd else [])))
+            out.append((start + s, start + e, txt, *([[{**x, "s": round(start + x["s"], 2), "e": round(start + x["e"], 2)} for x in wd[0]], *wd[1:]] if wd else [])))
             nxt = max(nxt, start + e)
         if final:
             return out
@@ -182,9 +182,9 @@ def transcribe(video, quality, threads, dur, cb, t0=0):
         langs.append(info.language)
         for s in segs:
             cb(min((start + s.end) / dur, 1), f"Transcribiendo… {fmt(start + s.end)} / {fmt(dur)}")
-            yield s.start, s.end, s.text.strip(), [{"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in s.words or []]
+            yield s.start, s.end, s.text.strip(), [{"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in s.words or []], {"lp": round(s.avg_logprob, 2), "ns": round(s.no_speech_prob, 2), "cr": round(s.compression_ratio, 2)}  # calidad del segmento (dudas)
     segs = windowed(win, dur, 30, 10) if mezcla else windowed(win, dur, ASR_WIN)
-    return {"language": lang[0] or max(set(langs), key=langs.count, default=None), "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t, **({"words": [{**x, "s": round(t0 + x["s"], 2), "e": round(t0 + x["e"], 2)} for x in w[0]]} if w and w[0] else {})}
+    return {"language": lang[0] or max(set(langs), key=langs.count, default=None), "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t, **({"words": [{**x, "s": round(t0 + x["s"], 2), "e": round(t0 + x["e"], 2)} for x in w[0]]} if w and w[0] else {}), **(w[1] if len(w) > 1 else {})}
                                                                          for s, e, t, *w in segs if t]}
 
 
@@ -463,7 +463,7 @@ def keyframes(video, wd, threads, dur, cb):
 
     def read(im, x0, y0):  # [[x0, y0, x1, y1, texto]] en coordenadas de la imagen entera
         res, _ = ocr(im)
-        return [[x0 + min(p[0] for p in bx), y0 + min(p[1] for p in bx), x0 + max(p[0] for p in bx), y0 + max(p[1] for p in bx), x]
+        return [[int(x0 + min(p[0] for p in bx)), int(y0 + min(p[1] for p in bx)), int(x0 + max(p[0] for p in bx)), int(y0 + max(p[1] for p in bx)), x]
                 for bx, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
     out, prev, small = [], None, []
     for n, (a, b) in enumerate(segs):
@@ -511,7 +511,7 @@ def keyframes(video, wd, threads, dur, cb):
             small.append(fp)
         prev = (b, lines)
         out.append({"t": a * STEP, "img": img.name, "text": " | ".join(texts), "edge": round(edge, 3), "skin": round(skin, 3),
-                    "fp": fp.ravel().tolist()})
+                    "fp": fp.ravel().tolist(), "lines": lines, "wh": [W, H]})  # lines: cajas del OCR (anonimizar capturas)
     return out  # crudo; screens() clasifica al cargar (barato, y así se puede ajustar sin repetir el OCR)
 
 
@@ -1724,6 +1724,7 @@ main>div:last-child{background:var(--card);border:1px solid var(--line);border-r
 @media(max-width:700px){main>div:last-child{padding:20px 16px}}
 #side{position:fixed;right:16px;bottom:16px;width:min(340px,calc(100vw - 32px));z-index:6;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:6px}
 video,audio{display:block;width:100%;background:#000;border-radius:8px;max-height:45vh}audio{background:none;height:48px}
+@media(max-width:700px){#side{width:210px}}
 #pip{align-self:flex-end;font:inherit;font-size:13px;min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}#pip:hover{background:var(--acc-s)}
 #pick{margin:0;padding:6px;font-size:13px;color:var(--mut)}
 a{color:var(--acc)}

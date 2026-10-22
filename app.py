@@ -25,8 +25,11 @@ from fastapi.staticfiles import StaticFiles
 
 import models
 import pipeline
+import correo
+import dudas
 import exportar
 import plantillas
+import privacidad
 import procs
 import rag
 import transcripts
@@ -329,6 +332,8 @@ def _acta_fn(d):
                                  idioma=d.get("idioma") or None, habla=d.get("habla") or None)
         if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
+        if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(out.parent).get("carpeta"):  # carpeta pedida al generar
+            (out.parent / "meta.json").write_text(json.dumps({**meta(out.parent), "carpeta": carp}, ensure_ascii=False))
         return {"id": out.parent.name, "acta": out.name}
     return fn
 
@@ -628,6 +633,11 @@ def carpetas_plantillas():
     return _carpetas()["plantillas"]
 
 
+@app.get("/api/carpetas/estilos")
+def carpetas_estilos():
+    return _carpetas()["estilos"]
+
+
 @app.get("/api/carpetas")
 def get_carpetas():
     return sorted({*carpetas_vacias(), *(meta(f.parent).get("carpeta") for f in pipeline.WORK.glob("*/meta.json"))} - {None, ""}, key=str.casefold)
@@ -691,8 +701,10 @@ def _stream_zip(files):
 
 
 @app.get("/api/zipvideo/{mid}/{acta}")
-def zipvideo(mid: str, acta: str):
-    """Acta + vídeo (o audio) donde el reproductor del informe lo espera (video.<ext> junto a index.html)."""
+def zipvideo(mid: str, acta: str, anon: int | None = None):
+    """Acta + vídeo (o audio) donde el reproductor del informe lo espera (video.<ext> junto a index.html). Con anon=1 (o por defecto en ajustes) -> 409: lo anonimizado nunca lleva vídeo ni audio."""
+    if bool(anon) if anon is not None else bool((_ajustes() or {}).get("anonimizar_defecto")):
+        raise HTTPException(409, "No se incluye vídeo ni audio en lo anonimizado: la voz y la imagen identifican" + ("" if anon else " (anonimizar_defecto activo; pasa anon=0 para el original)"))
     wd = pipeline.WORK / Path(mid).name
     out, v = wd / Path(acta).name, next(wd.glob("video.*"), None)
     if not (out / "index.html").exists() or not v or not v.exists():
@@ -784,21 +796,82 @@ def restaurar_doc(mid: str, ver: str):
 
 
 @app.get("/api/vista/{mid}/{ver}")
-def vista(mid: str, ver: str, editar: int = 0, print: int = 0, original: int = 0):
+def vista(mid: str, ver: str, editar: int = 0, print: int = 0, original: int = 0, anon: int = 0, dudas: int = 0):
     """HTML del documento desde los datos (editado si existe). editar=1: contenteditable + window.cambios() -> {ruta: texto}; print=1: abre el diálogo de imprimir."""
-    c = _ex(exportar.carga, mid, ver)
+    c = _ex(exportar.carga, mid, ver, bool(anon), bool(dudas) and not editar)
     if original and c["editado"]:
         c["data"], c["editado"] = json.loads((c["d"] / "acta.json").read_text()), False
     return HTMLResponse(exportar.html_doc(c, bool(editar), f"/files/{c['mid']}/{c['ver']}/", bool(print), exportar.estilo_para(c)))
 
 
 @app.get("/api/exportar/{mid}/{ver}")
-def exportar_doc(mid: str, ver: str, fmt: str = "docx", estilo: str | None = None, hablantes: int = 0, evento: int = 0):
+def exportar_doc(mid: str, ver: str, fmt: str = "docx", estilo: str | None = None, hablantes: int = 0, evento: int = 0, anon: int | None = None, dudas: int = 0):
+    """anon=1: copia anonimizada (409 si no existe); sin `anon`, vale ajustes.anonimizar_defecto; anon=0 lo desactiva. dudas=1: marca lo dudoso."""
+    an = _anon(mid, ver, anon)
     try:
-        datos, nombre, mime = _ex(exportar.exportar, mid, ver, fmt, estilo, bool(hablantes), bool(evento))
+        datos, nombre, mime = _ex(exportar.exportar, mid, ver, fmt, estilo, bool(hablantes), bool(evento), an, bool(dudas))
     except exportar.SinNavegador as ex:
         raise HTTPException(409, str(ex))
     return Response(datos, media_type=mime, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nombre)})
+
+
+def _anon(mid, ver, anon):
+    """¿Usar la copia anonimizada? anon explícito manda; si no, el ajuste anonimizar_defecto. 409 si se pide y aún no existe."""
+    on = bool(anon) if anon is not None else bool((_ajustes() or {}).get("anonimizar_defecto"))
+    if on and not (pipeline.WORK / Path(mid).name / Path(ver).name / privacidad.ANON).is_file():
+        raise HTTPException(409, "Falta la copia anonimizada de este documento: anonimízalo primero" + ("" if anon else " (o pasa anon=0)"))
+    return on
+
+
+# ---------- Anonimizar ----------
+@app.post("/api/anonimizar/{mid}/{ver}/detectar")
+def anon_detectar(mid: str, ver: str, d: dict | None = None):
+    """{items:[{tipo,valor,n,ejemplos,sugerido}], sin_modelo, capturas_sin_cajas}. Cuerpo opcional {llm:false} para saltar la pasada del modelo."""
+    return _ex(lambda: privacidad.detectar(exportar.carga(mid, ver), (d or {}).get("llm", True)))
+
+
+@app.post("/api/anonimizar/{mid}/{ver}/aplicar")
+def anon_aplicar(mid: str, ver: str, d: dict):
+    """{items:[{tipo,valor,sugerido,incluir?}]} (la lista editada: sin marcar = incluir:false u omitido; añadidos a mano = tipo "persona"/"otro")
+    -> crea la copia anonimizada. {reemplazos, difuminadas, omitidas:[{img,motivo}]}"""
+    if not isinstance(d.get("items"), list):
+        raise HTTPException(400, "Falta items")
+    return _ex(lambda: privacidad.aplicar(exportar.carga(mid, ver), [i for i in d["items"] if isinstance(i, dict)]))
+
+
+@app.get("/api/anonimizar/{mid}/{ver}")
+def anon_estado(mid: str, ver: str):
+    return _ex(lambda: privacidad.estado(exportar.carga(mid, ver)))
+
+
+@app.delete("/api/anonimizar/{mid}/{ver}")
+def anon_borrar(mid: str, ver: str):
+    _ex(lambda: privacidad.borrar(exportar.carga(mid, ver)["d"]))
+    return {"existe": False}
+
+
+# ---------- Correo ----------
+@app.post("/api/correo/{mid}/{ver}")
+def post_correo(mid: str, ver: str, d: dict):
+    """{modo:"todos"|"responsable", tono:"formal"|"cercano"|"breve", idioma?, adjuntar_pdf?, anon?} -> {correos:[{para,asunto,texto,html,eml_url}], eml_url, llm, aviso?}"""
+    an = _anon(mid, ver, d.get("anon"))
+    return _ex(correo.generar, mid, ver, d.get("modo", "todos"), d.get("tono", "formal"), d.get("idioma") or "es", bool(d.get("adjuntar_pdf")), an)
+
+
+@app.get("/api/correo/{mid}/{ver}/eml/{n}")
+def get_eml(mid: str, ver: str, n: int):
+    f = pipeline.WORK / Path(mid).name / Path(ver).name / "correos" / f"{n}.eml"
+    if not f.is_file():
+        raise HTTPException(404, "Genera antes el borrador")
+    return Response(f.read_bytes(), media_type="message/rfc822", headers={"Content-Disposition": f"attachment; filename=\"borrador-{n + 1}.eml\""})
+
+
+# ---------- Dudas ----------
+@app.get("/api/dudas/{mid}/{ver}")
+def get_dudas(mid: str, ver: str):
+    """{dudas:{ruta data-p:[motivos]}, segs:{n:[motivos]}, n, asr}: ruta = la misma de /api/doc y data-p de /api/vista. Lo editado deja de estar marcado."""
+    r = _ex(dudas.calcular, mid, ver)
+    return {k: r[k] for k in ("dudas", "segs", "n", "asr")}
 
 
 @app.get("/api/estilos")

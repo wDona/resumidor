@@ -32,12 +32,15 @@ class SinNavegador(Exception):
 
 
 # ---------- carga ----------
-def carga(mid, ver):
+def carga(mid, ver, anon=False, dudas=False):
+    """anon: la copia anonimizada (privacidad.aplicar) en vez del documento; dudas: marca lo dudoso (dudas.py) en los exports."""
     d = P.WORK / Path(mid).name / Path(ver).name
     if not (d / "acta.json").is_file():
         raise FileNotFoundError(ver)
     ed = d / EDITADA
-    data = json.loads((ed if ed.is_file() else d / "acta.json").read_text())
+    if anon and not (d / "acta_anonima.json").is_file():
+        raise ValueError("No hay copia anonimizada de este documento: anonimízalo primero")
+    data = json.loads((d / "acta_anonima.json" if anon else ed if ed.is_file() else d / "acta.json").read_text())
     tf = d.parent / f"transcript_{d.name.split('_')[2]}.json"
     try:
         tpl = next(t for t in plantillas.todas() if t["nombre"] == data.get("plantilla")) if data.get("plantilla") else plantillas.get("acta")
@@ -47,10 +50,17 @@ def carga(mid, ver):
         carpeta = json.loads((d.parent / "meta.json").read_text()).get("carpeta", "")
     except (OSError, ValueError):
         carpeta = ""
-    return {"d": d, "mid": d.parent.name, "ver": d.name, "data": data, "tpl": tpl, "editado": ed.is_file(), "carpeta": carpeta,
-            "segs": json.loads(tf.read_text()).get("segments", []) if tf.is_file() else [],
+    if anon:
+        tf = d / "transcript_anonimo.json"
+    c = {"d": d, "mid": d.parent.name, "ver": d.name, "data": data, "tpl": tpl, "editado": ed.is_file() and not anon, "carpeta": carpeta, "anon": anon,
+         "img": "img_anon" if anon else "img",
+         "segs": json.loads(tf.read_text()).get("segments", []) if tf.is_file() else [],
             "doc": (data.get("documento") or tpl.get("documento") or {}).get("singular", "acta"),
-            "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime)}
+         "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime)}
+    if dudas:
+        import dudas as DU
+        c["dudas"] = DU.calcular(mid, ver)["dudas"]
+    return c
 
 
 # ---------- edición con copia ----------
@@ -123,11 +133,32 @@ def bloques(c):
             out.append(("lista", tit, [{"k": f"secciones_plantilla.{i}.items.{j}.texto", "t": x["t"], "texto": x["texto"], "sub": _sub(x), "cita": x.get("cita", "")}
                                        for j, x in enumerate(s["items"])]))
         elif b == "transcripcion" and c["segs"]:
-            out.append(("capturas", "Capturas", [k for k in D.get("capturas", []) if (c["d"] / "img" / k["img"]).is_file()]))
+            out.append(("capturas", "Capturas", [k for k in D.get("capturas", []) if (c["d"] / c["img"] / k["img"]).is_file()]))
             out.append(("trans", tit, c["segs"]))
     if not any(k == "capturas" for k, _, _ in out):  # perfil sin transcripción en el orden: las capturas van al final
-        out.append(("capturas", "Capturas", [k for k in D.get("capturas", []) if (c["d"] / "img" / k["img"]).is_file()]))
-    return [b for b in out if b[2]]
+        out.append(("capturas", "Capturas", [k for k in D.get("capturas", []) if (c["d"] / c["img"] / k["img"]).is_file()]))
+    out = [b for b in out if b[2]]
+    if c.get("dudas"):
+        _marcar(out, c["dudas"])
+    return out
+
+
+def _marcar(out, dud):
+    """&dudas=1: lo dudoso lleva «⚠ » delante (md, docx, pdf; en HTML además va en <mark> con los motivos)."""
+    def m(x, kc, campo):
+        if x.get(kc) in dud and x.get(campo):
+            x[campo] = "⚠ " + x[campo]
+    for cl, _, its in out:
+        for x in its if cl in ("texto", "parrafos", "lista", "tareas", "secciones") else []:
+            m(x, "k", "texto")
+            m(x, "kt", "titulo")
+            if cl == "tareas":
+                m(x, "kr", "resp")
+                m(x, "kp", "plazo")
+            if cl == "secciones":
+                m(x, "kr", "resumen")
+                for p in x["puntos"]:
+                    m(p, "k", "texto")
 
 
 fm = P.fmt
@@ -135,17 +166,35 @@ esc = html.escape
 
 
 # ---------- HTML (vista editable, impresión y PDF) ----------
-CSS = """body{font:15px/1.5 system-ui,sans-serif;max-width:860px;margin:1.5em auto;padding:0 1em;color:#222}h1{font-size:1.5em}h2{font-size:1.2em;margin-top:1.6em;border-bottom:1px solid #ccc}
-h3{font-size:1.05em}.ts{color:#666;font-size:.85em;margin-right:.4em}.meta,small{color:#666}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:3px 6px;text-align:left}
-figure{margin:.8em 0}img{max-width:100%}[contenteditable]{outline:1px dashed #bbb}[contenteditable]:focus{outline:2px solid #4a8}@media print{figure,tr{break-inside:avoid}}"""
+CSS = """:root{--bg:#f4f5f7;--card:#fff;--ink:#1f2933;--mut:#616e7c;--line:#d9dee4;--line2:#e6e9ee;--acc:#1d5fd1;--acc-d:#174ba3;--acc-s:#eef4ff;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d222a;--ink:#e6e9ee;--mut:#9aa5b1;--line:#333b46;--line2:#2a313a;--acc:#6ea3ff;--acc-d:#8db4f5;--acc-s:#1b2a45}}
+*{box-sizing:border-box}body{font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;max-width:960px;margin:0 auto;padding:32px 40px;color:var(--ink);background:var(--card)}
+@media(max-width:700px){body{padding:20px 16px}}
+h1{font-size:26px;line-height:1.25;margin:0 0 6px}h2{font-size:22px;line-height:1.3;margin:1.8em 0 .6em}h3{font-size:17px;margin:1.4em 0 .4em}
+.ts{display:inline-block;font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;background:var(--acc-s);color:var(--acc-d);padding:1px 7px;border-radius:5px;margin-right:6px}.ts[data-t]{cursor:pointer}
+@media(prefers-color-scheme:dark){.ts{color:var(--acc)}}
+.meta,small{color:var(--mut);font-size:14px}.cab{display:flex;align-items:center;gap:12px;border-bottom:3px solid var(--acc);padding-bottom:10px;margin-bottom:18px;color:var(--mut)}.cab img{max-height:48px}
+table{border-collapse:collapse;width:100%;font-size:15px}td,th{border-top:1px solid var(--line2);padding:8px 10px;text-align:left;vertical-align:top}th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);border-top:0}
+figure{margin:12px 0 16px}img{max-width:100%;border-radius:10px}figcaption{font-size:13px;color:var(--mut)}
+[contenteditable]{outline:1px dashed var(--line);border-radius:3px}[contenteditable]:focus{outline:2px solid var(--acc)}:focus-visible{outline:3px solid #8db4f5;outline-offset:2px}
+mark{background:#ffe58a;color:#000;border-radius:3px;padding:0 2px}@media print{body{max-width:none;padding:0;color:#000;background:#fff}figure,tr{break-inside:avoid}.ts{background:none;padding:0;color:#555}}"""
 JS_EDIT = ("document.querySelectorAll('[data-p]').forEach(e=>e.dataset.o=e.innerText.trim());"
            "window.cambios=()=>{const o={};document.querySelectorAll('[data-p]').forEach(e=>{const t=e.innerText.trim();if(t!==e.dataset.o)o[e.dataset.p]=t});return o}")
 
 
+def cabecera_estilo(est, base=None):
+    """Franja con logo y cabecera del estilo de organización (solo en la vista de la app, donde el logo se sirve por la API)."""
+    if not est or not (est.get("cabecera") or est.get("logo")):
+        return ""
+    logo = f'<img src="/api/estilos/{esc(est["id"])}/logo" alt="">' if est.get("logo") and (base or "").startswith("/") else ""
+    return f'<div class="cab">{logo}<span>{esc(est.get("cabecera", ""))}</span></div>'
+
+
 def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
-    """base: URL de la que cuelgan las imágenes (img/…). estilo: TODO aplicar color/cabecera/logo cuando llegue el diseño de la interfaz."""
-    ed = lambda k, t: f'<span data-p="{k}"{" contenteditable" if editar else ""}>{esc(t)}</span>'
-    ts = lambda t: f'<span class="ts">[{fm(t)}]</span>'
+    """base: URL de la que cuelgan las imágenes (img/…). estilo: color y cabecera/logo del estilo de organización."""
+    dud = c.get("dudas") or {}
+    ed = lambda k, t: f'<mark data-p="{k}" title="{esc("; ".join(dud[k]))}">{esc(t)}</mark>' if k in dud else f'<span data-p="{k}"{" contenteditable" if editar else ""}>{esc(t)}</span>'
+    ts = lambda t: f'<span class="ts" data-t="{int(t)}">[{fm(t)}]</span>'
     D, h = c["data"], []
     for cl, tit, its in bloques(c):
         h.append(f"<h2>{esc(tit)}</h2>")
@@ -163,12 +212,12 @@ def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
                 h.append(f"<h3>{ts(s['t'])}{ed(s['kt'], s['titulo'])}</h3><p>{ed(s['kr'], s['resumen'])}</p><ul>" +
                          "".join(f"<li>{ts(x['t'])}{ed(x['k'], x['texto'])}</li>" for x in s["puntos"]) + "</ul>")
         elif cl == "capturas":
-            h += [f'<figure><img src="img/{esc(k["img"])}" loading="lazy"><figcaption>{ts(k["t"])}{esc(k.get("titulo") or "Pantalla compartida")}</figcaption></figure>' for k in its]
+            h += [f'<figure><img src="{c["img"]}/{esc(k["img"])}" loading="lazy"><figcaption>{ts(k["t"])}{esc(k.get("titulo") or "Pantalla compartida")}</figcaption></figure>' for k in its]
         elif cl == "trans":
             h += [f"<p>{ts(s['s'])}" + (f"<b>{esc(s['spk'])}:</b> " if s.get("spk") else "") + f"{esc(s['text'])}</p>" for s in its]
     cab = c["doc"].capitalize()
     return (f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{esc(cab)} — {esc(D["titulo"])}</title>'
-            + (f'<base href="{esc(base)}">' if base else "") + f"<style>{CSS}</style></head><body><h1>{esc(cab)}: {esc(D['titulo'])}</h1>"
+            + (f'<base href="{esc(base)}">' if base else "") + f"<style>{CSS}{(':root{--acc:' + estilo['color'] + ';--acc-d:' + estilo['color'] + '}') if estilo and estilo.get('color') else ''}</style></head><body>{cabecera_estilo(estilo, base)}<h1>{esc(cab)}: {esc(D['titulo'])}</h1>"
             f'<p class="meta">Duración {fm(D["duracion"])} · {c["fecha"]:%Y-%m-%d}' + (" · editado" if c["editado"] else "") + "</p>" + "".join(h)
             + (f"<script>{JS_EDIT}</script>" if editar else "") + ("<script>onload=()=>print()</script>" if imprimir else "") + "</body></html>")
 
@@ -263,8 +312,8 @@ def obsidian_zip(c):
         if c["carpeta"]:
             z.writestr(f"Carpetas/{_nombre_arch(c['carpeta'])}.md", f"---\ntags: [carpeta]\n---\n# {c['carpeta']}\n\n- [[{nom}]]\n")
         for k in c["data"].get("capturas", []):
-            if (c["d"] / "img" / k["img"]).is_file():
-                z.write(c["d"] / "img" / k["img"], f"adjuntos/{k['img']}")
+            if (c["d"] / c["img"] / k["img"]).is_file():
+                z.write(c["d"] / c["img"] / k["img"], f"adjuntos/{k['img']}")
     return b.getvalue()
 
 
@@ -273,8 +322,8 @@ def notion_zip(c):
     with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(f"{nom}.md", md(c, img="img"))
         for k in c["data"].get("capturas", []):
-            if (c["d"] / "img" / k["img"]).is_file():
-                z.write(c["d"] / "img" / k["img"], f"img/{k['img']}")
+            if (c["d"] / c["img"] / k["img"]).is_file():
+                z.write(c["d"] / c["img"] / k["img"], f"img/{k['img']}")
     return b.getvalue()
 
 
@@ -618,7 +667,7 @@ def docx_bytes(c, est=None):
         elif cl == "capturas":
             for k in its:
                 im = io.BytesIO()  # los JPEG de ffmpeg (marcador COM primero) no los reconoce python-docx: se recodifican
-                Image.open(c["d"] / "img" / k["img"]).convert("RGB").save(im, "JPEG", quality=88)
+                Image.open(c["d"] / c["img"] / k["img"]).convert("RGB").save(im, "JPEG", quality=88)
                 doc.add_picture(im, width=Inches(5.5))
                 estilo(doc.add_paragraph(f"[{fm(k['t'])}] {k.get('titulo') or 'Pantalla compartida'}"), "Caption")
         elif cl == "trans":
@@ -638,11 +687,11 @@ def docx_bytes(c, est=None):
 
 
 # ---------- despacho ----------
-def exportar(mid, ver, fmt, estilo=None, hablantes=False, evento=False):
+def exportar(mid, ver, fmt, estilo=None, hablantes=False, evento=False, anon=False, dudas=False):
     """-> (bytes, nombre de fichero, tipo MIME). ValueError: formato desconocido; SinNavegador: pdf sin navegador."""
     if fmt not in FORMATOS:
         raise ValueError(f"Formato desconocido: {fmt}")
-    c = carga(mid, ver)
+    c = carga(mid, ver, anon, dudas)
     est = estilo_para(c, estilo) if fmt == "docx" else None
     if fmt in ("srt", "vtt") and not c["segs"]:
         raise ValueError("Sin transcripción")
