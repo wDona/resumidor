@@ -1,16 +1,19 @@
 const $ = id => document.getElementById(id);
-// 409 {msg, faltan}: falta instalar modelos -> se abre Modelos con el aviso
+// 409 {msg, faltan}: falta instalar modelos -> se abre Ajustes › Modelos con el aviso
 const det = (j, st) => { const d = j.detail; if (d && d.faltan) { abrirModelos(d.msg, d.faltan); return d.msg; } return d || st; };
 const api = (url, opt) => fetch(url, opt).then(async r => { if (!r.ok) throw new Error(det(await r.json().catch(() => ({})), r.statusText)); return r.json(); });
 const post = (url, body) => api(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
 const mmss = t => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, p = n => String(n).padStart(2, "0"); return (h ? h + ":" + p(m) : p(m)) + ":" + p(s); };
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") || k.startsWith("aria-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let corriendo = false;
-let PL = [], CP = {}, DEF = {}, IDI = {}, SERIE = {}, pe = null, pSel = "acta";  // plantillas (ver abajo)
+let PL = [], CP = {}, DEF = {}, IDI = {}, SERIE = {}, CE = {}, ESTILOS = [];  // plantillas (ver plantillas.js)
 addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Hay trabajos en la cola; si cierras, se cancelarán"; } });
 setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000); fetch("/api/latido", {method: "POST"});
 
 // ---- elegir vídeo y transcripción ----
+const INFO_TR = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor.";
 let ruta = "", rutaTr = "", hablaTr = false;
 const setRuta = p => { ruta = p; $("ruta").value = p; };
 const setTr = async p => {
@@ -23,7 +26,7 @@ const setTr = async p => {
   } catch (err) { $("ruta-tr").value = ""; $("quitar-tr").hidden = true; $("info-tr").textContent = err.message; }
   $("hablantes").disabled = hablaTr; if (hablaTr) $("hablantes").checked = false; $("hint-hab").hidden = !hablaTr;
 };
-$("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor."; };
+$("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = INFO_TR; };
 const elegir = (btn, tipo, set) => btn.onclick = async () => {
   btn.disabled = true;
   try { const r = (await post("/api/pick", {tipo})).path; if (r) set(r); } finally { btn.disabled = false; }
@@ -44,29 +47,37 @@ soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p),
 
 // ---- GPU: autodetectada; la elección manual se recuerda ----
 api("/api/gpu").then(g => {
-  const c = $("usar-gpu"), v = (() => { try { return localStorage.getItem("usar-gpu"); } catch { return null; } })();
+  const c = $("usar-gpu"), v = lsGet("usar-gpu", null);
   const gb = g.vram_mb ? `, ${Math.round(g.vram_mb / 1024)} GB de VRAM` : g.igpu ? ", gráfica integrada (usa la RAM del sistema)" : "";
-  c.disabled = !g.ok; c.checked = g.ok && (v === null ? g.default : v === "1");
-  c.parentElement.title = "";
+  c.disabled = !g.ok; c.checked = g.ok && (v === null ? g.default : v === "1" || v === true);
   $("info-gpu").textContent = !g.ok ? "GPU no encontrada o no válida" : (g.default ? "Se te recomienda usar la GPU" : "No se te recomienda usar la GPU") + ` (${g.name}${gb})`;
   const chat = () => { const [gem, why] = g[c.checked && g.ok ? "chat_gpu" : "chat_cpu"]; return `Chat: ${gem ? "gemma-4-E4B" : g.llm} (${why})`; };
   const ram = () => $("info-ram").textContent = `RAM: ${g.ram_gb || "?"} GB` + (g.ok && g.vram_mb ? ` · VRAM: ${Math.round(g.vram_mb / 1024)} GB (${g.name})` : g.ok && g.igpu ? ` · ${g.name}: gráfica integrada (usa la RAM del sistema)` : "") + " · " + chat() + (g.ram_gb && g.ram_gb < 8 ? ". Poca RAM: el proceso puede ir muy lento o fallar" : "");
   ram();
-  c.onchange = () => { ram(); try { localStorage.setItem("usar-gpu", c.checked ? "1" : "0"); } catch {} };
+  c.onchange = () => { ram(); lsSet("usar-gpu", c.checked ? "1" : "0"); };
   niveles(g.niveles);
 }).catch(() => {});
 let NIV = [];
 const GB = b => (b / 1e9).toFixed(1).replace(".", ",") + " GB";
 const nivelInfo = q => NIV.find(n => n.id === q);
-// selector de calidad: modelo entre paréntesis; "no cabe" deshabilitado; no instalado -> botón Descargar
+const ESTADO = {ok: "cómodo", aviso: "lento", no: "no cabe"};
+// selector de calidad: el <select> oculto guarda el valor; las tarjetas lo muestran (modelo y si cabe); «no cabe» deshabilitado
 function niveles(l) {
   NIV = l; const c = $("calidad"), v = c.value;
-  c.innerHTML = ""; for (const n of l) c.add(new Option(`${n.nombre} (${n.modelo})` + (n.estado === "no" ? " — no cabe" : !n.instalado ? ` — no instalado, ${GB(n.bytes)}` : ""), n.id));
+  c.innerHTML = ""; for (const n of l) c.add(new Option(`${n.nombre} (${n.modelo})`, n.id));
   l.forEach((n, i) => c.options[i].disabled = n.estado === "no");
   c.value = l.some(n => n.id === v && n.estado !== "no") ? v : "rápida"; c.onchange();
 }
+function pintarCal() {
+  $("cal-niv").replaceChildren(...NIV.map(n => {
+    const b = el("button", {type: "button", role: "radio", className: "chip", "aria-checked": n.id === $("calidad").value, "aria-disabled": n.estado === "no",
+      onclick: () => { if (n.estado === "no") return; $("calidad").value = n.id; $("calidad").onchange(); }},
+      el("b", {textContent: n.nombre}), el("small", {textContent: n.modelo + " · " + (!n.instalado ? "sin instalar" : ESTADO[n.estado] || "")}));
+    return b;
+  }));
+}
 $("calidad").onchange = () => {
-  const n = nivelInfo($("calidad").value); if (!n) return;
+  const n = nivelInfo($("calidad").value); pintarCal(); if (!n) return;
   const t = [n.tiempo > 1 && `Tarda aprox. ${n.tiempo}× lo que Rápida`, n.estado === "no" && `No cabe en este equipo (necesita ~${Math.ceil(n.necesita)} GB de memoria)`,
     n.estado === "aviso" && "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", n.pers && "Modelo no probado con la app: la calidad del documento puede variar"].filter(Boolean);
   $("aviso-alta").textContent = t.join(". "); $("aviso-alta").hidden = !t.length;
@@ -74,32 +85,51 @@ $("calidad").onchange = () => {
   $("info-alta").hidden = n.id === "rápida";
 };
 $("bajar-nivel").onclick = async () => { await post("/api/modelos", {ids: [nivelInfo($("calidad").value).m]}); abrirModelos(); };
+const NIVELES_D = ["breve", "normal", "detallado"];
+function pintarNivel() {
+  $("seg-nivel").replaceChildren(...NIVELES_D.map(n => el("button", {type: "button", role: "radio", textContent: cap(n), "aria-checked": $("nivel").value === n, "aria-selected": $("nivel").value === n, onclick: () => { $("nivel").value = n; pintarNivel(); }})));
+}
 
-// ---- vistas: home (carpetas + reuniones) | nuevo | cola | res (reunión) | preg (carpeta) ----
+// ---- vistas ----
 let vistaAct = "home";
-const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg", "plant", "ajustes", "uso"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
-  if (location.hash !== ({plant: "#/plantillas", ajustes: "#/ajustes"})[v] && location.hash !== "#/modelos") history.replaceState(null, "", location.pathname); };
+const VISTAS = ["home", "nuevo", "cola", "res", "preg", "ajustes", "uso"];
+const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
+  if (v !== "ajustes" && location.hash) history.replaceState(null, "", location.pathname); document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
 const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
-$("inicio").onclick = e => { e.preventDefault(); ir("home"); };
-$("nuevo-volver").onclick = $("cola-volver").onclick = $("preg-volver").onclick = () => ir("home");
+const irInicio = () => { fsel = undefined; ir("home"); };
+$("inicio").onclick = e => { e.preventDefault(); irInicio(); };
+$("nuevo-volver").onclick = $("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };
+$("preg-volver").onclick = e => { e.preventDefault(); mpCerrar(); ir("home"); };
 $("b-cola").onclick = () => { vista("cola"); sondear(); };
 $("nueva").onclick = () => formNuevo();
+$("b-ajustes").onclick = () => abrirAjustes();
 
-// ---- nueva acta (o otra versión de una reunión: reuse) ----
+// ---- nuevo documento (o otra versión de uno existente: reuse) ----
 let reuse = null;
-const VACIO_SUB = $("form-sub").textContent;
+const VACIO_SUB = $("form-sub").textContent, NUEVA_C = "\u0001nueva";
+function carpetaSel(v) {
+  const s = $("n-carpeta"); s.replaceChildren(new Option(sinC(), ""), ...carpetas.map(c => new Option(c, c)), new Option("+ " + cap(nm("carpeta")) + " nueva…", NUEVA_C));
+  s.value = v && carpetas.includes(v) ? v : ""; $("n-carpeta-nueva").hidden = true; $("n-carpeta-nueva").value = "";
+}
+$("n-carpeta-l").textContent = "Guardar en";
+$("n-carpeta").onchange = () => {
+  const n = $("n-carpeta").value === NUEVA_C; $("n-carpeta-nueva").hidden = !n; if (n) $("n-carpeta-nueva").focus();
+  const p = CP[$("n-carpeta").value]; if (p && !reuse && PL.some(t => t.id === p)) { $("plantilla").value = p; $("plantilla").onchange(); }
+};
 function formNuevo(m, a) {
   reuse = m ? {id: m.id, asr: a.asr} : null;
   $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nuevo " + nm("documento");
   $("form-sub").textContent = m ? "Rehace el documento con otra plantilla, nivel o calidad aprovechando la transcripción y las capturas ya hechas. Con el mismo nivel y calidad que una versión existente, la sustituye." : VACIO_SUB;
-  $("f-fuente").hidden = $("f-hab").hidden = !!m; $("form-err").textContent = "";
+  $("f-fuente-c").hidden = $("f-hab").hidden = !!m; $("n-carpeta").closest(".field").hidden = !!m; $("form-err").textContent = "";
+  $("n-carpeta-l").textContent = "Guardar en"; $("plantilla-l").textContent = "Tipo";
+  carpetaSel(m ? m.carpeta || "" : typeof fsel === "string" ? fsel : "");
   if (m) {  // propone la primera combinación que aún no existe
     const hay = n => cur.actas.some(x => x.name === n);
     const [n, c] = ["normal", "breve", "detallado"].flatMap(n => NIV.map(q => q.id).map(c => [n, c])).find(([n, c]) => !hay(`acta_${n}_${a.asr}${c === "rápida" ? "" : "_" + c}`)) || [a.nivel, a.calidad];
     $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
   }
-  plantForm(CP[m ? m.carpeta || "" : fsel || ""] || "acta");
+  pintarNivel(); plantForm(CP[m ? m.carpeta || "" : typeof fsel === "string" ? fsel : ""] || "acta");
   vista("nuevo"); formSimple(m);
 }
 $("enlace").oninput = () => { const v = !!$("enlace").value.trim(); $("l-solo-audio").hidden = !v; if (!v) $("solo-audio").checked = false; };  // «solo audio» solo con enlace
@@ -108,108 +138,174 @@ const params = () => ({video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $(
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
-  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
+  try {
+    let dest = reuse ? "" : $("n-carpeta").value;
+    if (dest === NUEVA_C) { dest = $("n-carpeta-nueva").value.trim(); if (!dest) { $("form-err").textContent = "Escribe el nombre de la " + nm("carpeta").toLowerCase() + " nueva"; return; } await post("/api/carpeta", {nuevo: dest}); }
+    const r = await post("/api/generar", params());
+    if (dest) lsSet("cdest", {...lsGet("cdest", {}), [r.id]: dest});  // la reunión aún no existe: se mueve a su carpeta al terminar (ver sondear)
+    if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); }
+    $("form-err").textContent = ""; vista("cola"); sondear();
+  } catch (err) { $("form-err").textContent = err.message; }
 };
 
 // ---- cola de trabajos ----
-const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar acta", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado"};
+const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado"};
 let cola = {n: 0, items: []}, vistos = new Set(), colaKey = "";
 const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
 const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
+const titCola = e => (e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind]) + " · " + nombreDe(e);
 async function sondear() {
   const c = await api("/api/cola").catch(() => null); if (!c) return;
   const act = new Set(c.items.filter(e => ACT.includes(e.state)).map(e => e.id));
   const fin = c.items.filter(e => vistos.has(e.id) && !act.has(e.id));
-  vistos = act; cola = c; corriendo = c.n > 0; $("n-cola").textContent = c.n;
+  vistos = act; cola = c; corriendo = c.n > 0;
   const k = c.items.map(e => e.id + e.state).join();
-  if (fin.length) {  // algo terminó: refrescar lista y, si es la reunión abierta, su página
+  const cd = lsGet("cdest", {}), mover = c.items.filter(e => e.state === "hecho" && e.result?.id && cd[e.id] != null);
+  for (const e of mover) { await post("/api/meta", {id: e.result.id, carpeta: cd[e.id]}).catch(() => {}); delete cd[e.id]; lsSet("cdest", cd); }
+  if (fin.length || mover.length) {  // algo terminó: refrescar lista y, si es la reunión abierta, su página
     await cargarLista();
     if (vistaAct === "res" && fin.some(e => e.state === "hecho" && e.mid === cur.id)) await abrir(cur.id, ver, true);
   } else if (k !== colaKey && vistaAct === "home") pintarHome();
-  pintarCola(k);
+  pintarCola(k); pintarPill();
+}
+function pintarPill() {
+  const r = cola.items.find(e => e.state === "marcha"), n = cola.n;
+  $("cola-mini").hidden = !r; if (r) $("cola-mini").firstChild.style.width = Math.round(r.frac * 100) + "%";
+  $("cola-txt").textContent = n ? " · " + (r ? "1 de " + n : n + " en espera") + (r && r.eta != null ? " · " + minutos(r.eta) : "") : "";
+  $("b-cola").setAttribute("aria-label", "Cola de trabajos" + (n ? ", " + n : ""));
+  if (vistaAct === "home") { const c = document.querySelector("#side [data-cola]"); if (c) c.textContent = n || ""; }
 }
 function pintarCola(k) {
   if (k !== colaKey) {
     colaKey = k; const it = cola.items, pend = it.filter(e => e.state === "pendiente");
-    const grp = t => el("li", {className: "grp", textContent: t});
-    const fila = e => {
-      const b = (txt, url, extra, lbl) => { const x = el("button", {className: "sec", textContent: txt, ariaLabel: lbl || txt}); x.onclick = fallo(async () => { x.disabled = true; await post(url, {id: e.id, ...extra}); await sondear(); }); return x; };
-      const bs = e.state === "marcha" ? [b("Cancelar", "/api/cola/cancelar")]
-        : e.state === "pendiente" ? [...(simple() ? [] : [b("↑", "/api/cola/mover", {d: -1}, "Subir"), b("↓", "/api/cola/mover", {d: 1}, "Bajar")]), b("Quitar", "/api/cola/cancelar")]
-        : [...(e.state === "hecho" ? [] : [b("Reintentar", "/api/cola/reintentar")]), b("Quitar", "/api/cola/quitar")];
-      if (e.state === "hecho" && e.result?.id) { const o = el("button", {className: "sec", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); bs.unshift(o); }
-      const d = e.state === "pendiente" ? "En espera (" + (pend.indexOf(e) + 1) + " de " + pend.length + ")" : e.state === "hecho" ? "Terminado" : e.state === "marcha" ? "" : e.state === "cancelado" ? "Cancelado" : (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "");
-      return el("li", {}, el("div", {className: "n"}, el("b", {textContent: (e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind]) + " · " + nombreDe(e)}), el("div", {className: e.state === "error" ? "d err" : "d", textContent: d, id: e.state === "marcha" ? "q-msg" : ""})),
-        el("span", {}, ...bs.flatMap(x => [x, " "])), ...(e.state === "marcha" ? [el("div", {className: "bar full"}, el("div", {id: "q-bar"})), el("p", {className: "muted full", id: "q-eta"})] : []));
-    };
-    const r = it.filter(e => e.state === "marcha"), h = it.filter(e => !ACT.includes(e.state)).reverse();
-    $("q-lista").replaceChildren(...(r.length ? [grp("En marcha"), ...r.map(fila)] : []), ...(pend.length ? [grp("En espera"), ...pend.map(fila)] : []), ...(h.length ? [grp("Recientes"), ...h.map(fila)] : []));
+    const bt = (e, txt, url, extra, lbl) => { const x = el("button", {className: "sec sm", textContent: txt, ariaLabel: lbl || txt}); x.onclick = fallo(async () => { x.disabled = true; await post(url, {id: e.id, ...extra}); await sondear(); }); return x; };
+    const ab = e => { const o = el("button", {className: "sec sm", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); return o; };
+    const card = (t, ...kids) => el("section", {className: "card"}, el("h2", {textContent: t}), ...kids);
+    const run = it.filter(e => e.state === "marcha").map(e => el("section", {className: "card curso"},
+      el("div", {className: "q-it"}, el("div", {className: "n"}, el("div", {className: "k", textContent: "En curso"}), el("h3", {textContent: titCola(e)}), el("div", {className: "d", id: "q-msg"})),
+        el("div", {className: "acc"}, bt(e, "Cancelar", "/api/cola/cancelar"))),
+      el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "q-bar"})), el("p", {className: "muted", id: "q-eta", style: "margin:8px 0 0"}),
+      // Gancho: etapas del procesado (Audio, Transcripción, Capturas, Resumen…) cuando el proceso las exponga
+      el("div", {id: "q-etapas", hidden: true})));
+    const esp = pend.map((e, i) => el("div", {className: "q-it"}, el("span", {className: "num", textContent: i + 1}),
+      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d", textContent: "En espera (" + (i + 1) + " de " + pend.length + ")"})),
+      el("div", {className: "acc"}, ...(simple() ? [] : [bt(e, "↑", "/api/cola/mover", {d: -1}, "Subir"), bt(e, "↓", "/api/cola/mover", {d: 1}, "Bajar")]), bt(e, "Quitar", "/api/cola/cancelar"))));
+    const mal = it.filter(e => e.state === "error" || e.state === "interrumpido").map(e => el("div", {className: "q-it"},
+      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d err", textContent: (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "")})),
+      el("div", {className: "acc"}, bt(e, "Reintentar", "/api/cola/reintentar"), bt(e, "Quitar", "/api/cola/quitar"))));
+    const hec = it.filter(e => e.state === "hecho" || e.state === "cancelado").reverse().map(e => el("div", {className: "q-it"},
+      el("div", {className: "n"}, el("b", {textContent: titCola(e)}), el("div", {className: "d", textContent: e.state === "hecho" ? "Terminado" : "Cancelado"})),
+      el("div", {className: "acc"}, ...(e.state === "hecho" && e.result?.id ? [ab(e)] : []), bt(e, "Quitar", "/api/cola/quitar"))));
+    const lim = el("button", {className: "sec sm", textContent: "Limpiar", onclick: fallo(async () => { for (const e of it.filter(e => !ACT.includes(e.state) && e.state !== "error" && e.state !== "interrumpido")) await post("/api/cola/quitar", {id: e.id}); await sondear(); })});
+    $("q-lista").replaceChildren(...run, ...(pend.length ? [card("En espera · " + pend.length, ...esp)] : []),
+      ...(mal.length ? [Object.assign(card("Necesita tu ayuda · " + mal.length, ...mal), {className: "card ayuda"})] : []),
+      ...(hec.length ? [card("Terminados · " + hec.length, ...hec, el("div", {className: "row", style: "margin-top:10px"}, lim))] : []),
+      ...(!it.length ? [el("div", {className: "card vacio", textContent: "No hay trabajos. Crea un documento con «" + nm("nuevo_boton") + "»."})] : []));
+    $("q-sub").textContent = pend.length || it.some(e => e.state === "marcha") ? (it.some(e => e.state === "marcha") ? "1 en curso" : "") + (pend.length ? (it.some(e => e.state === "marcha") ? " · " : "") + pend.length + " en espera" : "") + ". Puedes cerrar esta ventana de trabajo y seguir usando la aplicación." : "Se procesa un trabajo a la vez; el resto espera su turno.";
   }
   const r = cola.items.find(e => e.state === "marcha");
   if (r && $("q-bar")) {
     $("q-msg").textContent = r.msg; $("q-bar").style.width = Math.round(r.frac * 100) + "%";
     $("q-eta").textContent = Math.round(r.frac * 100) + " %" + (r.eta != null ? " · quedan " + minutos(r.eta) : "");
   }
+  const ep = $("en-proc-bar"); if (r && ep) { ep.style.width = Math.round(r.frac * 100) + "%"; $("en-proc-eta").textContent = r.msg + (r.eta != null ? " · quedan " + minutos(r.eta) : ""); }
 }
 
 // ---- reuniones y carpetas ----
-let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel = null;  // fsel: null = todas, "" = sin carpeta, otro = esa carpeta
+// fsel: undefined = inicio, null = todos los documentos, "" = sin carpeta, otro = esa carpeta
+let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel, desde;
 const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
 const refrescarTodo = async () => { await cargarLista(); if (vistaAct === "res") await abrir(cur.id, ver, true); };
 // formulario en la propia página (sin prompt/confirm): campo opcional + botón + Cancelar; Esc cancela
 function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
-  document.querySelector("form.inline")?.remove();
-  const f = el("form", {className: "inline row"}), c = el("button", {type: "button", className: "sec", textContent: "Cancelar"});
-  const i = valor != null ? el("input", {value: valor, ariaLabel: texto}) : null;
+  document.querySelector("form.inline-f")?.remove();
+  const f = el("form", {className: "inline-f row wrap"}), c = el("button", {type: "button", className: "sec", textContent: "Cancelar"});
+  const i = valor != null ? el("input", {value: valor, ariaLabel: texto, style: "flex:1 1 220px"}) : null;
   if (i && lista?.length) { i.setAttribute("list", "dl-carpetas"); f.append(el("datalist", {id: "dl-carpetas"}, ...lista.map(v => el("option", {value: v})))); }
-  f.append(el("span", {textContent: texto}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
+  f.append(el("span", {textContent: texto, style: "flex:1 1 100%"}), ...(i ? [i] : []), el("button", {className: "pri", textContent: boton}), c);
   c.onclick = () => f.remove();
-  f.onkeydown = e => { if (e.key === "Escape") f.remove(); };  // sin devolver false: un on* que devuelve false cancela la tecla (no se podía escribir)
+  f.onkeydown = e => { if (e.key === "Escape") f.remove(); };
   f.onsubmit = e => { e.preventDefault(); fallo(async () => { await hecho(i ? i.value.trim() : ""); f.remove(); })(); };
   donde.append(f); (i || c).focus(); i?.select();
 }
 const renombrar = (m, donde) => enLinea(donde, {valor: m.nombre || m.label, texto: "Nombre (vacío = el original)"},
   async n => { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); });
-const mover = (m, donde) => enLinea(donde, {valor: m.carpeta || "", lista: carpetas, texto: "Carpeta (nueva o existente; vacío = sin carpeta)", boton: "Mover"},
+const mover = (m, donde) => enLinea(donde, {valor: m.carpeta || "", lista: carpetas, texto: cap(nm("carpeta").toLowerCase()) + " (nueva o existente; vacío = " + sinC().toLowerCase() + ")", boton: "Mover"},
   async c => { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); });
-const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se quita la carpeta «" + nombre + "»: las reuniones pasan a «Sin carpeta» y no se borran.", boton: "Quitar"}
-  : {valor: nombre, texto: "Nuevo nombre de la carpeta"}, async nuevo => {
+const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se quita «" + nombre + "»: los " + pl(nm("documento")) + " pasan a «" + sinC() + "» y no se borran.", boton: "Quitar"}
+  : {valor: nombre, texto: "Nuevo nombre"}, async nuevo => {
     if (!borrar && (!nuevo || nuevo === nombre)) return;
     await post("/api/carpeta", {nombre, nuevo}); if (fsel === nombre) fsel = borrar ? null : nuevo; await refrescarTodo();
   });
 const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
-  [todas, carpetas, CP] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"), PL.length ? null : cargarPlant()]);
-  if (fsel && !carpetas.includes(fsel)) fsel = null;
+  [todas, carpetas, CP, CE, ESTILOS] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"),
+    api("/api/carpetas/estilos").catch(() => ({})), api("/api/estilos").catch(() => []), PL.length ? null : cargarPlant()]);
+  if (fsel && !carpetas.includes(fsel)) fsel = undefined;
   pintarHome();
 }
 const plural = n => n + " " + (n === 1 ? nm("documento") : pl(nm("documento")));
+const fechaC = t => new Date(t * 1000).toLocaleDateString("es", {day: "numeric", month: "short"});
+function pintarSide() {
+  const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
+  const item = (txt, act, f, n, extra = {}) => el("button", {className: "nav" + (extra.m ? " m" : ""), "aria-current": act ? "page" : "false", onclick: f}, el("span", {textContent: txt}), el("span", {className: "c" + (extra.a ? " a" : ""), textContent: n ?? ""}));
+  const cl = item("Cola", false, () => { vista("cola"); sondear(); }, cola.n || "", {a: 1}); cl.lastChild.setAttribute("data-cola", "");
+  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), cl,
+    el("div", {className: "t", textContent: cap(pl(nm("carpeta")))}),
+    ...carpetas.map(c => item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c))), ...(sin || fsel === "" ? [item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1})] : []),
+    item("+ " + cap(nm("carpeta")) + " nuevo", false, nuevaCarpeta, "", {m: 1}), el("hr"),
+    el("a", {className: "nav m", href: "#/ajustes/plantillas"}, el("span", {textContent: "Plantillas"})), el("a", {className: "nav m", href: "#/ajustes/general"}, el("span", {textContent: "Ajustes"})));
+}
+const nuevaCarpeta = () => enLinea($("ed-home"), {valor: "", texto: "Nombre de la " + nm("carpeta").toLowerCase() + " nueva", boton: "Crear"}, async n => { if (!n) return; await post("/api/carpeta", {nuevo: n}); fsel = n; await cargarLista(); });
 function pintarHome() {
-  const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length;
-  const nav = (txt, v) => el("li", {}, el("button", {className: "nav", textContent: txt, "aria-current": fsel === v, onclick: () => { fsel = v; pintarHome(); }}, el("span", {className: "c", textContent: cnt(v)})));
-  $("carpetas").replaceChildren(nav("Todas", null), ...carpetas.map(c => nav("📁 " + c, c)), nav(sinC(), ""));
-  if (homeSimple()) return;
-  const ms = todas.filter(m => fsel === null || (m.carpeta || "") === fsel);
-  $("ftit").textContent = (fsel === null ? "Todas" : fsel === "" ? sinC() : "📁 " + fsel) + " · " + plural(ms.length);
-  for (const id of ["f-preguntar", "f-ren", "f-quitar", "f-plant", "f-plant-l"]) $(id).hidden = !fsel;
-  if (fsel) { $("f-plant").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("f-plant").value = CP[fsel] || "acta"; }
-  const act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "⏳ generando" : "⏳ en cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
-  const nuevas = fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid).map(e => el("li", {className: "fila-v"}, el("span", {className: "n", textContent: e.video}), el("span", {className: "st", textContent: est(e)}))) : [];
+  pintarSide();
+  const ini = fsel === undefined, act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "Generando" : "En cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
+  $("h-inicio").hidden = !ini; $("f-cab").hidden = ini; $("proys-w").hidden = !ini;
+  if (ini) {
+    $("h-tit").textContent = "Inicio"; $("h-sub").textContent = todas.length ? "" : "Todavía no hay nada. Pulsa «" + nm("nuevo_boton") + "» para crear tu primer " + nm("documento") + " o «Importar» para abrir uno exportado.";
+    $("proys-t").textContent = cap(pl(nm("carpeta")));
+    const ult = c => todas.filter(m => (m.carpeta || "") === c).reduce((a, m) => Math.max(a, m.mtime), 0);
+    const card = c => { const n = todas.filter(m => (m.carpeta || "") === c).length;
+      return el("button", {className: "proy", onclick: () => { fsel = c; pintarHome(); }}, el("b", {textContent: c || sinC()}),
+        el("small", {textContent: plural(n) + (n ? " · último " + fechaC(ult(c)) : "") + (CP[c] && PL.length ? " · " + plantDe(CP[c]).nombre : "")})); };
+    const nueva = el("button", {className: "proy nueva", textContent: "+ " + cap(nm("carpeta")) + " nuevo", onclick: nuevaCarpeta});
+    $("proys").replaceChildren(...carpetas.map(card), ...(todas.some(m => !m.carpeta) && carpetas.length ? [card("")] : []), nueva);
+    const r = act.find(e => e.state === "marcha");
+    $("en-proc").replaceChildren(...(act.length ? [el("div", {className: "en-proc"},
+      el("div", {className: "r"}, el("strong", {textContent: r ? "Generando · " + nombreDe(r) : "En cola"}), el("span", {className: "muted", textContent: act.length > 1 ? (act.length - (r ? 1 : 0)) + " más en espera" : ""})),
+      ...(r ? [el("div", {className: "bar", role: "progressbar", ariaLabel: "Progreso"}, el("div", {id: "en-proc-bar"}))] : []),
+      el("div", {className: "d muted"}, el("span", {id: "en-proc-eta"}), r ? " · " : "", el("a", {href: "#", textContent: "Ver cola", onclick: e => { e.preventDefault(); vista("cola"); sondear(); }})))] : []));
+    pintarCola(colaKey);
+  } else {
+    const c = fsel; $("ftit").textContent = c === null ? cap(pl(nm("documento"))) : c === "" ? sinC() : c;
+    $("fsub").textContent = plural(todas.filter(m => c === null || (m.carpeta || "") === c).length);
+    for (const id of ["f-preguntar", "f-ren", "f-quitar", "f-plant"]) $(id).hidden = !c;
+    $("f-estilo").hidden = !c || !ESTILOS.length;
+    if (c && ESTILOS.length) { $("f-estilo").replaceChildren(new Option("Estilo por defecto: ninguno", ""), ...ESTILOS.map(e => new Option("Estilo: " + e.nombre, e.id))); $("f-estilo").value = CE[c] || ""; }
+    $("f-plant-l").hidden = !c;
+    if (c) { $("f-plant").replaceChildren(...PL.map(t => new Option("Tipo por defecto: " + t.nombre, t.id))); $("f-plant").value = CP[c] || "acta"; }
+  }
+  const ms = todas.filter(m => ini || fsel === null || (m.carpeta || "") === fsel).slice(0, ini ? 8 : 1e9);
+  $("docs-t").textContent = ini ? "Documentos recientes" : fsel === null ? "Todos" : "Documentos";
+  const nuevas = ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
   const fila = m => {
-    const e = act.find(e => e.mid === m.id), f = new Date(m.mtime * 1000);
-    const b = el("button", {className: "fila", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n", textContent: "▶ " + m.label + (fsel === null && m.carpeta ? "  📁 " + m.carpeta : "")}),
-      el("span", {className: "d", textContent: f.toLocaleDateString("es", {day: "2-digit", month: "2-digit"})}), el("span", {className: "d", textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}),
-      el("span", {className: "d", textContent: m.actas + " " + (m.actas === 1 ? nm("documento") : pl(nm("documento")))}), el("span", {className: "st", textContent: e ? est(e) : ""}));
-    return el("li", {}, b);
+    const e = act.find(e => e.mid === m.id), f = fechaC(m.mtime);
+    return el("tr", {className: "f"}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: f}),
+      el("td", {textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}), el("td", {textContent: m.actas > 1 ? m.actas + " versiones" : ""}),
+      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : [])));
   };
-  $("lista").replaceChildren(...nuevas, ...ms.map(fila));
+  $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td"), el("td"), el("td"), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
+  $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
+  $("vacio").textContent = "Aún no hay " + pl(nm("documento")) + (fsel ? " en «" + fsel + "»" : "") + ".";
+  document.querySelectorAll("#tabla th")[1].hidden = false;
 }
 $("f-ren").onclick = () => carpetaOp(fsel, false, $("ed-carpeta"));
 $("f-quitar").onclick = () => carpetaOp(fsel, true, $("ed-carpeta"));
-$("nueva-carpeta").onclick = () => enLinea($("ed-side"), {valor: "", texto: "Nombre de la carpeta nueva", boton: "Crear"}, async n => { if (!n) return; await post("/api/carpeta", {nuevo: n}); fsel = n; await cargarLista(); });
-$("f-preguntar").onclick = () => { $("preg-tit").textContent = "Preguntar · 📁 " + fsel; $("p-fcarpeta").append($("qpanel")); setQ("c:" + fsel, null); vista("preg"); };
+$("f-preguntar").onclick = () => { $("preg-tit").textContent = "Preguntar · " + fsel; $("p-fcarpeta").append($("qpanel")); setQ("c:" + fsel); vista("preg"); };
+$("f-estilo").onchange = fallo(async () => { await post("/api/carpeta", {nombre: fsel, estilo: $("f-estilo").value}); CE = await api("/api/carpetas/estilos"); aviso("Estilo guardado"); });
+$("f-plant").onchange = fallo(async () => { await post("/api/carpeta", {nombre: fsel, plantilla: $("f-plant").value === "acta" ? "" : $("f-plant").value}); CP = await api("/api/carpetas/plantillas"); aviso("Tipo por defecto guardado"); });
 
-// ---- página de una reunión ----
+// ---- página de un documento ----
 const cap = s => s[0].toUpperCase() + s.slice(1);
 const defecto = a => [a.plantilla, a.idioma && "en " + (IDI[a.idioma] || a.idioma), cap(a.nivel), (nivelInfo(a.calidad)?.nombre || "Rápida") + (nivelInfo(a.calidad)?.pers ? " · " + nivelInfo(a.calidad).modelo : ""), a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => !(x in {alta:1, alta9:1, muyalta:1, maxima:1} || /^p[0-9a-f]{6}$/.test(x) || /^[pi]-/.test(x))).join(" ")].filter(Boolean).join(" · ");
 const etiqueta = a => cur.versiones[a.name] || defecto(a);
@@ -218,36 +314,38 @@ async function abrir(id, acta, quedar) {
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
   if (simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
   ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
-  $("cab-carpeta").textContent = cur.carpeta || "Todas"; $("cab-titulo").textContent = cur.m.label;
-  const au = cur.audio; $("t-video").hidden = !cur.video; $("t-video").textContent = au ? "Audio" : "Vídeo"; $("vvideo").style.height = au ? "54px" : "";
+  if (!quedar) desde = fsel;
+  $("cab-carpeta").textContent = desde === undefined ? "Inicio" : desde === null ? cap(pl(nm("documento"))) : desde || cur.carpeta || sinC(); $("cab-titulo").textContent = cur.m.label;
+  const au = cur.audio; $("t-video").hidden = !cur.video; $("t-video").textContent = au ? "Audio" : "Vídeo";
   $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
-  if (cur.video) $("vvideo").src = cur.videourl; else $("vvideo").removeAttribute("src");
-  vista("res"); pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
+  if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
+  vista("res"); document.title = cur.m.label + " · Actas"; pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
 }
 const tab = p => {
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
-  if (p !== "p-video") $("vvideo").pause();
-  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr, cur.videourl); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Acta importada sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; }
+  ubicar();
+  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
 function pintarVers() {
-  const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec", textContent: "✎", ariaLabel: "Renombrar esta versión", title: "Renombrar esta versión"}), otra = el("button", {className: "sec", textContent: "+ generar otra"});
+  const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec", textContent: "✎", ariaLabel: "Renombrar esta versión", title: "Renombrar esta versión", style: "min-height:40px"}), otra = el("button", {className: "sec", textContent: "+ Otra versión", style: "min-height:40px;font-size:14px"});
   ren.onclick = () => enLinea($("ed-res"), {valor: etiqueta(a), texto: "Nombre de la versión (vacío = el original)"}, async n => {
     await post("/api/meta", {id: cur.id, version: ver, vnombre: n === defecto(a) ? "" : n}); cur.versiones = (await api("/api/meeting/" + cur.id)).versiones; pintarVers();
   });
   otra.onclick = () => formNuevo(cur.m, a);
-  $("vers").replaceChildren(...(simple() ? [a] : cur.actas).map(x => el("button", {role: "tab", className: "vt", textContent: etiqueta(x), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})), ...(simple() ? [] : [ren]), otra);
+  $("vers").replaceChildren(...(simple() ? [] : [el("div", {className: "seg", role: "tablist"}, ...cur.actas.map(x => el("button", {role: "tab", textContent: etiqueta(x) + (x.editado ? " · editado" : ""), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})))]), ...(simple() ? [] : [ren]), otra);
 }
 function cambiarActa() {
-  const a = cur.actas.find(a => a.name === ver);
-  $("t-acta").textContent = cap(a.doc || "acta"); $("dl-zip").textContent = "Descargar " + (a.doc || "acta") + " (.zip)"; $("fondo").hidden = !!a.plantilla;
+  const a = cur.actas.find(a => a.name === ver), nd = a.doc || "acta"; editando = false; pintarAcciones(a);
+  $("t-acta").textContent = cap(nd); $("dl-zip").textContent = "Descargar (.zip)"; $("fondo").hidden = !!a.plantilla;
+  $("cab-meta").replaceChildren(...[cur.m.dur ? Math.round(cur.m.dur / 60) + " min" : "", cap(nd), a.idioma && (IDI[a.idioma] || a.idioma), cap(a.nivel), nivelInfo(a.calidad)?.nombre, a.editado && "editado", cur.carpeta].filter(Boolean).map(t => el("span", {textContent: t})));
   $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
     (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : (cur.audio ? " · solo audio: sin capturas" : " · sin vídeo: sin capturas ni reproductor")) + (imp.aviso ? ". " + imp.aviso : "") : "";
-  $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("cond").hidden = !cur.video;
+  $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("imp-info").hidden = !imp; $("cond").hidden = !cur.video;
   const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }
 }
 $("fondo").onclick = async () => {
@@ -262,33 +360,26 @@ $("condensar").onclick = async () => {
 $("m-ren").onclick = () => renombrar(cur.m, $("ed-res"));
 $("m-mover").onclick = () => mover(cur.m, $("ed-res"));
 $("pct").oninput = () => $("pct-o").textContent = $("pct").value;
-$("volver").onclick = () => {
-  $("acta-frame").src = "about:blank"; ["vvideo", "qav", "cvideo"].forEach(i => $(i).pause());
-  fsel = fsel === null ? null : cur.carpeta || ""; ir("home");
+$("volver").onclick = e => {
+  e.preventDefault(); $("acta-frame").src = "about:blank"; mpCerrar(); $("cvideo").pause();
+  fsel = typeof desde === "string" && desde && !carpetas.includes(desde) ? undefined : desde; ir("home");
 };
 function pintarConds() {
   $("cvideo").hidden = true; $("cvideo").removeAttribute("src");
   $("conds").replaceChildren(...cur.condensados.map(c => {
-    const vb = el("button", {className: "sec", textContent: "Ver"}); vb.onclick = () => { $("cvideo").src = c.url; $("cvideo").hidden = false; $("cvideo").play(); };
-    return el("li", {}, el("span", {className: "n", textContent: c.name}), el("span", {}, vb, " ", el("a", {className: "btn sec", href: c.url, download: c.name, textContent: "Descargar"})));
+    const vb = el("button", {className: "sec sm", textContent: "Ver"}); vb.onclick = () => { $("cvideo").src = c.url; $("cvideo").hidden = false; $("cvideo").play(); };
+    return el("li", {}, el("span", {className: "n", textContent: c.name}), vb, el("a", {className: "btn sec sm", href: c.url, download: c.name, textContent: "Descargar"}));
   }));
 }
 
-// ---- preguntar (panel único #qpanel: se monta en la pestaña de la reunión o en la vista de carpeta) ----
+// ---- preguntar (panel único #qpanel: se monta en la pestaña del documento o en la vista de carpeta) ----
 let qsel = "";
-function setQ(sel, video) {  // sel: "id|asr" o "c:carpeta"; video: url (null = sin vídeo hasta que una marca lo pida)
+function setQ(sel) {  // sel: "id|asr" o "c:carpeta"
   if (sel !== qsel) $("respuestas").replaceChildren();
-  qsel = sel; $("qpanel").hidden = false; const v = $("qav"); v.hidden = !video;
-  if (video && !v.src.endsWith(video)) v.src = video;
-  v.classList.toggle("audio", /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(video || ""));  // solo audio: barra de controles, sin caja negra
+  qsel = sel; $("qpanel").hidden = false;
 }
-
 // v: undefined = vídeo del selector; en carpetas, la url del vídeo de esa reunión (null = reunión sin vídeo); n: nombre de la reunión
-const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: "[" + (n ? n + " · " : "") + mmss(t) + "]", onclick: e => {
-  e.preventDefault(); const q = $("qav"); if (v === null) return;
-  const go = () => { q.currentTime = Math.floor(t); q.play(); };
-  q.hidden = false; if (v && !q.src.endsWith(v)) { q.addEventListener("loadedmetadata", go, {once: true}); q.src = v; } else go();
-}});
+const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: mmss(t) + (n ? " · " + n : ""), onclick: e => { e.preventDefault(); if (v !== null) mpSeek(t, v, n); }});
 $("qform").onsubmit = async e => {
   e.preventDefault(); const q = $("pregunta").value.trim(); if (!q || !qsel) return;
   $("preguntar-b").disabled = true;
@@ -320,84 +411,14 @@ function evento(ev, cuerpo, frag, estado) {
   else if (ev.k === "error") cuerpo.append(el("p", {className: "err", textContent: ev.text}));
 }
 
-// ---- arranque ----
-cargarLista().then(sondear); setInterval(sondear, 2000);
-
-// ---- modelos: elegir qué instalar (primera vez y desde «Modelos»); GGUF ya presentes en el equipo ----
-const BADGE = {ok: "Recomendado", aviso: "Usable (no recomendado)", no: "No compatible"};
-const AV = {aviso: "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", no: n => `Tu equipo no tiene memoria suficiente para este modelo (necesita ~${Math.ceil(n)} GB): no se podrá usar`};
-let MOD = null, primera = false;
-const avisoM = (e, need) => e === "aviso" ? AV.aviso : e === "no" ? AV.no(need) : "";
-const total = () => MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id)?.checked).reduce((a, c) => a + c.bytes, 0);
-function pintarModelos(m, faltan = []) {
-  MOD = m; const L = $("mod-lista"); L.innerHTML = "";
-  for (const c of m.catalogo) {
-    const d = document.createElement("div"); d.className = "mrow";
-    d.innerHTML = `<label><input type="checkbox" id="mc-${c.id}" ${c.instalado ? "checked disabled" : ""}> <span><b></b> <span class="muted"></span></span><span class="grow"></span><span class="b"></span><span>${c.instalado ? "instalado" : GB(c.bytes)}</span></label><small class="warn" hidden></small>`;
-    d.querySelector("b").textContent = c.nombre; d.querySelector(".muted").textContent = c.uso; d.querySelector(".b").textContent = BADGE[c.estado] + (c.rec ? "" : "");
-    const w = d.querySelector(".warn"), cb = d.querySelector("input");
-    const act = () => { const t = c.estado !== "ok" && (cb.checked && !c.instalado || c.instalado && c.estado === "no") ? avisoM(c.estado, c.necesita) : ""; w.textContent = t; w.hidden = !t; $("mod-total").textContent = "Descarga total: " + GB(total()); $("mod-inst").textContent = `Instalar seleccionados (${GB(total())})`; };
-    cb.onchange = act; if (c.instalado) act();
-    if (c.instalado && (c.id !== "chat" || true)) { const q = document.createElement("button"); q.className = "sec"; q.textContent = "Quitar"; q.onclick = async () => { if (confirm(`¿Quitar ${c.nombre} y liberar ${GB(c.bytes)}?`)) try { pintarModelos(await post("/api/modelos/borrar", {id: c.id})); niveles((await api("/api/gpu")).niveles); } catch (e) { alert(e.message); } }; d.append(q); }
-    L.append(d);
-  }
-  for (const i of faltan) if ($("mc-" + i)) $("mc-" + i).checked = true;
-  $("mod-total").textContent = "Descarga total: " + GB(total()); $("mod-inst").textContent = `Instalar seleccionados (${GB(total())})`;
-  for (const c of m.catalogo) $("mc-" + c.id).onchange();
-}
-async function pintarEncontrados() {
-  const r = await api("/api/modelos/encontrados"), L = $("mod-enc-lista"), lv = r.config.levels || {}, ex = (r.config.extra || []).map(e => e.ruta); L.innerHTML = "";
-  for (const e of r.encontrados) {
-    const d = document.createElement("div"); d.className = "mrow";
-    const cur = Object.keys(lv).find(q => lv[q] === e.ruta) || (ex.includes(e.ruta) ? "pers" : "");
-    d.innerHTML = `<label><span><b></b> <span class="muted"></span></span><span class="grow"></span><span class="b"></span><span>${GB(e.bytes)}</span></label><small class="warn" ${e.estado === "no" ? "" : "hidden"}></small><select><option value="">Usar para: —</option>${["rápida", "alta", "alta9", "muyalta", "maxima"].map(q => `<option value="${q}">Usar para: ${q === "alta9" ? "Alta+" : q[0].toUpperCase() + q.slice(1).replace("muyalta", "Muy alta")}</option>`).join("")}<option value="pers">Añadir como nivel Personalizado</option></select>`;
-    d.querySelector("b").textContent = e.nombre; d.querySelector(".muted").textContent = `${e.origen} · ${e.ruta}`; d.querySelector(".b").textContent = BADGE[e.estado];
-    d.querySelector(".warn").textContent = AV.no(e.necesita); d.querySelector("select").value = cur;
-    d.querySelector("select").onchange = async ev => { await post("/api/modelos/usar", {ruta: e.ruta, nivel: ev.target.value, nombre: e.nombre}); niveles((await api("/api/gpu")).niveles); pintarEncontrados(); };
-    L.append(d);
-  }
-  if (!r.encontrados.length) L.innerHTML = '<p class="muted">No se encontró ninguno.</p>';
-}
-$("mod-enc").ontoggle = () => $("mod-enc").open && pintarEncontrados();
-$("mod-add").onclick = async () => { const r = (await post("/api/pick", {tipo: "modelo"})).path; if (r) { try { await post("/api/modelos/usar", {ruta: r, nivel: "pers"}); niveles((await api("/api/gpu")).niveles); } catch (e) { alert(e.message); } pintarEncontrados(); } };
-async function abrirModelos(msg, faltan) {
-  const m = await fetch("/api/modelos").then(r => r.json()).catch(() => null); if (!m) return;
-  $("modelos").hidden = false; history.replaceState(null, "", "#/modelos");
-  $("mod-intro").textContent = msg || "Elige qué modelos instalar. Se descargan una sola vez y después funciona sin internet; si se corta, sigue donde se quedó. Sin modelos puedes ver e importar documentos.";
-  if (m.state === "running" || m.state === "error") return seguir(m);
-  $("mod-prog").hidden = true; $("mod-botones").hidden = false; pintarModelos(m, faltan); modSimple(m);
-}
-async function instalar(ids) {
-  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true; $("mod-msg").textContent = "Empezando…";
-  seguir(await post("/api/modelos", ids ? {ids} : {})); 
-}
-async function seguir(m) {
-  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true; $("mod-simple").hidden = true;
-  const p = m.total ? Math.min(100, Math.round(m.done / m.total * 100)) : 0;
-  $("mod-msg").textContent = m.msg; $("mod-bar").style.width = p + "%";
-  $("mod-pct").textContent = p + " % · " + (m.done / 1e9).toFixed(2) + " de " + (m.total / 1e9).toFixed(2) + " GB";
-  if (m.state === "error") { $("mod-reint").hidden = false; return; }
-  if (m.state === "done") { niveles((await api("/api/gpu")).niveles); $("mod-prog").hidden = true; abrirModelos(); return; }
-  setTimeout(async () => seguir(await api("/api/modelos")), 1000);
-}
-$("mod-rec").onclick = () => instalar(null);
-$("mod-selrec").onclick = () => { for (const c of MOD.catalogo) if (!c.instalado) $("mc-" + c.id).checked = MOD.recomendados.includes(c.id); MOD.catalogo.forEach(c => $("mc-" + c.id).onchange()); };
-$("mod-inst").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id).checked).map(c => c.id));
-$("mod-reint").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id)?.checked).map(c => c.id));
-const cerrarMod = () => { document.body.classList.remove("mod-todos"); $("modelos").hidden = true; if (location.hash === "#/modelos") history.replaceState(null, "", location.pathname); };
-$("mod-cerrar").onclick = cerrarMod; $("b-modelos").onclick = () => abrirModelos();
-addEventListener("hashchange", () => location.hash === "#/modelos" ? abrirModelos() : $("modelos").hidden = true);
-if (location.hash === "#/modelos") abrirModelos();  // sin ruta: la app abre en el inicio y no instala nada
-// ---- importar un acta exportada (.zip) ----
+// ---- importar un documento exportado (.zip) ----
 $("b-importar").onclick = async () => {
   $("b-importar").disabled = true;
-  try { const r = (await post("/api/pick", {tipo: "zip"})).path; if (r) { const m = await post("/api/importar", {path: r}); await cargarLista(); aviso("Documento importado"); abrir?.(m.id); } }
+  try { const r = (await post("/api/pick", {tipo: "zip"})).path; if (r) { const m = await post("/api/importar", {path: r}); await cargarLista(); aviso("Documento importado"); abrir(m.id); } }
   catch (e) { aviso(e.message); } finally { $("b-importar").disabled = false; }
 };
 
-
-// ---- plantillas: qué se busca en la grabación y cómo se redacta (#/plantillas) ----
-const LIBRES = ["resumen", "desarrollo", "detalle", "transcripcion"];
+// ---- selector de plantilla («Tipo») y de idioma del formulario ----
 async function cargarPlant() { const r = await api("/api/plantillas"); PL = r.plantillas; DEF = r.escala; IDI = r.idiomas; SERIE = r.serie; idiomasForm(); }
 const plantDe = id => PL.find(t => t.id === id) || PL[0];
 const docDe = id => plantDe(id)?.documento?.singular || "documento";
@@ -406,8 +427,9 @@ function idiomasForm() {
   $("idioma").replaceChildren(new Option("Según la plantilla", ""), ...Object.entries(IDI).filter(([k]) => k !== "reunión").map(([k, n]) => new Option(cap(n), k)));
   $("idioma").value = v;
 }
-function plantForm(id) {  // selector de plantilla del formulario (por defecto, la de la carpeta)
-  $("plantilla").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("plantilla").value = plantDe(id)?.id || "acta"; $("plantilla").onchange();
+function plantForm(id) {  // selector «Tipo»: en modo simple, solo los perfiles de uso elegidos (+ el de la carpeta); en avanzado, todos
+  const ok = simple() ? new Set([...AJ.perfil_uso, id]) : null, l = PL.filter(t => !ok || ok.has(t.id));
+  $("plantilla").replaceChildren(...l.map(t => new Option(t.nombre, t.id))); $("plantilla").value = plantDe(id)?.id || "acta"; $("plantilla").onchange();
 }
 $("plantilla").onchange = () => {
   const t = plantDe($("plantilla").value); if (!t) return;
@@ -419,86 +441,86 @@ $("idioma").onchange = () => {  // aviso: fuera de es/en conviene un modelo mayo
   $("hint-idioma").textContent = i === "eu" ? "Para euskera se recomienda la calidad Muy alta." : ["reunión", "es", "en"].includes(i) ? "" : "Para este idioma se recomienda Alta+ o superior.";
   $("hint-idioma").hidden = !$("hint-idioma").textContent;
 };
-$("f-plant").onchange = fallo(async () => { await post("/api/carpeta", {nombre: fsel, plantilla: $("f-plant").value === "acta" ? "" : $("f-plant").value}); CP = await api("/api/carpetas/plantillas"); aviso("Plantilla por defecto guardada"); });
-async function abrirPlant(id) {
-  await cargarPlant(); if (id) pSel = id; if (!PL.some(t => t.id === pSel)) pSel = "acta";
-  history.replaceState(null, "", "#/plantillas"); vista("plant"); pintarPlant();
+
+// ---- arranque (lo llama el último script, cuando ya está todo definido) ----
+function arranque() { cargarLista().then(() => { sondear(); plantForm("acta"); }).catch(() => {}); setInterval(sondear, 2000); }
+
+// ---- reproductor flotante (único <video>: no se recrea al cambiar de pestaña, así no se corta) ----
+const MP = () => $("mp"), VID = () => $("vvideo"), esAudio = u => /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(u || "");
+function mpCargar(url, titulo, audio) {
+  const v = VID(), m = MP(); if (!v.src.endsWith(url)) v.src = url;
+  m.classList.toggle("audio", audio); $("vslot").classList.toggle("audio", audio); $("mp-t").textContent = titulo || "";
+  $("mp-pip").hidden = audio || !document.pictureInPictureEnabled; m.hidden = false; m.classList.remove("min"); ubicar();
 }
-$("b-plant").onclick = () => abrirPlant(); $("plant-volver").onclick = () => ir("home");
-addEventListener("hashchange", () => location.hash === "#/plantillas" && vistaAct !== "plant" && abrirPlant());
-function pintarPlant() {
-  $("plant-lista").replaceChildren(...PL.map(t => el("li", {}, el("button", {textContent: t.nombre + (t.serie ? (t.editable ? " · modificada" : " · de serie") : ""), "aria-current": t.id === pSel,
-    onclick: () => { pSel = t.id; pintarPlant(); }}))));
-  const t = plantDe(pSel); pe = structuredClone(t); delete pe.serie; delete pe.editable; pintarEd(t);
+function mpCerrar() { VID().pause(); MP().hidden = true; if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {}); }
+function mpSeek(t, url, nombre) {
+  const v = VID(), go = () => { v.currentTime = Math.floor(t); v.play().catch(() => {}); };
+  if (url && !v.src.endsWith(url)) { mpCargar(url, nombre, esAudio(url)); v.addEventListener("loadedmetadata", go, {once: true}); v.src = url; }
+  else { MP().hidden = false; MP().classList.remove("min"); ubicar(); go(); }
 }
-const campo = (lab, inp) => el("div", {className: "field"}, el("label", {textContent: lab}), inp);
-const txt = (obj, k, area, extra = {}) => { const i = el(area ? "textarea" : "input", {value: obj[k] ?? "", ...extra}); i.oninput = () => obj[k] = i.value; return i; };
-const chk = (obj, k, lab, cb) => { const i = el("input", {type: "checkbox", checked: !!obj[k]}); i.onchange = () => { obj[k] = i.checked; cb?.(); }; return el("label", {className: k === "nube_permitida" ? "check solo-nube" : "check"}, i, " " + lab); };
-const mover_ = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; pintarEd(); };
-const boton = (t, f, cls = "sec") => el("button", {type: "button", className: cls, textContent: t, onclick: fallo(async () => f())});
-function pintarEd(t = plantDe(pSel)) {
-  const ed = t.editable, base = SERIE[pe.base || pe.id] || {}, re = () => pintarEd(t);
-  const secs = pe.secciones.map((s, i) => el("div", {className: "psec"},
-    el("div", {className: "row"}, el("input", {value: s.nombre, ariaLabel: "Nombre de la sección", oninput: e => s.nombre = e.target.value}),
-      el("input", {value: s.id, ariaLabel: "Id", title: "Id (minúsculas, cifras y _)", style: "max-width:9em", oninput: e => {
-        const o = s.id; s.id = e.target.value; pe.orden = pe.orden.map(b => b === o ? s.id : b); pe.notas_rapidas.forEach(n => n.seccion === o && (n.seccion = s.id)); }}),
-      boton("↑", () => mover_(pe.secciones, i, -1)), boton("↓", () => mover_(pe.secciones, i, 1)), boton("✕", () => { pe.secciones.splice(i, 1); pe.orden = pe.orden.filter(b => b !== s.id); re(); })),
-    txt(s, "descripcion", true, {ariaLabel: "Qué debe buscar el modelo", placeholder: "Qué debe buscar el modelo"}),
-    el("div", {className: "row"}, el("label", {textContent: "Campos"}), el("input", {value: s.campos.join(", "), placeholder: "responsable, fecha, gravedad…", title: "Además de la cita y el minuto, que van siempre",
-      oninput: e => s.campos = e.target.value.split(",").map(x => x.trim().toLowerCase().replace(/\s+/g, "_")).filter(Boolean)}), chk(s, "nunca_recortar", "No recortar nunca"))));
-  const orden = pe.orden.map((b, i) => el("div", {className: "row"}, el("span", {textContent: LIBRES.includes(b) ? b : (pe.secciones.find(s => s.id === b)?.nombre || b), style: "min-width:9em"}),
-    el("input", {value: pe.titulos[b] || "", placeholder: "Título (vacío = el nombre)", oninput: e => pe.titulos[b] = e.target.value}),
-    boton("↑", () => mover_(pe.orden, i, -1)), boton("↓", () => mover_(pe.orden, i, 1))));
-  const notas = pe.notas_rapidas.map((n, i) => el("div", {className: "row"}, txt(n, "nombre", false, {ariaLabel: "Nota"}),
-    (sel => { sel.value = n.seccion || ""; sel.onchange = () => n.seccion = sel.value || null; return sel; })(el("select", {}, new Option("— sin sección —", ""), ...pe.secciones.map(s => new Option(s.nombre, s.id)))),
-    txt(n, "atajo", false, {ariaLabel: "Atajo", style: "max-width:7em"}), boton("✕", () => { pe.notas_rapidas.splice(i, 1); re(); })));
-  const reset = (k, v) => boton("Restablecer", () => { pe[k] = v; re(); });
-  const esc = el("details", {open: !!pe.mostrar_escala}, el("summary", {textContent: "Opciones avanzadas de la plantilla"}),
-    chk(pe, "mostrar_escala", "Ajustar la escala de importancia", re),
-    ...(pe.mostrar_escala ? [el("small", {textContent: "La nota de cada idea al resumir: con 1 nunca entra; al recortar, primero las más altas. Las secciones «no recortar nunca» entran siempre."}),
-      ...["5", "4", "3", "2", "1"].map(k => el("div", {className: "row"}, el("label", {textContent: k}), txt(pe.escala, k, false, {placeholder: DEF[k]}))),
-      boton("Restablecer valores por defecto", () => { pe.escala = {...DEF}; re(); })] : []));
-  const probar = el("select", {ariaLabel: "Reunión"}, ...todas.filter(m => !m.sin).map(m => new Option(m.label, m.id + "|" + m.asr)));
-  const acciones = [
-    ...(ed ? [boton("Guardar", guardarPlant, "pri")] : []),
-    boton("Duplicar", async () => { const c = await post("/api/plantillas", {plantilla: {...pe, id: "", nombre: pe.nombre + " (copia)", base: pe.base || (t.serie ? t.id : undefined)}}); await abrirPlant(c.id); aviso("Duplicada: ya puedes editarla"); }),
-    boton("Exportar", () => { const a = el("a", {href: URL.createObjectURL(new Blob([JSON.stringify(pe, null, 1)], {type: "application/json"})), download: pe.id + ".json"}); a.click(); }),
-    ...(ed ? [boton(t.serie ? "Restablecer" : "Eliminar", async () => { if (!confirm(t.serie ? "¿Volver a la plantilla de serie?" : "¿Eliminar la plantilla «" + t.nombre + "»?")) return; await post("/api/plantillas/borrar", {id: t.id}); if (!t.serie) pSel = "acta"; await abrirPlant(); })] : [])];
-  $("plant-ed").replaceChildren(el("fieldset", {disabled: !ed},
-    el("h2", {textContent: t.nombre}), ...(ed ? [] : [el("p", {className: "muted", textContent: "Plantilla de serie: no se edita. Duplícala para cambiarla."})]),
-    campo("Nombre", txt(pe, "nombre")), campo("Descripción", txt(pe, "descripcion")),
-    el("div", {className: "row"}, el("label", {textContent: "Documento"}), txt(pe.documento, "singular", false, {ariaLabel: "Singular", placeholder: "acta, informe, apuntes…"}),
-      txt(pe.documento, "plural", false, {ariaLabel: "Plural"}), chk(pe.documento, "femenino", "femenino")),
-    el("h3", {textContent: "Secciones"}), el("small", {textContent: "Cada elemento lleva su minuto y una cita literal comprobada en la transcripción. «decisiones» y «tareas» usan la verificación del acta de reunión."}),
-    ...secs, boton("+ sección", () => { pe.secciones.push({id: "seccion" + (pe.secciones.length + 1), nombre: "Nueva sección", descripcion: "", campos: [], nunca_recortar: false}); pe.orden.splice(pe.orden.indexOf("desarrollo") >>> 0, 0, pe.secciones.at(-1).id); re(); }),
-    el("h3", {textContent: "Qué destacar"}), txt(pe, "que_destacar", true), reset("que_destacar", base.que_destacar || ""),
-    el("h3", {textContent: "Cómo redactar"}), txt(pe, "como_redactar", true), reset("como_redactar", base.como_redactar || ""),
-    el("small", {textContent: "Cambiar las secciones, qué destacar o la escala repite el resumen por bloques (lo lento). Cambiar cómo redactar solo repite la redacción final (rápido: se reutiliza lo ya resumido)."}),
-    el("h3", {textContent: "Orden y títulos del documento"}), ...orden,
-    el("h3", {textContent: "Notas rápidas"}), el("small", {textContent: "Para marcar momentos durante una grabación (fase posterior)."}), ...notas,
-    boton("+ nota", () => { pe.notas_rapidas.push({nombre: "Nota", seccion: null, atajo: ""}); re(); }),
-    el("h3", {textContent: "Opciones"}), chk(pe.opciones, "capturas", "Capturas de pantalla"), chk(pe.opciones, "marcas", "Marcas de tiempo [mm:ss]"),
-    chk(pe, "nube_permitida", "Se puede procesar en la nube (desmárcalo para datos sensibles)"),
-    campo("Idioma del documento", (sel => { sel.value = pe.idioma_acta; sel.onchange = () => pe.idioma_acta = sel.value; return sel; })(el("select", {}, ...Object.entries(IDI).map(([k, n]) => new Option(cap(n), k))))),
-    esc),
-    el("div", {className: "row wrap"}, ...acciones),
-    el("h3", {textContent: "Probar con una reunión"}), el("small", {textContent: "Genera otra versión de esa reunión con esta plantilla (no sustituye a las demás)."}),
-    el("div", {className: "row"}, probar, boton("Probar", async () => {
-      if (!probar.value) return; if (ed) await guardarPlant();
-      const [id, asr] = probar.value.split("|");
-      await post("/api/generar", {reuse: id, asr, nivel: "normal", calidad: $("calidad").value || "rápida", gpu: $("usar-gpu").checked, plantilla: pe.id});
-      aviso("Añadido a la cola"); sondear();
-    })));
+function ubicar() {  // en la pestaña Vídeo/Audio el reproductor se coloca grande sobre su hueco; en las demás flota abajo a la derecha
+  const m = MP(), full = vistaAct === "res" && tabAct === "p-video" && !$("p-video").hidden;
+  m.classList.toggle("full", full);
+  if (full) { const r = $("vslot").getBoundingClientRect(); Object.assign(m.style, {left: r.left + scrollX + "px", top: r.top + scrollY + "px", width: r.width + "px"}); $("vslot").style.height = m.offsetHeight + "px"; }
+  else { $("vslot").style.height = ""; if (!m.dataset.arrastrado) Object.assign(m.style, {left: "", top: "", width: ""}); }
 }
-async function guardarPlant() { const t = await post("/api/plantillas", {plantilla: pe}); await abrirPlant(t.id); aviso("Plantilla guardada"); }
-$("plant-imp").onchange = fallo(async () => {  // importar .json: si ya existe, reemplazar o guardar como copia
-  const f = $("plant-imp").files[0]; $("plant-imp").value = ""; if (!f) return;
-  let t; try { t = JSON.parse(await f.text()); } catch { throw new Error("El fichero no es un JSON válido"); }
-  const subir = async modo => { const r = await post("/api/plantillas", {plantilla: t, modo}); $("plant-msg").replaceChildren(); await abrirPlant(r.id); aviso("Plantilla importada"); };
-  try { await subir("importar"); } catch (err) {
-    if (!/^Ya hay/.test(err.message)) throw err;
-    $("plant-msg").replaceChildren(el("div", {className: "row wrap card"}, el("span", {textContent: err.message + ": "}),
-      boton("Reemplazar", () => subir("reemplazar"), "pri"), boton("Guardar como copia", () => subir("copia")), boton("Cancelar", async () => $("plant-msg").replaceChildren())));
+addEventListener("resize", ubicar);
+$("mp-x").onclick = mpCerrar;
+$("mp-min").onclick = () => { MP().classList.toggle("min"); $("mp-min").setAttribute("aria-label", MP().classList.contains("min") ? "Restaurar" : "Minimizar"); };
+$("mp-pip").onclick = () => (document.pictureInPictureElement ? document.exitPictureInPicture() : VID().requestPictureInPicture()).catch(e => aviso("No se pudo abrir imagen en imagen: " + e.message));
+$("mp-bar").onpointerdown = e => {  // arrastrar (opcional) desde la barra
+  const m = MP(); if (m.classList.contains("full") || e.target.closest("button")) return;
+  const r = m.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top; $("mp-bar").setPointerCapture(e.pointerId);
+  const mv = ev => { m.dataset.arrastrado = 1; Object.assign(m.style, {right: "auto", bottom: "auto", left: Math.max(0, Math.min(innerWidth - 60, ev.clientX - dx)) + "px", top: Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) + "px"}); };
+  const up = () => { $("mp-bar").removeEventListener("pointermove", mv); $("mp-bar").removeEventListener("pointerup", up); }; $("mp-bar").addEventListener("pointermove", mv); $("mp-bar").addEventListener("pointerup", up);
+};
+// el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
+$("acta-frame").onload = () => {
+  let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
+  d.head.append(Object.assign(d.createElement("style"), {textContent: "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}"}));
+  d.addEventListener("click", e => {
+    const a = e.target.closest("[data-t]"); if (!a || !cur?.video) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (d.getElementById("big")) d.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape"}));  // cierra el visor de capturas
+    mpSeek(+a.dataset.t, cur.videourl, cur.m.label);
+  }, true);
+};
+
+// ---- editar y exportar el documento (#acta-acciones es el gancho de la barra) ----
+let editando = false;
+const FMT = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["md", "Markdown"], ["obsidian", "Obsidian (.zip)"], ["notion", "Notion (.zip)"], ["ics", "Calendario (.ics)"],
+  ["csv_todoist", "Tareas · Todoist (.csv)"], ["csv_jira", "Tareas · Jira (.csv)"], ["srt", "Subtítulos (.srt)"], ["vtt", "Subtítulos (.vtt)"]];
+async function descargar(fmt, extra = "") {
+  const est = $("ex-est")?.value, q = "fmt=" + fmt + (est && est !== "auto" ? "&estilo=" + encodeURIComponent(est === "none" ? "" : est) : "") + extra;
+  const r = await fetch(`/api/exportar/${cur.id}/${ver}?${q}`);
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 409 && fmt === "pdf") { window.open(`/api/vista/${cur.id}/${ver}?print=1`); aviso(j.detail || "Usa Imprimir → Guardar como PDF"); return; }
+    throw new Error(j.detail || r.statusText);
   }
-});
-cargarPlant().then(() => { plantForm("acta"); if (location.hash === "#/plantillas") abrirPlant(); }).catch(() => {});
+  const nombre = decodeURIComponent((/filename\*=UTF-8''(.+)/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || "documento." + fmt);
+  const a = el("a", {href: URL.createObjectURL(await r.blob()), download: nombre}); document.body.append(a); a.click(); a.remove(); aviso("Descargado: " + nombre);
+}
+function pintarAcciones(a) {
+  const box = $("acta-acciones"); box.hidden = false; box.style.display = "contents";
+  if (editando) {
+    box.replaceChildren(el("span", {className: "ed-bar"}, "Editando: haz clic en cualquier texto del documento.",
+      el("button", {className: "pri sm", textContent: "Guardar", onclick: fallo(async () => {
+        const c = $("acta-frame").contentWindow.cambios(); if (!Object.keys(c).length) { aviso("No hay cambios"); return; }
+        await api(`/api/doc/${cur.id}/${ver}`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({cambios: c})});
+        editando = false; await abrir(cur.id, ver, true); aviso("Cambios guardados"); })}),
+      el("button", {className: "sec sm", textContent: "Descartar", onclick: () => { editando = false; cambiarActa(); }})));
+    return;
+  }
+  const mas = el("div", {hidden: simple()}), ex = el("div", {className: "pop"}), item = (f, t, extra) => el("button", {type: "button", textContent: t, onclick: fallo(async () => { box.querySelector("details").open = false; await descargar(f, extra()); })});
+  const hab = el("input", {type: "checkbox", id: "ex-hab"}), evt = el("input", {type: "checkbox", id: "ex-evt"});
+  mas.append(el("div", {className: "t", textContent: "Más formatos"}), ...FMT.slice(2).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
+    el("label", {className: "check", style: "font-size:14px"}, evt, "Calendario: como un solo evento"), el("label", {className: "check", style: "font-size:14px"}, hab, "Subtítulos: con quien habla"));
+  ex.append(...(ESTILOS.length ? [el("div", {className: "t", textContent: "Estilo"}), (s => { s.append(new Option("El de la carpeta", "auto"), new Option("Sin estilo", "none"), ...ESTILOS.map(e => new Option(e.nombre, e.id))); return s; })(el("select", {id: "ex-est", ariaLabel: "Estilo de organización"}))] : []),
+    el("div", {className: "t", textContent: "Exportar como"}), item("docx", FMT[0][1], () => ""), item("pdf", FMT[1][1], () => ""),
+    ...(simple() ? [el("button", {type: "button", className: "link", textContent: "Más…", style: "padding:0 12px", onclick: e => { mas.hidden = false; e.currentTarget.remove(); }})] : []), mas);
+  box.replaceChildren(el("button", {className: "sec", textContent: "Editar", title: "Corregir el texto del documento", onclick: () => { editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); }}),
+    ...(a.editado ? [el("button", {className: "sec", textContent: "Restaurar original", onclick: fallo(async () => { if (!confirm("¿Volver al texto original? Se pierden tus ediciones de esta versión.")) return; await post(`/api/doc/${cur.id}/${ver}/restaurar`); await abrir(cur.id, ver, true); aviso("Original restaurado"); })})] : []),
+    el("details", {className: "menu"}, el("summary", {textContent: "Exportar ▾"}), ex));
+}
+document.addEventListener("click", e => document.querySelectorAll("details.menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
