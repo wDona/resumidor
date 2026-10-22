@@ -31,6 +31,7 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Fl
 Source: "instalar.cmd"; DestDir: "{app}"
 Source: "..\app.py"; DestDir: "{app}"
 Source: "..\pipeline.py"; DestDir: "{app}"
+Source: "..\plantillas.py"; DestDir: "{app}"
 Source: "..\rag.py"; DestDir: "{app}"
 Source: "..\models.py"; DestDir: "{app}"
 Source: "..\transcripts.py"; DestDir: "{app}"

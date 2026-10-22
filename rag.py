@@ -172,7 +172,7 @@ class Index:
 
     def acta(self):
         """(resumen, [(t, texto)...]) del acta breve (o la más corta que haya) de esta reunión; (None, []) si no hay."""
-        fs = sorted(self.wd.glob("acta_*/acta.json"), key=lambda f: ("breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name))
+        fs = sorted(self.wd.glob("acta_*/acta.json"), key=lambda f: ("_p-" in f.parent.name or "_i-" in f.parent.name, "breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name))
         try:
             a = json.loads(fs[0].read_text())
         except (IndexError, ValueError):

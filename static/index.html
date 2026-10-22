@@ -34,8 +34,9 @@
 <header>
   <h1><a href="#" id="inicio">Actas</a></h1>
   <span class="grow"></span>
-  <button class="pri" id="nueva">+ Nueva acta</button>
-  <button class="sec" id="b-importar">Importar acta (.zip)</button>
+  <button class="pri" id="nueva">+ Nuevo documento</button>
+  <button class="sec" id="b-importar">Importar documento (.zip)</button>
+  <button class="sec" id="b-plant">Plantillas</button>
   <button class="sec" id="b-modelos">Modelos</button>
   <button class="sec" id="b-cola" aria-controls="v-cola">Cola · <span id="n-cola">0</span></button>
 </header>
@@ -51,6 +52,7 @@
       <div class="toolbar" id="fcab">
         <h2 id="ftit"></h2>
         <span class="grow"></span>
+        <label for="f-plant" id="f-plant-l" hidden>Plantilla por defecto</label><select id="f-plant" hidden></select>
         <button class="sec" id="f-preguntar" hidden>Preguntar</button>
         <button class="sec" id="f-ren" hidden>Renombrar</button>
         <button class="sec" id="f-quitar" hidden>Quitar carpeta</button>
@@ -66,7 +68,7 @@
   <section id="v-nuevo" hidden>
     <button class="sec" id="nuevo-volver">&larr; Volver</button>
     <form class="card narrow" id="form" autocomplete="off">
-      <h2 id="form-t">Nueva acta</h2>
+      <h2 id="form-t">Nuevo documento</h2>
       <p class="muted" id="form-sub">Resumen, capturas de la pantalla compartida y marcas de tiempo que saltan al momento del vídeo. Todo se procesa en este equipo.</p>
       <div id="f-fuente">
         <div class="field">
@@ -94,8 +96,13 @@
             <button type="button" id="elegir-tr" class="sec">Elegir transcripción</button>
             <button type="button" id="quitar-tr" class="sec" hidden aria-label="Quitar transcripción">&times;</button>
           </div>
-          <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor.</small>
+          <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor.</small>
         </div>
+        <div class="field"><label for="habla">Idioma de la reunión</label>
+          <select id="habla"><option value="auto">Automático</option><option value="es">Español</option><option value="en">Inglés</option>
+            <option value="ca">Catalán</option><option value="eu">Euskera</option><option value="gl">Gallego</option><option value="fr">Francés</option>
+            <option value="pt">Portugués</option><option value="de">Alemán</option><option value="it">Italiano</option><option value="mezcla">Mezcla de idiomas</option></select>
+          <small>Automático: se detecta al principio. Mezcla: se detecta cada 30 s y cada tramo se transcribe en su idioma (más lento).</small></div>
       </div>
       <div class="cols">
         <div class="field"><label for="nivel">Nivel de detalle</label>
@@ -106,6 +113,11 @@
           <small id="aviso-alta" class="warn" hidden></small>
           <button class="sec" id="bajar-nivel" type="button" hidden></button>
           <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
+      </div>
+      <div class="cols">
+        <div class="field"><label for="plantilla">Plantilla</label><select id="plantilla"></select><small id="info-plant"></small></div>
+        <div class="field"><label for="idioma">Idioma del documento</label><select id="idioma"></select>
+          <small id="hint-idioma" class="warn" hidden></small><small>Las citas literales quedan en el idioma original, con la traducción entre paréntesis.</small></div>
       </div>
       <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
       <small id="info-gpu"></small>
@@ -118,7 +130,7 @@
           <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
       </div>
       <p class="err" id="form-err" role="alert"></p>
-      <button class="pri" id="generar">Generar acta</button>
+      <button class="pri" id="generar">Generar documento</button>
     </form>
   </section>
 
@@ -139,7 +151,7 @@
     </div>
     <div id="ed-res"></div>
     <div class="tabs" role="tablist" id="mtabs">
-      <button role="tab" aria-selected="true" data-p="p-acta">Acta</button>
+      <button role="tab" aria-selected="true" data-p="p-acta" id="t-acta">Documento</button>
       <button role="tab" aria-selected="false" data-p="p-preg">Preguntar</button>
       <button role="tab" aria-selected="false" data-p="p-video" id="t-video">Vídeo</button>
     </div>
@@ -148,12 +160,12 @@
       <div class="toolbar">
         <!-- Gancho de la fase de edición/exportación: #acta-acciones se muestra y se rellena desde allí (Editar, Exportar ▾…) -->
         <span id="acta-acciones" hidden></span>
-        <a class="btn sec" id="dl-zip" download>Descargar acta (.zip)</a>
-        <a class="btn sec" id="dl-vid" download title="Acta y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
+        <a class="btn sec" id="dl-zip" download>Descargar documento (.zip)</a>
+        <a class="btn sec" id="dl-vid" download title="Documento y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
         <button class="sec" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
       </div>
       <p class="muted" id="imp-info"></p>
-      <iframe id="acta-frame" title="Acta"></iframe>
+      <iframe id="acta-frame" title="Documento"></iframe>
     </div>
     <div id="p-preg" hidden></div>
     <div id="p-video" hidden>
@@ -170,6 +182,14 @@
         <video id="cvideo" controls preload="metadata" hidden></video>
       </div>
     </div>
+  </section>
+
+  <section id="v-plant" hidden>
+    <div class="toolbar"><button class="sec" id="plant-volver">&larr; Volver</button><h2>Plantillas</h2><span class="grow"></span>
+      <label class="btn sec" for="plant-imp">Importar (.json)</label><input type="file" id="plant-imp" accept=".json,application/json" hidden></div>
+    <p class="muted">Una plantilla dice qué se busca en la grabación y cómo se redacta el documento. Las de serie no se editan: duplícalas.</p>
+    <div id="plant-msg"></div>
+    <div class="plant"><ul class="list card" id="plant-lista"></ul><div class="card" id="plant-ed"></div></div>
   </section>
 
   <section id="v-preg" hidden>

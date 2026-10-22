@@ -6,6 +6,7 @@ const post = (url, body) => api(url, {method: "POST", headers: {"Content-Type": 
 const mmss = t => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, p = n => String(n).padStart(2, "0"); return (h ? h + ":" + p(m) : p(m)) + ":" + p(s); };
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") || k.startsWith("aria-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
 let corriendo = false;
+let PL = [], CP = {}, DEF = {}, IDI = {}, SERIE = {}, pe = null, pSel = "acta";  // plantillas (ver abajo)
 addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Hay trabajos en la cola; si cierras, se cancelarán"; } });
 setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000); fetch("/api/latido", {method: "POST"});
 
@@ -22,7 +23,7 @@ const setTr = async p => {
   } catch (err) { $("ruta-tr").value = ""; $("quitar-tr").hidden = true; $("info-tr").textContent = err.message; }
   $("hablantes").disabled = hablaTr; if (hablaTr) $("hablantes").checked = false; $("hint-hab").hidden = !hablaTr;
 };
-$("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor."; };
+$("quitar-tr").onclick = () => { setTr(""); $("info-tr").textContent = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor."; };
 const elegir = (btn, tipo, set) => btn.onclick = async () => {
   btn.disabled = true;
   try { const r = (await post("/api/pick", {tipo})).path; if (r) set(r); } finally { btn.disabled = false; }
@@ -67,7 +68,7 @@ function niveles(l) {
 $("calidad").onchange = () => {
   const n = nivelInfo($("calidad").value); if (!n) return;
   const t = [n.tiempo > 1 && `Tarda aprox. ${n.tiempo}× lo que Rápida`, n.estado === "no" && `No cabe en este equipo (necesita ~${Math.ceil(n.necesita)} GB de memoria)`,
-    n.estado === "aviso" && "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", n.pers && "Modelo no probado con la app: la calidad del acta puede variar"].filter(Boolean);
+    n.estado === "aviso" && "No tienes los recursos recomendados para este modelo, puede tardar más de lo normal", n.pers && "Modelo no probado con la app: la calidad del documento puede variar"].filter(Boolean);
   $("aviso-alta").textContent = t.join(". "); $("aviso-alta").hidden = !t.length;
   $("bajar-nivel").hidden = n.instalado; $("bajar-nivel").textContent = `Descargar ${n.modelo} (${GB(n.bytes)})`;
   $("info-alta").hidden = n.id === "rápida";
@@ -76,7 +77,8 @@ $("bajar-nivel").onclick = async () => { await post("/api/modelos", {ids: [nivel
 
 // ---- vistas: home (carpetas + reuniones) | nuevo | cola | res (reunión) | preg (carpeta) ----
 let vistaAct = "home";
-const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0); };
+const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg", "plant"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
+  if (v !== "plant" && location.hash === "#/plantillas") history.replaceState(null, "", location.pathname); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
 const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
 $("inicio").onclick = e => { e.preventDefault(); ir("home"); };
@@ -89,18 +91,19 @@ let reuse = null;
 const VACIO_SUB = $("form-sub").textContent;
 function formNuevo(m, a) {
   reuse = m ? {id: m.id, asr: a.asr} : null;
-  $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nueva acta";
-  $("form-sub").textContent = m ? "Rehace el acta con otro nivel o calidad aprovechando la transcripción y las capturas ya hechas. Con el mismo nivel y calidad que una versión existente, la sustituye." : VACIO_SUB;
+  $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nuevo documento";
+  $("form-sub").textContent = m ? "Rehace el documento con otra plantilla, nivel o calidad aprovechando la transcripción y las capturas ya hechas. Con el mismo nivel y calidad que una versión existente, la sustituye." : VACIO_SUB;
   $("f-fuente").hidden = $("f-hab").hidden = !!m; $("form-err").textContent = "";
   if (m) {  // propone la primera combinación que aún no existe
     const hay = n => cur.actas.some(x => x.name === n);
     const [n, c] = ["normal", "breve", "detallado"].flatMap(n => NIV.map(q => q.id).map(c => [n, c])).find(([n, c]) => !hay(`acta_${n}_${a.asr}${c === "rápida" ? "" : "_" + c}`)) || [a.nivel, a.calidad];
     $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
   }
+  plantForm(CP[m ? m.carpeta || "" : fsel || ""] || "acta");
   vista("nuevo");
 }
 const params = () => ({video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
-  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
+  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
@@ -135,7 +138,7 @@ function pintarCola(k) {
         : [...(e.state === "hecho" ? [] : [b("Reintentar", "/api/cola/reintentar")]), b("Quitar", "/api/cola/quitar")];
       if (e.state === "hecho" && e.result?.id) { const o = el("button", {className: "sec", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); bs.unshift(o); }
       const d = e.state === "pendiente" ? "En espera (" + (pend.indexOf(e) + 1) + " de " + pend.length + ")" : e.state === "hecho" ? "Terminado" : e.state === "marcha" ? "" : e.state === "cancelado" ? "Cancelado" : (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "");
-      return el("li", {}, el("div", {className: "n"}, el("b", {textContent: KIND[e.kind] + " · " + nombreDe(e)}), el("div", {className: e.state === "error" ? "d err" : "d", textContent: d, id: e.state === "marcha" ? "q-msg" : ""})),
+      return el("li", {}, el("div", {className: "n"}, el("b", {textContent: (e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind]) + " · " + nombreDe(e)}), el("div", {className: e.state === "error" ? "d err" : "d", textContent: d, id: e.state === "marcha" ? "q-msg" : ""})),
         el("span", {}, ...bs.flatMap(x => [x, " "])), ...(e.state === "marcha" ? [el("div", {className: "bar full"}, el("div", {id: "q-bar"})), el("p", {className: "muted full", id: "q-eta"})] : []));
     };
     const r = it.filter(e => e.state === "marcha"), h = it.filter(e => !ACT.includes(e.state)).reverse();
@@ -175,7 +178,7 @@ const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se
   });
 const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
-  [todas, carpetas] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas")]);
+  [todas, carpetas, CP] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas"), api("/api/carpetas/plantillas"), PL.length ? null : cargarPlant()]);
   if (fsel && !carpetas.includes(fsel)) fsel = null;
   pintarHome();
 }
@@ -186,14 +189,15 @@ function pintarHome() {
   $("carpetas").replaceChildren(nav("Todas", null), ...carpetas.map(c => nav("📁 " + c, c)), nav("Sin carpeta", ""));
   const ms = todas.filter(m => fsel === null || (m.carpeta || "") === fsel);
   $("ftit").textContent = (fsel === null ? "Todas" : fsel === "" ? "Sin carpeta" : "📁 " + fsel) + " · " + plural(ms.length);
-  for (const id of ["f-preguntar", "f-ren", "f-quitar"]) $(id).hidden = !fsel;
+  for (const id of ["f-preguntar", "f-ren", "f-quitar", "f-plant", "f-plant-l"]) $(id).hidden = !fsel;
+  if (fsel) { $("f-plant").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("f-plant").value = CP[fsel] || "acta"; }
   const act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "⏳ generando" : "⏳ en cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
   const nuevas = fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid).map(e => el("li", {className: "fila-v"}, el("span", {className: "n", textContent: e.video}), el("span", {className: "st", textContent: est(e)}))) : [];
   const fila = m => {
     const e = act.find(e => e.mid === m.id), f = new Date(m.mtime * 1000);
     const b = el("button", {className: "fila", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n", textContent: "▶ " + m.label + (fsel === null && m.carpeta ? "  📁 " + m.carpeta : "")}),
       el("span", {className: "d", textContent: f.toLocaleDateString("es", {day: "2-digit", month: "2-digit"})}), el("span", {className: "d", textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}),
-      el("span", {className: "d", textContent: m.actas + (m.actas === 1 ? " acta" : " actas")}), el("span", {className: "st", textContent: e ? est(e) : ""}));
+      el("span", {className: "d", textContent: m.actas + (m.actas === 1 ? " documento" : " documentos")}), el("span", {className: "st", textContent: e ? est(e) : ""}));
     return el("li", {}, b);
   };
   $("lista").replaceChildren(...nuevas, ...ms.map(fila));
@@ -205,7 +209,7 @@ $("f-preguntar").onclick = () => { $("preg-tit").textContent = "Preguntar · �
 
 // ---- página de una reunión ----
 const cap = s => s[0].toUpperCase() + s.slice(1);
-const defecto = a => [cap(a.nivel), (nivelInfo(a.calidad)?.nombre || "Rápida") + (nivelInfo(a.calidad)?.pers ? " · " + nivelInfo(a.calidad).modelo : ""), a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => !(x in {alta:1, alta9:1, muyalta:1, maxima:1} || /^p[0-9a-f]{6}$/.test(x))).join(" ")].filter(Boolean).join(" · ");
+const defecto = a => [a.plantilla, a.idioma && "en " + (IDI[a.idioma] || a.idioma), cap(a.nivel), (nivelInfo(a.calidad)?.nombre || "Rápida") + (nivelInfo(a.calidad)?.pers ? " · " + nivelInfo(a.calidad).modelo : ""), a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => !(x in {alta:1, alta9:1, muyalta:1, maxima:1} || /^p[0-9a-f]{6}$/.test(x) || /^[pi]-/.test(x))).join(" ")].filter(Boolean).join(" · ");
 const etiqueta = a => cur.versiones[a.name] || defecto(a);
 async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
@@ -234,6 +238,7 @@ function pintarVers() {
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver);
+  $("t-acta").textContent = cap(a.doc || "acta"); $("dl-zip").textContent = "Descargar " + (a.doc || "acta") + " (.zip)"; $("fondo").hidden = !!a.plantilla;
   $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
@@ -355,7 +360,7 @@ $("mod-add").onclick = async () => { const r = (await post("/api/pick", {tipo: "
 async function abrirModelos(msg, faltan) {
   const m = await fetch("/api/modelos").then(r => r.json()).catch(() => null); if (!m) return;
   $("modelos").hidden = false; history.replaceState(null, "", "#/modelos");
-  $("mod-intro").textContent = msg || "Elige qué modelos instalar. Se descargan una sola vez y después funciona sin internet; si se corta, sigue donde se quedó. Sin modelos puedes ver e importar actas.";
+  $("mod-intro").textContent = msg || "Elige qué modelos instalar. Se descargan una sola vez y después funciona sin internet; si se corta, sigue donde se quedó. Sin modelos puedes ver e importar documentos.";
   if (m.state === "running" || m.state === "error") return seguir(m);
   $("mod-prog").hidden = true; $("mod-botones").hidden = false; pintarModelos(m, faltan);
 }
@@ -383,7 +388,114 @@ if (location.hash === "#/modelos") abrirModelos();  // sin ruta: la app abre en 
 // ---- importar un acta exportada (.zip) ----
 $("b-importar").onclick = async () => {
   $("b-importar").disabled = true;
-  try { const r = (await post("/api/pick", {tipo: "zip"})).path; if (r) { const m = await post("/api/importar", {path: r}); await cargarLista(); aviso("Acta importada"); abrir?.(m.id); } }
+  try { const r = (await post("/api/pick", {tipo: "zip"})).path; if (r) { const m = await post("/api/importar", {path: r}); await cargarLista(); aviso("Documento importado"); abrir?.(m.id); } }
   catch (e) { aviso(e.message); } finally { $("b-importar").disabled = false; }
 };
 
+
+// ---- plantillas: qué se busca en la grabación y cómo se redacta (#/plantillas) ----
+const LIBRES = ["resumen", "desarrollo", "detalle", "transcripcion"];
+async function cargarPlant() { const r = await api("/api/plantillas"); PL = r.plantillas; DEF = r.escala; IDI = r.idiomas; SERIE = r.serie; idiomasForm(); }
+const plantDe = id => PL.find(t => t.id === id) || PL[0];
+const docDe = id => plantDe(id)?.documento?.singular || "documento";
+function idiomasForm() {
+  const v = $("idioma").value;
+  $("idioma").replaceChildren(new Option("Según la plantilla", ""), ...Object.entries(IDI).filter(([k]) => k !== "reunión").map(([k, n]) => new Option(cap(n), k)));
+  $("idioma").value = v;
+}
+function plantForm(id) {  // selector de plantilla del formulario (por defecto, la de la carpeta)
+  $("plantilla").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("plantilla").value = plantDe(id)?.id || "acta"; $("plantilla").onchange();
+}
+$("plantilla").onchange = () => {
+  const t = plantDe($("plantilla").value); if (!t) return;
+  $("generar").textContent = "Generar " + t.documento.singular; $("info-plant").textContent = t.descripcion + (t.nube_permitida ? "" : " Solo en este equipo.");
+  $("idioma").options[0].textContent = "Según la plantilla (" + (IDI[t.idioma_acta] || t.idioma_acta) + ")"; $("idioma").onchange();
+};
+$("idioma").onchange = () => {  // aviso: fuera de es/en conviene un modelo mayor
+  const t = plantDe($("plantilla").value), i = $("idioma").value || t?.idioma_acta || "reunión";
+  $("hint-idioma").textContent = i === "eu" ? "Para euskera se recomienda la calidad Muy alta." : ["reunión", "es", "en"].includes(i) ? "" : "Para este idioma se recomienda Alta+ o superior.";
+  $("hint-idioma").hidden = !$("hint-idioma").textContent;
+};
+$("f-plant").onchange = fallo(async () => { await post("/api/carpeta", {nombre: fsel, plantilla: $("f-plant").value === "acta" ? "" : $("f-plant").value}); CP = await api("/api/carpetas/plantillas"); aviso("Plantilla por defecto guardada"); });
+async function abrirPlant(id) {
+  await cargarPlant(); if (id) pSel = id; if (!PL.some(t => t.id === pSel)) pSel = "acta";
+  history.replaceState(null, "", "#/plantillas"); vista("plant"); pintarPlant();
+}
+$("b-plant").onclick = () => abrirPlant(); $("plant-volver").onclick = () => ir("home");
+addEventListener("hashchange", () => location.hash === "#/plantillas" && vistaAct !== "plant" && abrirPlant());
+function pintarPlant() {
+  $("plant-lista").replaceChildren(...PL.map(t => el("li", {}, el("button", {textContent: t.nombre + (t.serie ? (t.editable ? " · modificada" : " · de serie") : ""), "aria-current": t.id === pSel,
+    onclick: () => { pSel = t.id; pintarPlant(); }}))));
+  const t = plantDe(pSel); pe = structuredClone(t); delete pe.serie; delete pe.editable; pintarEd(t);
+}
+const campo = (lab, inp) => el("div", {className: "field"}, el("label", {textContent: lab}), inp);
+const txt = (obj, k, area, extra = {}) => { const i = el(area ? "textarea" : "input", {value: obj[k] ?? "", ...extra}); i.oninput = () => obj[k] = i.value; return i; };
+const chk = (obj, k, lab, cb) => { const i = el("input", {type: "checkbox", checked: !!obj[k]}); i.onchange = () => { obj[k] = i.checked; cb?.(); }; return el("label", {className: "check"}, i, " " + lab); };
+const mover_ = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; pintarEd(); };
+const boton = (t, f, cls = "sec") => el("button", {type: "button", className: cls, textContent: t, onclick: fallo(async () => f())});
+function pintarEd(t = plantDe(pSel)) {
+  const ed = t.editable, base = SERIE[pe.base || pe.id] || {}, re = () => pintarEd(t);
+  const secs = pe.secciones.map((s, i) => el("div", {className: "psec"},
+    el("div", {className: "row"}, el("input", {value: s.nombre, ariaLabel: "Nombre de la sección", oninput: e => s.nombre = e.target.value}),
+      el("input", {value: s.id, ariaLabel: "Id", title: "Id (minúsculas, cifras y _)", style: "max-width:9em", oninput: e => {
+        const o = s.id; s.id = e.target.value; pe.orden = pe.orden.map(b => b === o ? s.id : b); pe.notas_rapidas.forEach(n => n.seccion === o && (n.seccion = s.id)); }}),
+      boton("↑", () => mover_(pe.secciones, i, -1)), boton("↓", () => mover_(pe.secciones, i, 1)), boton("✕", () => { pe.secciones.splice(i, 1); pe.orden = pe.orden.filter(b => b !== s.id); re(); })),
+    txt(s, "descripcion", true, {ariaLabel: "Qué debe buscar el modelo", placeholder: "Qué debe buscar el modelo"}),
+    el("div", {className: "row"}, el("label", {textContent: "Campos"}), el("input", {value: s.campos.join(", "), placeholder: "responsable, fecha, gravedad…", title: "Además de la cita y el minuto, que van siempre",
+      oninput: e => s.campos = e.target.value.split(",").map(x => x.trim().toLowerCase().replace(/\s+/g, "_")).filter(Boolean)}), chk(s, "nunca_recortar", "No recortar nunca"))));
+  const orden = pe.orden.map((b, i) => el("div", {className: "row"}, el("span", {textContent: LIBRES.includes(b) ? b : (pe.secciones.find(s => s.id === b)?.nombre || b), style: "min-width:9em"}),
+    el("input", {value: pe.titulos[b] || "", placeholder: "Título (vacío = el nombre)", oninput: e => pe.titulos[b] = e.target.value}),
+    boton("↑", () => mover_(pe.orden, i, -1)), boton("↓", () => mover_(pe.orden, i, 1))));
+  const notas = pe.notas_rapidas.map((n, i) => el("div", {className: "row"}, txt(n, "nombre", false, {ariaLabel: "Nota"}),
+    (sel => { sel.value = n.seccion || ""; sel.onchange = () => n.seccion = sel.value || null; return sel; })(el("select", {}, new Option("— sin sección —", ""), ...pe.secciones.map(s => new Option(s.nombre, s.id)))),
+    txt(n, "atajo", false, {ariaLabel: "Atajo", style: "max-width:7em"}), boton("✕", () => { pe.notas_rapidas.splice(i, 1); re(); })));
+  const reset = (k, v) => boton("Restablecer", () => { pe[k] = v; re(); });
+  const esc = el("details", {open: !!pe.mostrar_escala}, el("summary", {textContent: "Opciones avanzadas de la plantilla"}),
+    chk(pe, "mostrar_escala", "Ajustar la escala de importancia", re),
+    ...(pe.mostrar_escala ? [el("small", {textContent: "La nota de cada idea al resumir: con 1 nunca entra; al recortar, primero las más altas. Las secciones «no recortar nunca» entran siempre."}),
+      ...["5", "4", "3", "2", "1"].map(k => el("div", {className: "row"}, el("label", {textContent: k}), txt(pe.escala, k, false, {placeholder: DEF[k]}))),
+      boton("Restablecer valores por defecto", () => { pe.escala = {...DEF}; re(); })] : []));
+  const probar = el("select", {ariaLabel: "Reunión"}, ...todas.filter(m => !m.sin).map(m => new Option(m.label, m.id + "|" + m.asr)));
+  const acciones = [
+    ...(ed ? [boton("Guardar", guardarPlant, "pri")] : []),
+    boton("Duplicar", async () => { const c = await post("/api/plantillas", {plantilla: {...pe, id: "", nombre: pe.nombre + " (copia)", base: pe.base || (t.serie ? t.id : undefined)}}); await abrirPlant(c.id); aviso("Duplicada: ya puedes editarla"); }),
+    boton("Exportar", () => { const a = el("a", {href: URL.createObjectURL(new Blob([JSON.stringify(pe, null, 1)], {type: "application/json"})), download: pe.id + ".json"}); a.click(); }),
+    ...(ed ? [boton(t.serie ? "Restablecer" : "Eliminar", async () => { if (!confirm(t.serie ? "¿Volver a la plantilla de serie?" : "¿Eliminar la plantilla «" + t.nombre + "»?")) return; await post("/api/plantillas/borrar", {id: t.id}); if (!t.serie) pSel = "acta"; await abrirPlant(); })] : [])];
+  $("plant-ed").replaceChildren(el("fieldset", {disabled: !ed},
+    el("h2", {textContent: t.nombre}), ...(ed ? [] : [el("p", {className: "muted", textContent: "Plantilla de serie: no se edita. Duplícala para cambiarla."})]),
+    campo("Nombre", txt(pe, "nombre")), campo("Descripción", txt(pe, "descripcion")),
+    el("div", {className: "row"}, el("label", {textContent: "Documento"}), txt(pe.documento, "singular", false, {ariaLabel: "Singular", placeholder: "acta, informe, apuntes…"}),
+      txt(pe.documento, "plural", false, {ariaLabel: "Plural"}), chk(pe.documento, "femenino", "femenino")),
+    el("h3", {textContent: "Secciones"}), el("small", {textContent: "Cada elemento lleva su minuto y una cita literal comprobada en la transcripción. «decisiones» y «tareas» usan la verificación del acta de reunión."}),
+    ...secs, boton("+ sección", () => { pe.secciones.push({id: "seccion" + (pe.secciones.length + 1), nombre: "Nueva sección", descripcion: "", campos: [], nunca_recortar: false}); pe.orden.splice(pe.orden.indexOf("desarrollo") >>> 0, 0, pe.secciones.at(-1).id); re(); }),
+    el("h3", {textContent: "Qué destacar"}), txt(pe, "que_destacar", true), reset("que_destacar", base.que_destacar || ""),
+    el("h3", {textContent: "Cómo redactar"}), txt(pe, "como_redactar", true), reset("como_redactar", base.como_redactar || ""),
+    el("small", {textContent: "Cambiar las secciones, qué destacar o la escala repite el resumen por bloques (lo lento). Cambiar cómo redactar solo repite la redacción final (rápido: se reutiliza lo ya resumido)."}),
+    el("h3", {textContent: "Orden y títulos del documento"}), ...orden,
+    el("h3", {textContent: "Notas rápidas"}), el("small", {textContent: "Para marcar momentos durante una grabación (fase posterior)."}), ...notas,
+    boton("+ nota", () => { pe.notas_rapidas.push({nombre: "Nota", seccion: null, atajo: ""}); re(); }),
+    el("h3", {textContent: "Opciones"}), chk(pe.opciones, "capturas", "Capturas de pantalla"), chk(pe.opciones, "marcas", "Marcas de tiempo [mm:ss]"),
+    chk(pe, "nube_permitida", "Se puede procesar en la nube (desmárcalo para datos sensibles)"),
+    campo("Idioma del documento", (sel => { sel.value = pe.idioma_acta; sel.onchange = () => pe.idioma_acta = sel.value; return sel; })(el("select", {}, ...Object.entries(IDI).map(([k, n]) => new Option(cap(n), k))))),
+    esc),
+    el("div", {className: "row wrap"}, ...acciones),
+    el("h3", {textContent: "Probar con una reunión"}), el("small", {textContent: "Genera otra versión de esa reunión con esta plantilla (no sustituye a las demás)."}),
+    el("div", {className: "row"}, probar, boton("Probar", async () => {
+      if (!probar.value) return; if (ed) await guardarPlant();
+      const [id, asr] = probar.value.split("|");
+      await post("/api/generar", {reuse: id, asr, nivel: "normal", calidad: $("calidad").value || "rápida", gpu: $("usar-gpu").checked, plantilla: pe.id});
+      aviso("Añadido a la cola"); sondear();
+    })));
+}
+async function guardarPlant() { const t = await post("/api/plantillas", {plantilla: pe}); await abrirPlant(t.id); aviso("Plantilla guardada"); }
+$("plant-imp").onchange = fallo(async () => {  // importar .json: si ya existe, reemplazar o guardar como copia
+  const f = $("plant-imp").files[0]; $("plant-imp").value = ""; if (!f) return;
+  let t; try { t = JSON.parse(await f.text()); } catch { throw new Error("El fichero no es un JSON válido"); }
+  const subir = async modo => { const r = await post("/api/plantillas", {plantilla: t, modo}); $("plant-msg").replaceChildren(); await abrirPlant(r.id); aviso("Plantilla importada"); };
+  try { await subir("importar"); } catch (err) {
+    if (!/^Ya hay/.test(err.message)) throw err;
+    $("plant-msg").replaceChildren(el("div", {className: "row wrap card"}, el("span", {textContent: err.message + ": "}),
+      boton("Reemplazar", () => subir("reemplazar"), "pri"), boton("Guardar como copia", () => subir("copia")), boton("Cancelar", async () => $("plant-msg").replaceChildren())));
+  }
+});
+cargarPlant().then(() => { plantForm("acta"); if (location.hash === "#/plantillas") abrirPlant(); }).catch(() => {});

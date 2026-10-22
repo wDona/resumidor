@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 import models
 import pipeline
+import plantillas
 import procs
 import rag
 import transcripts
@@ -147,9 +148,17 @@ def _entry(d):
     return e
 
 
+def _doc(pid):
+    """Cómo se llama lo que genera la plantilla («acta», «apuntes»…), para la interfaz."""
+    try:
+        return plantillas.get(pid)["documento"]["singular"]
+    except (ValueError, KeyError, TypeError):
+        return "documento"
+
+
 @app.get("/api/cola")
 def get_cola():
-    items = [{k: v for k, v in e.items() if k != "spec"} for e in cola]
+    items = [{k: v for k, v in e.items() if k != "spec"} | {"doc": _doc(e["spec"].get("plantilla"))} for e in cola]
     for i in items:
         if i["state"] == "marcha":
             i.update(frac=job.get("frac", 0), msg=job.get("msg", ""), eta=_eta(job), t0=job.get("t0"))
@@ -314,7 +323,8 @@ def _acta_fn(d):
         if url:  # la descarga es la 1.ª fase del trabajo; luego sigue el proceso normal con el fichero bajado
             dl = descargar(url, bool(d.get("solo_audio")), d.get("navegador") or "", cb)
         out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
-                                 reuse=(Path(reuse).name, asr) if reuse else None)
+                                 reuse=(Path(reuse).name, asr) if reuse else None, plantilla=d.get("plantilla") or None,
+                                 idioma=d.get("idioma") or None, habla=d.get("habla") or None)
         if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         return {"id": out.parent.name, "acta": out.name}
@@ -340,6 +350,12 @@ def generar(d: dict):
         raise HTTPException(400, "Elige un vídeo, un audio, un enlace o una transcripción")
     if d.get("nivel", "normal") not in pipeline.LEVELS or d.get("asr", "calidad") not in pipeline.ASR_MODELS and not reuse or d.get("calidad", "rápida") not in pipeline.NIVELES:
         raise HTTPException(400, "Opción no válida")
+    try:
+        plantillas.get(d.get("plantilla") or None)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    if (d.get("idioma") or "reunión") not in plantillas.IDIOMAS or (d.get("habla") or "auto") not in ("auto", "mezcla", *pipeline.IDIOMAS):
+        raise HTTPException(400, "Idioma no válido")
     n = next(x for x in niveles() if x["id"] == d.get("calidad", "rápida"))
     if n["estado"] == "no":
         raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
@@ -508,7 +524,7 @@ def meetings():
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
                     "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""), "sin": bool(tj.get("solo_acta")),
                     **dict(zip(("actas", "dur"), res.setdefault(tf.parent.name, resumen(tf.parent)))),
-                    "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp or asr.startswith("zip") else " (calidad)"),
+                    "name": base + (" (transcripción importada)" if imp and v else "" if asr.split("-")[0] == "rápido" or imp or asr.startswith("zip") else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
     seen = {}  # dos reuniones no se llaman igual: la más antigua se queda el nombre, las demás llevan « (2)», « (3)»…
     for e in reversed(out):
@@ -553,11 +569,22 @@ def set_meta(d: dict):
 CARPETAS = pipeline.WORK / "carpetas.json"  # carpetas creadas aunque aún no tengan reuniones
 
 
-def carpetas_vacias():
+def _carpetas():
+    """carpetas.json: {"vacias": [carpetas creadas], "plantillas": {carpeta: plantilla por defecto}} (antes, solo la lista)."""
     try:
-        return json.loads(CARPETAS.read_text())
+        d = json.loads(CARPETAS.read_text())
     except (OSError, ValueError):
-        return []
+        d = {}
+    return {"vacias": d, "plantillas": {}} if isinstance(d, list) else {"vacias": d.get("vacias", []), "plantillas": d.get("plantillas", {})}
+
+
+def carpetas_vacias():
+    return _carpetas()["vacias"]
+
+
+@app.get("/api/carpetas/plantillas")
+def carpetas_plantillas():
+    return _carpetas()["plantillas"]
 
 
 @app.get("/api/carpetas")
@@ -570,7 +597,20 @@ def carpeta(d: dict):
     """Crear (sin nombre), renombrar (nuevo) o borrar (sin nuevo) una carpeta: solo toca los meta.json; las reuniones nunca se borran."""
     old, new = (d.get("nombre") or "").strip(), (d.get("nuevo") or "").strip()[:120]
     pipeline.WORK.mkdir(exist_ok=True)
-    CARPETAS.write_text(json.dumps(sorted(({*carpetas_vacias(), new} if new else {*carpetas_vacias()}) - {old, ""}), ensure_ascii=False))
+    c = _carpetas()
+    if "plantilla" in d:  # {nombre, plantilla}: plantilla por defecto de la carpeta ("" = la de serie)
+        try:
+            plantillas.get(d["plantilla"] or None)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        c["plantillas"].pop(old, None) if not d["plantilla"] else c["plantillas"].__setitem__(old, d["plantilla"])
+        CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
+        return {}
+    pl = c["plantillas"].pop(old, None)
+    if new and pl:
+        c["plantillas"][new] = pl
+    CARPETAS.write_text(json.dumps({"vacias": sorted(({*c["vacias"], new} if new else {*c["vacias"]}) - {old, ""}), "plantillas": c["plantillas"]},
+                                   ensure_ascii=False))
     for f in pipeline.WORK.glob("*/meta.json"):
         m = meta(f.parent)
         if m.get("carpeta") == old:
@@ -627,11 +667,20 @@ def _calidad(name):
     return next((q for q in pipeline.NIVELES if name.endswith("_" + q)), "rápida")
 
 
+def _acta_json(d):
+    try:
+        return json.loads((d / "acta.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 @app.get("/api/meeting/{mid}")
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": (q := _calidad(d.name)), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": (d / "acta.json").exists() and bool(json.loads((d / "acta.json").read_text()).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
-              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_', 1)[1].split('_')[0]}{("_" + q) * (q != "rápida")}.zip")), None)}
+    # zip: acta_<vídeo>_<nivel><resto del nombre de la versión (plantilla, idioma, calidad…)>.zip
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
+              "plantilla": aj.get("plantilla"), "doc": (aj.get("documento") or {}).get("singular", "acta"), "idioma": aj.get("idioma"),
+              "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_')[1]}{''.join('_' + x for x in d.name.split('_')[3:])}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
     if not actas:
         raise HTTPException(404, "Sin actas")
@@ -650,6 +699,30 @@ def files(mid: str, path: str):
     if ".." in parts or not f.is_file():
         raise HTTPException(404)
     return FileResponse(f)
+
+
+# ---------- Plantillas ----------
+@app.get("/api/plantillas")
+def get_plantillas():
+    return {"plantillas": plantillas.todas(), "escala": pipeline.ESCALA, "idiomas": plantillas.IDIOMAS, "serie": plantillas.SERIE_ID}
+
+
+@app.post("/api/plantillas")
+def set_plantilla(d: dict):
+    """{plantilla, modo}: guardar desde el editor (modo "") o importar un .json (modo "importar"; si el nombre o el id ya existen,
+    409 y la interfaz pregunta: "reemplazar" o "copia")."""
+    try:
+        return plantillas.guardar(d.get("plantilla"), d.get("modo") or "")
+    except FileExistsError as ex:
+        raise HTTPException(409, f"Ya hay una plantilla «{ex}»")
+    except (ValueError, PermissionError) as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.post("/api/plantillas/borrar")
+def del_plantilla(d: dict):
+    plantillas.borrar(d.get("id"))
+    return {}
 
 
 # ---------- Preguntar ----------
