@@ -635,9 +635,10 @@ def ram_gb():
             import ctypes
 
             class MS(ctypes.Structure):
-                _fields_ = [("l", ctypes.c_ulong), ("m", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + [(f"x{i}", ctypes.c_ulonglong) for i in range(5)]
+                _fields_ = [("l", ctypes.c_ulong), ("m", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + [(f"x{i}", ctypes.c_ulonglong) for i in range(6)]  # 7 campos ull tras dwLength/dwMemoryLoad (con menos, la API falla)
             m = MS(); m.l = ctypes.sizeof(m)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m))
+            if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+                return 0
             return round(m.total / 2**30)
         if sys.platform == "darwin":
             return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30)
@@ -646,26 +647,34 @@ def ram_gb():
         return 0
 
 
+def parse_devices(out):
+    """Salida de `--list-devices` -> {name, vram_mb, mem_mb, igpu} de la GPU con más memoria (None si no hay). En una iGPU la
+    memoria que reporta Vulkan es RAM compartida: vram_mb=0 (así nada la trata como VRAM) y mem_mb guarda el dato."""
+    devs = [(m[1], int(m[2])) for m in re.finditer(r"^\s*\w+\d+: (.+?) \((\d+) MiB", out, re.M)
+            if not re.search(r"llvmpipe|lavapipe|swiftshader|software", m[1], re.I)]
+    if not devs:
+        return None
+    name, mb = max(devs, key=lambda d: d[1])
+    # ponytail: integrada por el nombre (llama.cpp no lo dice); falla con iGPU rara, el usuario puede marcarla
+    igpu = bool(re.search(r"intel|uhd|iris|apu|vega \d|radeon\(tm\) graphics|radeon graphics", name, re.I))
+    return {"name": name, "vram_mb": 0 if igpu else mb, "mem_mb": mb, "igpu": igpu}
+
+
 def gpu_info():
     """{ok, default, name, vram_mb, why}: GPU que usaría llama.cpp (`llama-server --list-devices`), en caché."""
     if _gpu_cache:
         return _gpu_cache[0]
-    r = {"ok": False, "default": False, "name": "", "vram_mb": 0, "why": "Esta instalación no incluye soporte de GPU"}
+    r = {"ok": False, "default": False, "name": "", "vram_mb": 0, "igpu": False, "why": "Esta instalación no incluye soporte de GPU"}
     if MAC_ARM:
-        r = {"ok": True, "default": True, "name": "Apple Silicon (Metal)", "vram_mb": 0, "why": ""}
+        r = {"ok": True, "default": True, "name": "Apple Silicon (Metal)", "vram_mb": 0, "igpu": False, "why": ""}
     elif exe := llama_exe(True):
         r["why"] = "No se detecta ninguna GPU compatible"
         try:
             out = subprocess.run([str(exe), "--list-devices"], capture_output=True, text=True, timeout=30).stdout
         except Exception:
             out = ""
-        devs = [(m[1], int(m[2])) for m in re.finditer(r"^\s*\w+\d+: (.+?) \((\d+) MiB", out, re.M)
-                if not re.search(r"llvmpipe|lavapipe|swiftshader|software", m[1], re.I)]
-        if devs:
-            name, mb = max(devs, key=lambda d: d[1])
-            # ponytail: integrada por el nombre (llama.cpp no lo dice); falla con iGPU rara de >=6 GB, el usuario puede marcarla
-            igpu = bool(re.search(r"intel|uhd|iris|apu|vega \d|radeon\(tm\) graphics|radeon graphics", name, re.I))
-            r = {"ok": True, "default": mb >= 6000 and not igpu, "name": name, "vram_mb": mb, "why": ""}
+        if d := parse_devices(out):
+            r = {"ok": True, "default": d["vram_mb"] >= 6000, "why": "", **d}
     _gpu_cache.append(r)
     return r
 
