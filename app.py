@@ -20,11 +20,12 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import models
 import pipeline
+import exportar
 import plantillas
 import procs
 import rag
@@ -615,7 +616,7 @@ def _carpetas():
         d = json.loads(CARPETAS.read_text())
     except (OSError, ValueError):
         d = {}
-    return {"vacias": d, "plantillas": {}} if isinstance(d, list) else {"vacias": d.get("vacias", []), "plantillas": d.get("plantillas", {})}
+    return {"vacias": d, "plantillas": {}, "estilos": {}} if isinstance(d, list) else {"vacias": d.get("vacias", []), "plantillas": d.get("plantillas", {}), "estilos": d.get("estilos", {})}
 
 
 def carpetas_vacias():
@@ -646,10 +647,21 @@ def carpeta(d: dict):
         c["plantillas"].pop(old, None) if not d["plantilla"] else c["plantillas"].__setitem__(old, d["plantilla"])
         CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
         return {}
-    pl = c["plantillas"].pop(old, None)
+    if "estilo" in d:  # {nombre, estilo}: estilo de organización por defecto de la carpeta ("" = ninguno)
+        if d["estilo"]:
+            try:
+                exportar.estilo_get(d["estilo"])
+            except KeyError:
+                raise HTTPException(400, "No existe ese estilo")
+        c["estilos"].pop(old, None) if not d["estilo"] else c["estilos"].__setitem__(old, d["estilo"])
+        CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
+        return {}
+    pl, es = c["plantillas"].pop(old, None), c["estilos"].pop(old, None)
     if new and pl:
         c["plantillas"][new] = pl
-    CARPETAS.write_text(json.dumps({"vacias": sorted(({*c["vacias"], new} if new else {*c["vacias"]}) - {old, ""}), "plantillas": c["plantillas"]},
+    if new and es:
+        c["estilos"][new] = es
+    CARPETAS.write_text(json.dumps({"vacias": sorted(({*c["vacias"], new} if new else {*c["vacias"]}) - {old, ""}), "plantillas": c["plantillas"], "estilos": c["estilos"]},
                                    ensure_ascii=False))
     for f in pipeline.WORK.glob("*/meta.json"):
         m = meta(f.parent)
@@ -718,7 +730,7 @@ def _acta_json(d):
 def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
     # zip: acta_<vídeo>_<nivel><resto del nombre de la versión (plantilla, idioma, calidad…)>.zip
-    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
+    actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "url": f"/api/vista/{wd.name}/{d.name}" if (d / exportar.EDITADA).is_file() else f"/files/{wd.name}/{d.name}/index.html", "editado": (d / exportar.EDITADA).is_file(),
               "plantilla": aj.get("plantilla"), "doc": (aj.get("documento") or {}).get("singular", "acta"), "idioma": aj.get("idioma"), "mtime": (d / "index.html").stat().st_mtime,
               "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_')[1]}{''.join('_' + x for x in d.name.split('_')[3:])}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
@@ -739,6 +751,91 @@ def files(mid: str, path: str):
     if ".." in parts or not f.is_file():
         raise HTTPException(404)
     return FileResponse(f)
+
+
+# ---------- Documento editable y exportaciones ----------
+def _ex(fn, *a, **k):
+    try:
+        return fn(*a, **k)
+    except FileNotFoundError:
+        raise HTTPException(404, "No existe esa versión")
+    except (ValueError, KeyError) as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.get("/api/doc/{mid}/{ver}")
+def get_doc(mid: str, ver: str):
+    """Datos del documento (el editado si existe) + editado + original (siempre el de la generación)."""
+    c = _ex(exportar.carga, mid, ver)
+    return {"editado": c["editado"], "datos": c["data"], "original": json.loads((c["d"] / "acta.json").read_text()) if c["editado"] else c["data"]}
+
+
+@app.put("/api/doc/{mid}/{ver}")
+def put_doc(mid: str, ver: str, d: dict):
+    """{cambios: {ruta: texto}} sobre la versión vigente -> acta_editada.json; el original no se toca."""
+    _ex(exportar.guardar_edicion, mid, ver, d.get("cambios") or {})
+    return {"editado": True}
+
+
+@app.post("/api/doc/{mid}/{ver}/restaurar")
+def restaurar_doc(mid: str, ver: str):
+    _ex(exportar.restaurar, mid, ver)
+    return {"editado": False}
+
+
+@app.get("/api/vista/{mid}/{ver}")
+def vista(mid: str, ver: str, editar: int = 0, print: int = 0, original: int = 0):
+    """HTML del documento desde los datos (editado si existe). editar=1: contenteditable + window.cambios() -> {ruta: texto}; print=1: abre el diálogo de imprimir."""
+    c = _ex(exportar.carga, mid, ver)
+    if original and c["editado"]:
+        c["data"], c["editado"] = json.loads((c["d"] / "acta.json").read_text()), False
+    return HTMLResponse(exportar.html_doc(c, bool(editar), f"/files/{c['mid']}/{c['ver']}/", bool(print), exportar.estilo_para(c)))
+
+
+@app.get("/api/exportar/{mid}/{ver}")
+def exportar_doc(mid: str, ver: str, fmt: str = "docx", estilo: str | None = None, hablantes: int = 0, evento: int = 0):
+    try:
+        datos, nombre, mime = _ex(exportar.exportar, mid, ver, fmt, estilo, bool(hablantes), bool(evento))
+    except exportar.SinNavegador as ex:
+        raise HTTPException(409, str(ex))
+    return Response(datos, media_type=mime, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nombre)})
+
+
+@app.get("/api/estilos")
+def get_estilos():
+    return exportar.estilos()
+
+
+@app.get("/api/estilos/{eid}")
+def get_estilo(eid: str):
+    return _ex(exportar.estilo_get, eid)
+
+
+@app.post("/api/estilos")
+def post_estilo(d: dict):
+    return _ex(exportar.estilo_guardar, d)
+
+
+@app.post("/api/estilos/borrar")
+def borrar_estilo(d: dict):
+    _ex(exportar.estilo_borrar, d.get("id", ""))
+    return {}
+
+
+@app.put("/api/estilos/{eid}/{clave}")
+async def subir_estilo(eid: str, clave: str, request: Request, name: str = ""):
+    """Cuerpo = el fichero. clave: logo (png/jpg) | base_docx (.docx)."""
+    if clave not in ("logo", "base_docx"):
+        raise HTTPException(404)
+    return _ex(exportar.estilo_fichero, eid, clave, name, await request.body())
+
+
+@app.get("/api/estilos/{eid}/{clave}")
+def bajar_estilo(eid: str, clave: str):
+    e = _ex(exportar.estilo_get, eid)
+    if clave not in ("logo", "base_docx") or not e[clave]:
+        raise HTTPException(404)
+    return FileResponse(exportar._est_dir() / e[clave])
 
 
 # ---------- Plantillas ----------

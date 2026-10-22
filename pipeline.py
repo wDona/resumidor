@@ -145,11 +145,11 @@ def windowed(transcribe_win, dur, win, pad=30):
     while True:
         final = start + win + pad >= dur
         nxt = start + win
-        for s, e, txt in transcribe_win(start, win + pad):
+        for s, e, txt, *wd in transcribe_win(start, win + pad):  # wd: palabras [{w,s,e,p}] relativas a la ventana (opcional)
             if not final and s >= win:
                 nxt = start + s
                 break
-            out.append((start + s, start + e, txt))
+            out.append((start + s, start + e, txt, *([[{**x, "s": round(start + x["s"], 2), "e": round(start + x["e"], 2)} for x in wd[0]]] if wd else [])))
             nxt = max(nxt, start + e)
         if final:
             return out
@@ -176,15 +176,16 @@ def transcribe(video, quality, threads, dur, cb, t0=0):
     mezcla, langs = habla == "mezcla", []
 
     def win(start, length):
-        segs, info = model.transcribe(pcm16k(video, t0 + start, length), language=lang[0], vad_filter=True,
+        segs, info = model.transcribe(pcm16k(video, t0 + start, length), language=lang[0], vad_filter=True, word_timestamps=True,  # +palabras con tiempo y probabilidad (subtítulos), ~5-10 % más
                                       beam_size=1 if name == "small" else 5, condition_on_previous_text=False)
         lang[0] = lang[0] or (None if mezcla else info.language)  # mezcla: cada ventana de ~30 s en el idioma que detecta
         langs.append(info.language)
         for s in segs:
             cb(min((start + s.end) / dur, 1), f"Transcribiendo… {fmt(start + s.end)} / {fmt(dur)}")
-            yield s.start, s.end, s.text.strip()
+            yield s.start, s.end, s.text.strip(), [{"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in s.words or []]
     segs = windowed(win, dur, 30, 10) if mezcla else windowed(win, dur, ASR_WIN)
-    return {"language": lang[0] or max(set(langs), key=langs.count, default=None), "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t} for s, e, t in segs if t]}
+    return {"language": lang[0] or max(set(langs), key=langs.count, default=None), "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t, **({"words": [{**x, "s": round(t0 + x["s"], 2), "e": round(t0 + x["e"], 2)} for x in w[0]]} if w and w[0] else {})}
+                                                                         for s, e, t, *w in segs if t]}
 
 
 # ---------- Transcripción importada ----------
@@ -1119,7 +1120,7 @@ EMB_T = [0.0]  # segundos acumulados en embeddings
 def embed(texts):
     import rag  # el mismo EmbeddingGemma ONNX del RAG
     t0 = time.time()
-    v = rag.embed(texts, threads=PHYS)
+    v = rag.embed(texts, threads=PHYS, std=True)
     EMB_T[0] += time.time() - t0
     return v
 
@@ -1714,21 +1715,37 @@ def pick_shots(kfs, sel, n):
 
 
 # ---------- Informe HTML ----------
-CSS = """body{font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;color:#1f2933;background:#f4f5f7}
-main{display:grid;grid-template-columns:minmax(320px,44%) 1fr;gap:24px;padding:16px;max-width:1500px;margin:auto}
-#side{position:sticky;top:16px;align-self:start}video,audio{width:100%;background:#000;border-radius:6px}audio{background:none}
-@media(max-width:900px){main{grid-template-columns:1fr}#side{position:sticky;top:0;z-index:1;background:#f4f5f7}}
-h1{font-size:1.4em;margin:.2em 0}h2{font-size:1.15em;border-bottom:1px solid #d9dee4;padding-bottom:4px;margin-top:1.6em}
-.spk{font-size:13px;color:#616e7c;margin-right:6px}a.ts{font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#1d5fd1;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}span.ts{font:600 13px system-ui,sans-serif;color:#616e7c;margin-right:6px}
-.meta{color:#616e7c;font-size:14px}.tldr{background:#fff;border:1px solid #d9dee4;border-left:4px solid #1d5fd1;border-radius:6px;padding:10px 14px}
-figure{margin:10px 0 14px}figure img{max-width:min(100%,560px);border:1px solid #d9dee4;border-radius:6px}
-figcaption{font-size:13px;color:#616e7c}table{border-collapse:collapse;width:100%}
-td,th{border:1px solid #d9dee4;padding:4px 8px;text-align:left;vertical-align:top}
-.strip{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.strip a{flex:none;text-align:center;font-size:11px;color:#616e7c;text-decoration:none}
-.strip img{display:block;height:120px;border:1px solid #d9dee4;border-radius:3px;cursor:zoom-in}
+CSS = """:root{--bg:#f4f5f7;--card:#fff;--ink:#1f2933;--mut:#616e7c;--line:#d9dee4;--line2:#e6e9ee;--acc:#1d5fd1;--acc-d:#174ba3;--acc-s:#eef4ff;--on:#fff;--shadow:0 8px 30px rgba(15,23,42,.2);color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d222a;--ink:#e6e9ee;--mut:#9aa5b1;--line:#333b46;--line2:#2a313a;--acc:#6ea3ff;--acc-d:#8db4f5;--acc-s:#1b2a45;--on:#0b1220;--shadow:0 8px 30px rgba(0,0,0,.55)}}
+*{box-sizing:border-box}
+body{font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;color:var(--ink);background:var(--bg)}
+main{display:block;max-width:960px;margin:0 auto;padding:20px 16px 260px}
+main>div:last-child{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:32px 40px}
+@media(max-width:700px){main>div:last-child{padding:20px 16px}}
+#side{position:fixed;right:16px;bottom:16px;width:min(340px,calc(100vw - 32px));z-index:6;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:6px}
+video,audio{display:block;width:100%;background:#000;border-radius:8px;max-height:45vh}audio{background:none;height:48px}
+#pip{align-self:flex-end;font:inherit;font-size:13px;min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}#pip:hover{background:var(--acc-s)}
+#pick{margin:0;padding:6px;font-size:13px;color:var(--mut)}
+a{color:var(--acc)}
+h1{font-size:26px;line-height:1.25;margin:0 0 6px}
+h2{font-size:22px;line-height:1.3;margin:2em 0 .6em}h3{font-size:17px;margin:1.4em 0 .4em}
+h2:first-of-type{margin-top:1.4em}
+.spk{font-size:13px;color:var(--mut);margin-right:6px}
+a.ts{display:inline-block;font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;background:var(--acc-s);color:var(--acc-d);padding:1px 7px;border-radius:5px;text-decoration:none;margin-right:6px;cursor:pointer}a.ts:hover{text-decoration:underline}
+span.ts{display:inline-block;font:600 13px system-ui,sans-serif;font-variant-numeric:tabular-nums;color:var(--mut);margin-right:6px}
+@media(prefers-color-scheme:dark){a.ts{color:var(--acc)}}
+.meta{color:var(--mut);font-size:14px;margin:0 0 10px}
+.tldr{font-size:18px;line-height:1.55;background:var(--acc-s);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:10px;padding:14px 18px}
+figure{margin:12px 0 16px}figure img{max-width:min(100%,560px);border:1px solid var(--line);border-radius:10px}
+figcaption{font-size:13px;color:var(--mut)}
+table{border-collapse:collapse;width:100%;font-size:15px}
+td,th{border-top:1px solid var(--line2);padding:8px 10px;text-align:left;vertical-align:top}th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);border-top:0}
+.strip{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.strip a{flex:none;text-align:center;font-size:11px;color:var(--mut);text-decoration:none}
+.strip img{display:block;height:120px;border:1px solid var(--line);border-radius:6px;cursor:zoom-in}
 #big{position:fixed;inset:0;background:#000c;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:9;cursor:zoom-out}
 #big img{max-width:96vw;max-height:90vh;touch-action:none;cursor:grab}#big .n{position:absolute;top:50%;left:8px;color:#fff;font-size:48px;padding:0 12px;cursor:pointer;user-select:none}#big .n.r{left:auto;right:8px}#big span{text-align:center}#big span a{color:#9cf}#big span{color:#fff;margin-top:6px}
-.q{display:block;color:#616e7c;font-size:12px}details p{margin:2px 0;font-size:14px}.rel{margin:0 0 12px}.rel>p{margin:0 0 4px}"""
+.q{display:block;color:var(--mut);font-size:13px}details{color:var(--mut)}summary{cursor:pointer;min-height:28px}details p{margin:2px 0;font-size:15px;color:var(--ink)}.rel{margin:0 0 14px}.rel>p{margin:0 0 4px}
+:focus-visible{outline:3px solid #8db4f5;outline-offset:2px}"""
 
 JS = """const Z=[...document.querySelectorAll('a.z')].filter((a,i,r)=>!i||r[i-1].href!=a.href);
 let bi,B,I,S=1,X=0,Y=0;
@@ -1757,6 +1774,7 @@ const v=document.getElementById('v');
 document.addEventListener('click',e=>{const a=e.target.closest('[data-t]');if(!a)return;e.preventDefault();
 v.currentTime=+a.dataset.t;v.play();});
 v.addEventListener('error',()=>{v.hidden=true;document.getElementById('pick').hidden=false});
+const pb=document.getElementById('pip');if(pb&&v.tagName=='VIDEO'&&document.pictureInPictureEnabled){pb.hidden=false;pb.onclick=()=>(document.pictureInPictureElement?document.exitPictureInPicture():v.requestPictureInPicture()).catch(()=>{})}
 document.querySelector('#pick input').onchange=e=>{v.src=URL.createObjectURL(e.target.files[0]);
 document.getElementById('pick').hidden=true;v.hidden=false};"""
 
@@ -1935,8 +1953,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     page = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(cab)} — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><{med} id="v" src="video{vext}" controls preload="metadata"></{med}>
-<p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
-<div><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
+<button type="button" id="pip" hidden>Imagen en imagen</button><p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
+<div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}</p>
 {nota}{chr(10).join(parts)}
 </div></main><script>{JS}</script></body></html>"""
@@ -1944,7 +1962,7 @@ generado {time.strftime('%Y-%m-%d %H:%M')}</p>
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">.*?</a>', "", page)
     if not vext:  # sin vídeo: ni reproductor ni enlaces
         page = re.sub(r'<div id="side">.*?</p></div>', "", page, flags=re.S).replace(f"<script>{JS}</script>", "")
-        page = page.replace("<main>", '<main style="display:block;max-width:900px">', 1)
+        page = page.replace("<main>", '<main>', 1)
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
     allshots = sorted({k["img"]: k for k in [*shots, *nshots.values(), *used]}.values(), key=lambda k: k["t"])
     allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json

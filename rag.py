@@ -168,9 +168,10 @@ def embed_gguf(texts, query, threads):
     return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
 
 
-def embed(texts, query=False, threads=2):
+def embed(texts, query=False, threads=2, std=False):
+    """std=True: siempre el ONNX de serie (el pipeline del acta está calibrado para él); el rol «emb» solo afecta al índice de Preguntar."""
     global _enc
-    if emb_id() != ONNX:
+    if not std and emb_id() != ONNX:
         return embed_gguf(texts, query, threads)
     if _enc is None:
         import onnxruntime as ort
