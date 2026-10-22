@@ -280,3 +280,21 @@ dialog.gr[open]{display:flex;flex-direction:column;max-height:94vh;overflow:hidd
  .pr.gl{grid-template-columns:minmax(0,1fr) 44px}.pr.gl>input:nth-child(2),.pr.gl>input:nth-child(3){grid-column:1}
  .f-barra .row,.f-barra label{width:100%}
 }
+
+/* grabar reunión (design/Grabar.dc.html) */
+.rec-h{background:var(--card);border-bottom:1px solid var(--line);margin:-20px -24px 20px;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.rec-h .dot{width:14px;height:14px;border-radius:50%;background:var(--err)}.rec-h .dot.p{background:var(--mut)}
+.rec-h .t{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+.rec-g{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}.rec-g>aside{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:14px}.rec-g>.card{flex:999 1 520px;min-width:0;margin:0}
+.meter{height:10px;background:var(--line2);border-radius:5px;overflow:hidden}.meter>i{display:block;height:100%;background:var(--ok);width:0;transition:width .2s}
+.meter-l{display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;gap:8px}.meter-l span:last-child{color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legal{background:var(--warn-s);border:1px solid var(--warn-ln);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--ink2)}
+.legal button{margin-top:8px}
+.nbtns{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.nbtns kbd{font:12px/1 system-ui;color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:2px 4px}
+.notas{list-style:none;margin:12px 0 0;padding:0;border-top:1px solid var(--line2)}
+.notas>li{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--line2);align-items:baseline;flex-wrap:wrap}
+.notas .m{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:600;min-width:52px;background:none;border:0;padding:0;min-height:0;cursor:pointer}
+.notas .x{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}.notas .badge{margin-right:6px;background:var(--acc-s);color:var(--acc-d);font-weight:600}
+.notas input{min-width:0}.ntl{position:relative;height:14px;background:var(--line2);border-radius:7px;margin:8px 0}.ntl button{position:absolute;top:-2px;min-height:0;width:10px;height:18px;padding:0;border-radius:3px;background:var(--acc);border:0;transform:translateX(-50%)}
+.rec-prev{width:100%;max-height:260px;background:#000;border-radius:8px}
+.pri.dng{background:var(--err);color:var(--on-acc)}.pri.dng:hover{background:var(--err);color:var(--on-acc);filter:brightness(.9)}

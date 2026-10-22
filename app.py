@@ -30,6 +30,7 @@ import carpetas
 import correo
 import dudas
 import exportar
+import grabar
 import plantillas
 import privacidad
 import procs
@@ -83,6 +84,7 @@ def parar_llm():
 
 atexit.register(parar_llm)
 atexit.register(rag.emb_stop)
+atexit.register(lambda: grabar.activa() and grabar.activa().parar())  # queda en «Recuperar grabación»
 
 
 # ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
@@ -366,7 +368,7 @@ def _acta_fn(d):
         out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
                                  reuse=(Path(reuse).name, asr) if reuse else None, plantilla=d.get("plantilla") or None,
                                  idioma=d.get("idioma") or carpetas.leer(carp0)["ajustes"]["idioma"] or None, habla=d.get("habla") or None,
-                                 glosario=carpetas.terminos_prompt(carp0) or None)  # glosario y idioma de la carpeta (vacíos: nada cambia)
+                                 glosario=carpetas.terminos_prompt(carp0) or None, pistas=d.get("pistas") or None)  # glosario y idioma de la carpeta (vacíos: nada cambia)
         if dl and not any(m.is_symlink() for m in out.parent.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(out.parent).get("carpeta"):  # carpeta pedida al generar
@@ -379,6 +381,8 @@ def _acta_fn(d):
                 raise
             except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
                 print("seguimiento:", ex, flush=True)
+        if d.get("grabacion"):  # grabación: ya hay transcripción y medio en la reunión; fuera las pistas
+            grabar.limpiar(pipeline.WORK / "grabaciones" / Path(d["grabacion"]).name)
         return {"id": out.parent.name, "acta": out.name}
     return fn
 
@@ -565,6 +569,137 @@ async def upload(request: Request, name: str):
         async for chunk in request.stream():
             f.write(chunk)
     return {"path": str(dest)}
+
+
+# ---------- Grabar reunión (sin bot: micrófono + audio del sistema) y notas ----------
+def _rec():
+    r = grabar.activa()
+    if not r:
+        raise HTTPException(409, "No hay ninguna grabación en curso")
+    return r
+
+
+@app.get("/api/grabar/dispositivos")
+def grabar_dispositivos():
+    return grabar.dispositivos()
+
+
+@app.get("/api/grabar/estado")
+def grabar_estado():
+    r = grabar.activa()
+    return {"activa": r.estado() if r else None, "notas": grabar.leer_notas(r.wd) if r else [], "cfg": r.cfg if r else None,
+            "recuperables": grabar.recuperables(pipeline)}
+
+
+@app.post("/api/grabar/iniciar")
+def grabar_iniciar(d: dict):
+    """{mic_id, sistema_id, pantalla, carpeta, perfil, calidad, nombre, nombres}: empieza a grabar (dos pistas + pantalla opcional)."""
+    try:
+        plantillas.get(d.get("perfil") or None)
+        r = grabar.iniciar(pipeline, {k: d.get(k) for k in ("mic_id", "sistema_id", "pantalla", "carpeta", "perfil", "calidad", "nombre", "nombres", "nivel", "asr", "idioma", "habla", "gpu")})
+    except (ValueError, RuntimeError) as ex:
+        raise HTTPException(400, str(ex))
+    return r.estado()
+
+
+@app.post("/api/grabar/pausa")
+def grabar_pausa(d: dict):
+    r = _rec()
+    r.pausar() if d.get("pausa", True) else r.reanudar()
+    grabar._meta(r.wd, estado="pausada" if r.pausada else "grabando")
+    return r.estado()
+
+
+@app.post("/api/grabar/nota")
+def grabar_nota(d: dict):
+    """Nota con el minuto actual de la grabación; sin texto = solo marca el momento (botón rápido)."""
+    r = _rec()
+    n = grabar.leer_notas(r.wd)
+    n.append({"id": uuid.uuid4().hex[:8], "t": r.elapsed(), "texto": d.get("texto") or "", "boton": d.get("boton") or "", "seccion": d.get("seccion") or None})
+    return grabar.guardar_notas(r.wd, n)
+
+
+@app.put("/api/grabar/notas")
+def grabar_notas(d: dict):
+    return grabar.guardar_notas(_rec().wd, d.get("notas") or [])
+
+
+def _grabacion_a_cola(wd, ex=None):
+    """Cierra los tramos de una grabación y encola el documento (pistas -> «Yo»/«Otros»). Si algo falla, queda en «Recuperar grabación»."""
+    m, ex = grabar.meta(wd), ex or {}
+    c = {**m.get("cfg", {}), **{k: v for k, v in ex.items() if v not in (None, "")}}
+    grabar._meta(wd, estado="parada")
+    try:
+        fin = grabar.finalizar(wd)
+    except (RuntimeError, subprocess.CalledProcessError) as ex2:
+        raise HTTPException(400, str(ex2) if isinstance(ex2, RuntimeError) else "No se pudo cerrar la grabación (ffmpeg)")
+    medio = Path(fin["medio"])
+    wdm = pipeline.WORK / pipeline.video_id(medio)
+    grabar.guardar_notas(wdm, grabar.leer_notas(wd))
+    nombre = (c.get("nombre") or "").strip() or "Reunión " + time.strftime("%Y-%m-%d %H:%M", time.localtime(m.get("inicio") or time.time()))
+    (wdm / "meta.json").write_text(json.dumps({**meta(wdm), "nombre": nombre, **({"carpeta": c["carpeta"]} if c.get("carpeta") else {})}, ensure_ascii=False))
+    spec = {"video": str(medio), "pistas": fin["pistas"], "nombres": c.get("nombres") or grabar.NOMBRES, "carpeta": c.get("carpeta") or "", "plantilla": c.get("perfil") or "",
+            "calidad": c.get("calidad") or "rápida", "nivel": c.get("nivel") or "normal", "asr": c.get("asr") or "calidad", "idioma": c.get("idioma") or "",
+            "habla": c.get("habla") or "", "gpu": c.get("gpu"), "grabacion": wd.name}
+    r = generar(spec)
+    grabar._meta(wd, estado="encolada", cola=r["id"])
+    return {**r, "id_reunion": wdm.name}
+
+
+@app.post("/api/grabar/parar")
+def grabar_parar(d: dict):
+    """Para la grabación y encola el documento con el perfil/calidad/carpeta elegidos."""
+    r = _rec()
+    r.parar()
+    return _grabacion_a_cola(r.wd, d)
+
+
+@app.post("/api/grabar/recuperar")
+def grabar_recuperar(d: dict):
+    """Grabación sin cerrar: {id} la cierra y genera el documento; {id, descartar: true} la borra."""
+    wd = pipeline.WORK / "grabaciones" / Path(d.get("id") or "").name
+    if not (wd / "rec.json").exists() or (grabar.activa() and grabar.activa().wd == wd):
+        raise HTTPException(404, "Grabación no encontrada")
+    if d.get("descartar"):
+        shutil.rmtree(wd, ignore_errors=True)
+        return {"ok": True}
+    return _grabacion_a_cola(wd, d)
+
+
+def _wd_notas(d):
+    """Reunión (id) o vídeo aún sin procesar (ruta): su carpeta de trabajo, donde viven las notas (notas.json)."""
+    if d.get("id"):
+        wd = pipeline.WORK / Path(d["id"]).name
+        if not wd.is_dir():
+            raise HTTPException(404, "Reunión no encontrada")
+        return wd
+    v = Path(d.get("video") or "")
+    if not v.is_file():
+        raise HTTPException(400, "Elige un vídeo o una reunión")
+    return pipeline.WORK / pipeline.video_id(v)
+
+
+MEDIA = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac")
+
+
+@app.get("/api/previa")
+def previa(video: str):
+    """Vídeo/audio elegido y aún sin procesar, para ponerle notas viéndolo (solo ficheros multimedia; sirve Range)."""
+    f = Path(video)
+    if f.suffix.lower() not in MEDIA or not f.is_file():
+        raise HTTPException(404, "Fichero no encontrado")
+    return FileResponse(f)
+
+
+@app.get("/api/notas")
+def get_notas(id: str = "", video: str = ""):
+    return grabar.leer_notas(_wd_notas({"id": id, "video": video}))
+
+
+@app.put("/api/notas")
+def put_notas(d: dict):
+    """Notas de un vídeo (antes de generar) o de una reunión; al generar entran en el documento."""
+    return grabar.guardar_notas(_wd_notas(d), d.get("notas") or [])
 
 
 # ---------- Reuniones ----------
@@ -1401,7 +1536,7 @@ if __name__ == "__main__":
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
 
     def vigila():
-        while time.time() - beat[0] < (IDLE_JOB if any(e['state'] in ACTIVOS for e in cola) else IDLE):
+        while grabar.activa() or time.time() - beat[0] < (IDLE_JOB if any(e['state'] in ACTIVOS for e in cola) else IDLE):
             time.sleep(2)
         srv.should_exit = True
     threading.Thread(target=vigila, daemon=True).start()

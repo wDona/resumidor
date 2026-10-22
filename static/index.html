@@ -64,7 +64,7 @@
             <div class="row"><label for="ruta" class="sr">Vídeo o audio de la reunión</label><input id="ruta" readonly placeholder="Ningún archivo elegido (o suelta uno aquí)"><button type="button" id="elegir" class="sec">Elegir archivo</button></div>
             <small id="subida"></small></div>
           <!-- Gancho: grabar en vivo (fase posterior) -->
-          <div id="n-grabar" hidden></div>
+          <div id="n-grabar" hidden></div><div id="n-notas" class="card" hidden></div>
           <div class="field"><label for="enlace">o pega un enlace</label>
             <input id="enlace" type="url" placeholder="https://… (vídeo, audio, pódcast, reunión grabada)">
             <label class="check solo-av" id="l-solo-audio" hidden title="Baja solo el sonido: la descarga es más rápida, pero el documento no llevará capturas de pantalla" style="margin-top:8px"><input type="checkbox" id="solo-audio"> <span>Descargar solo el audio (más rápido; sin capturas de pantalla)</span></label></div>
@@ -141,6 +141,8 @@
   </section>
 
   <!-- ===== Cola ===== -->
+  <section id="v-grabar" class="page" hidden></section>
+
   <section id="v-cola" class="cola-w" hidden>
     <a class="back" href="#" id="cola-volver">&larr; Inicio</a>
     <div class="head"><h1>Cola</h1><p class="muted" id="q-sub">Se procesa un trabajo a la vez; el resto espera su turno. Puedes seguir usando la aplicación.</p></div>
@@ -191,6 +193,7 @@
           <ul class="list" id="conds"></ul>
           <video id="cvideo" controls preload="metadata" hidden></video>
         </div>
+        <div class="card" id="p-notas" style="margin-top:20px"></div>
       </div>
     </div>
   </section>
@@ -293,5 +296,6 @@
 <script src="carpeta.js"></script>
 <script src="plantillas.js"></script>
 <script src="modelos.js"></script>
+<script src="grabar.js"></script>
 </body>
 </html>

@@ -8,6 +8,8 @@ const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag)
 const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let corriendo = false;
+const GR = {activa: false, dev: null, est: null, notas: [], cfg: null};  // grabar.js
+
 let PL = [], CP = {}, DEF = {}, IDI = {}, SERIE = {}, CE = {}, ESTILOS = [];  // plantillas (ver plantillas.js)
 addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Hay trabajos en la cola; si cierras, se cancelarán"; } });
 setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000); fetch("/api/latido", {method: "POST"});
@@ -15,7 +17,7 @@ setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000);
 // ---- elegir vídeo y transcripción ----
 const INFO_TR = "Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor.";
 let ruta = "", rutaTr = "", hablaTr = false;
-const setRuta = p => { ruta = p; $("ruta").value = p; };
+const setRuta = p => { ruta = p; $("ruta").value = p; typeof notasForm === "function" && notasForm(p); };
 const setTr = async p => {
   rutaTr = ""; hablaTr = false; $("ruta-tr").value = p; $("quitar-tr").hidden = !p;
   try {
@@ -92,7 +94,7 @@ function pintarNivel() {
 
 // ---- vistas ----
 let vistaAct = "home";
-const VISTAS = ["home", "nuevo", "cola", "res", "preg", "ajustes", "uso"];
+const VISTAS = ["home", "nuevo", "grabar", "cola", "res", "preg", "ajustes", "uso"];
 const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
   if (v !== "ajustes" && location.hash) history.replaceState(null, "", location.pathname); document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
@@ -247,7 +249,7 @@ function pintarSide() {
   const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
   const item = (txt, act, f, n, extra = {}) => el("button", {className: "nav" + (extra.m ? " m" : ""), "aria-current": act ? "page" : "false", onclick: f}, el("span", {textContent: txt}), el("span", {className: "c" + (extra.a ? " a" : ""), textContent: n ?? ""}));
   const cl = item("Cola", false, () => { vista("cola"); sondear(); }, cola.n || "", {a: 1}); cl.lastChild.setAttribute("data-cola", "");
-  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), cl,
+  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), item(GR.activa ? "● Grabando…" : "● Grabar reunión", false, () => grabarAbrir(), "", {m: 1}), item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), cl,
     el("div", {className: "t", textContent: cap(pl(nm("carpeta")))}),
     ...carpetas.map(c => item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c))), ...(sin || fsel === "" ? [item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1})] : []),
     item("+ " + cap(nm("carpeta")) + " nuevo", false, nuevaCarpeta, "", {m: 1}), el("hr"),
@@ -324,6 +326,7 @@ const tab = p => {
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   ubicar();
+  if (p === "p-video" && typeof notasRes === "function") notasRes();
   if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));

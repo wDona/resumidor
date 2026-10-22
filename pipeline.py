@@ -1865,7 +1865,7 @@ ACTA_TIT = {"resumen": "Resumen", "desarrollo": "Desarrollo de la reunión", "de
 
 
 def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None, audio=False, P=None,
-           marcas=True, extra=None):
+           marcas=True, extra=None, notas=None):
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
     vídeo (las marcas no son enlaces). audio: el medio es solo audio (<audio> en vez de <video>). imp: datos de la transcripción importada (nota y participantes).
     P: prompts() de la plantilla (orden y títulos de los bloques, secciones propias); marcas False: sin marcas [mm:ss]; extra: más
@@ -1917,7 +1917,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                     f"<ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}")
     trad = red.get("trad") or {}  # cita literal en su idioma (traducción entre paréntesis)
     tq = lambda c: f" ({esc(trad[c])})" if c in trad else ""
-    quote = lambda x: f'<small class="q">«{esc(x["cita"])}»{tq(x["cita"])}</small>' if x.get("cita") else ""  # la cita literal que lo respalda
+    quote = lambda x: ('<small class="q">★ marcado por ti</small>' if x.get("usuario") else "") + \
+        (f'<small class="q">«{esc(x["cita"])}»{tq(x["cita"])}</small>' if x.get("cita") else "")  # la cita literal que lo respalda
     dec = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}{quote(d)}</li>"
                   for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
     tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}{quote(t)}</td><td>{esc(t['responsable'])}</td>"
@@ -1957,6 +1958,12 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
             " · ".join(f"{esc(c.replace('_', ' ').capitalize())}: {esc(x[c])}" for c in cs if x.get(c, "—").strip(" —-"))) + quote(x) + "</li>")
         blk[sc["id"]] = f"<h2>{esc(T.get(sc['id']) or sc['nombre'])}</h2><ul>{''.join(row(x) for x in its)}</ul>" if its else ""
     orden = tpl.get("orden") or ACTA_ORDEN
+    if notas:  # «Notas del usuario»: lo que anotó y lo que se decía en ese momento (literal)
+        blk["notas"] = "<h2>Notas del usuario</h2><ul>" + "".join(
+            f'<li>{ts_link(x["t"])}<b>★ {esc(x["nombre"] or "Marcado")}</b>{" " + esc(x["texto"]) if x["texto"] else ""}'
+            f'{f"<small class=q>Se decía: «{esc(x["dicho"])}»</small>" if x["dicho"] else ""}</li>' for x in notas) + \
+            '</ul><p class="meta">Anotado por ti durante la reunión; el resto del documento sale de lo que se dijo.</p>'
+        orden = [*orden[:1], "notas", *orden[1:]] if orden[:1] == ["resumen"] else ["notas", *orden]
     fin = [b for b in orden if b in ("decisiones", "tareas")][-1:]  # nota de la búsqueda a fondo tras decisiones/tareas
     parts = []
     for b in orden:
@@ -2146,13 +2153,16 @@ def eta():
 
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None,
-        plantilla=None, idioma=None, habla=None, glosario=None):
+        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
     calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo.
     plantilla: id o dict (plantillas.py; None = «Acta de reunión»); idioma: el del documento (None o "reunión" = el de la plantilla /
     el de la reunión); habla: idioma de la reunión para el ASR (None = automático, código o "mezcla"). glosario: términos de la carpeta
-    (hotwords del ASR y «términos de este proyecto» en el map/redacción; None = nada, y cachés idénticas a las de siempre)."""
+    (hotwords del ASR y «términos de este proyecto» en el map/redacción; None = nada, y cachés idénticas a las de siempre).
+    pistas: {«Hablante N»: wav} de una grabación (grabar.py): se transcribe cada pista y el hablante sale gratis. Las notas del usuario
+    (work/<id>/notas.json) entran en el documento tras el reduce (no tocan prompts ni cachés; sin notas, todo igual)."""
+    import grabar
     import plantillas
     tpl = plantilla if isinstance(plantilla, dict) else plantillas.get(plantilla)
     idioma = idioma if idioma and idioma != "reunión" else tpl.get("idioma_acta", "reunión")
@@ -2174,6 +2184,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
         th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
         quality = "imp" + th[:8]
+    speakers = speakers and not pistas
     audio = bool(video) and not has_video(video)  # solo audio: sin capturas, OCR ni reproductor de vídeo
     pic = video and not audio
     wd = WORK / (reuse[0] if reuse else video_id(video) if video else "t" + th[:16])
@@ -2211,7 +2222,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if not tf.exists():
         t0 = time.time()
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
-        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else transcribe(video, quality, threads, dur, pa, hot=glosario)
+        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else \
+            grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario) if pistas else transcribe(video, quality, threads, dur, pa, hot=glosario)
         tf.write_text(json.dumps(tr, ensure_ascii=False))
         stage("transcripción" if transcript else "asr", t0)
     tr = json.loads(tf.read_text())
@@ -2308,6 +2320,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
     maps = dedup_points(maps) if p2 else maps
+    notas, ntag, filas = grabar.leer_notas(wd), "", None
+    if notas:  # notas del usuario: lo marcado entra siempre; las de sección piden un elemento al LLM (caché por nota)
+        me = sys.modules[__name__]
+        ntag, pend, cf = "_n-" + grabar.hash_notas(notas), grabar.pendientes(notas, P), wd / "notas_ext.json"
+        kx = lambda n: hashlib.sha1(json.dumps([grabar.NOTA_PROMPT, str(model), lang, n["t"], n["boton"], n["seccion"],
+                                                [s["text"] for s in grabar.ventana(tr["segments"], n["t"])]]).encode()).hexdigest()[:12]
+        cx = json.loads(cf.read_text()) if cf.exists() else {}
+        if falta := [n for n in pend if kx(n) not in cx]:
+            cb(0.94, "Leyendo tus notas…")
+            with llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0)) as chat:
+                for n in falta:
+                    cx[kx(n)] = grabar.extraer(me, chat, n, tr["segments"], P, lang, model)
+            cf.write_text(json.dumps(cx, ensure_ascii=False))
+        filas = grabar.aplicar(me, notas, tr["segments"], maps, red, P, {n["id"]: cx[kx(n)] for n in pend if cx.get(kx(n))})
     if otro:  # traducción de las citas que se ven (caché por idioma: solo depende de la cita)
         trim_caps(red, maps, LEVELS[level], tr["segments"])
         qs = [x["cita"] for k in ("decisiones", "tareas") for x in red[k] if x.get("cita")] + \
@@ -2326,7 +2352,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     print(score_hist(maps), flush=True)
 
     stem = (video.resolve() if reuse and video else video or Path(transcript or wd.name)).stem
-    out = wd / f"acta_{level}_{quality}{tag}"
+    out = wd / f"acta_{level}_{quality}{tag}{ntag}"
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
     try:
@@ -2337,7 +2363,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     for k in render(out, nombre or red.get("titulo") or stem, dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
                     starts, tr["segments"], level, video.suffix if video else None, names, imp, audio, P, op.get("marcas", True),
                     ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {}) |
-                    ({"idioma": idioma} if idioma else {})):
+                    ({"idioma": idioma} if idioma else {}) | ({"notas_usuario": filas} if filas else {}), filas):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
@@ -2346,7 +2372,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     miss = [m for m in re.findall(r'(?:src|href)="img/([^"]+)"', (out / "index.html").read_text()) if not (out / "img" / m).exists()]
     if miss:
         raise RuntimeError(f"imágenes sin copiar: {sorted(set(miss))}")
-    zpath = wd / f"acta_{stem}_{level}{tag}.zip"
+    zpath = wd / f"acta_{stem}_{level}{tag}{ntag}.zip"
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:  # sin el vídeo: el informe pide abrirlo
         for f in out.rglob("*"):
             z.write(f, f.relative_to(out))
@@ -2359,7 +2385,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if not src.exists():
             put_file(video.resolve(), src)
         put_file(src, out / src.name)
-    (wd / f"timings_{quality}_{level}{tag}.json").write_text(json.dumps(timings))
+    (wd / f"timings_{quality}_{level}{tag}{ntag}.json").write_text(json.dumps(timings))
     r = ritmos()  # lo medido en este equipo afina el tiempo restante de las siguientes actas
     for n, t in timings.items():
         if n in RITMO0 and t >= 1 and dur >= 600:  # vídeos cortos: el arranque fijo pesa demasiado y falsearía el ritmo

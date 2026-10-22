@@ -12,6 +12,7 @@ dependencies = [
     "rapidocr-onnxruntime>=1.4.4",
     "sherpa-onnx>=1.13.8",
     "sherpa-onnx-core==1.13.8",
+    "soundcard>=0.4.6",
     "uvicorn>=0.54.0",
     "yt-dlp>=2026.10.21",
 ]
