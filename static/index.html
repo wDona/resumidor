@@ -11,6 +11,11 @@
   <div class="card narrow wide">
     <h2 id="mod-tit">Modelos</h2>
     <p id="mod-intro"></p>
+    <div id="mod-simple" class="solo-sim">
+      <p id="mod-s-txt"></p>
+      <div class="row wrap"><button class="pri" id="mod-srec">Instalar lo recomendado</button><button class="sec" id="mod-scerrar">Cerrar</button></div>
+      <p><button class="link" id="mod-todos">Ver todos los modelos</button></p>
+    </div>
     <div id="mod-lista"></div>
     <details id="mod-enc"><summary>Modelos encontrados en este equipo</summary>
       <small>Se usan donde están (no se copian). Modelo no probado con la app: la calidad del acta puede variar.</small>
@@ -36,8 +41,7 @@
   <span class="grow"></span>
   <button class="pri" id="nueva">+ Nuevo documento</button>
   <button class="sec" id="b-importar">Importar documento (.zip)</button>
-  <button class="sec" id="b-plant">Plantillas</button>
-  <button class="sec" id="b-modelos">Modelos</button>
+  <button class="sec" id="b-ajustes">Ajustes</button>
   <button class="sec" id="b-cola" aria-controls="v-cola">Cola · <span id="n-cola">0</span></button>
 </header>
 <main>
@@ -49,10 +53,12 @@
       <div id="ed-side"></div>
     </aside>
     <div id="contenido">
+      <div id="cards" hidden></div>
       <div class="toolbar" id="fcab">
+        <button class="sec" id="f-atras" hidden>&larr; <span class="n-carpetas">Carpetas</span></button>
         <h2 id="ftit"></h2>
         <span class="grow"></span>
-        <label for="f-plant" id="f-plant-l" hidden>Plantilla por defecto</label><select id="f-plant" hidden></select>
+        <label for="f-plant" id="f-plant-l" hidden>Perfil por defecto</label><select id="f-plant" hidden></select>
         <button class="sec" id="f-preguntar" hidden>Preguntar</button>
         <button class="sec" id="f-ren" hidden>Renombrar</button>
         <button class="sec" id="f-quitar" hidden>Quitar carpeta</button>
@@ -70,6 +76,16 @@
     <form class="card narrow" id="form" autocomplete="off">
       <h2 id="form-t">Nuevo documento</h2>
       <p class="muted" id="form-sub">Resumen, capturas de la pantalla compartida y marcas de tiempo que saltan al momento del vídeo. Todo se procesa en este equipo.</p>
+      <div class="solo-sim" id="sp-bloque">
+        <div class="field"><label id="sp-l">Perfil</label><div id="sp-cards" class="chips" role="radiogroup" aria-labelledby="sp-l"></div></div>
+        <div class="field"><label id="sp-ql">Calidad</label>
+          <div class="chips" id="sp-cal" role="radiogroup" aria-labelledby="sp-ql">
+            <button type="button" role="radio" class="chip" data-q="r" aria-checked="true"><b>Rápido</b><small>Menos espera</small></button>
+            <button type="button" role="radio" class="chip" data-q="c" aria-checked="false"><b>Calidad</b><small id="sp-hint">Mejor resultado, tarda más</small></button>
+          </div></div>
+        <p class="warn" id="sp-err" hidden></p>
+        <button type="button" class="link" id="av-form">Opciones avanzadas</button>
+      </div>
       <div id="f-fuente">
         <div class="field">
           <label for="ruta">Vídeo o audio de la reunión</label>
@@ -82,14 +98,14 @@
         <div class="field">
           <label for="enlace">o pega un enlace</label>
           <input id="enlace" type="url" placeholder="https://… (vídeo, audio, podcast, reunión grabada)">
-          <div class="row">
+          <div class="row av-f">
             <label class="check"><input type="checkbox" id="solo-audio"> Solo audio</label>
             <label for="navegador">Usar sesión del navegador</label>
             <select id="navegador"><option value="">Ninguno</option><option value="firefox">Firefox</option><option value="chrome">Chrome</option><option value="edge">Edge</option><option value="safari">Safari</option></select>
           </div>
-          <small>Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small>
+          <small class="av-f">Para enlaces privados. En Windows, Chrome y Edge suelen bloquear esto; Firefox funciona mejor.</small>
         </div>
-        <div class="field">
+        <div class="field av-f">
           <label for="ruta-tr">Transcripción (opcional)</label>
           <div class="row" id="drop-tr">
             <input id="ruta-tr" readonly placeholder="Teams, Zoom, Meet, Otter… (.vtt .srt .txt .docx)">
@@ -98,13 +114,13 @@
           </div>
           <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el documento no lleva capturas ni reproductor.</small>
         </div>
-        <div class="field"><label for="habla">Idioma de la reunión</label>
+        <div class="field av-f"><label for="habla">Idioma de la reunión</label>
           <select id="habla"><option value="auto">Automático</option><option value="es">Español</option><option value="en">Inglés</option>
             <option value="ca">Catalán</option><option value="eu">Euskera</option><option value="gl">Gallego</option><option value="fr">Francés</option>
             <option value="pt">Portugués</option><option value="de">Alemán</option><option value="it">Italiano</option><option value="mezcla">Mezcla de idiomas</option></select>
           <small>Automático: se detecta al principio. Mezcla: se detecta cada 30 s y cada tramo se transcribe en su idioma (más lento).</small></div>
       </div>
-      <div class="cols">
+      <div class="cols av-f">
         <div class="field"><label for="nivel">Nivel de detalle</label>
           <select id="nivel"><option>breve</option><option selected>normal</option><option>detallado</option></select></div>
         <!-- Calidad: bloque aislado (selector y su texto de ayuda) por si cambian los modelos/opciones -->
@@ -114,15 +130,15 @@
           <button class="sec" id="bajar-nivel" type="button" hidden></button>
           <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
       </div>
-      <div class="cols">
+      <div class="cols av-f">
         <div class="field"><label for="plantilla">Plantilla</label><select id="plantilla"></select><small id="info-plant"></small></div>
         <div class="field"><label for="idioma">Idioma del documento</label><select id="idioma"></select>
           <small id="hint-idioma" class="warn" hidden></small><small>Las citas literales quedan en el idioma original, con la traducción entre paréntesis.</small></div>
       </div>
-      <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
-      <small id="info-gpu"></small>
-      <small id="info-ram"></small>
-      <div id="f-hab">
+      <label class="check av-f"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
+      <small id="info-gpu" class="av-f"></small>
+      <small id="info-ram" class="av-f"></small>
+      <div id="f-hab" class="av-f">
         <label class="check"><input type="checkbox" id="hablantes"> Separar quién habla (experimental)</label>
         <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
         <div class="field"><label for="nombres">Nombres de los hablantes (opcional)</label>
@@ -162,7 +178,7 @@
         <span id="acta-acciones" hidden></span>
         <a class="btn sec" id="dl-zip" download>Descargar documento (.zip)</a>
         <a class="btn sec" id="dl-vid" download title="Documento y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
-        <button class="sec" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
+        <button class="sec solo-av" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
       </div>
       <p class="muted" id="imp-info"></p>
       <iframe id="acta-frame" title="Documento"></iframe>
@@ -192,6 +208,16 @@
     <div class="plant"><ul class="list card" id="plant-lista"></ul><div class="card" id="plant-ed"></div></div>
   </section>
 
+  <section id="v-ajustes" hidden>
+    <div class="toolbar"><button class="sec" id="aj-volver">&larr; Volver</button><h2>Ajustes</h2></div>
+    <div class="card"><h3>Pantallas</h3><div class="row wrap"><button class="sec" id="b-modelos">Modelos</button><button class="sec solo-av" id="b-plant">Plantillas</button></div></div>
+    <div class="card" id="aj-cuerpo"></div>
+  </section>
+
+  <section id="v-uso" hidden>
+    <div class="card narrow wide" id="uso-cuerpo"></div>
+  </section>
+
   <section id="v-preg" hidden>
     <div class="toolbar"><button class="sec" id="preg-volver">&larr; Volver</button><h2 id="preg-tit"></h2></div>
     <div id="p-fcarpeta"></div>
@@ -210,5 +236,6 @@
   </div>
 </main>
 <script src="app.js"></script>
+<script src="ajustes.js"></script>
 </body>
 </html>

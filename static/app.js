@@ -77,8 +77,8 @@ $("bajar-nivel").onclick = async () => { await post("/api/modelos", {ids: [nivel
 
 // ---- vistas: home (carpetas + reuniones) | nuevo | cola | res (reunión) | preg (carpeta) ----
 let vistaAct = "home";
-const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg", "plant"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
-  if (v !== "plant" && location.hash === "#/plantillas") history.replaceState(null, "", location.pathname); };
+const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg", "plant", "ajustes", "uso"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
+  if (location.hash !== ({plant: "#/plantillas", ajustes: "#/ajustes"})[v] && location.hash !== "#/modelos") history.replaceState(null, "", location.pathname); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
 const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
 $("inicio").onclick = e => { e.preventDefault(); ir("home"); };
@@ -91,7 +91,7 @@ let reuse = null;
 const VACIO_SUB = $("form-sub").textContent;
 function formNuevo(m, a) {
   reuse = m ? {id: m.id, asr: a.asr} : null;
-  $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nuevo documento";
+  $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nuevo " + nm("documento");
   $("form-sub").textContent = m ? "Rehace el documento con otra plantilla, nivel o calidad aprovechando la transcripción y las capturas ya hechas. Con el mismo nivel y calidad que una versión existente, la sustituye." : VACIO_SUB;
   $("f-fuente").hidden = $("f-hab").hidden = !!m; $("form-err").textContent = "";
   if (m) {  // propone la primera combinación que aún no existe
@@ -100,10 +100,10 @@ function formNuevo(m, a) {
     $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
   }
   plantForm(CP[m ? m.carpeta || "" : fsel || ""] || "acta");
-  vista("nuevo");
+  vista("nuevo"); formSimple(m);
 }
 const params = () => ({video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
-  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value});
+  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple()});
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
@@ -134,7 +134,7 @@ function pintarCola(k) {
     const fila = e => {
       const b = (txt, url, extra, lbl) => { const x = el("button", {className: "sec", textContent: txt, ariaLabel: lbl || txt}); x.onclick = fallo(async () => { x.disabled = true; await post(url, {id: e.id, ...extra}); await sondear(); }); return x; };
       const bs = e.state === "marcha" ? [b("Cancelar", "/api/cola/cancelar")]
-        : e.state === "pendiente" ? [b("↑", "/api/cola/mover", {d: -1}, "Subir"), b("↓", "/api/cola/mover", {d: 1}, "Bajar"), b("Quitar", "/api/cola/cancelar")]
+        : e.state === "pendiente" ? [...(simple() ? [] : [b("↑", "/api/cola/mover", {d: -1}, "Subir"), b("↓", "/api/cola/mover", {d: 1}, "Bajar")]), b("Quitar", "/api/cola/cancelar")]
         : [...(e.state === "hecho" ? [] : [b("Reintentar", "/api/cola/reintentar")]), b("Quitar", "/api/cola/quitar")];
       if (e.state === "hecho" && e.result?.id) { const o = el("button", {className: "sec", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); bs.unshift(o); }
       const d = e.state === "pendiente" ? "En espera (" + (pend.indexOf(e) + 1) + " de " + pend.length + ")" : e.state === "hecho" ? "Terminado" : e.state === "marcha" ? "" : e.state === "cancelado" ? "Cancelado" : (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "");
@@ -182,13 +182,14 @@ async function cargarLista() {
   if (fsel && !carpetas.includes(fsel)) fsel = null;
   pintarHome();
 }
-const plural = n => n + " reunion" + (n === 1 ? "" : "es");
+const plural = n => n + " " + (n === 1 ? nm("documento") : pl(nm("documento")));
 function pintarHome() {
   const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length;
   const nav = (txt, v) => el("li", {}, el("button", {className: "nav", textContent: txt, "aria-current": fsel === v, onclick: () => { fsel = v; pintarHome(); }}, el("span", {className: "c", textContent: cnt(v)})));
-  $("carpetas").replaceChildren(nav("Todas", null), ...carpetas.map(c => nav("📁 " + c, c)), nav("Sin carpeta", ""));
+  $("carpetas").replaceChildren(nav("Todas", null), ...carpetas.map(c => nav("📁 " + c, c)), nav(sinC(), ""));
+  if (homeSimple()) return;
   const ms = todas.filter(m => fsel === null || (m.carpeta || "") === fsel);
-  $("ftit").textContent = (fsel === null ? "Todas" : fsel === "" ? "Sin carpeta" : "📁 " + fsel) + " · " + plural(ms.length);
+  $("ftit").textContent = (fsel === null ? "Todas" : fsel === "" ? sinC() : "📁 " + fsel) + " · " + plural(ms.length);
   for (const id of ["f-preguntar", "f-ren", "f-quitar", "f-plant", "f-plant-l"]) $(id).hidden = !fsel;
   if (fsel) { $("f-plant").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("f-plant").value = CP[fsel] || "acta"; }
   const act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "⏳ generando" : "⏳ en cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
@@ -197,7 +198,7 @@ function pintarHome() {
     const e = act.find(e => e.mid === m.id), f = new Date(m.mtime * 1000);
     const b = el("button", {className: "fila", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n", textContent: "▶ " + m.label + (fsel === null && m.carpeta ? "  📁 " + m.carpeta : "")}),
       el("span", {className: "d", textContent: f.toLocaleDateString("es", {day: "2-digit", month: "2-digit"})}), el("span", {className: "d", textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}),
-      el("span", {className: "d", textContent: m.actas + (m.actas === 1 ? " documento" : " documentos")}), el("span", {className: "st", textContent: e ? est(e) : ""}));
+      el("span", {className: "d", textContent: m.actas + " " + (m.actas === 1 ? nm("documento") : pl(nm("documento")))}), el("span", {className: "st", textContent: e ? est(e) : ""}));
     return el("li", {}, b);
   };
   $("lista").replaceChildren(...nuevas, ...ms.map(fila));
@@ -214,6 +215,7 @@ const etiqueta = a => cur.versiones[a.name] || defecto(a);
 async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
+  if (simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
   ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
   $("cab-carpeta").textContent = cur.carpeta || "Todas"; $("cab-titulo").textContent = cur.m.label;
   const au = cur.audio; $("t-video").hidden = !cur.video; $("t-video").textContent = au ? "Audio" : "Vídeo"; $("vvideo").style.height = au ? "54px" : "";
@@ -225,7 +227,7 @@ const tab = p => {
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   if (p !== "p-video") $("vvideo").pause();
-  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr, cur.videourl); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Acta importada sin transcripción: no se puede preguntar" : ""; }
+  if (p === "p-preg") { $("p-preg").append($("qpanel")); const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr, cur.videourl); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Acta importada sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
 function pintarVers() {
@@ -234,7 +236,7 @@ function pintarVers() {
     await post("/api/meta", {id: cur.id, version: ver, vnombre: n === defecto(a) ? "" : n}); cur.versiones = (await api("/api/meeting/" + cur.id)).versiones; pintarVers();
   });
   otra.onclick = () => formNuevo(cur.m, a);
-  $("vers").replaceChildren(...cur.actas.map(x => el("button", {role: "tab", className: "vt", textContent: etiqueta(x), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})), ren, otra);
+  $("vers").replaceChildren(...(simple() ? [a] : cur.actas).map(x => el("button", {role: "tab", className: "vt", textContent: etiqueta(x), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})), ...(simple() ? [] : [ren]), otra);
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver);
@@ -362,14 +364,14 @@ async function abrirModelos(msg, faltan) {
   $("modelos").hidden = false; history.replaceState(null, "", "#/modelos");
   $("mod-intro").textContent = msg || "Elige qué modelos instalar. Se descargan una sola vez y después funciona sin internet; si se corta, sigue donde se quedó. Sin modelos puedes ver e importar documentos.";
   if (m.state === "running" || m.state === "error") return seguir(m);
-  $("mod-prog").hidden = true; $("mod-botones").hidden = false; pintarModelos(m, faltan);
+  $("mod-prog").hidden = true; $("mod-botones").hidden = false; pintarModelos(m, faltan); modSimple(m);
 }
 async function instalar(ids) {
   $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true; $("mod-msg").textContent = "Empezando…";
   seguir(await post("/api/modelos", ids ? {ids} : {})); 
 }
 async function seguir(m) {
-  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true;
+  $("mod-botones").hidden = true; $("mod-prog").hidden = false; $("mod-reint").hidden = true; $("mod-simple").hidden = true;
   const p = m.total ? Math.min(100, Math.round(m.done / m.total * 100)) : 0;
   $("mod-msg").textContent = m.msg; $("mod-bar").style.width = p + "%";
   $("mod-pct").textContent = p + " % · " + (m.done / 1e9).toFixed(2) + " de " + (m.total / 1e9).toFixed(2) + " GB";
@@ -381,7 +383,7 @@ $("mod-rec").onclick = () => instalar(null);
 $("mod-selrec").onclick = () => { for (const c of MOD.catalogo) if (!c.instalado) $("mc-" + c.id).checked = MOD.recomendados.includes(c.id); MOD.catalogo.forEach(c => $("mc-" + c.id).onchange()); };
 $("mod-inst").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id).checked).map(c => c.id));
 $("mod-reint").onclick = () => instalar(MOD.catalogo.filter(c => !c.instalado && $("mc-" + c.id)?.checked).map(c => c.id));
-const cerrarMod = () => { $("modelos").hidden = true; if (location.hash === "#/modelos") history.replaceState(null, "", location.pathname); };
+const cerrarMod = () => { document.body.classList.remove("mod-todos"); $("modelos").hidden = true; if (location.hash === "#/modelos") history.replaceState(null, "", location.pathname); };
 $("mod-cerrar").onclick = cerrarMod; $("b-modelos").onclick = () => abrirModelos();
 addEventListener("hashchange", () => location.hash === "#/modelos" ? abrirModelos() : $("modelos").hidden = true);
 if (location.hash === "#/modelos") abrirModelos();  // sin ruta: la app abre en el inicio y no instala nada
@@ -430,7 +432,7 @@ function pintarPlant() {
 }
 const campo = (lab, inp) => el("div", {className: "field"}, el("label", {textContent: lab}), inp);
 const txt = (obj, k, area, extra = {}) => { const i = el(area ? "textarea" : "input", {value: obj[k] ?? "", ...extra}); i.oninput = () => obj[k] = i.value; return i; };
-const chk = (obj, k, lab, cb) => { const i = el("input", {type: "checkbox", checked: !!obj[k]}); i.onchange = () => { obj[k] = i.checked; cb?.(); }; return el("label", {className: "check"}, i, " " + lab); };
+const chk = (obj, k, lab, cb) => { const i = el("input", {type: "checkbox", checked: !!obj[k]}); i.onchange = () => { obj[k] = i.checked; cb?.(); }; return el("label", {className: k === "nube_permitida" ? "check solo-nube" : "check"}, i, " " + lab); };
 const mover_ = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; pintarEd(); };
 const boton = (t, f, cls = "sec") => el("button", {type: "button", className: cls, textContent: t, onclick: fallo(async () => f())});
 function pintarEd(t = plantDe(pSel)) {

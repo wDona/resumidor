@@ -566,6 +566,45 @@ def set_meta(d: dict):
     return m
 
 
+AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
+AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
+          "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es"}
+
+
+def _ajustes():
+    try:
+        d = json.loads(AJUSTES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {**AJ_DEF, **{k: d[k] for k in AJ_DEF if k in d}, "nombres": {**AJ_DEF["nombres"], **(d.get("nombres") or {})}} if isinstance(d, dict) else None
+
+
+@app.get("/api/ajustes")
+def get_ajustes():
+    a = _ajustes()
+    return {**(a or AJ_DEF), "existe": a is not None}
+
+
+@app.post("/api/ajustes")
+def post_ajustes(d: dict):
+    """Guarda (fusiona) los ajustes válidos; todo es preferencia: no toca reuniones ni carpetas."""
+    a = _ajustes() or dict(AJ_DEF)
+    if d.get("modo") in ("simple", "avanzado"):
+        a["modo"] = d["modo"]
+    for k in ("nube_visible", "anonimizar_defecto"):
+        if isinstance(d.get(k), bool):
+            a[k] = d[k]
+    if isinstance(d.get("uso"), list):
+        a["uso"] = [str(x)[:30] for x in d["uso"]][:12]
+    if isinstance(d.get("perfil_uso"), list):
+        a["perfil_uso"] = [x for x in dict.fromkeys(d["perfil_uso"]) if x in {t["id"] for t in plantillas.todas()}] or a["perfil_uso"]
+    if isinstance(d.get("nombres"), dict):
+        a["nombres"] = {**a["nombres"], **{k: str(v).strip()[:40] for k, v in d["nombres"].items() if k in AJ_DEF["nombres"] and str(v).strip()}}
+    pipeline.WORK.mkdir(exist_ok=True)
+    AJUSTES.write_text(json.dumps(a, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {**a, "existe": True}
+
+
 CARPETAS = pipeline.WORK / "carpetas.json"  # carpetas creadas aunque aún no tengan reuniones
 
 
@@ -679,7 +718,7 @@ def meeting(mid: str):
     wd = pipeline.WORK / Path(mid).name
     # zip: acta_<vídeo>_<nivel><resto del nombre de la versión (plantilla, idioma, calidad…)>.zip
     actas = [{"name": d.name, "nivel": d.name.split("_")[1], "asr": d.name.split("_")[2], "calidad": _calidad(d.name), "sin": _solo_acta(wd.name, d.name.split("_")[2]), "fondo": bool((aj := _acta_json(d)).get("fondo")), "url": f"/files/{wd.name}/{d.name}/index.html",
-              "plantilla": aj.get("plantilla"), "doc": (aj.get("documento") or {}).get("singular", "acta"), "idioma": aj.get("idioma"),
+              "plantilla": aj.get("plantilla"), "doc": (aj.get("documento") or {}).get("singular", "acta"), "idioma": aj.get("idioma"), "mtime": (d / "index.html").stat().st_mtime,
               "zip": next((f"/files/{wd.name}/{z.name}" for z in wd.glob(f"acta_*_{d.name.split('_')[1]}{''.join('_' + x for x in d.name.split('_')[3:])}.zip")), None)}
              for d in sorted(wd.glob("acta_*_*")) if (d / "index.html").exists()]
     if not actas:
