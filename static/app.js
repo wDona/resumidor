@@ -2,17 +2,10 @@ const $ = id => document.getElementById(id);
 const api = (url, opt) => fetch(url, opt).then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText); return r.json(); });
 const post = (url, body) => api(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
 const mmss = t => { t = Math.floor(t); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60, p = n => String(n).padStart(2, "0"); return (h ? h + ":" + p(m) : p(m)) + ":" + p(s); };
-const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
+const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const k in props) k.startsWith("data-") || k.startsWith("aria-") ? e.setAttribute(k, props[k]) : e[k] = props[k]; e.append(...kids); return e; };
 let corriendo = false;
-addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Se está generando un acta; si cierras, se cancelará"; } });
+addEventListener("beforeunload", e => { if (corriendo) { e.preventDefault(); e.returnValue = "Hay trabajos en la cola; si cierras, se cancelarán"; } });
 setInterval(() => fetch("/api/latido", {method: "POST"}).catch(() => {}), 5000); fetch("/api/latido", {method: "POST"});
-
-// ---- pestañas ----
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
-  document.querySelectorAll("nav button").forEach(x => { x.setAttribute("aria-selected", x === b); $(x.dataset.tab).hidden = x !== b; });
-  if (b.dataset.tab === "preguntar") cargarReuniones();
-});
-const vista = v => ["nuevo", "job", "res"].forEach(n => $("v-" + n).hidden = n !== v);
 
 // ---- elegir vídeo y transcripción ----
 let ruta = "", rutaTr = "", hablaTr = false;
@@ -61,46 +54,84 @@ api("/api/gpu").then(g => {
 }).catch(() => {});
 $("calidad").onchange = () => { $("aviso-alta").hidden = $("calidad").value !== "alta"; };
 
-// ---- generar / condensar ----
-const params = () => ({video: ruta, transcripcion: rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: "calidad", hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
+// ---- vistas: home (carpetas + reuniones) | nuevo | cola | res (reunión) | preg (carpeta) ----
+let vistaAct = "home";
+const vista = v => { vistaAct = v; ["home", "nuevo", "cola", "res", "preg"].forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0); };
+const ir = v => { if (v === "home") pintarHome(); vista(v); };
+const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
+$("inicio").onclick = e => { e.preventDefault(); ir("home"); };
+$("nuevo-volver").onclick = $("cola-volver").onclick = $("preg-volver").onclick = () => ir("home");
+$("b-cola").onclick = () => { vista("cola"); sondear(); };
+$("nueva").onclick = () => formNuevo();
+
+// ---- nueva acta (o otra versión de una reunión: reuse) ----
+let reuse = null;
+const VACIO_SUB = $("form-sub").textContent;
+function formNuevo(m, a) {
+  reuse = m ? {id: m.id, asr: a.asr} : null;
+  $("form-t").textContent = m ? "Otra versión de «" + m.label + "»" : "Nueva acta";
+  $("form-sub").textContent = m ? "Rehace el acta con otro nivel o calidad aprovechando la transcripción y las capturas ya hechas. Con el mismo nivel y calidad que una versión existente, la sustituye." : VACIO_SUB;
+  $("f-fuente").hidden = $("f-hab").hidden = !!m; $("form-err").textContent = "";
+  if (m) {  // propone la primera combinación que aún no existe
+    const hay = n => cur.actas.some(x => x.name === n);
+    const [n, c] = ["normal", "breve", "detallado"].flatMap(n => ["rápida", "alta"].map(c => [n, c])).find(([n, c]) => !hay(`acta_${n}_${a.asr}${c === "alta" ? "_alta" : ""}`)) || [a.nivel, a.alta ? "alta" : "rápida"];
+    $("nivel").value = n; $("calidad").value = c; $("calidad").onchange();
+  }
+  vista("nuevo");
+}
+const params = () => ({video: reuse ? "" : ruta, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
+  hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value});
 $("form").onsubmit = async e => {
   e.preventDefault();
-  if (!ruta && !rutaTr) { $("subida").textContent = "Elige un vídeo o una transcripción"; return; }
-  try { await post("/api/generar", params()); seguir(); } catch (err) { $("subida").textContent = err.message; }
+  if (!reuse && !ruta && !rutaTr) { $("form-err").textContent = "Elige un vídeo o una transcripción"; return; }
+  try { await post("/api/generar", params()); if (!reuse) { setRuta(""); setTr(""); } vista("cola"); sondear(); } catch (err) { $("form-err").textContent = err.message; }
 };
-$("fondo").onclick = async () => {
-  const a = cur.actas.find(a => a.name === $("sel-acta").value);
-  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, alta: a.alta, gpu: $("usar-gpu").checked}); seguir(); }
-  catch (err) { alert(err.message); }
-};
-$("condensar").onclick = async () => {
-  try { await post("/api/condensar", {id: cur.id, asr: $("sel-acta").selectedOptions[0].dataset.asr, pct: +$("pct").value}); seguir(); }
-  catch (err) { alert(err.message); }
-};
-let timer;
-function seguir() {
-  clearInterval(timer); vista("job"); $("job-ok").hidden = true; $("job-err").textContent = "";
-  const tick = async () => {
-    const j = await api("/api/job").catch(() => null); if (!j) return;
-    corriendo = j.state === "running";
-    if (j.state === "running") {
-      $("job-t").textContent = j.kind === "condensar" ? "Generando vídeo condensado" : j.kind === "fondo" ? "Buscando decisiones y tareas a fondo · " + (j.video || "") : "Generando acta · " + (j.video || "");
-      $("job-msg").textContent = j.msg; $("job-bar").style.width = Math.round(j.frac * 100) + "%";
-      $("job-eta").textContent = Math.round(j.frac * 100) + " %" + (j.eta != null ? " · quedan unos " + (j.eta > 90 ? Math.round(j.eta / 60) + " min" : j.eta + " s") : "");
-      return;
-    }
-    clearInterval(timer);
-    if (j.state === "done") { await abrir(j.result.id, j.result.acta); }
-    else { $("job-t").textContent = "Ha fallado"; $("job-err").textContent = j.error || ""; $("job-ok").hidden = false; }
-  };
-  timer = setInterval(tick, 1500); tick();
-}
-$("job-ok").onclick = () => { vista("nuevo"); cargarLista(); };
 
-// ---- reuniones previas y resultado ----
-let cur;
+// ---- cola de trabajos ----
+const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar acta", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado"};
+let cola = {n: 0, items: []}, vistos = new Set(), colaKey = "";
+const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
+const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
+async function sondear() {
+  const c = await api("/api/cola").catch(() => null); if (!c) return;
+  const act = new Set(c.items.filter(e => ACT.includes(e.state)).map(e => e.id));
+  const fin = c.items.filter(e => vistos.has(e.id) && !act.has(e.id));
+  vistos = act; cola = c; corriendo = c.n > 0; $("n-cola").textContent = c.n;
+  const k = c.items.map(e => e.id + e.state).join();
+  if (fin.length) {  // algo terminó: refrescar lista y, si es la reunión abierta, su página
+    await cargarLista();
+    if (vistaAct === "res" && fin.some(e => e.state === "hecho" && e.mid === cur.id)) await abrir(cur.id, ver, true);
+  } else if (k !== colaKey && vistaAct === "home") pintarHome();
+  pintarCola(k);
+}
+function pintarCola(k) {
+  if (k !== colaKey) {
+    colaKey = k; const it = cola.items, pend = it.filter(e => e.state === "pendiente");
+    const grp = t => el("li", {className: "grp", textContent: t});
+    const fila = e => {
+      const b = (txt, url, extra, lbl) => { const x = el("button", {className: "sec", textContent: txt, ariaLabel: lbl || txt}); x.onclick = fallo(async () => { x.disabled = true; await post(url, {id: e.id, ...extra}); await sondear(); }); return x; };
+      const bs = e.state === "marcha" ? [b("Cancelar", "/api/cola/cancelar")]
+        : e.state === "pendiente" ? [b("↑", "/api/cola/mover", {d: -1}, "Subir"), b("↓", "/api/cola/mover", {d: 1}, "Bajar"), b("Quitar", "/api/cola/cancelar")]
+        : [...(e.state === "hecho" ? [] : [b("Reintentar", "/api/cola/reintentar")]), b("Quitar", "/api/cola/quitar")];
+      if (e.state === "hecho" && e.result?.id) { const o = el("button", {className: "sec", textContent: "Abrir"}); o.onclick = fallo(() => abrir(e.result.id, e.result.acta)); bs.unshift(o); }
+      const d = e.state === "pendiente" ? "En espera (" + (pend.indexOf(e) + 1) + " de " + pend.length + ")" : e.state === "hecho" ? "Terminado" : e.state === "marcha" ? "" : e.state === "cancelado" ? "Cancelado" : (e.state === "interrumpido" ? "Interrumpido: " : "Ha fallado: ") + (e.error || "");
+      return el("li", {}, el("div", {className: "n"}, el("b", {textContent: KIND[e.kind] + " · " + nombreDe(e)}), el("div", {className: e.state === "error" ? "d err" : "d", textContent: d, id: e.state === "marcha" ? "q-msg" : ""})),
+        el("span", {}, ...bs.flatMap(x => [x, " "])), ...(e.state === "marcha" ? [el("div", {className: "bar full"}, el("div", {id: "q-bar"})), el("p", {className: "muted full", id: "q-eta"})] : []));
+    };
+    const r = it.filter(e => e.state === "marcha"), h = it.filter(e => !ACT.includes(e.state)).reverse();
+    $("q-lista").replaceChildren(...(r.length ? [grp("En marcha"), ...r.map(fila)] : []), ...(pend.length ? [grp("En espera"), ...pend.map(fila)] : []), ...(h.length ? [grp("Recientes"), ...h.map(fila)] : []));
+  }
+  const r = cola.items.find(e => e.state === "marcha");
+  if (r && $("q-bar")) {
+    $("q-msg").textContent = r.msg; $("q-bar").style.width = Math.round(r.frac * 100) + "%";
+    $("q-eta").textContent = Math.round(r.frac * 100) + " %" + (r.eta != null ? " · quedan " + minutos(r.eta) : "");
+  }
+}
+
+// ---- reuniones y carpetas ----
+let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel = null;  // fsel: null = todas, "" = sin carpeta, otro = esa carpeta
 const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
-const refrescarTodo = async () => { await cargarLista(); if (!$("preguntar").hidden) await cargarReuniones(); };
+const refrescarTodo = async () => { await cargarLista(); if (vistaAct === "res") await abrir(cur.id, ver, true); };
 // formulario en la propia página (sin prompt/confirm): campo opcional + botón + Cancelar; Esc cancela
 function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
   document.querySelector("form.inline")?.remove();
@@ -115,41 +146,72 @@ function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
 }
 const renombrar = (m, donde) => enLinea(donde, {valor: m.nombre || m.label, texto: "Nombre (vacío = el original)"},
   async n => { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); });
-const mover = (m, ms, donde) => enLinea(donde, {valor: m.carpeta || "", lista: [...new Set(ms.map(x => x.carpeta).filter(Boolean))],
-  texto: "Carpeta (nueva o existente; vacío = sin carpeta)", boton: "Mover"}, async c => { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); });
+const mover = (m, donde) => enLinea(donde, {valor: m.carpeta || "", lista: carpetas, texto: "Carpeta (nueva o existente; vacío = sin carpeta)", boton: "Mover"},
+  async c => { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); });
 const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se quita la carpeta «" + nombre + "»: las reuniones pasan a «Sin carpeta» y no se borran.", boton: "Quitar"}
-  : {valor: nombre, texto: "Nuevo nombre de la carpeta"}, async nuevo => { if (!borrar && (!nuevo || nuevo === nombre)) return; await post("/api/carpeta", {nombre, nuevo}); await refrescarTodo(); });
+  : {valor: nombre, texto: "Nuevo nombre de la carpeta"}, async nuevo => {
+    if (!borrar && (!nuevo || nuevo === nombre)) return;
+    await post("/api/carpeta", {nombre, nuevo}); if (fsel === nombre) fsel = borrar ? null : nuevo; await refrescarTodo();
+  });
 const unicas = ms => { const v = new Set(); return ms.filter(m => !v.has(m.id) && v.add(m.id)); };
 async function cargarLista() {
-  const ms = await api("/api/meetings"); const ul = $("lista"); ul.replaceChildren();
-  const un = unicas(ms), g = {};
-  un.forEach(m => (g[m.carpeta] ||= []).push(m));
-  const fila = m => {
-    const b = el("button", {className: "sec", textContent: "Abrir"}); b.onclick = () => abrir(m.id).catch(err => alert(err.message));
-    const r = el("button", {className: "sec", textContent: "Renombrar"}), c = el("button", {className: "sec", textContent: "Carpeta"});
-    const li = el("li", {}, el("div", {className: "n"}, el("div", {textContent: m.label}), el("div", {className: "d", textContent: new Date(m.mtime * 1000).toLocaleString("es")})), el("span", {}, b, " ", r, " ", c));
-    r.onclick = () => renombrar(m, li); c.onclick = () => mover(m, un, li);
-    return li;
-  };
-  for (const k of [...Object.keys(g).filter(Boolean).sort(), ...(g[""] ? [""] : [])]) {
-    const sm = el("summary", {textContent: (k ? "📁 " + k : "Sin carpeta") + " (" + g[k].length + ") "});
-    const ed = el("div");  // aquí sale el formulario de renombrar/quitar la carpeta
-    if (k) {
-      const r = el("button", {className: "sec", textContent: "Renombrar carpeta"}), d = el("button", {className: "sec", textContent: "Quitar carpeta"});
-      r.onclick = e => { e.preventDefault(); carpetaOp(k, false, ed); }; d.onclick = e => { e.preventDefault(); carpetaOp(k, true, ed); };
-      sm.append(r, " ", d);
-    }
-    ul.append(el("details", {open: true}, sm, ed, el("ul", {className: "list"}, ...g[k].map(fila))));
-  }
+  [todas, carpetas] = await Promise.all([api("/api/meetings").then(ms => unicas(ms).filter(m => m.actas)), api("/api/carpetas")]);
+  if (fsel && !carpetas.includes(fsel)) fsel = null;
+  pintarHome();
 }
-async function abrir(id, acta) {
+const plural = n => n + " reunion" + (n === 1 ? "" : "es");
+function pintarHome() {
+  const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length;
+  const nav = (txt, v) => el("li", {}, el("button", {className: "nav", textContent: txt, "aria-current": fsel === v, onclick: () => { fsel = v; pintarHome(); }}, el("span", {className: "c", textContent: cnt(v)})));
+  $("carpetas").replaceChildren(nav("Todas", null), ...carpetas.map(c => nav("📁 " + c, c)), nav("Sin carpeta", ""));
+  const ms = todas.filter(m => fsel === null || (m.carpeta || "") === fsel);
+  $("ftit").textContent = (fsel === null ? "Todas" : fsel === "" ? "Sin carpeta" : "📁 " + fsel) + " · " + plural(ms.length);
+  for (const id of ["f-preguntar", "f-ren", "f-quitar"]) $(id).hidden = !fsel;
+  const act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "⏳ generando" : "⏳ en cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
+  const nuevas = fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid).map(e => el("li", {className: "fila-v"}, el("span", {className: "n", textContent: e.video}), el("span", {className: "st", textContent: est(e)}))) : [];
+  const fila = m => {
+    const e = act.find(e => e.mid === m.id), f = new Date(m.mtime * 1000);
+    const b = el("button", {className: "fila", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n", textContent: "▶ " + m.label + (fsel === null && m.carpeta ? "  📁 " + m.carpeta : "")}),
+      el("span", {className: "d", textContent: f.toLocaleDateString("es", {day: "2-digit", month: "2-digit"})}), el("span", {className: "d", textContent: m.dur ? Math.round(m.dur / 60) + " min" : ""}),
+      el("span", {className: "d", textContent: m.actas + (m.actas === 1 ? " acta" : " actas")}), el("span", {className: "st", textContent: e ? est(e) : ""}));
+    return el("li", {}, b);
+  };
+  $("lista").replaceChildren(...nuevas, ...ms.map(fila));
+}
+$("f-ren").onclick = () => carpetaOp(fsel, false, $("ed-carpeta"));
+$("f-quitar").onclick = () => carpetaOp(fsel, true, $("ed-carpeta"));
+$("nueva-carpeta").onclick = () => enLinea($("ed-side"), {valor: "", texto: "Nombre de la carpeta nueva", boton: "Crear"}, async n => { if (!n) return; await post("/api/carpeta", {nuevo: n}); fsel = n; await cargarLista(); });
+$("f-preguntar").onclick = () => { $("preg-tit").textContent = "Preguntar · 📁 " + fsel; $("p-fcarpeta").append($("qpanel")); setQ("c:" + fsel, null); vista("preg"); };
+
+// ---- página de una reunión ----
+const cap = s => s[0].toUpperCase() + s.slice(1);
+const defecto = a => [cap(a.nivel), a.alta ? "Alta" : "Rápida", a.fondo && "a fondo", a.name.split("_").slice(3).filter(x => x !== "alta").join(" ")].filter(Boolean).join(" · ");
+const etiqueta = a => cur.versiones[a.name] || defecto(a);
+async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
-  const s = $("sel-acta"); s.replaceChildren(...cur.actas.map(a => el("option", {value: a.name, textContent: a.nivel + " · " + a.asr + (a.alta ? " · alta" : "") + (a.fondo ? " · a fondo" : ""), "data-asr": a.asr})));
-  if (acta) s.value = acta;
-  vista("res"); cambiarActa(); pintarConds();
+  cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
+  ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
+  $("cab-carpeta").textContent = cur.carpeta || "Todas"; $("cab-titulo").textContent = cur.m.label;
+  $("t-video").hidden = !cur.video; if (cur.video) $("vvideo").src = cur.videourl; else $("vvideo").removeAttribute("src");
+  vista("res"); pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
+}
+const tab = p => {
+  tabAct = p;
+  document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
+  if (p !== "p-video") $("vvideo").pause();
+  if (p === "p-preg") { $("p-preg").append($("qpanel")); setQ(cur.id + "|" + cur.actas.find(a => a.name === ver).asr, cur.videourl); }
+};
+document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
+function pintarVers() {
+  const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec", textContent: "✎", ariaLabel: "Renombrar esta versión", title: "Renombrar esta versión"}), otra = el("button", {className: "sec", textContent: "+ generar otra"});
+  ren.onclick = () => enLinea($("ed-res"), {valor: etiqueta(a), texto: "Nombre de la versión (vacío = el original)"}, async n => {
+    await post("/api/meta", {id: cur.id, version: ver, vnombre: n === defecto(a) ? "" : n}); cur.versiones = (await api("/api/meeting/" + cur.id)).versiones; pintarVers();
+  });
+  otra.onclick = () => formNuevo(cur.m, a);
+  $("vers").replaceChildren(...cur.actas.map(x => el("button", {role: "tab", className: "vt", textContent: etiqueta(x), "aria-selected": x.name === ver, onclick: () => { ver = x.name; pintarVers(); cambiarActa(); }})), ren, otra);
 }
 function cambiarActa() {
-  const a = cur.actas.find(a => a.name === $("sel-acta").value);
+  const a = cur.actas.find(a => a.name === ver);
   $("acta-frame").src = a.url + "?v=" + Date.now(); $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con vídeo (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
@@ -158,31 +220,38 @@ function cambiarActa() {
   $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("cond").hidden = !cur.video;
   const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }
 }
-$("sel-acta").onchange = cambiarActa;
+$("fondo").onclick = async () => {
+  const a = cur.actas.find(a => a.name === ver);
+  try { await post("/api/fondo", {id: cur.id, nivel: a.nivel, asr: a.asr, alta: a.alta, gpu: $("usar-gpu").checked}); aviso("Añadido a la cola"); sondear(); }
+  catch (err) { alert(err.message); }
+};
+$("condensar").onclick = async () => {
+  try { await post("/api/condensar", {id: cur.id, asr: cur.actas.find(a => a.name === ver).asr, pct: +$("pct").value}); aviso("Añadido a la cola"); sondear(); }
+  catch (err) { alert(err.message); }
+};
+$("m-ren").onclick = () => renombrar(cur.m, $("ed-res"));
+$("m-mover").onclick = () => mover(cur.m, $("ed-res"));
 $("pct").oninput = () => $("pct-o").textContent = $("pct").value;
-$("volver").onclick = () => { $("acta-frame").src = "about:blank"; vista("nuevo"); cargarLista(); };
+$("volver").onclick = () => {
+  $("acta-frame").src = "about:blank"; ["vvideo", "qav", "cvideo"].forEach(i => $(i).pause());
+  fsel = fsel === null ? null : cur.carpeta || ""; ir("home");
+};
 function pintarConds() {
   $("cvideo").hidden = true; $("cvideo").removeAttribute("src");
   $("conds").replaceChildren(...cur.condensados.map(c => {
-    const ver = el("button", {className: "sec", textContent: "Ver"}); ver.onclick = () => { $("cvideo").src = c.url; $("cvideo").hidden = false; $("cvideo").play(); };
-    return el("li", {}, el("span", {className: "n", textContent: c.name}), el("span", {}, ver, " ", el("a", {className: "btn sec", href: c.url, download: c.name, textContent: "Descargar"})));
+    const vb = el("button", {className: "sec", textContent: "Ver"}); vb.onclick = () => { $("cvideo").src = c.url; $("cvideo").hidden = false; $("cvideo").play(); };
+    return el("li", {}, el("span", {className: "n", textContent: c.name}), el("span", {}, vb, " ", el("a", {className: "btn sec", href: c.url, download: c.name, textContent: "Descargar"})));
   }));
 }
 
-// ---- preguntar ----
-let reuniones = [];
-async function cargarReuniones() {
-  const prev = $("reunion").value; reuniones = await api("/api/meetings");
-  const g = {}; unicas(reuniones).forEach(m => m.carpeta && (g[m.carpeta] = (g[m.carpeta] || 0) + 1));
-  const cs = Object.keys(g).sort();
-  $("reunion").replaceChildren(...reuniones.map(m => el("option", {value: m.sel, textContent: (m.carpeta ? "📁 " + m.carpeta + " / " : "") + m.name})),
-    ...(cs.length ? [el("optgroup", {label: "Carpetas (todas sus reuniones)"}, ...cs.map(c => el("option", {value: "c:" + c, textContent: "📁 Carpeta " + c + " (" + g[c] + " reunion" + (g[c] > 1 ? "es" : "") + ")"})))] : []));
-  if ($("reunion").querySelector(`option[value="${CSS.escape(prev)}"]`)) $("reunion").value = prev;
-  cambiarReunion();
+// ---- preguntar (panel único #qpanel: se monta en la pestaña de la reunión o en la vista de carpeta) ----
+let qsel = "";
+function setQ(sel, video) {  // sel: "id|asr" o "c:carpeta"; video: url (null = sin vídeo hasta que una marca lo pida)
+  if (sel !== qsel) $("respuestas").replaceChildren();
+  qsel = sel; $("qpanel").hidden = false; const v = $("qav"); v.hidden = !video;
+  if (video && !v.src.endsWith(video)) v.src = video;
 }
-function cambiarReunion() { const m = reuniones.find(m => m.sel === $("reunion").value); const v = $("qav"); v.hidden = !m || !m.video; if (m && m.video && !v.src.endsWith(m.video)) v.src = m.video; }
-$("renombrar").onclick = () => { const v = $("reunion").value, d = $("qside"); if (v.startsWith("c:")) return carpetaOp(v.slice(2), false, d); const m = reuniones.find(m => m.sel === v); if (m) renombrar(m, d); };
-$("reunion").onchange = cambiarReunion; $("refrescar").onclick = cargarReuniones;
+
 // v: undefined = vídeo del selector; en carpetas, la url del vídeo de esa reunión (null = reunión sin vídeo); n: nombre de la reunión
 const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: "[" + (n ? n + " · " : "") + mmss(t) + "]", onclick: e => {
   e.preventDefault(); const q = $("qav"); if (v === null) return;
@@ -190,13 +259,13 @@ const ts = (t, v, n) => el("a", {className: "ts", href: "#", textContent: "[" + 
   q.hidden = false; if (v && !q.src.endsWith(v)) { q.addEventListener("loadedmetadata", go, {once: true}); q.src = v; } else go();
 }});
 $("qform").onsubmit = async e => {
-  e.preventDefault(); const q = $("pregunta").value.trim(); if (!q || !$("reunion").value) return;
+  e.preventDefault(); const q = $("pregunta").value.trim(); if (!q || !qsel) return;
   $("preguntar-b").disabled = true;
   const box = el("div", {className: "card resp"}, el("h3", {textContent: q})), cuerpo = el("div"), frag = el("details", {open: true}, el("summary", {textContent: "Fragmentos recuperados"}));
   box.append(cuerpo, frag); $("respuestas").prepend(box);
   const estado = el("p", {textContent: "Buscando en la reunión…"}); cuerpo.append(estado);
   try {
-    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: $("reunion").value, q, gpu: $("usar-gpu").checked})});
+    const r = await fetch("/api/preguntar", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({sel: qsel, q, gpu: $("usar-gpu").checked})});
     if (!r.ok) throw new Error((await r.json()).detail);
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) {
@@ -220,9 +289,8 @@ function evento(ev, cuerpo, frag, estado) {
   else if (ev.k === "error") cuerpo.append(el("p", {className: "err", textContent: ev.text}));
 }
 
-// ---- arranque: retomar un trabajo en marcha ----
-cargarLista();
-api("/api/job").then(j => { if (j.state === "running") seguir(); });
+// ---- arranque ----
+cargarLista().then(sondear); setInterval(sondear, 2000);
 
 // ---- primera vez: descarga de modelos (bloquea la página hasta terminar) ----
 async function modelos() {

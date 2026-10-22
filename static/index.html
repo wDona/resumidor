@@ -18,80 +18,119 @@
   </div>
 </div>
 <header>
-  <h1>Actas de reuniones</h1>
-  <nav role="tablist">
-    <button role="tab" id="tab-acta" aria-selected="true" data-tab="acta">Acta</button>
-    <button role="tab" id="tab-preguntar" aria-selected="false" data-tab="preguntar">Preguntar</button>
-  </nav>
+  <h1><a href="#" id="inicio">Actas</a></h1>
+  <span class="grow"></span>
+  <button class="pri" id="nueva">+ Nueva acta</button>
+  <button class="sec" id="b-cola" aria-controls="v-cola">Cola · <span id="n-cola">0</span></button>
 </header>
 <main>
-  <section id="acta">
-    <div id="v-nuevo">
-      <p class="lead">Genera un acta con resumen, capturas de la pantalla compartida y marcas de tiempo que saltan al momento del vídeo. Todo se procesa en este equipo.</p>
-      <div class="grid">
-        <form class="card" id="form" autocomplete="off">
-          <h2>Nueva acta</h2>
-          <div class="field">
-            <label for="ruta">Vídeo de la reunión</label>
-            <div class="row" id="drop">
-              <input id="ruta" readonly placeholder="Ningún vídeo elegido (o suelta uno aquí)">
-              <button type="button" id="elegir" class="sec">Elegir vídeo</button>
-            </div>
-            <small id="subida"></small>
+  <section id="v-home">
+    <aside id="side" aria-label="Carpetas">
+      <h2>Carpetas</h2>
+      <ul class="list" id="carpetas"></ul>
+      <button class="sec" id="nueva-carpeta">+ carpeta</button>
+      <div id="ed-side"></div>
+    </aside>
+    <div id="contenido">
+      <div class="toolbar" id="fcab">
+        <h2 id="ftit"></h2>
+        <span class="grow"></span>
+        <button class="sec" id="f-preguntar" hidden>Preguntar</button>
+        <button class="sec" id="f-ren" hidden>Renombrar</button>
+        <button class="sec" id="f-quitar" hidden>Quitar carpeta</button>
+        <!-- Fase posterior (de momento ocultos): resumen de tareas de la carpeta y comparación de reuniones -->
+        <button class="sec" id="f-tareas" hidden>Tareas</button>
+        <button class="sec" id="f-comparar" hidden>Comparar</button>
+      </div>
+      <div id="ed-carpeta"></div>
+      <ul class="list card" id="lista"></ul>
+    </div>
+  </section>
+
+  <section id="v-nuevo" hidden>
+    <button class="sec" id="nuevo-volver">&larr; Volver</button>
+    <form class="card narrow" id="form" autocomplete="off">
+      <h2 id="form-t">Nueva acta</h2>
+      <p class="muted" id="form-sub">Resumen, capturas de la pantalla compartida y marcas de tiempo que saltan al momento del vídeo. Todo se procesa en este equipo.</p>
+      <div id="f-fuente">
+        <div class="field">
+          <label for="ruta">Vídeo de la reunión</label>
+          <div class="row" id="drop">
+            <input id="ruta" readonly placeholder="Ningún vídeo elegido (o suelta uno aquí)">
+            <button type="button" id="elegir" class="sec">Elegir vídeo</button>
           </div>
-          <div class="field">
-            <label for="ruta-tr">Transcripción (opcional)</label>
-            <div class="row" id="drop-tr">
-              <input id="ruta-tr" readonly placeholder="Teams, Zoom, Meet, Otter… (.vtt .srt .txt .docx)">
-              <button type="button" id="elegir-tr" class="sec">Elegir transcripción</button>
-              <button type="button" id="quitar-tr" class="sec" hidden aria-label="Quitar transcripción">&times;</button>
-            </div>
-            <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor.</small>
+          <small id="subida"></small>
+        </div>
+        <div class="field">
+          <label for="ruta-tr">Transcripción (opcional)</label>
+          <div class="row" id="drop-tr">
+            <input id="ruta-tr" readonly placeholder="Teams, Zoom, Meet, Otter… (.vtt .srt .txt .docx)">
+            <button type="button" id="elegir-tr" class="sec">Elegir transcripción</button>
+            <button type="button" id="quitar-tr" class="sec" hidden aria-label="Quitar transcripción">&times;</button>
           </div>
-          <div class="cols">
-            <div class="field"><label for="nivel">Nivel de detalle</label>
-              <select id="nivel"><option>breve</option><option selected>normal</option><option>detallado</option></select></div>
-            <div class="field"><label for="calidad">Calidad del acta</label>
-              <select id="calidad"><option value="rápida">Rápida</option><option value="alta">Alta</option></select>
-              <small id="aviso-alta" class="warn" hidden>Alta tarda aprox. el doble que Rápida</small>
-              <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
-          </div>
-          <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
-          <small id="info-gpu"></small>
-          <small id="info-ram"></small>
-          <label class="check"><input type="checkbox" id="hablantes"> Separar quién habla (experimental)</label>
-          <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
-          <div class="field"><label for="nombres">Nombres de los hablantes (opcional)</label>
-            <input id="nombres" placeholder="Hablante 1=Ana, Hablante 2=Luis">
-            <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
-          <button class="pri" id="generar">Generar acta</button>
-        </form>
-        <div class="card">
-          <h2>Reuniones anteriores</h2>
-          <div class="list" id="lista"></div>
+          <small id="info-tr">Sustituye a la transcripción automática; con vídeo se alinea sola. Sin vídeo, el acta no lleva capturas ni reproductor.</small>
         </div>
       </div>
-    </div>
+      <div class="cols">
+        <div class="field"><label for="nivel">Nivel de detalle</label>
+          <select id="nivel"><option>breve</option><option selected>normal</option><option>detallado</option></select></div>
+        <!-- Calidad: bloque aislado (selector y su texto de ayuda) por si cambian los modelos/opciones -->
+        <div class="field" id="bloque-calidad"><label for="calidad">Calidad del acta</label>
+          <select id="calidad"><option value="rápida">Rápida</option><option value="alta">Alta</option></select>
+          <small id="aviso-alta" class="warn" hidden>Alta tarda aprox. el doble que Rápida</small>
+          <small id="info-alta">Alta: bloques más pequeños cortados donde cambia el tema y viñetas agrupadas por tema, sin repetidos y con las cifras y fechas comprobadas.</small></div>
+      </div>
+      <label class="check"><input type="checkbox" id="usar-gpu" disabled> Usar GPU</label>
+      <small id="info-gpu"></small>
+      <small id="info-ram"></small>
+      <div id="f-hab">
+        <label class="check"><input type="checkbox" id="hablantes"> Separar quién habla (experimental)</label>
+        <small id="hint-hab" hidden>No hace falta: la transcripción ya trae los nombres.</small>
+        <div class="field"><label for="nombres">Nombres de los hablantes (opcional)</label>
+          <input id="nombres" placeholder="Hablante 1=Ana, Hablante 2=Luis">
+          <small>Se aplican sin repetir el proceso: cámbialos y vuelve a generar.</small></div>
+      </div>
+      <p class="err" id="form-err" role="alert"></p>
+      <button class="pri" id="generar">Generar acta</button>
+    </form>
+  </section>
 
-    <div id="v-job" class="card narrow" hidden>
-      <h2 id="job-t">Procesando</h2>
-      <p id="job-msg" aria-live="polite"></p>
-      <div class="bar"><div id="job-bar"></div></div>
-      <p class="muted" id="job-eta"></p>
-      <p class="err" id="job-err" role="alert"></p>
-      <button class="sec" id="job-ok" hidden>Volver</button>
-    </div>
+  <section id="v-cola" hidden>
+    <button class="sec" id="cola-volver">&larr; Volver</button>
+    <h2 class="sp">Cola de trabajos</h2>
+    <p class="muted">Se procesa uno a la vez; el resto espera su turno. Puedes seguir usando la aplicación.</p>
+    <ul class="list card" id="q-lista" aria-live="polite"></ul>
+  </section>
 
-    <div id="v-res" hidden>
+  <section id="v-res" hidden>
+    <div class="toolbar">
+      <button class="sec" id="volver">&larr; <span id="cab-carpeta">Todas</span></button>
+      <h2 id="cab-titulo"></h2>
+      <span class="grow"></span>
+      <button class="sec" id="m-ren">Renombrar</button>
+      <button class="sec" id="m-mover">Mover</button>
+    </div>
+    <div id="ed-res"></div>
+    <div class="tabs" role="tablist" id="mtabs">
+      <button role="tab" aria-selected="true" data-p="p-acta">Acta</button>
+      <button role="tab" aria-selected="false" data-p="p-preg">Preguntar</button>
+      <button role="tab" aria-selected="false" data-p="p-video" id="t-video">Vídeo</button>
+    </div>
+    <div id="p-acta">
+      <div class="tabs vers" role="tablist" aria-label="Versiones del acta" id="vers"></div>
       <div class="toolbar">
-        <button class="sec" id="volver">&larr; Volver</button>
-        <label for="sel-acta">Acta</label><select id="sel-acta"></select>
+        <!-- Gancho de la fase de edición/exportación: #acta-acciones se muestra y se rellena desde allí (Editar, Exportar ▾…) -->
+        <span id="acta-acciones" hidden></span>
         <a class="btn sec" id="dl-zip" download>Descargar acta (.zip)</a>
         <a class="btn sec" id="dl-vid" download title="Acta y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
         <button class="sec" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
       </div>
       <p class="muted" id="imp-info"></p>
       <iframe id="acta-frame" title="Acta"></iframe>
+    </div>
+    <div id="p-preg" hidden></div>
+    <div id="p-video" hidden>
+      <video id="vvideo" controls preload="metadata"></video>
       <div class="card cond" id="cond">
         <h2>Vídeo condensado</h2>
         <div class="row">
@@ -106,22 +145,22 @@
     </div>
   </section>
 
-  <section id="preguntar" hidden>
-    <p class="lead">Pregunta sobre una reunión ya procesada o sobre todas las de una carpeta. Solo se responde con lo dicho en ella y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
+  <section id="v-preg" hidden>
+    <div class="toolbar"><button class="sec" id="preg-volver">&larr; Volver</button><h2 id="preg-tit"></h2></div>
+    <div id="p-fcarpeta"></div>
+  </section>
+
+  <div id="qpanel" hidden>
+    <p class="lead">Solo se responde con lo dicho en la reunión y con la marca que salta al vídeo; si no se dijo: «No se menciona en la reunión». Cada pregunta es independiente.</p>
     <div id="qlayout">
-      <div class="card" id="qside">
-        <div class="row"><label for="reunion">Reunión</label><select id="reunion"></select>
-          <button class="sec" id="renombrar" title="Renombrar la reunión (o la carpeta) elegida" aria-label="Renombrar">&#9998;</button>
-          <button class="sec" id="refrescar" title="Actualizar lista" aria-label="Actualizar lista">&#8635;</button></div>
-        <video id="qav" controls preload="metadata"></video>
-      </div>
+      <div class="card" id="qside"><video id="qav" controls preload="metadata"></video></div>
       <div>
         <form class="card row" id="qform"><label for="pregunta" class="sr">Pregunta</label>
           <input id="pregunta" placeholder="Escribe tu pregunta…"><button class="pri" id="preguntar-b">Preguntar</button></form>
         <div id="respuestas"></div>
       </div>
     </div>
-  </section>
+  </div>
 </main>
 <script src="app.js"></script>
 </body>

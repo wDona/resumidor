@@ -11,6 +11,7 @@ import time
 import zipfile
 import urllib.parse
 import urllib.request
+import uuid
 import webbrowser
 from pathlib import Path
 
@@ -26,26 +27,36 @@ import rag
 import transcripts
 
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
-STATIC, LOCK, JOBF = pipeline.ROOT / "static", pipeline.ROOT / ".actas.lock", pipeline.WORK / "job.json"
+STATIC, LOCK, COLA = pipeline.ROOT / "static", pipeline.ROOT / ".actas.lock", pipeline.WORK / "cola.json"
 UPLOADS = pipeline.ROOT / "uploads"
 TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
 IDLE_JOB = 180  # ídem con un trabajo en marcha (recarga o vuelta de la pestaña)
 app = FastAPI()
 beat = [time.time()]
-job = {"state": "idle"}  # state: idle | running | done | error; kind: acta | condensar
+job = {"state": "idle"}  # trabajo actual (compatibilidad con /api/job); state: idle | running | done | error; kind: acta | fondo | condensar
 jlock = threading.Lock()
+cola = []  # FIFO persistida en work/cola.json: {id, kind, spec, video, mid, state: pendiente|marcha|hecho|error|cancelado|interrumpido, ...}
+cancelar = set()  # ids de trabajos en marcha a los que se pidió cancelar (se comprueba en cada cb)
+ACTIVOS = ("pendiente", "marcha")
 
 
-def save_job():
+class Cancelado(Exception):
+    pass
+
+
+def guardar():
     pipeline.WORK.mkdir(exist_ok=True)
-    JOBF.write_text(json.dumps(job, ensure_ascii=False))
+    fin = [e for e in cola if e["state"] not in ACTIVOS][-15:]  # del historial solo se guardan los últimos
+    cola[:] = [e for e in cola if e["state"] in ACTIVOS or e in fin]
+    COLA.write_text(json.dumps(cola, ensure_ascii=False))
 
 
-try:  # recarga/reinicio: un trabajo que figuraba en marcha ya no tiene hilo
-    job.update(json.loads(JOBF.read_text()))
-    if job["state"] == "running":
-        job.update(state="error", error="El trabajo se interrumpió al cerrar la aplicación")
+try:  # reinicio: lo que estaba en marcha ya no tiene hilo (se puede reintentar); lo pendiente sigue en cola
+    cola[:] = json.loads(COLA.read_text())
+    for e in cola:
+        if e["state"] == "marcha":
+            e.update(state="interrumpido", error="El trabajo se interrumpió al cerrar la aplicación")
 except (OSError, ValueError):
     pass
 
@@ -63,42 +74,136 @@ def parar_llm():
 atexit.register(parar_llm)
 
 
-# ---------- Trabajos ----------
-def start(kind, fn, **info):
+# ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
+def start(kind, spec, video, mid=""):
     with jlock:
-        if job["state"] == "running":
-            raise HTTPException(409, "Ya hay un trabajo en marcha")
+        e = {"id": uuid.uuid4().hex[:8], "kind": kind, "spec": spec, "video": video, "mid": mid, "state": "pendiente", "t": time.time()}
+        cola.append(e)
+        guardar()
+    kick()
+    return {"id": e["id"]}
+
+
+def kick():
+    """Arranca el siguiente pendiente si no hay ninguno en marcha (se llama al encolar y al terminar cada trabajo)."""
+    with jlock:
+        e = next((e for e in cola if e["state"] == "marcha"), None) or next((e for e in cola if e["state"] == "pendiente"), None)
+        if not e or e["state"] == "marcha":
+            return
+        e["state"] = "marcha"
         job.clear()
-        job.update(state="running", kind=kind, frac=0, msg="Empezando…", t0=time.time(), **info)
+        job.update(state="running", kind=e["kind"], frac=0, msg="Empezando…", t0=time.time(), video=e["video"], qid=e["id"])
         pipeline.ETA.clear()
-        save_job()
+        guardar()
     parar_llm()  # dos modelos de 3 GB a la vez no caben en 8 GB
 
     def cb(f, m):
+        if e["id"] in cancelar:
+            raise Cancelado()
         job.update(frac=round(f, 4), msg=m)
 
     def work():
         try:
-            job["result"] = fn(cb)
-            job.update(state="done", frac=1, msg="Listo")
-        except Exception as e:
-            job.update(state="error", error=str(e) or type(e).__name__)
-        save_job()
+            e["result"] = FNS[e["kind"]](e["spec"])(cb)
+            e["state"] = "hecho"
+            job.update(state="done", frac=1, msg="Listo", result=e["result"])
+        except Cancelado:
+            e["state"] = "cancelado"
+            job.update(state="error", error="Cancelado")
+        except Exception as ex:
+            e.update(state="error", error=str(ex) or type(ex).__name__)
+            job.update(state="error", error=e["error"])
+        cancelar.discard(e["id"])
+        with jlock:
+            guardar()
+        kick()
 
     threading.Thread(target=work, daemon=True).start()
+
+
+def _eta(j):
+    e = pipeline.eta() if j.get("state") == "running" else None  # actas: por fases y ritmos de este equipo
+    if e is not None:
+        return e
+    if j.get("state") == "running" and j["frac"] > 0.03:  # resto (vídeo condensado): regla de tres
+        return round((time.time() - j["t0"]) * (1 - j["frac"]) / j["frac"])
 
 
 @app.get("/api/job")
 def get_job():
     j = dict(job)
-    e = pipeline.eta() if j.get("state") == "running" else None  # actas: por fases y ritmos de este equipo
-    if e is not None:
+    if (e := _eta(j)) is not None:
         j["eta"] = e
-    elif j.get("state") == "running" and j["frac"] > 0.03:  # resto (vídeo condensado): regla de tres
-        j["eta"] = round((time.time() - j["t0"]) * (1 - j["frac"]) / j["frac"])
-    if j.get("state") == "running":
-        save_job()
     return j
+
+
+def _entry(d):
+    e = next((e for e in cola if e["id"] == d.get("id")), None)
+    if not e:
+        raise HTTPException(404, "Ese trabajo ya no está en la cola")
+    return e
+
+
+@app.get("/api/cola")
+def get_cola():
+    items = [{k: v for k, v in e.items() if k != "spec"} for e in cola]
+    for i in items:
+        if i["state"] == "marcha":
+            i.update(frac=job.get("frac", 0), msg=job.get("msg", ""), eta=_eta(job), t0=job.get("t0"))
+    return {"n": sum(e["state"] in ACTIVOS for e in cola), "items": items}
+
+
+@app.post("/api/cola/cancelar")
+def cola_cancelar(d: dict):
+    """Pendiente: sale de la cola. En marcha: se corta en el siguiente aviso de progreso (cooperativo)."""
+    with jlock:
+        e = _entry(d)
+        if e["state"] == "pendiente":
+            e["state"] = "cancelado"
+        elif e["state"] == "marcha":
+            cancelar.add(e["id"])
+        guardar()
+    return {}
+
+
+@app.post("/api/cola/reintentar")
+def cola_reintentar(d: dict):
+    with jlock:
+        e = _entry(d)
+        if e["state"] in ACTIVOS or e["state"] == "hecho":
+            raise HTTPException(400, "Ese trabajo no se puede reintentar")
+        cola.remove(e)
+        e.update(state="pendiente", t=time.time())
+        e.pop("error", None)
+        cola.append(e)
+        guardar()
+    kick()
+    return {}
+
+
+@app.post("/api/cola/quitar")
+def cola_quitar(d: dict):
+    with jlock:
+        e = _entry(d)
+        if e["state"] == "marcha":
+            raise HTTPException(400, "Cancélalo primero")
+        cola.remove(e)
+        guardar()
+    return {}
+
+
+@app.post("/api/cola/mover")
+def cola_mover(d: dict):
+    """Sube (-1) o baja (1) un pendiente respecto a los demás pendientes."""
+    with jlock:
+        e = _entry(d)
+        p = [x for x in cola if x["state"] == "pendiente"]
+        j = p.index(e) + (-1 if d.get("d", 0) < 0 else 1) if e in p else -1
+        if 0 <= j < len(p):
+            a, b = cola.index(e), cola.index(p[j])
+            cola[a], cola[b] = cola[b], cola[a]
+            guardar()
+    return {}
 
 
 @app.get("/api/gpu")
@@ -108,51 +213,72 @@ def gpu():
             "llm": pipeline.llm_label()}
 
 
-@app.post("/api/generar")
-def generar(d: dict):
+def _acta_fn(d):
     video, tr = Path(d.get("video") or ""), d.get("transcripcion") or ""
-    if tr and (Path(tr).suffix.lower() not in TR_EXT or not Path(tr).is_file()):
-        raise HTTPException(400, "La transcripción debe ser un fichero .vtt, .srt, .txt o .docx")
-    if not (video.is_file() or tr):
-        raise HTTPException(400, "Elige un vídeo o una transcripción")
     video = video if video.is_file() else None
     names = {n: v.strip() for n, v in re.findall(r"[Hh]ablante\s*(\d+)\s*=\s*([^,;\n]+)", d.get("nombres") or "")}
-    nivel, asr = d.get("nivel", "normal"), d.get("asr", "calidad")
-    calidad, gpu = d.get("calidad", "rápida"), d.get("gpu")
-    if nivel not in pipeline.LEVELS or asr not in pipeline.ASR_MODELS or calidad not in ("rápida", "alta"):
-        raise HTTPException(400, "Opción no válida")
+    nivel, asr, calidad, reuse = d.get("nivel", "normal"), d.get("asr", "calidad"), d.get("calidad", "rápida"), d.get("reuse")
 
     def fn(cb):
-        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, gpu)
+        out, _, _ = pipeline.run(video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
+                                 reuse=(Path(reuse).name, asr) if reuse else None)
         return {"id": out.parent.name, "acta": out.name}
-    start("acta", fn, video=(video or Path(tr)).name)
+    return fn
+
+
+@app.post("/api/generar")
+def generar(d: dict):
+    """Encola un acta nueva (video/transcripcion) u otra versión de una reunión ya procesada (reuse = id, asr = su transcripción)."""
+    video, tr, reuse = Path(d.get("video") or ""), d.get("transcripcion") or "", d.get("reuse")
+    if tr and (Path(tr).suffix.lower() not in TR_EXT or not Path(tr).is_file()):
+        raise HTTPException(400, "La transcripción debe ser un fichero .vtt, .srt, .txt o .docx")
+    if reuse:
+        if not (pipeline.WORK / Path(reuse).name / f"transcript_{d.get('asr')}.json").exists():
+            raise HTTPException(400, "Reunión no encontrada")
+    elif not (video.is_file() or tr):
+        raise HTTPException(400, "Elige un vídeo o una transcripción")
+    if d.get("nivel", "normal") not in pipeline.LEVELS or d.get("asr", "calidad") not in pipeline.ASR_MODELS and not reuse or d.get("calidad", "rápida") not in ("rápida", "alta"):
+        raise HTTPException(400, "Opción no válida")
+    return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
 
 
 @app.post("/api/fondo")
 def fondo(d: dict):
-    """Búsqueda a fondo de decisiones y tareas de un acta ya generada: mismo trabajo en segundo plano que generar (start() para
-    el LLM del chat: un solo servidor a la vez) y se rehace el acta en su carpeta."""
+    """Búsqueda a fondo de decisiones y tareas de un acta ya generada: mismo trabajo en cola que generar (un solo LLM a la vez)
+    y se rehace el acta en su carpeta."""
     wd, nivel, asr = pipeline.WORK / Path(d.get("id", "")).name, d.get("nivel", "normal"), d.get("asr", "calidad")
-    calidad = "alta" if d.get("alta") else "rápida"
     if nivel not in pipeline.LEVELS or not (wd / f"transcript_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
+    return start("fondo", d, wd.name, wd.name)
+
+
+def _fondo_fn(d):
+    wd, nivel, asr = pipeline.WORK / Path(d["id"]).name, d.get("nivel", "normal"), d.get("asr", "calidad")
 
     def fn(cb):
-        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad=calidad, gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
+        out, _, _ = pipeline.run(None, nivel, asr, THREADS, cb, calidad="alta" if d.get("alta") else "rápida", gpu=d.get("gpu"), fondo=True, reuse=(wd.name, asr))
         return {"id": wd.name, "acta": out.name}
-    start("fondo", fn, video=wd.name)
+    return fn
 
 
 @app.post("/api/condensar")
 def condensar(d: dict):
-    wd, asr, pct = pipeline.WORK / Path(d["id"]).name, d.get("asr", "calidad"), int(d.get("pct", 40))
+    wd, asr = pipeline.WORK / Path(d["id"]).name, d.get("asr", "calidad")
     if not (wd / f"cortes_{asr}.json").exists():
         raise HTTPException(400, "Genera primero el acta")
+    return start("condensar", d, wd.name, wd.name)
+
+
+def _condensar_fn(d):
+    wd, asr, pct = pipeline.WORK / Path(d["id"]).name, d.get("asr", "calidad"), int(d.get("pct", 40))
 
     def fn(cb):
         pipeline.condense(wd, asr, pct, THREADS, cb)
         return {"id": wd.name}
-    start("condensar", fn, video=wd.name)
+    return fn
+
+
+FNS = {"acta": _acta_fn, "fondo": _fondo_fn, "condensar": _condensar_fn}
 
 
 # ---------- Vídeo de entrada ----------
@@ -201,8 +327,19 @@ def meta(wd):
         return {}
 
 
+def resumen(wd):
+    """(nº de actas, duración en s) de una reunión: la duración sale del acta.json de la primera acta que la tenga."""
+    ds = [d for d in wd.glob("acta_*_*") if (d / "index.html").exists()]
+    for d in ds:
+        try:
+            return len(ds), json.loads((d / "acta.json").read_text()).get("duracion") or 0
+        except (OSError, ValueError):
+            pass
+    return len(ds), 0
+
+
 def meetings():
-    out = []
+    out, res = [], {}
     for tf in sorted(pipeline.WORK.glob("*/transcript_*.json"), key=os.path.getmtime, reverse=True):
         v = next(tf.parent.glob("video.*"), None)
         asr = tf.stem.split("_", 1)[1]
@@ -211,6 +348,7 @@ def meetings():
         base = mt.get("nombre") or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
                     "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""),
+                    **dict(zip(("actas", "dur"), res.setdefault(tf.parent.name, resumen(tf.parent)))),
                     "name": base + (" (transcripción importada)" if imp and v else "" if asr == "rápido" or imp else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None})
     seen = {}  # dos reuniones no se llaman igual: la más antigua se queda el nombre, las demás llevan « (2)», « (3)»…
@@ -230,7 +368,7 @@ def get_meetings():
 
 @app.post("/api/meta")
 def set_meta(d: dict):
-    """Nombre y/o carpeta de una reunión (cadena vacía = quitar)."""
+    """Nombre y/o carpeta de una reunión (cadena vacía = quitar). {version: carpeta del acta, vnombre} renombra una versión del acta."""
     wd = pipeline.WORK / Path(d.get("id") or "").name
     if not wd.is_dir():
         raise HTTPException(404, "Reunión no encontrada")
@@ -242,14 +380,38 @@ def set_meta(d: dict):
         if k in d:
             v = str(d[k] or "").strip()[:120]
             m.pop(k, None) if not v else m.__setitem__(k, v)
+    if d.get("version"):
+        v, n = Path(d["version"]).name, str(d.get("vnombre") or "").strip()[:60]
+        if not (wd / v / "index.html").exists():
+            raise HTTPException(404, "Acta no encontrada")
+        vs = m.setdefault("versiones", {})
+        vs.pop(v, None) if not n else vs.__setitem__(v, n)
+        m.pop("versiones") if not vs else None
     (wd / "meta.json").write_text(json.dumps(m, ensure_ascii=False))
     return m
 
 
+CARPETAS = pipeline.WORK / "carpetas.json"  # carpetas creadas aunque aún no tengan reuniones
+
+
+def carpetas_vacias():
+    try:
+        return json.loads(CARPETAS.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+@app.get("/api/carpetas")
+def get_carpetas():
+    return sorted({*carpetas_vacias(), *(meta(f.parent).get("carpeta") for f in pipeline.WORK.glob("*/meta.json"))} - {None, ""}, key=str.casefold)
+
+
 @app.post("/api/carpeta")
 def carpeta(d: dict):
-    """Renombrar (nuevo) o borrar (sin nuevo) una carpeta: solo toca los meta.json; las reuniones nunca se borran."""
+    """Crear (sin nombre), renombrar (nuevo) o borrar (sin nuevo) una carpeta: solo toca los meta.json; las reuniones nunca se borran."""
     old, new = (d.get("nombre") or "").strip(), (d.get("nuevo") or "").strip()[:120]
+    pipeline.WORK.mkdir(exist_ok=True)
+    CARPETAS.write_text(json.dumps(sorted(({*carpetas_vacias(), new} if new else {*carpetas_vacias()}) - {old, ""}), ensure_ascii=False))
     for f in pipeline.WORK.glob("*/meta.json"):
         m = meta(f.parent)
         if m.get("carpeta") == old:
@@ -301,7 +463,7 @@ def meeting(mid: str):
     rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text())) for c in wd.glob("cortes_*.json")}
     conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*.mp4"))]
     imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text())["importada"] for f in wd.glob("transcript_imp*.json")}
-    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "importadas": imp,
+    return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "videourl": next((f"/files/{wd.name}/{v.name}" for v in wd.glob("video.*")), None), "versiones": meta(wd).get("versiones", {}), "importadas": imp,
             "videomb": next((round(v.stat().st_size / 1e6) for v in wd.glob("video.*") if v.exists()), 0), **{k: meta(wd).get(k, "") for k in ("nombre", "carpeta")}}
 
 
@@ -340,7 +502,7 @@ def preguntar(d: dict):
     sel, q = d.get("sel"), (d.get("q") or "").strip()
     if not sel or not q:
         raise HTTPException(400, "Elige una reunión y escribe la pregunta")
-    if job["state"] == "running":
+    if any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
 
     def events():
@@ -425,10 +587,11 @@ if __name__ == "__main__":
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
 
     def vigila():
-        while time.time() - beat[0] < (IDLE_JOB if job.get('state') == 'running' else IDLE):
+        while time.time() - beat[0] < (IDLE_JOB if any(e['state'] in ACTIVOS for e in cola) else IDLE):
             time.sleep(2)
         srv.should_exit = True
     threading.Thread(target=vigila, daemon=True).start()
+    kick()  # retoma lo que quedó pendiente
     if not os.environ.get("ACTAS_NO_BROWSER"):  # CI/pruebas sin navegador
         threading.Timer(1, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
     procs.on_signal(lambda: setattr(srv, "should_exit", True))
