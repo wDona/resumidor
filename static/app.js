@@ -388,7 +388,9 @@ function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver), nd = a.doc || "acta"; editando = false; pintarAcciones(a);
   $("t-acta").textContent = cap(nd); $("dl-zip").textContent = "Descargar (.zip)"; $("fondo").hidden = !!a.plantilla;
   $("cab-meta").replaceChildren(...[cur.m.dur ? Math.round(cur.m.dur / 60) + " min" : "", cap(nd), a.idioma && (IDI[a.idioma] || a.idioma), cap(a.nivel), a.nube ? "☁ " + a.nube : nivelInfo(a.calidad)?.nombre, a.editado && "editado", cur.carpeta].filter(Boolean).map(t => el("span", {textContent: t})));
-  $("acta-frame").src = `/api/vista/${cur.id}/${a.name}?v=` + Date.now();  // desde los datos: lleva data-p (marcas de dudas) y lo editado $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
+  // desde los datos: lleva data-p (marcas de dudas) y lo editado
+  $("acta-frame").src = `/api/vista/${cur.id}/${a.name}?v=` + Date.now();
+  $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +

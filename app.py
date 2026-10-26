@@ -1015,13 +1015,17 @@ def carpeta(d: dict):
     return {}
 
 
+class _Sink:
+    def __init__(self, f): self.write, self.flush = f.write, f.flush
+
+
 def _stream_zip(files):
     """Zip sin compresión (el mp4 ya viene comprimido) generado al vuelo por una tubería: sin segunda copia en disco."""
     r, w = os.pipe()
 
     def write():
         try:
-            with os.fdopen(w, "wb") as out, zipfile.ZipFile(out, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+            with os.fdopen(w, "wb") as out, zipfile.ZipFile(_Sink(out), "w", zipfile.ZIP_STORED, allowZip64=True) as z:
                 for src, arc in files:
                     z.write(src, arc)
         except OSError:  # el cliente cortó la descarga
