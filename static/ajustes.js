@@ -1,6 +1,6 @@
 // Ajustes (General · Modelos · Plantillas · Perfiles de uso), asistente de primer arranque y modo simple. Se carga tras app.js.
 let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Nuevo"},
-  nube_visible: true, anonimizar_defecto: false, existe: true};
+  nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true};
 let GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
 const simple = () => AJ.modo !== "avanzado";
 const nm = k => AJ.nombres[k];
@@ -138,7 +138,9 @@ function pintarAjustes() {
     card("Nombres", el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     card("Privacidad", ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
       chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
-      chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")));
+      chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")),
+    card("Proyectos", chk2("Poblar proyecto automáticamente", AJ.poblar_auto !== false, v => guardarAj({poblar_auto: v}),
+      "Al terminar cada reunión de una carpeta, la IA propone requisitos, decisiones, interesados, riesgos y preguntas abiertas con su cita (revísalos en «Revisión»).")));
   $("aj-general").append(Object.assign(card("Estilos de organización", el("p", {className: "muted", textContent: "Cabecera, pie, color, logo y firmas que llevan los documentos que exportas. Cada " + nm("carpeta").toLowerCase() + " puede tener uno por defecto."}), el("div", {id: "est-w"})), {className: "card solo-av"}));
   pintarEstilos();
   if (focoModo) { focoModo = false; document.querySelector("#modo-g input:checked")?.focus(); }

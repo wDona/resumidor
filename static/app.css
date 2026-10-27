@@ -475,3 +475,17 @@ body.simple #form .card>.cols{margin:0}
 .drop{outline:2px solid var(--acc);outline-offset:-2px;background:var(--acc-s)}
 tr.f[draggable=true]{cursor:grab}tr.f[draggable=true]:active{cursor:grabbing}
 .fila-mv{margin-left:8px}
+
+/* ---- registro.js: tabla editable y bandeja ---- */
+.reg-bar,.reg-acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.reg-chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.reg-bar input[type=search]{flex:1 1 200px}.reg-wrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:var(--r2);background:var(--card)}
+.reg-t{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}.reg-t th{position:sticky;top:0;z-index:1;background:var(--bg2);text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.reg-t td{padding:6px 8px;border-bottom:1px solid var(--line2);vertical-align:top}.reg-t tbody tr:nth-child(even){background:var(--bg2)}.reg-t tbody tr:hover{background:var(--acc-s)}
+.reg-t td input:not([type=checkbox]),.reg-t td select,.reg-t td textarea{width:100%;min-width:90px;font:inherit;padding:4px 6px;border:1px solid transparent;background:transparent;color:var(--ink);border-radius:6px}
+.reg-t td input:hover,.reg-t td select:hover,.reg-t td textarea:hover{border-color:var(--inp)}.reg-t td input:focus,.reg-t td select:focus,.reg-t td textarea:focus{border-color:var(--acc);background:var(--card)}
+.reg-t td textarea{resize:vertical;min-width:220px}.reg-t .c{width:34px;text-align:center}.reg-r.prop td:first-child{box-shadow:inset 3px 0 0 var(--acc)}.reg-r.huer td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.reg-r.cerr{opacity:.6}.reg-r.foco,.reg-r:focus{outline:2px solid var(--focus);outline-offset:-2px}.reg-ins{display:flex;gap:4px;flex-wrap:wrap}.reg-ops{white-space:nowrap}
+.reg-or{white-space:nowrap}.reg-cita td{background:var(--acc-s)}.reg-cita blockquote{margin:2px 0;color:var(--ink2)}
+.reg-hist{position:fixed;right:0;top:0;bottom:0;width:min(380px,100vw);overflow:auto;background:var(--card);border-left:1px solid var(--line);box-shadow:var(--shadow);padding:16px;z-index:20}.reg-h{padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px}
+.reg-g{padding:0;overflow:hidden}.reg-g .reg-wrap{border:0;border-radius:0}
+@media(max-width:700px){.reg-t{font-size:13px}}

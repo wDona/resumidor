@@ -1,6 +1,18 @@
 // Carpeta = expediente (diseño: design/Carpeta.dc.html): Resumen | Pendientes | Línea de tiempo | Preguntar | Comparar | Ajustes.
 // Se engancha a app.js por pintarHome() -> carpetaVista(c) y por sondear() -> carpetaTrasCola(); usa los ganchos #f-tabs / #f-panel / #f-nuevo.
-const FTABS = [["resumen", "Resumen"], ["pendientes", "Pendientes"], ["linea", "Línea de tiempo"], ["preguntar", "Preguntar"], ["comparar", "Comparar"], ["ajustes", "Ajustes"]];
+const FTABS = [["resumen", "Resumen"], ["revision", "Revisión"], ["pendientes", "Pendientes"], ["requisitos", "Requisitos"], ["historias", "Historias"], ["interesados", "Interesados"], ["decisiones", "Decisiones"], ["informe", "Informe"], ["linea", "Línea de tiempo"], ["preguntar", "Preguntar"], ["comparar", "Comparar"], ["ajustes", "Ajustes"]];
+// pestañas del registro (F3/F4): tipo de entidad que muestra cada una. Para sustituir el placeholder de una vista (F4) basta con registrar su función en FVISTAS[clave] = (c, e) => nodos.
+const FREG = {requisitos: "requisito", historias: "historia", interesados: "interesado", decisiones: "decision"}, FVISTAS = {};
+let fReg = {rev: 0, tipos: {}, proyecto: false};  // contadores del registro de la carpeta abierta (para mostrar/ocultar pestañas)
+const fTabVisible = k => k === "revision" || !(k in FREG || k === "informe") || fReg.proyecto || !!fReg.tipos[FREG[k]];
+const fTabTxt = (k, t) => k === "revision" ? t + " (" + fReg.rev + ")" : t;
+async function fCargaReg(c, tipoCarpeta) {
+  try {
+    const r = await api("/api/reg?" + new URLSearchParams({c}));
+    fReg = {rev: r.contadores?.por_revision?.propuesto || 0, tipos: r.contadores?.por_tipo || {}, proyecto: tipoCarpeta === "Proyecto"};
+  } catch { fReg = {rev: 0, tipos: {}, proyecto: tipoCarpeta === "Proyecto"}; }
+  pintaTabs();
+}
 let ftab = lsGet("ftab", "resumen"), fuC = null, fsucio = true, fseq = 0, fpen = {estado: "abierto", resp: "", orden: "plazo"}, fcmp = {a: "", b: ""};
 const fFecha = iso => iso ? new Date(iso + "T12:00").toLocaleDateString("es", {day: "numeric", month: "short", year: "numeric"}) : "";
 const carpetaTrasCola = () => { fsucio = true; };
@@ -16,9 +28,14 @@ function carpetaVista(c) {
   $("docs-w").hidden = on && ftab !== "resumen";
   if (!on) { fuC = null; return; }
   $("f-nuevo").textContent = "+ Nuevo " + nm("documento");
-  $("f-tabs").replaceChildren(...FTABS.map(([k, t]) => el("button", {role: "tab", textContent: t, "aria-selected": k === ftab, onclick: () => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }})));
+  pintaTabs();
   if (fuC === c && !fsucio) return;
-  fuC = c; fsucio = false; fRender();
+  fuC = c; fsucio = false; pintaTabs(); fRender();
+}
+function pintaTabs() {
+  if (fuC === null) return;
+  if (!fTabVisible(ftab)) ftab = "resumen";
+  $("f-tabs").replaceChildren(...FTABS.filter(([k]) => fTabVisible(k)).map(([k, t]) => el("button", {role: "tab", textContent: fTabTxt(k, t), "aria-selected": k === ftab, onclick: () => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }})));
 }
 $("f-nuevo").onclick = () => formNuevo();
 // «+ Nuevo documento» dentro de la carpeta hereda perfil, estilo (al exportar), glosario y carpeta (en el servidor) e idioma por defecto
@@ -33,7 +50,10 @@ async function fRender() {
   const c = fuC, n = ++fseq, p = $("f-panel");
   if (p.contains($("qpanel"))) { $("qpanel").hidden = true; document.querySelector("main").append($("qpanel")); }  // el panel de preguntas se conserva al cambiar de pestaña
   try {
-    const e = await api("/api/exp?c=" + encodeURIComponent(c)), nodos = await ({resumen: tResumen, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e);
+    const e = await api("/api/exp?c=" + encodeURIComponent(c));
+    await fCargaReg(c, e.tipo);
+    if (n !== fseq) return;
+    const nodos = await ({resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
     if (n !== fseq) return;
     p.replaceChildren(...nodos);
     const pl_ = PL.find(t => t.id === e.perfil);
@@ -231,4 +251,33 @@ async function tAjustes(c, e) {
     el("div", {className: "cols"}, fld("Perfil por defecto", perf, "El tipo de documento que propone «+ Nuevo»."), fld("Estilo por defecto", est, "Cómo se organiza al exportar."),
       fld("Tipo de carpeta", tipo, "Cambia el nombre del tipo y las sugerencias de datos."), fld("Idioma de los documentos nuevos", idi), fld("Anonimizar por defecto", anon, "Al exportar y descargar desde esta carpeta.")),
     el("div", {className: "row"}, guardar)), caja];
+}
+
+// ---- Registro: Revisión (bandeja) y vistas por tipo ----
+// «Regenerar con IA» (F3b): encola /api/reg/poblar (todas las vistas o solo la de la pestaña); al terminar, carpetaTrasCola recarga la pestaña
+KIND.poblar = "Poblar el proyecto con IA";
+const FPOBLAR = {requisitos: "requisitos", interesados: "interesados", decisiones: "decisiones"};  // pestaña -> vista de poblar.py
+function fRegenerar(c, vistas) {
+  const nb = () => { try { return nubeParams("q") || nubeParams("f"); } catch { return null; } };
+  const b = el("button", {className: "sec sm", textContent: "Regenerar con IA", title: "La IA vuelve a leer las reuniones y propone solo lo nuevo (respeta lo editado, aprobado y descartado)",
+    onclick: fallo(async () => { b.disabled = true; try { await fEnCola("/api/reg/poblar", {c, ...(vistas ? {vistas} : {}), ...(nb() ? {nube: nb()} : {})}); } finally { b.disabled = false; } })});
+  const info = el("small", {className: "muted"});
+  api("/api/reg/poblar/estado?c=" + encodeURIComponent(c)).then(r => {
+    const u = r.ultimo, n = u ? Object.values(u.creadas || {}).reduce((a, x) => a + x, 0) : 0;
+    info.textContent = r.en_cola ? "En cola…" : u ? "Última pasada: " + new Date(u.t * 1000).toLocaleString("es") + " · " + n + (n === 1 ? " nueva" : " nuevas") + " · " + u.llamadas + " llamadas" + (u.coste ? " · US$" + u.coste.toFixed(3) : "") : "";
+  }).catch(() => {});
+  return el("div", {className: "row wrap", style: "margin-bottom:8px"}, b, info);
+}
+async function tRevision(c) {
+  const w = el("div");
+  registroBandeja(w, c, () => fCargaReg(c, fReg.proyecto ? "Proyecto" : ""));
+  return [fRegenerar(c), w];
+}
+// placeholder genérico: tabla editable del tipo; cada vista de F4 lo sustituye con FVISTAS[clave]
+async function tVista(c, e, k) {
+  if (FVISTAS[k]) return FVISTAS[k](c, e);
+  if (k === "informe") return [el("p", {className: "vacio", textContent: "Próximamente (F6)."})];
+  const w = el("div");
+  registroTabla(w, {c, tipo: FREG[k], onChange: () => fCargaReg(c, e.tipo)});
+  return FPOBLAR[k] ? [fRegenerar(c, [FPOBLAR[k]]), w] : [w];
 }

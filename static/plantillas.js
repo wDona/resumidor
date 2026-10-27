@@ -21,6 +21,9 @@ const txt = (obj, k, area, extra = {}) => { const i = el(area ? "textarea" : "in
 const chk = (obj, k, lab, cb) => { const i = el("input", {type: "checkbox", checked: !!obj[k]}); i.onchange = () => { obj[k] = i.checked; cb?.(); }; return el("label", {className: k === "nube_permitida" ? "check solo-nube" : "check"}, i, " " + lab); };
 const mover_ = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; pintarEd(); };
 const boton = (t, f, cls = "sec") => el("button", {type: "button", className: cls, textContent: t, onclick: fallo(async () => f())});
+const SEGUIR = [["", "ninguno"], ["tarea", "tarea"], ["riesgo", "riesgo"], ["incidencia", "incidencia"], ["supuesto", "supuesto"], ["dependencia", "dependencia"], ["pregunta", "pregunta"],
+  ["requisito", "requisito"], ["decision", "decisión"], ["interesado", "interesado"], ["hito", "hito"]];
+
 function pintarEd(t = plantDe(pSel)) {
   const ed = t.editable, base = SERIE[pe.base || pe.id] || {}, re = () => pintarEd(t);
   const secs = pe.secciones.map((s, i) => el("div", {className: "psec"},
@@ -30,7 +33,10 @@ function pintarEd(t = plantDe(pSel)) {
       boton("↑", () => mover_(pe.secciones, i, -1)), boton("↓", () => mover_(pe.secciones, i, 1)), boton("✕", () => { pe.secciones.splice(i, 1); pe.orden = pe.orden.filter(b => b !== s.id); re(); })),
     txt(s, "descripcion", true, {ariaLabel: "Qué debe buscar el modelo", placeholder: "Qué debe buscar el modelo"}),
     el("div", {className: "row"}, el("label", {textContent: "Campos"}), el("input", {value: s.campos.join(", "), placeholder: "responsable, fecha, gravedad…", title: "Además de la cita y el minuto, que van siempre",
-      oninput: e => s.campos = e.target.value.split(",").map(x => x.trim().toLowerCase().replace(/\s+/g, "_")).filter(Boolean)}), chk(s, "nunca_recortar", "No recortar nunca"))));
+      oninput: e => s.campos = e.target.value.split(",").map(x => x.trim().toLowerCase().replace(/\s+/g, "_")).filter(Boolean)}), chk(s, "nunca_recortar", "No recortar nunca")),
+    el("div", {className: "row"}, el("label", {textContent: "Seguir en el proyecto como…"}),
+      (sel => { sel.value = s.seguir || ""; sel.onchange = () => { if (sel.value) s.seguir = sel.value; else delete s.seguir; }; return sel; })(
+        el("select", {ariaLabel: "Seguir en el proyecto como"}, ...SEGUIR.map(([v, n]) => new Option(n, v)))))));
   const orden = pe.orden.map((b, i) => el("div", {className: "row"}, el("span", {textContent: LIBRES.includes(b) ? b : (pe.secciones.find(s => s.id === b)?.nombre || b), style: "min-width:9em"}),
     el("input", {value: pe.titulos[b] || "", placeholder: "Título (vacío = el nombre)", oninput: e => pe.titulos[b] = e.target.value}),
     boton("↑", () => mover_(pe.orden, i, -1)), boton("↓", () => mover_(pe.orden, i, 1))));
