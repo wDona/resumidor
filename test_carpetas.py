@@ -103,6 +103,21 @@ def test_pendientes_agregados(cl):
     assert "Javier" in r["responsables"] and [p["resp"] for p in carpetas.listar(C, ms(), resp="ana")["items"]] == ["Ana"]
 
 
+def test_seguir_entidades(cl, monkeypatch):
+    # las tareas del acta y los pendientes manuales siguen siendo tareas
+    assert {p["tipo_ent"] for p in carpetas.pendientes(C, ms(), HOY) if ".tareas." in "." + p["id"].split("|")[-1]} == {"tarea"}
+    # con `seguir` en la plantilla del documento, la sección se sigue como esa entidad (aunque su id no esté en ACCION)
+    tpl = {"nombre": "Plantilla RAID", "secciones": [{"id": "riesgos", "seguir": "riesgo"}, {"id": "notas"}]}
+    monkeypatch.setattr(carpetas.plantillas, "todas", lambda: [tpl])
+    ac = acta("Comité", secs=[("riesgos", "Riesgos", [{"texto": "Retraso del proveedor", "responsable": "Ana", "t": 10}]),
+                              ("notas", "Notas", [{"texto": "Nota suelta", "t": 20}]), ("pasos", "Pasos", [{"texto": "Llamar", "t": 30}])])
+    ac["plantilla"] = "Plantilla RAID"
+    doc(Path(carpetas.P.WORK), "dddd4444", "Comité", 0, ac, [(0, "Hola", "Ana")])
+    ps = {p["texto"]: p for p in carpetas.pendientes(C, ms(), HOY)}
+    assert ps["Retraso del proveedor"]["tipo_ent"] == "riesgo" and ps["Retraso del proveedor"]["resp"] == "Ana"
+    assert "Nota suelta" not in ps and ps["Llamar"]["tipo_ent"] == "tarea"  # fallback ACCION
+
+
 def test_estados_y_alias(cl):
     pid = "aaaa1111|acta_normal_impaaaa|tareas.0"
     carpetas.set_estado(C, ms(), pid, "hecho", HOY)
@@ -206,7 +221,7 @@ def test_endpoints(cl):
     c, app = cl
     q = {"c": C}
     e = c.get("/api/exp", params=q).json()
-    assert e["n_docs"] == 3 and e["pend"] >= 5 and e["tipo"] == "Proyecto" and "Responsable" in e["sugerencias"]
+    assert e["n_docs"] == 3 and e["pend"] >= 5 and e["tipo"] == "Proyecto" and "Sponsor" in e["sugerencias"]
     pl = c.post("/api/carpeta", json={"nombre": C, "plantilla": "comunidad"}).status_code
     e = c.get("/api/exp", params=q).json()
     assert pl == 200 and e["tipo"] == "Comunidad" and e["sugerencias"] == ["Dirección", "Administrador", "Nº de vecinos"]

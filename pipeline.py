@@ -1281,6 +1281,19 @@ COURTESY = re.compile(r"contact|alguna duda|cualquier (duda|consulta|pregunta)|n
 APPROVE = re.compile(r"\b(de acuerdo|aprob|aprueb|conform|unanimidad)", re.I)
 COND = re.compile(r"\b(deber[ií]amos|habr[ií]a que|podr[ií]amos|se podr[ií]a|ser[ií]a (bueno|conveniente|importante)|"
                   r"propongo|sugiero|sugerir|quer[ií]amos|ojal[aá])\b", re.I)
+# ponytail: guardia léxica de falsos positivos de decisiones (aplazar decidir, próxima reunión, propuestas), compartida por poblar y registro
+POSTPONED = re.compile(r"pendiente de decidir|sin decidir|no se ha decidido|no hemos decidido|aplaza\w* (la )?decisi|aplaza\w* (el )?decidir|"
+                       r"dejamos pendiente|lo vemos en la pr[oó]xima|se decidir[aá] m[aá]s adelante", re.I)  # lo que el acta dice que NO se decidió
+NO_DECISION = re.compile(POSTPONED.pattern + r"|pr[oó]xima reuni[oó]n|se propuso|se propone\b", re.I)  # + fecha de la próxima reunión y propuestas sin aprobar (salida del modelo en poblar)
+
+
+def no_decision(texto, cita=""):
+    return bool(NO_DECISION.search(f"{cita} {texto}") or COND.search(cita))
+
+
+def aplazada(texto, cita=""):
+    """Decisión de un acta que en realidad se aplaza (registro.sincronizar): una decisión firme que mencione la próxima reunión NO cuenta."""
+    return bool(POSTPONED.search(f"{cita} {texto}"))
 
 
 RESCUE = re.compile(r"pendiente.{0,60}pr[oó]xima|aplaz|se designa|se nombra", re.I)
@@ -2550,12 +2563,12 @@ def _selftest():
                "relato": [{"t": "00:00", "texto": "Uno. Dos. Tres."}]}]
         render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
                [{"s": 0, "e": 5, "text": "hola"}], "breve")
-        h = (Path(d) / "index.html").read_text()
+        h = (Path(d) / "index.html").read_text(encoding="utf-8")
         assert "<h2>Decisiones" not in h and "<h2>Tareas" not in h and "Desarrollo de la reunión" in h and "Uno." in h and "Dos." not in h, h
         render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
                [{"s": 0, "e": 5, "text": "hola", "spk": "Ana"}], "breve", None, None,
                {"fuente": "t.vtt", "formato": "WebVTT", "segmentos": 1, "hablantes": ["Ana"], "desfase": 0, "aviso": None})
-        h = (Path(d) / "index.html").read_text()  # sin vídeo: sin reproductor ni enlaces; con nota y participantes
+        h = (Path(d) / "index.html").read_text(encoding="utf-8")  # sin vídeo: sin reproductor ni enlaces; con nota y participantes
         assert "<video" not in h and 'data-t="' not in h and "Participantes: Ana" in h and "t.vtt (WebVTT, 1 segmentos" in h, h
     g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS, c=S(9)), 3)))
     assert 'root ::= o6' in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g

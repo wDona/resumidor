@@ -1,13 +1,12 @@
 """Carpeta = expediente: datos libres, pendientes de todos sus documentos (con estado propio), seguimiento automático,
-línea de tiempo, estado actual, comparar dos documentos y glosario. Todo vive en work/expedientes.json (por nombre de carpeta);
-los documentos solo se leen. Las rutas HTTP están en app.py; aquí, la lógica (la prueban test_carpetas.py y los documentos de prueba)."""
+línea de tiempo, estado actual, comparar dos documentos y glosario. Todo vive en work/registro.db (registro.py; por nombre de carpeta):
+leer()/editar() siguen dando el expediente como dict; los pendientes son entidades del registro. Los documentos solo se leen. Las rutas HTTP están en app.py; aquí, la lógica (la prueban test_carpetas.py y los documentos de prueba)."""
 import calendar
 import copy
 import datetime as dt
 import hashlib
 import json
 import re
-import threading
 import time
 import uuid
 from collections import Counter
@@ -18,16 +17,18 @@ import exportar
 import pipeline as P
 import plantillas
 import rag
+import registro
 
-LOCK = threading.RLock()
+LOCK = registro.LOCK  # el mismo: editar() (leer, cambiar, guardar) y las escrituras del registro no se cruzan
 DEF = {"tipo": "", "datos": [], "glosario": [], "glos_ignorados": [], "ajustes": {"anon": None, "idioma": ""}, "estados": {}, "manuales": [],
        "sugeridos": {}, "notas": [], "eventos": [], "estado_txt": None, "comparar_txt": {}}
 ESTADOS = ("abierto", "hecho", "descartado")
 # etiqueta del tipo de carpeta según el perfil por defecto (los nombres del asistente de uso); sin perfil: el nombre general de ajustes
 TIPO_PERFIL = {"comunidad": "Comunidad", "consulta": "Paciente", "seleccion": "Candidato", "clase": "Asignatura", "obra": "Obra",
-               "periodistica": "Estudio", "cualitativa": "Estudio", "video": "Serie", "comercial": "Cliente"}
+               "periodistica": "Estudio", "cualitativa": "Estudio", "video": "Serie", "comercial": "Cliente",
+               "raid": "Proyecto", "requisitos": "Proyecto", "comite": "Proyecto", "daily": "Proyecto", "retro": "Proyecto"}
 SUGERIDOS = {"comunidad": ["Dirección", "Administrador", "Nº de vecinos"], "cliente": ["Contacto", "Teléfono"], "paciente": ["Referencia interna"],
-             "candidato": ["Referencia interna", "Puesto"], "proyecto": ["Responsable", "Cliente", "Fecha de inicio"], "asignatura": ["Curso", "Docente"],
+             "candidato": ["Referencia interna", "Puesto"], "proyecto": ["Código", "Cliente", "Sponsor", "Jefe de proyecto", "Fase", "Fecha de inicio", "Fecha fin prevista", "Presupuesto"], "asignatura": ["Curso", "Docente"],
              "obra": ["Dirección", "Promotor"], "estudio": ["Responsable"], "serie": ["Canal"]}
 SENSIBLES = {"paciente", "candidato"}  # solo una referencia interna: nada que identifique a la persona
 # (casi todas son nunca_recortar en su perfil; «incidencias» de la junta de vecinos no, pero también es accionable)
@@ -36,45 +37,24 @@ SUP, IGUAL, CAMB = 0.80, 0.92, 0.65  # coseno: decisión posterior que sustituye
 
 
 # ---------- almacén ----------
-def _file():
-    return P.WORK / "expedientes.json"
-
-
-def _all():
-    try:
-        d = json.loads(_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return d if isinstance(d, dict) else {}
-
-
 def leer(c):
-    with LOCK:
-        return {**copy.deepcopy(DEF), **_all().get(c, {})}
+    return {**copy.deepcopy(DEF), **registro.expediente(c)}
 
 
 def editar(c, fn):
-    """fn(expediente) -> valor; guarda lo que fn cambie (atómico: escribe a un temporal y lo renombra)."""
+    """fn(expediente) -> valor; guarda lo que fn cambie (una transacción del registro; lo de pendientes, también en su historial)."""
     with LOCK:
-        d = _all()
-        e = d[c] = {**copy.deepcopy(DEF), **d.get(c, {})}
+        e = leer(c)
+        antes = copy.deepcopy(e)
         r = fn(e)
-        P.WORK.mkdir(exist_ok=True)
-        tmp = _file().with_suffix(".tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(_file())
+        registro.guardar_expediente(c, antes, e)
         return r
 
 
 def renombrar(old, new):
-    """La carpeta cambia de nombre (new) o se quita (new vacío): su expediente se mueve o se borra."""
-    with LOCK:
-        d = _all()
-        if old in d:
-            x = d.pop(old)
-            if new:
-                d[new] = x
-            _file().write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+    """La carpeta cambia de nombre (new) o se quita (new vacío): su expediente se mueve o se aparta (no se borra; registro.renombrar).
+    ValueError si new ya tiene datos en el registro."""
+    registro.renombrar(old, new)
 
 
 def evento(e, tipo, **k):
@@ -160,19 +140,21 @@ def items_doc(d):
     derramas con plazo). id = documento|versión|ruta del dato (la misma ruta de /api/doc)."""
     D, out = d["data"], []
     ref = dt.date.fromtimestamp(d["mtime"])
+    seg = {s.get("id"): s["seguir"] for s in (d.get("tpl") or {}).get("secciones", []) if s.get("seguir")}  # sección → entidad que sigue (tarea, riesgo…)
 
-    def add(k, tipo, texto, resp, plazo, t, cita):
+    def add(k, tipo, texto, resp, plazo, t, cita, ent="tarea"):
         texto = str(texto or "").strip()
         if texto:
             resp, plazo = ("" if _vacio(resp) else str(resp).strip()), ("" if _vacio(plazo) else str(plazo).strip())
             f = plazo_fecha(plazo, ref)
-            out.append({**_ref(d, t), "fecha_doc": d["fecha"], "id": f"{d['mid']}|{d['ver']}|{k}", "tipo": tipo, "texto": texto, "resp": resp, "plazo": plazo,
+            out.append({**_ref(d, t), "fecha_doc": d["fecha"], "id": f"{d['mid']}|{d['ver']}|{k}", "tipo": tipo, "tipo_ent": ent, "texto": texto, "resp": resp, "plazo": plazo,
                         "cita": cita or "", "h": _h(d["mid"], texto), "fecha": f and f.isoformat()})  # fecha = fecha límite (la del documento, fecha_doc)
     for i, x in enumerate(D.get("tareas") or []):
-        add(f"tareas.{i}", "Tarea", x.get("tarea"), x.get("responsable"), x.get("plazo"), x.get("t"), x.get("cita"))
+        add(f"tareas.{i}", "Tarea", x.get("tarea"), x.get("responsable"), x.get("plazo"), x.get("t"), x.get("cita"))  # tipo_ent="tarea"
     for si, s in enumerate(D.get("secciones_plantilla") or []):
-        if s.get("id") not in ACCION:
-            continue
+        ent = s.get("seguir") or seg.get(s.get("id"))
+        if not ent and s.get("id") not in ACCION:
+            continue  # sin `seguir` se sigue el conjunto fijo ACCION (plantillas de usuario antiguas)
         for j, x in enumerate(s.get("items") or []):
             plazo = x.get("plazo") or x.get("fecha") or ""
             if s["id"] == "derramas" and _vacio(plazo):
@@ -180,24 +162,27 @@ def items_doc(d):
             txt = x.get("texto") or ""
             if s["id"] == "derramas" and not _vacio(x.get("importe")):
                 txt += f" ({x['importe']})"
-            add(f"secciones_plantilla.{si}.items.{j}", s.get("nombre", s["id"]), txt, x.get("responsable"), plazo, x.get("t"), x.get("cita"))
+            add(f"secciones_plantilla.{si}.items.{j}", s.get("nombre", s["id"]), txt, x.get("responsable"), plazo, x.get("t"), x.get("cita"), ent or "tarea")
     return out
 
 
 def pendientes(c, ms, hoy=None):
     """Todos los pendientes de la carpeta (de sus documentos y los manuales) con su estado, plazo y sugerencia de seguimiento."""
-    e, hoy = leer(c), hoy or dt.date.today()
-    por_h = {(v.get("mid"), v.get("h")): v for v in e["estados"].values() if v.get("h")}  # si se rehace el documento, el estado sigue al texto
-    res = []
-    for d in docs(ms):
+    hoy, ds, res = hoy or dt.date.today(), docs(ms), []
+    ents = registro.sincronizar(c, ds)  # cada ítem es una entidad: su estado sigue al texto si se rehace el documento (registro.py)
+    for d in ds:
         for it in items_doc(d):
-            s = e["estados"].get(it["id"]) or por_h.get((it["mid"], it["h"])) or {}
-            res.append({**it, "mtime": d["mtime"], "manual": False, "estado": s.get("estado", "abierto"), "nota": s.get("nota", ""), "sugerido": e["sugeridos"].get(it["id"])})
-    for m in e["manuales"]:
-        s = e["estados"].get(m["id"]) or {}
-        f = plazo_fecha(m["plazo"], dt.date.fromtimestamp(m["creado"]))
-        res.append({"id": m["id"], "tipo": "Manual", "texto": m["texto"], "resp": m["resp"], "plazo": m["plazo"], "t": 0, "cita": "", "mid": "", "ver": "", "doc": "", "h": "",
-                    "fecha": f and f.isoformat(), "mtime": m["creado"], "manual": True, "estado": s.get("estado", "abierto"), "nota": s.get("nota", ""), "sugerido": e["sugeridos"].get(m["id"])})
+            x = ents[it["id"]]
+            if x["revision"] not in registro.OCULTA:
+                ed = {"texto": x["titulo"], "resp": x["dueno"]} if x["editado"] else {}  # editada a mano: manda la entidad
+                res.append({**it, **ed, "tipo_ent": x["tipo"], "mtime": d["mtime"], "manual": False, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
+    for x in registro.listar(c, origen="manual"):
+        if x["revision"] in registro.OCULTA:
+            continue
+        pl = x["campos"].get("plazo", "")
+        f = plazo_fecha(pl, dt.date.fromtimestamp(x["creado"]))
+        res.append({"id": x["id"], "tipo": "Manual", "tipo_ent": x["tipo"], "texto": x["titulo"], "resp": x["dueno"], "plazo": pl, "t": 0, "cita": "", "mid": "", "ver": "", "doc": "", "h": "",
+                    "fecha": f and f.isoformat(), "mtime": x["creado"], "manual": True, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
     for p in res:
         dias = (dt.date.fromisoformat(p["fecha"]) - hoy).days if p["fecha"] else None
         p["dias"], p["vencido"] = dias, dias is not None and dias < 0 and p["estado"] == "abierto"
@@ -455,10 +440,10 @@ Escribe de 3 a 6 frases cortas. Usa SOLO lo recibido: no añadas hechos, nombres
 de la fuente que la apoya entre corchetes, por ejemplo [3] o [2][5]. Si hay una decisión sustituida por otra, cuenta solo la vigente."""
 
 
-def _redactar(chat, fuentes, titulo):
+def _redactar(chat, fuentes, titulo, sistema=SYS_RED):
     """fuentes: [(texto, ref)] -> [{texto, refs:[ref]}]: cada frase cita fuentes que existen y no trae cifras que ellas no tengan."""
     user = f"{titulo}\n\n" + "\n".join(f"[{i}] {t}" for i, (t, _) in enumerate(fuentes, 1))
-    r = chat(SYS_RED, user, P.obj(frases=P.arr(P.S(300), 6, 1)), 700, temperature=0.1)
+    r = chat(sistema, user, P.obj(frases=P.arr(P.S(300), 6, 1)), 700, temperature=0.1)
     res = []
     for f in r["frases"]:
         ns = [int(n) for n in re.findall(r"\[(\d+)\]", f) if 0 < int(n) <= len(fuentes)]
@@ -586,12 +571,10 @@ def pregunta_pendientes(c, ms, q):
 def resumen_home(todas):
     """{carpeta: {pend, sug, ultima}}: pendientes abiertos, sugerencias por revisar y última actividad (documento, nota o cambio de estado)."""
     out = {}
-    with LOCK:
-        todo = _all()
     for c in {m["carpeta"] for m in todas if m["carpeta"]}:
         ms = [m for m in todas if m["carpeta"] == c]
         ps = pendientes(c, ms)
-        e = todo.get(c, {})
-        ult = max([m["mtime"] for m in ms] + [n["t"] for n in e.get("notas", [])] + [v["t"] for v in e.get("eventos", [])], default=0)
+        e = leer(c)
+        ult = max([m["mtime"] for m in ms] + [n["t"] for n in e["notas"]] + [v["t"] for v in e["eventos"]], default=0)
         out[c] = {"pend": sum(p["estado"] == "abierto" for p in ps), "sug": sum(bool(p["sugerido"]) and p["estado"] == "abierto" for p in ps), "ultima": ult}
     return out

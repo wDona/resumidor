@@ -16,8 +16,13 @@ CAMPO = re.compile(r"[a-z0-9_]{1,30}")
 NOTAS = [{"nombre": "Importante", "seccion": None, "atajo": "Ctrl+1"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+2"}]
 
 
-def sec(id, nombre, descripcion, campos=(), nunca=False):
-    return {"id": id, "nombre": nombre, "descripcion": descripcion, "campos": list(campos), "nunca_recortar": nunca}
+SEGUIR = ("tarea", "riesgo", "incidencia", "supuesto", "dependencia", "pregunta", "requisito", "decision", "interesado", "hito")  # seguimiento entre reuniones
+
+
+def sec(id, nombre, descripcion, campos=(), nunca=False, seguir=None):
+    """seguir: tipo de elemento que se sigue entre reuniones (SEGUIR); solo se guarda si se indica."""
+    return {"id": id, "nombre": nombre, "descripcion": descripcion, "campos": list(campos), "nunca_recortar": nunca,
+            **({"seguir": seguir} if seguir else {})}
 
 
 def doc(singular, plural, femenino):
@@ -40,9 +45,10 @@ def base(id, nombre, descripcion, secciones, que="", como="", notas=None, nube=T
 
 # Acta de reunión: decisiones y tareas son las de siempre (verify, búsqueda a fondo, cita de evidencia…) y sus descripciones son
 # los párrafos del MAP_PROMPT: con esta plantilla los prompts y las cachés son exactamente los de antes (pipeline._selftest)
+TAR = "acciones que alguien se compromete a hacer o se le encargan, con responsable y plazo solo si se dicen."
 SERIE = [
     base("acta", "Acta de reunión", "Reunión con acuerdos y encargos: resumen, decisiones, tareas y desarrollo.",
-         [sec("decisiones", "Decisiones", P.DEC_DESC, nunca=True), sec("tareas", "Tareas", P.TAR_DESC, ("responsable", "plazo"), True)],
+         [sec("decisiones", "Decisiones", P.DEC_DESC, nunca=True), sec("tareas", "Tareas", P.TAR_DESC, ("responsable", "plazo"), True, "tarea")],
          notas=[{"nombre": "Decisión", "seccion": "decisiones", "atajo": "Ctrl+1"}, {"nombre": "Tarea", "seccion": "tareas", "atajo": "Ctrl+2"},
                 {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+3"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+4"}],
          orden=["resumen", "desarrollo", "decisiones", "tareas", "detalle", "transcripcion"],
@@ -59,7 +65,7 @@ SERIE = [
           sec("derramas", "Derramas y cuotas", "derramas, cuotas o presupuestos que se aprueban o se discuten: importe y plazo de pago.",
               ("importe", "plazo"), True),
           sec("incidencias", "Incidencias y reparaciones", "averías, obras y reparaciones de la finca: qué, dónde y quién se encarga.",
-              ("ubicacion", "responsable")),
+              ("ubicacion", "responsable"), seguir="incidencia"),
           sec("ruegos", "Ruegos y preguntas", "ruegos y preguntas de los propietarios y la respuesta que reciben.", ("propietario",))],
          que="Resultados de cada votación, importes, plazos de pago, morosos y obras de la finca.",
          como="Estilo de acta de junta de propietarios: impersonal y en pasado («se aprueba por unanimidad…»), sin valoraciones.",
@@ -100,16 +106,16 @@ SERIE = [
          [sec("motivo", "Motivo de la consulta", "por qué acude la persona y qué pide."),
           sec("hechos", "Hechos relatados", "lo que cuenta la persona que ha ocurrido, con fechas y cifras si las dice."),
           sec("valoracion", "Valoración", "lo que explica o valora el profesional."),
-          sec("pasos", "Próximos pasos", "lo que se acuerda hacer después (pruebas, documentos, citas, gestiones).", ("responsable", "plazo"), True)],
+          sec("pasos", "Próximos pasos", "lo que se acuerda hacer después (pruebas, documentos, citas, gestiones).", ("responsable", "plazo"), True, "tarea")],
          que="Fechas, cifras, plazos y lo que el profesional recomienda.", como="Lenguaje preciso y neutro.", nube=False, documento=NOTAS_DOC),
     base("comercial", "Llamada comercial o de soporte", "Llamada con un cliente: venta, seguimiento o soporte.",
          [sec("necesidad", "Necesidad", "qué necesita o qué problema tiene el cliente."),
           sec("objeciones", "Objeciones", "dudas, quejas u objeciones del cliente y la respuesta que recibe."),
-          sec("compromisos", "Compromisos", "lo que cada parte se compromete a hacer.", ("responsable", "plazo"), True),
+          sec("compromisos", "Compromisos", "lo que cada parte se compromete a hacer.", ("responsable", "plazo"), True, "tarea"),
           sec("siguiente", "Siguiente paso", "próximo contacto o paso acordado.", ("fecha",), True)],
          que="Precios, plazos, productos y nombres del cliente."),
     base("obra", "Visita de obra o inspección", "Visita de obra, inspección o auditoría in situ.",
-         [sec("incidencias", "Incidencias", "defectos, riesgos o incumplimientos que se observan.", ("gravedad", "ubicacion", "responsable"), True),
+         [sec("incidencias", "Incidencias", "defectos, riesgos o incumplimientos que se observan.", ("gravedad", "ubicacion", "responsable"), True, "incidencia"),
           sec("medidas", "Medidas", "medidas correctoras que se piden o acuerdan.", ("responsable", "plazo")),
           sec("pendientes", "Pendientes", "lo que queda por revisar, documentar o comprobar.", (), True)],
          que="Ubicaciones, medidas, cifras y riesgos para la seguridad.",
@@ -126,9 +132,58 @@ SERIE = [
           sec("herramientas", "Herramientas y accesos", "programas, cuentas y accesos que hay que tener o pedir.", ("herramienta", "acceso")),
           sec("contactos", "Contactos", "personas o equipos a quien acudir y para qué.", ("persona", "rol")),
           sec("normas", "Normas", "normas, horarios y costumbres del equipo."),
-          sec("dudas", "Dudas pendientes", "preguntas sin respuesta o temas que se dejan para más adelante.", (), True),
-          sec("checklist", "Checklist", "acciones que la persona nueva tiene que hacer.", ("plazo",), True)],
+          sec("dudas", "Dudas pendientes", "preguntas sin respuesta o temas que se dejan para más adelante.", (), True, "pregunta"),
+          sec("checklist", "Checklist", "acciones que la persona nueva tiene que hacer.", ("plazo",), True, "tarea")],
          que="Pasos concretos, nombres de herramientas, personas y plazos.", documento=APUNTES),
+    base("raid", "Seguimiento de proyecto (RAID)", "Reunión de seguimiento de proyecto: riesgos, supuestos, incidencias, dependencias, decisiones y tareas.",
+         [sec("riesgos", "Riesgos", "riesgos que se mencionan, con su probabilidad e impacto solo si se dicen; no los deduzcas ni los valores.",
+              ("probabilidad", "impacto", "responsable"), True, "riesgo"),
+          sec("supuestos", "Supuestos", "supuestos o hipótesis sobre los que se apoya el proyecto, solo los que se dicen.", (), False, "supuesto"),
+          sec("incidencias", "Incidencias", "problemas que ya han ocurrido y afectan al proyecto; gravedad y responsable solo si se dicen.",
+              ("gravedad", "responsable"), True, "incidencia"),
+          sec("dependencias", "Dependencias", "cosas que el proyecto espera de otras personas, equipos o proveedores: de quién y para cuándo, solo si se dice.",
+              ("de_quien", "plazo"), True, "dependencia"),
+          sec("decisiones", "Decisiones", P.DEC_DESC, (), True),
+          sec("tareas", "Tareas", TAR, ("responsable", "plazo"), True, "tarea")],
+         que="Solo lo que se dice: probabilidad, impacto y responsables nunca se infieren.",
+         notas=[{"nombre": "Riesgo", "seccion": "riesgos", "atajo": "Ctrl+1"}, {"nombre": "Incidencia", "seccion": "incidencias", "atajo": "Ctrl+2"},
+                {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+3"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+4"}]),
+    base("requisitos", "Toma de requisitos", "Reunión con cliente o usuarios para recoger requisitos.",
+         [sec("requisitos", "Requisitos", "necesidades o requisitos que expresa alguien; tipo (funcional, no funcional o restricción), prioridad "
+              "(MoSCoW: must, should, could, won't) y solicitante solo si se dicen, nunca los deduzcas.",
+              ("tipo_req", "prioridad", "solicitante"), True, "requisito"),
+          sec("interesados", "Interesados", "personas o grupos implicados que se mencionan, con rol, organización y actitud (a favor, en contra…) "
+              "solo si se dicen; no valores el poder ni el interés.", ("rol", "organizacion", "actitud"), False, "interesado"),
+          sec("preguntas", "Preguntas abiertas", "preguntas sin respuesta que quedan por aclarar y a quién van dirigidas, si se dice.",
+              ("dirigida_a",), True, "pregunta"),
+          sec("restricciones", "Restricciones", "límites de presupuesto, plazo, tecnología o normativa que se mencionan."),
+          sec("decisiones", "Decisiones", P.DEC_DESC, (), True)],
+         que="Solo lo que se dice: prioridades, tipos y actitudes nunca se infieren.",
+         notas=[{"nombre": "Requisito", "seccion": "requisitos", "atajo": "Ctrl+1"}, {"nombre": "Pregunta", "seccion": "preguntas", "atajo": "Ctrl+2"},
+                {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+3"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+4"}]),
+    base("comite", "Comité de dirección", "Comité de dirección: decisiones, hitos, riesgos, escalados y tareas.",
+         [sec("decisiones", "Decisiones", P.DEC_DESC, (), True),
+          sec("hitos", "Hitos", "hitos o entregas de los que se habla, con fecha y estado solo si se dicen.", ("fecha", "estado"), True, "hito"),
+          sec("riesgos", "Riesgos", "riesgos que se mencionan; probabilidad, impacto y responsable solo si se dicen, nunca los deduzcas.",
+              ("probabilidad", "impacto", "responsable"), True, "riesgo"),
+          sec("escalados", "Asuntos escalados", "asuntos que se elevan al comité para que alguien los resuelva o decida; responsable solo si se dice.",
+              ("responsable",), True, "pregunta"),
+          sec("tareas", "Tareas", TAR, ("responsable", "plazo"), True, "tarea")],
+         que="Solo lo que se dice: fechas, estados y responsables nunca se infieren.",
+         notas=[{"nombre": "Decisión", "seccion": "decisiones", "atajo": "Ctrl+1"}, {"nombre": "Riesgo", "seccion": "riesgos", "atajo": "Ctrl+2"},
+                {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+3"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+4"}]),
+    base("daily", "Daily", "Reunión diaria de equipo: qué se hizo, qué se hará y qué bloquea.",
+         [sec("avances", "Avances", "lo que cada persona dice que ha hecho desde la última vez.", ("persona",)),
+          sec("planes", "Planes", "lo que cada persona dice que hará hoy o a continuación.", ("persona",)),
+          sec("bloqueos", "Bloqueos", "impedimentos que alguien menciona y quién puede resolverlos, solo si se dice.", ("persona", "responsable"), True, "incidencia")],
+         que="Solo lo que cada persona dice de sí misma; nada se infiere.",
+         notas=[{"nombre": "Bloqueo", "seccion": "bloqueos", "atajo": "Ctrl+1"}, {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+2"}]),
+    base("retro", "Retrospectiva", "Retrospectiva de equipo: qué fue bien, qué mejorar y acciones.",
+         [sec("bien", "Qué fue bien", "cosas que el equipo dice que han ido bien."),
+          sec("mejorar", "Qué mejorar", "cosas que el equipo dice que han ido mal o se pueden mejorar."),
+          sec("acciones", "Acciones", "acciones de mejora que se acuerdan, con responsable y plazo solo si se dicen.", ("responsable", "plazo"), True, "tarea")],
+         que="Solo lo que se dice; no inventes causas ni responsables.",
+         notas=[{"nombre": "Acción", "seccion": "acciones", "atajo": "Ctrl+1"}, {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+2"}]),
 ]
 SERIE_ID = {t["id"]: t for t in SERIE}
 
@@ -179,8 +234,8 @@ def validar(t):
         desc = _txt(s.get("descripcion", ""), 2000, f"Sección {i}")
         if not desc:
             raise ValueError(f"Sección {i}: falta la descripción para el modelo")
-        out["secciones"].append({"id": sid, "nombre": _txt(s.get("nombre") or sid, 80, f"Sección {i}"), "descripcion": desc,
-                                 "campos": list(dict.fromkeys(campos)), "nunca_recortar": bool(s.get("nunca_recortar"))})
+        out["secciones"].append(sec(sid, _txt(s.get("nombre") or sid, 80, f"Sección {i}"), desc, dict.fromkeys(campos),
+                                    bool(s.get("nunca_recortar")), s.get("seguir") if s.get("seguir") in SEGUIR else None))
     esc = t.get("escala", d["escala"])
     if not isinstance(esc, dict) or sorted(esc) != ["1", "2", "3", "4", "5"] or not all(_txt(v, 300, "Escala") for v in esc.values()):
         raise ValueError("Escala: un texto para cada nota de 1 a 5")
@@ -285,6 +340,13 @@ def _selftest():
     # exportar -> importar: el JSON exportado vuelve igual
     t = SERIE_ID["clase"]
     assert validar(json.loads(json.dumps(t, ensure_ascii=False))) == t
+    for t in SERIE:  # seguir: solo valores de SEGUIR; notas y orden coherentes con las secciones; ida y vuelta por JSON
+        assert 1 <= len(t["secciones"]) <= 8 and validar(json.loads(json.dumps(t, ensure_ascii=False))) == t, t["id"]
+        ids = {s["id"] for s in t["secciones"]}
+        assert all(s.get("seguir", SEGUIR[0]) in SEGUIR for s in t["secciones"]), t["id"]
+        assert all(n["seccion"] in ids | {None} for n in t["notas_rapidas"]) and set(t["orden"]) == {*BLOQUES, *ids}, t["id"]
+    assert "seguir" not in validar({"nombre": "x", "secciones": [{"id": "a", "descripcion": "a", "seguir": "mal"}]})["secciones"][0]
+    assert validar({"nombre": "x", "secciones": [{"id": "a", "descripcion": "a", "seguir": "riesgo"}]})["secciones"][0]["seguir"] == "riesgo"
 
 
 if __name__ == "__main__":

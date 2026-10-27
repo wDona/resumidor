@@ -13,18 +13,16 @@ from fastapi.testclient import TestClient
 import exportar
 import pipeline
 
-SRC = Path(__file__).parent / "work" / "c8f5001c5e212d71"
-VERS = ["acta_normal_rápido", "acta_normal_rápido_p-clase"]
-MID = SRC.name
+from conftest import MID, VERS
 
 
 @pytest.fixture()
-def cl(tmp_path, monkeypatch):
+def cl(tmp_path, monkeypatch, src):
     w = tmp_path / "work" / MID
     w.mkdir(parents=True)
-    shutil.copy(SRC / "transcript_rápido.json", w)
+    shutil.copy(src / "transcript_rápido.json", w)
     for v in VERS:
-        shutil.copytree(SRC / v, w / v, ignore=shutil.ignore_patterns("video.*"))
+        shutil.copytree(src / v, w / v, ignore=shutil.ignore_patterns("video.*"))
     monkeypatch.setattr(pipeline, "WORK", tmp_path / "work")
     import app
     monkeypatch.setattr(app, "CARPETAS", tmp_path / "work" / "carpetas.json")
@@ -48,6 +46,10 @@ def test_formatos(cl, ver, monkeypatch):
     assert t.startswith("BEGIN:VCALENDAR") and t.rstrip().endswith("END:VCALENDAR") and "BEGIN:VEVENT" in t
     assert g("csv_todoist").text.lstrip("\ufeff").startswith("TYPE,CONTENT")
     assert g("csv_jira").text.lstrip("\ufeff").startswith("Summary,")
+    for f, cab in (("csv_azure", "Work Item Type,Title,Description,Assigned To,Tags,Priority"), ("csv_planner", "Task Name,Bucket,Assigned To,Start Date,Due Date,Priority,Notes")):
+        ls = g(f).text.lstrip("﻿").splitlines()
+        assert ls[0] == cab
+        assert len(ls) < 3 or ls[1]  # con tareas, hay fila de datos
     for f in ("srt", "vtt"):
         s = g(f, hablantes=1).text
         assert (s.startswith("WEBVTT") if f == "vtt" else s.startswith("1\n"))
@@ -70,9 +72,9 @@ def test_subtitulos():
     assert re.match(r"\d\d:\d\d:\d\d,\d{3} --> ", exportar.subtitulos(segs).split("\n")[1])
 
 
-def test_edicion(cl):
+def test_edicion(cl, src):
     v = VERS[0]
-    orig = (SRC / v / "acta.json").read_bytes()
+    orig = (src / v / "acta.json").read_bytes()
     d = cl.get(f"/api/doc/{MID}/{v}").json()
     assert not d["editado"]
     assert cl.put(f"/api/doc/{MID}/{v}", json={"cambios": {"resumen": "RESUMEN NUEVO", "puntos.0.texto": "punto editado"}}).status_code == 200
