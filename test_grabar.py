@@ -1,9 +1,11 @@
 """Pruebas de grabar.py: tramos/unión, fusión por pista, ventanas de notas, notas -> documento (con un LLM falso).
 La captura real y el trabajo completo (2 pistas + notas, CPU) se prueban aparte (ver README). `uv run pytest test_grabar.py`"""
 import json
+import shutil
 import wave
 
 import numpy as np
+import pytest
 
 import grabar
 import pipeline
@@ -20,6 +22,7 @@ def test_fusion_diafonia_conserva_solapes_distintos():
     assert [s["spk"] for s in m] == ["Hablante 1", "Hablante 2"]  # hablan a la vez con textos distintos: ambos
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="requiere ffmpeg")
 def test_recuperacion_tras_corte(tmp_path):
     (tmp_path / "mic_000.pcm").write_bytes(np.full(grabar.SR * 2, 900, "<i2").tobytes() + b"\x07")  # corte a mitad de muestra
     (tmp_path / "sistema_000.pcm").write_bytes(np.full(grabar.SR, 900, "<i2").tobytes())

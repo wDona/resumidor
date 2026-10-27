@@ -102,7 +102,7 @@ def faltan(accion, calidad="rápida", video=True, nube=False):
     m = "rápida" if calidad in ("rápida", "alta") else calidad
     llm = lambda: [] if nube or (f := P.acta_model(calidad)) and f.is_file() or m not in CAT else [m]
     hay = any(instalado(i) for i in LLMS) or any(Path(r).is_file() for r in P.OVER.values())
-    rol = lambda r: bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file()  # rol sustituido por un .gguf propio
+    rol = lambda r: bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file() or (r == "emb" and os.environ.get("ACTAS_NO_EMBED") == "1")  # rol sustituido por un .gguf propio
     if accion == "preguntar":
         ids = [i for i in ([] if rol("emb") else ["busq"]) + ([] if nube or rol("chat") or instalado("chat") or hay else ["chat" if P.chat_model()[0] == "gemma" else "rápida"]) if not instalado(i)]
         txt = "Para preguntar necesitas: "

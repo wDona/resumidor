@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import nube
 import pipeline
 
-SRC = Path(__file__).parent / "work" / "c8f5001c5e212d71"
+VTT = Path(__file__).parent / "tests_data" / "reunion.vtt"
 VER = "acta_normal_rápido"
 SCHEMA = pipeline.obj(tema=pipeline.S(50), n=pipeline.arr({"enum": [1, 2]}, 3), t=pipeline.TS)
 KEY = "sk-secreto-1234567890"
@@ -167,7 +167,13 @@ def test_cli_falsas(tmp_path, monkeypatch, kr):
         f = b / n
         f.write_text(f"#!{os.sys.executable}\n{cuerpo}\n")
         f.chmod(f.stat().st_mode | stat.S_IEXEC)
+        if os.name == "nt":  # shutil.which en Windows exige extensión
+            (b / (n + ".cmd")).write_text(f'@"{os.sys.executable}" "{f}" %*\r\n')
     monkeypatch.setenv("PATH", str(b) + os.pathsep + "/usr/bin:/bin")
+    assert [c["id"] for c in nube.detectar_clis()] == ["cli:claude", "cli:codex"]  # gemini/copilot apagados por defecto
+    with pytest.raises(ValueError):
+        nube.norm({"proveedor": "cli:gemini"})
+    monkeypatch.setenv("ACTAS_CLI_EXTRA", "1")
     assert [c["id"] for c in nube.detectar_clis()] == ["cli:claude", "cli:codex", "cli:gemini"]
     for p, tema in (("claude", "c"), ("codex", "x"), ("gemini", "g")):
         assert nube.chat_fn(nube.norm({"proveedor": "cli:" + p}))("s", "u", SCHEMA, 10)["tema"] == tema
@@ -216,10 +222,7 @@ def test_oculta(kr):
 def test_pipeline_marca_y_exports(srv, kr, tmp_path, monkeypatch):
     """pipeline.run con transcripción importada y el servidor falso: sin GPU, con la marca en acta.json, index.html y los exports."""
     import exportar
-    t = json.loads((SRC / "transcript_rápido.json").read_text())["segments"][:40]
-    vtt = tmp_path / "r.vtt"
-    ts = lambda x: f"{int(x) // 3600:02d}:{int(x) // 60 % 60:02d}:{x % 60:06.3f}"
-    vtt.write_text("WEBVTT\n\n" + "\n".join(f"{ts(s['s'])} --> {ts(s['e'])}\n{s['text']}\n" for s in t))
+    vtt = VTT
     c = cfg(srv, "ok")
     out, _, _ = pipeline.run(None, "normal", "rápido", 2, lambda f, m: None, transcript=vtt, nube=c)
     d = json.loads((out / "acta.json").read_text())
@@ -244,3 +247,23 @@ def test_anonimiza_nombres_y_slot():
     assert a != b and "_" not in a and nube.slot({"proveedor": "cli:claude", "modelo": ""}) == "nube-cli-claude"
     assert nube.con_nombres({"anonimizar": False}) == {"anonimizar": False}
     assert nube.con_nombres({"anonimizar": True}, [], ["Pedro Gil (jefe)", "Pozo"], ["Marta"], llm=False)["nombres"] == ["Marta", "Pedro Gil"]
+
+
+def test_claude_argv_y_utf8(tmp_path, monkeypatch, kr):
+    b = tmp_path / "bin"
+    b.mkdir()
+    f = b / "claude"
+    f.write_text(f"#!{os.sys.executable}\nimport sys,json;sys.stdin.reconfigure(encoding='utf-8');sys.stdout.reconfigure(encoding='utf-8')\n"
+                 "e=sys.stdin.read();print(json.dumps({'result':json.dumps({'tema':' '.join(sys.argv[1:])+'|'+e,'n':[],'t':'0:01'},ensure_ascii=False)}))\n")
+    if os.name == "nt":
+        (b / "claude.cmd").write_text(f'@"{os.sys.executable}" "{f}" %*\r\n')
+    else:
+        (b / "claude").write_text(f'#!/bin/sh\nexec "{os.sys.executable}" "{f}" "$@"\n')
+        (b / "claude").chmod(0o755)
+    monkeypatch.setenv("PATH", str(b) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("ACTAS_CLI_MODEL", "haiku")
+    out = nube._cli("claude", "acción ñandú")
+    for fl in ("--tools", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--setting-sources", "--model haiku"):
+        assert fl in out
+    assert "acción ñandú" in out
+    assert nube.INYECCION in out  # aviso anti-inyección antepuesto a toda llamada por CLI
