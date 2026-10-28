@@ -2,18 +2,30 @@
 // IA primero: los interesados llegan «propuesto» (nombre, rol, organización + citas); poder/interés NUNCA se infieren -> «Sin clasificar».
 // Registra FVISTAS.interesados = (c, e) => [nodos]  (carpeta.js se carga después: se registra en DOMContentLoaded).
 (() => {
-  const ACT = {"a favor": ["▲", "int-fav"], neutral: ["●", "int-neu"], "en contra": ["▼", "int-con"], desconocida: ["?", "int-des"]};  // icono + color: no depende solo del color
-  const ACTS = Object.keys(ACT);
+  const ACTS = ["a favor", "neutral", "en contra", "desconocida"];  // campo informativo de tabla/ficha: no afecta a la matriz
   const QS = {
     gc: {t: "Gestionar de cerca", s: "Alto poder, alto interés: implicar y consultar de forma activa"},
     ms: {t: "Mantener satisfecho", s: "Alto poder, bajo interés: informar de lo esencial y evitar sorpresas"},
     mi: {t: "Mantener informado", s: "Bajo poder, alto interés: comunicación regular, escuchar sus aportes"},
     mon: {t: "Monitorizar", s: "Bajo poder, bajo interés: seguimiento mínimo"},
+    lim: {t: "En el límite / entre zonas", s: "Poder o interés exactamente en el centro de su eje: está sobre la línea divisoria entre dos zonas y no se asigna a ningún cuadrante"},
     sin: {t: "Sin clasificar", s: "Falta poder o interés (la IA no los infiere)"},
   };
-  const num = v => (v === "" || v == null || isNaN(Number(v)) ? null : Math.min(5, Math.max(1, Math.round(Number(v)))));
-  // alto = valor >= 3 (la celda central 3 cuenta como alto; la rejilla 5x5 lo dibuja así)
-  const quad = (p, i) => { p = num(p); i = num(i); return p == null || i == null ? "sin" : p >= 3 ? (i >= 3 ? "gc" : "ms") : (i >= 3 ? "mi" : "mon"); };
+  // huecos por eje (filas = poder, columnas = interés): escala del proyecto en el servidor (GET/POST /api/reg/matriz, 3..10 cada uno);
+  // el resto del aspecto, en localStorage por carpeta
+  const NMAX = 10, NDEF = 6, MXDEF = {h: 420, gap: 6, len: 0, tam: "M", grid: true, etq: true, reesc: true, cuad: false};
+  let NP = NDEF, NI = NDEF;  // niveles de la vista abierta (una a la vez)
+  // valores en pasos de 0,5: entero = centro de una casilla; x,5 = la línea entre la casilla x y la x+1
+  const num = (v, n) => (v === "" || v == null || isNaN(Number(v)) ? null : Math.min(n, Math.max(1, Math.round(Number(v) * 2) / 2)));
+  const pw = v => num(v, NP), iw = v => num(v, NI), fmt = v => String(v).replace(".", ",");
+  // Regla simétrica por eje: la cruz está en el centro exacto (N+1)/2. Por encima = alto, por debajo = bajo, igual = sobre la línea
+  // divisoria («entre zonas», sin cuadrante). Los 4 cuadrantes miden lo mismo.
+  const REGLA = "La cruz está en el centro exacto de cada eje. Por encima del centro = alto; por debajo = bajo. Valores intermedios (x,5) = en la línea entre dos casillas. Poder o interés exactamente en el centro = entre dos zonas (sin cuadrante).";
+  const lado = (v, n) => { const m = (n + 1) / 2; return v > m ? 1 : v < m ? -1 : 0; };
+  const quad = (p, i) => { p = pw(p); i = iw(i); if (p == null || i == null) return "sin"; const a = lado(p, NP), b = lado(i, NI); return !a || !b ? "lim" : a > 0 ? (b > 0 ? "gc" : "ms") : (b > 0 ? "mi" : "mon"); };
+  const posTxt = (p, i) => "Poder " + fmt(p) + " · Interés " + fmt(i) + " (" + (quad(p, i) === "lim" ? "entre zonas" : QS[quad(p, i)].t) + ")";
+  // imán: a menos de un 30 % de casilla de una línea, se pega a la línea (x,5); si no, al centro de la casilla
+  const snap = (v, n) => { const u = v - .5, c = Math.floor(u), t = u - c; return Math.min(n, Math.max(1, t < .3 ? c + .5 : t > .7 ? c + 1.5 : c + 1)); };
   const qOf = it => quad(it.campos?.poder, it.campos?.interes);
   const toks = s => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").trim().split(/\s+/).filter(Boolean);
   // «Ana» ~ «Ana G.» ~ «Ana García»: todas las palabras del nombre corto están (o son inicial) en el largo
@@ -24,19 +36,24 @@
     return s.every(t => l.some(u => ok(t, u))) && s.some(t => t.length > 1 && l.includes(t));
   };
   const igual = (a, b) => toks(a).join(" ") === toks(b).join(" ");
-  const sugerida = it => QS[qOf(it)] && qOf(it) !== "sin" ? QS[qOf(it)].s : "";
-  const tip = it => [it.titulo, [it.campos?.rol, it.campos?.organizacion].filter(Boolean).join(" · "), "Actitud: " + (it.campos?.actitud || "desconocida"),
-    qOf(it) === "sin" ? "Sin clasificar" : "Poder " + it.campos.poder + " · Interés " + it.campos.interes].filter(Boolean).join("\n");
+  const sugerida = it => ["gc", "ms", "mi", "mon"].includes(qOf(it)) ? QS[qOf(it)].s : "";
+  const tip = it => [it.titulo, [it.campos?.rol, it.campos?.organizacion].filter(Boolean).join(" · "),
+    qOf(it) === "sin" ? "Sin clasificar" : posTxt(pw(it.campos.poder), iw(it.campos.interes)), it.revision === "propuesto" ? "Propuesto por la IA: pendiente de revisar" : ""].filter(Boolean).join("\n");
   const COLS = [["titulo", "Nombre", "t"], ["campos.rol", "Rol", "t"], ["campos.organizacion", "Organización", "t"], ["campos.poder", "Poder", "n"], ["campos.interes", "Interés", "n"],
     ["campos.actitud", "Actitud", "s"], ["campos.estrategia", "Estrategia", "t"], ["campos.canal", "Canal", "t"], ["detalle", "Notas", "a"]];
   const val = (it, k) => k.startsWith("campos.") ? (it.campos || {})[k.slice(7)] ?? "" : it[k] ?? "";
 
   async function vista(c, e) {
-    const S = {all: [], ints: [], sel: new Set(), f: {cuad: "", act: "", rev: ""}, sort: {k: "", d: 1}, open: null, hist: null, soloAprob: false, foco: null, ign: new Set(lsGet("int-ign-" + c, []))};
+    const S = {all: [], ints: [], sel: new Set(), f: {cuad: "", rev: ""}, sort: {k: "", d: 1}, open: null, hist: null, soloAprob: false, foco: null, ign: new Set(lsGet("int-ign-" + c, [])), cfg: {...MXDEF, ...lsGet("int-mx-" + c, {})}};
+    const okN = n => Math.min(NMAX, Math.max(3, Number(n) || NDEF));
+    const leeN = async () => { try { const r = await api("/api/reg/matriz?c=" + encodeURIComponent(c)); NP = okN(r.niveles_poder ?? r.niveles); NI = okN(r.niveles_interes ?? r.niveles); } catch { NP = NI = NDEF; } };
+    await leeN();
     let seq = 0;
     const raiz = el("div", {className: "int"});
     const zHead = el("div", {className: "int-head"}), zBan = el("div"), zBar = el("div", {className: "int-bar"}), zAcc = el("div", {className: "reg-acc"});
     const zMx = el("section", {className: "int-col int-mx-w"}), zTb = el("section", {className: "int-col int-tb-w"}), zFi = el("aside", {className: "int-ficha", hidden: true});
+    const zMxH = el("div", {className: "sec-h"}), zMxB = el("div");
+    zMx.append(zMxH, el("p", {className: "muted int-leg", textContent: "Borde discontinuo = propuesto por la IA, pendiente de revisar"}), zMxB);
     raiz.append(zHead, zBan, zBar, zAcc, el("div", {className: "int-main"}, zMx, zTb), zFi);
     const cambio = () => { typeof fCargaReg === "function" && fCargaReg(c, e && e.tipo); };
     const aviso_ = m => aviso(m);
@@ -48,7 +65,7 @@
       try {
         const r = await api("/api/reg?" + new URLSearchParams({c}));
         let ints = r.items.filter(i => i.tipo === "interesado");
-        if (S.f.rev === "descartado") ints = (await api("/api/reg?" + new URLSearchParams({c, tipo: "interesado", revision: "descartado"}))).items;
+        if (S.f.rev === "descartado" || S.f.rev === "fusionado") ints = (await api("/api/reg?" + new URLSearchParams({c, tipo: "interesado", revision: S.f.rev}))).items;
         else if (S.f.rev) ints = ints.filter(i => i.revision === S.f.rev);
         if (n !== seq) return;
         S.all = r.items; S.ints = ints; S.sel = new Set([...S.sel].filter(id => ints.some(i => i.id === id)));
@@ -57,7 +74,7 @@
       } catch (x) { if (n === seq) raiz.replaceChildren(el("p", {className: "err", textContent: x.message})); }
     }
     const byId = id => S.ints.find(i => i.id === id) || S.all.find(i => i.id === id);
-    const visibles = () => S.ints.filter(i => !S.f.act || (i.campos?.actitud || "desconocida") === S.f.act);
+    const visibles = () => S.ints;
 
     // ---- guardar (optimista, deshacible con Ctrl+Z) ----
     async function guardar(it, cambios, src, msg) {
@@ -73,16 +90,14 @@
       if (k === "campos.poder" || k === "campos.interes") v = v === "" ? "" : Number(v);
       return guardar(it, k.startsWith("campos.") ? {campos: {[k.slice(7)]: v}} : {[k]: v}, src);
     };
-    const mover = (id, p, i) => { const it = byId(id); if (it && (num(it.campos?.poder) !== p || num(it.campos?.interes) !== i)) { S.foco = id; return guardar(it, {campos: {poder: p ?? "", interes: i ?? ""}}, "", p == null ? "Sacado de la matriz." : "Clasificado: " + QS[quad(p, i)].t + "."); } };
+    const mover = (id, p, i) => { const it = byId(id); if (it && (pw(it.campos?.poder) !== p || iw(it.campos?.interes) !== i)) { S.foco = id; return guardar(it, {campos: {poder: p ?? "", interes: i ?? ""}}, "", p == null ? "Sacado de la matriz." : "Movido a " + posTxt(p, i) + "."); } };
     const revisar = async (ids, accion) => {
       if (!ids.length) return;
       try { await post("/api/reg/revisar", {c, ids, accion}); aviso_(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length + ". Ctrl+Z para deshacer"); S.sel.clear(); cambio(); await cargar(); } catch (x) { err(x); }
     };
-    const fusionar = async (destino, origenes) => {
-      if (!destino || !origenes.length) return;
-      try { await post("/api/reg/fusionar", {c, destino, origenes}); aviso_("Fusionado. Ctrl+Z para deshacer"); S.sel.clear(); cambio(); await cargar(); } catch (x) { err(x); }
-    };
-    async function deshacer() { try { const r = await post("/api/reg/deshacer", {c}); aviso_(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); cambio(); await cargar(); } catch (x) { err(x); } }
+    const fusionar = (destino, origenes) => { if (destino && origenes.length) regDialogoFusion(c, [destino, ...origenes].map(byId), destino, async () => { S.sel.clear(); cambio(); await cargar(); }); };
+    const trasSeparar = async () => { cambio(); await cargar(); };
+    async function deshacer() { try { const r = await post("/api/reg/deshacer", {c}); aviso_(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); cambio(); await leeN(); pintaAjustes(); await cargar(); } catch (x) { err(x); } }
 
     // ---- exportación ----
     async function exportar(fmt) {
@@ -102,8 +117,8 @@
       if (!ed) return el("span", {textContent: v});
       let x;
       if (tipo === "s" || tipo === "n") {
-        const ops = tipo === "n" ? ["1", "2", "3", "4", "5"] : ACTS;
-        x = el("select", f, new Option("—", ""), ...(v !== "" && !ops.includes(String(v)) ? [String(v), ...ops] : ops).map(o => new Option(o, o))); x.value = String(v);
+        const ops = tipo === "n" ? Array.from({length: 2 * (k === "campos.poder" ? NP : NI) - 1}, (_, j) => String(1 + j / 2)) : ACTS;
+        x = el("select", f, new Option("—", ""), ...(v !== "" && !ops.includes(String(v)) ? [String(v), ...ops] : ops).map(o => new Option(fmt(o), o))); x.value = String(v);
         x.onchange = () => guarda(it, k, x.value, src);
       } else {
         x = tipo === "a" ? el("textarea", {...f, rows: 2, value: v}) : el("input", {...f, type: "text", value: v});
@@ -147,11 +162,10 @@
 
     // ---- filtros y recuentos por cuadrante ----
     function pintaBar() {
-      const vs = visibles(), cnt = {gc: 0, ms: 0, mi: 0, mon: 0, sin: 0}; vs.forEach(i => cnt[qOf(i)]++);
+      const vs = visibles(), cnt = {gc: 0, ms: 0, mi: 0, mon: 0, lim: 0, sin: 0}; vs.forEach(i => cnt[qOf(i)]++);
       const pill = (k, t, n) => el("button", {className: "f-pill", "aria-pressed": S.f.cuad === k, textContent: t + " · " + n, title: k && QS[k].s, onclick: () => { S.f.cuad = k; pintaBar(); pintaTabla(); }});
-      const sa = el("select", {"aria-label": "Actitud", onchange: ev => { S.f.act = ev.target.value; pintar(); }}, new Option("Todas las actitudes", ""), ...ACTS.map(a => new Option(a, a))); sa.value = S.f.act;
-      const sr = el("select", {"aria-label": "Revisión", onchange: ev => { S.f.rev = ev.target.value; cargar(); }}, new Option("Revisión: visibles", ""), new Option("Propuestos (IA)", "propuesto"), new Option("Aprobados", "aprobado"), new Option("Descartados", "descartado")); sr.value = S.f.rev;
-      zBar.replaceChildren(pill("", "Todos", vs.length), ...["gc", "ms", "mi", "mon", "sin"].map(k => pill(k, QS[k].t, cnt[k])), el("span", {className: "grow"}), sa, sr);
+      const sr = el("select", {"aria-label": "Revisión", onchange: ev => { S.f.rev = ev.target.value; cargar(); }}, new Option("Revisión: visibles", ""), new Option("Propuestos (IA)", "propuesto"), new Option("Aprobados", "aprobado"), new Option("Descartados", "descartado"), new Option("Fusionados (" + regNumFusionadas(S.all.filter(i => i.tipo === "interesado")) + ")", "fusionado")); sr.value = S.f.rev;
+      zBar.replaceChildren(pill("", "Todos", vs.length), ...["gc", "ms", "mi", "mon", "lim", "sin"].map(k => pill(k, QS[k].t, cnt[k])), el("span", {className: "grow"}), sr);
     }
 
     function pintaAcc() {
@@ -166,39 +180,92 @@
       }
     }
 
-    // ---- matriz 5x5 (alto = 3..5) + bandeja «sin clasificar» ----
+    // ---- matriz filas×columnas (cruz en el centro exacto; ver REGLA) + bandeja «sin clasificar» ----
     function chip(it) {
-      const a = ACT[it.campos?.actitud] || ACT.desconocida, p = num(it.campos?.poder), i = num(it.campos?.interes);
-      const b = el("button", {type: "button", className: "int-chip " + a[1] + (it.revision === "propuesto" ? " prop" : "") + (it.revision === "descartado" ? " cerr" : ""), draggable: true, title: tip(it), "data-id": it.id},
-        el("span", {className: "int-ic", "aria-hidden": "true", textContent: a[0]}), el("span", {className: "int-nm", textContent: it.titulo}));
-      b.setAttribute("aria-label", tip(it).replace(/\n/g, ". ") + ". Flechas: mover; Intro: abrir ficha");
+      const p = pw(it.campos?.poder), i = iw(it.campos?.interes), L = Number(S.cfg.len) || 0;
+      const nm = L && it.titulo.length > L ? it.titulo.slice(0, L).trimEnd() + "…" : it.titulo;
+      const b = el("button", {type: "button", className: "int-chip" + (it.revision === "propuesto" ? " prop" : "") + (it.revision === "descartado" ? " cerr" : ""), draggable: true, title: tip(it), "data-id": it.id, "data-ini": toks(it.titulo).filter(w => w.length > 2 || /\d/.test(w)).slice(0, 2).map(w => /\d/.test(w) ? w : w[0].toUpperCase()).join("") || it.titulo.slice(0, 2)},
+        el("span", {className: "int-nm", textContent: nm}));
+      b.setAttribute("aria-label", tip(it).replace(/\n/g, ". ") + ". Flechas: mover medio paso (Mayús: un paso); Intro: abrir ficha");
       b.onclick = () => { S.open = it.id; pintaFicha(); };
       b.ondragstart = ev => { ev.dataTransfer.setData("text/plain", it.id); ev.dataTransfer.effectAllowed = "move"; b.classList.add("arrastrando"); };
       b.ondragend = () => b.classList.remove("arrastrando");
       b.onkeydown = ev => {  // alternativa accesible al arrastre
         const d = {ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1]}[ev.key]; if (!d) return;
-        ev.preventDefault(); const np = Math.min(5, Math.max(1, (p ?? 3) + d[0])), ni = Math.min(5, Math.max(1, (i ?? 3) + d[1]));
-        p == null || i == null ? mover(it.id, 3, 3) : mover(it.id, np, ni);
+        ev.preventDefault(); const s = ev.shiftKey ? 1 : .5;
+        p == null || i == null ? mover(it.id, Math.ceil(NP / 2), Math.ceil(NI / 2)) : mover(it.id, Math.min(NP, Math.max(1, p + d[0] * s)), Math.min(NI, Math.max(1, i + d[1] * s)));
       };
       return b;
     }
     const zona = (n, fn) => { n.ondragover = ev => { ev.preventDefault(); n.classList.add("over"); }; n.ondragleave = () => n.classList.remove("over"); n.ondrop = ev => { ev.preventDefault(); n.classList.remove("over"); fn(ev.dataTransfer.getData("text/plain")); }; return n; };
+    // cabecera de la matriz + «Ajustar matriz» (vista previa en vivo; se guarda por carpeta). Se pinta aparte para no cerrar el panel al repintar.
+    function pintaAjustes(abierto) {
+      const K = S.cfg, fija = (k, v) => { S.cfg = {...S.cfg, [k]: v}; lsSet("int-mx-" + c, S.cfg); refrescar(); };
+      const niveles = async (np_, ni_) => {  // null = ese eje no cambia
+        try {
+          const r = await post("/api/reg/matriz", {c, ...(np_ ? {niveles_poder: np_} : {}), ...(ni_ ? {niveles_interes: ni_} : {}), reescalar: !!S.cfg.reesc});
+          NP = okN(r.niveles_poder ?? np_ ?? NP); NI = okN(r.niveles_interes ?? ni_ ?? NI);
+          aviso_("Matriz de " + NP + " filas × " + NI + " columnas" + (r.recortados ? " · " + r.recortados + " valores recortados al máximo" : "") + ". Ctrl+Z deshace el reescalado"); cambio(); await cargar();
+        } catch (x) { err(x); }
+        pintaAjustes(true);
+      };
+      const fila = (t, ctl, extra) => el("label", {className: "int-aj-f"}, el("span", {textContent: t}), ctl, ...(extra ? [extra] : []));
+      const rango = (k, min, max, paso, ud) => { const o = el("output", {textContent: K[k] + ud}); return fila({h: "Alto de la matriz", gap: "Separación entre chips"}[k], el("input", {type: "range", min, max, step: paso, value: K[k], oninput: ev => { o.textContent = ev.target.value + ud; fija(k, Number(ev.target.value)); }}), o); };
+      const sel = (k, ops, f = x => x) => { const s = el("select", {onchange: ev => fija(k, f(ev.target.value))}, ...ops.map(([v, t]) => new Option(t, v))); s.value = String(K[k]); return s; };
+      const chk = (k, t) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: !!K[k], onchange: ev => fija(k, ev.target.checked)}), t);
+      const sN = (v, f) => { const s = el("select", {onchange: ev => f(Number(ev.target.value))}, ...Array.from({length: NMAX - 2}, (_, j) => new Option((j + 3) + (j + 3 === NDEF ? " (por defecto)" : ""), j + 3))); s.value = String(v); return s; };
+      const m = el("details", {className: "int-menu", open: !!abierto}, el("summary", {className: "int-sum", textContent: "Ajustar matriz ▾"}),
+        el("div", {className: "int-pop int-aj"},
+          el("div", {className: "int-aj-2"}, fila("Filas (poder)", sN(NP, n => niveles(n, null))), fila("Columnas (interés)", sN(NI, n => niveles(null, n)))),
+          el("div", {className: "int-aj-h2"}, el("small", {className: "muted", textContent: "Huecos de cada eje, para todo el proyecto."}),
+            el("button", {className: "link", textContent: "Igualar columnas a filas", disabled: NP === NI, onclick: () => niveles(null, NP)})),
+          el("label", {className: "check"}, el("input", {type: "checkbox", checked: !!K.reesc, onchange: ev => { S.cfg = {...S.cfg, reesc: ev.target.checked}; lsSet("int-mx-" + c, S.cfg); }}), "Reescalar los valores existentes"),
+          el("small", {className: "muted int-aj-h", textContent: "Activado: cada poder/interés se convierte en proporción a la nueva escala (un 4 de 5 pasa a 8 de 10). Desactivado: se conservan los números tal cual y los que superen el nuevo máximo se recortan a él. Se deshace con Ctrl+Z."}),
+          rango("h", 240, 900, 20, " px"), rango("gap", 0, 16, 1, " px"),
+          fila("Longitud máxima del nombre", el("input", {type: "number", min: 0, max: 60, value: K.len, oninput: ev => fija("len", Math.max(0, Number(ev.target.value) || 0))}), el("small", {className: "muted", textContent: "0 = nombre completo (salta de línea)"})),
+          fila("Tamaño de chip", sel("tam", [["S", "Pequeño"], ["M", "Mediano"], ["L", "Grande"]])),
+          chk("cuad", "Celdas cuadradas (el alto sale del ancho)"), chk("grid", "Mostrar cuadrícula"), chk("etq", "Mostrar etiquetas de cuadrante"),
+          el("button", {className: "sec sm", textContent: "Restablecer", title: "Restablece el aspecto (no cambia los niveles)", onclick: () => { S.cfg = {...MXDEF}; lsSet("int-mx-" + c, S.cfg); refrescar(); pintaAjustes(true); }})));
+      zMxH.replaceChildren(el("h3", {textContent: "Matriz poder / interés", title: REGLA}), el("span", {className: "grow"}), m);
+    }
     function pintaMatriz() {
-      const vs = visibles(), cells = [];
-      for (let p = 5; p >= 1; p--) for (let i = 1; i <= 5; i++) {
-        const q = quad(p, i), cell = el("div", {className: "int-cell q-" + q + (p === 3 ? " dv-b" : "") + (i === 3 ? " dv-l" : ""), "data-p": p, "data-i": i, role: "group", "aria-label": "Poder " + p + ", interés " + i + " · " + QS[q].t},
-          ...vs.filter(it => num(it.campos?.poder) === p && num(it.campos?.interes) === i).map(chip));
-        cells.push(zona(cell, id => mover(id, p, i)));
-      }
-      const lab = (q, cl) => el("span", {className: "int-ql " + cl, "aria-hidden": "true", textContent: QS[q].t + " (" + vs.filter(x => qOf(x) === q).length + ")"});
+      // Capas: cuadrícula CSS de casillas idénticas (solo dibujo; el contenido nunca cambia su tamaño) + capa de «huecos» absolutos.
+      // Un hueco por posición (poder, interés) en pasos de 0,5: entero = centro de casilla, x,5 = sobre la línea. Sus chips van en fila
+      // centrada y saltan de línea solo si no caben; si no caben en alto, el hueco hace scroll.
+      const vs = visibles(), K = S.cfg, ticks = [], mp = (NP + 1) / 2, mi = (NI + 1) / 2;
+      const px = v => (v - .5) / NI * 100 + "%", py = v => (NP + .5 - v) / NP * 100 + "%";
+      for (let v = 1; v <= NP; v += .5) ticks.push(el("span", {className: "int-tk y" + (v % 1 ? " m" : ""), "aria-hidden": "true", style: "top:" + py(v), textContent: v % 1 ? "" : v}));
+      for (let v = 1; v <= NI; v += .5) ticks.push(el("span", {className: "int-tk x" + (v % 1 ? " m" : ""), "aria-hidden": "true", style: "left:" + px(v), textContent: v % 1 ? "" : v}));
+      const pos = new Map();
+      for (const it of vs) { const p = pw(it.campos?.poder), i = iw(it.campos?.interes); if (p == null || i == null) continue; const k = p + "|" + i; pos.has(k) ? pos.get(k).push(it) : pos.set(k, [it]); }
+      const ks = [...pos.keys()].map(k => k.split("|").map(Number));
+      const huecos = ks.map(([p, i]) => {
+        let w = 1, h = 1;  // en casillas; un vecino a medio paso lo estrecha (en su eje dominante) para que nunca se solapen
+        for (const [p2, i2] of ks) { const dp = Math.abs(p2 - p), di = Math.abs(i2 - i); if ((dp || di) && dp < 1 && di < 1) di >= dp ? (w = Math.min(w, di)) : (h = Math.min(h, dp)); }
+        const k = p + "|" + i, its = pos.get(k), ab = S.slA === k && its.length > 2;
+        return el("div", {className: "int-sl" + (its.length > 2 ? " mucho" : "") + (ab ? " ab" : ""), role: "group", "aria-label": posTxt(p, i), style: `left:${px(i)};top:${py(p)};width:${w / NI * 100}%;max-height:${h / NP * 100}%` + (ab ? `;transform:translate(${i > mi ? "calc(-100% + 12px)" : "-12px"},-50%)` : "")},
+          ...(its.length > 2 ? [el("button", {type: "button", className: "int-cnt", textContent: ab ? "×" : its.length, "aria-expanded": ab, "aria-label": (ab ? "Cerrar la lista de " : "Ver los ") + its.length + " de " + posTxt(p, i),
+            title: (ab ? "Cerrar" : its.length + " aquí (clic para verlos todos)") + ": " + its.map(x => x.titulo).join(", "), onclick: () => { S.slA = ab ? null : k; pintaMatriz(); }})] : []),
+          el("div", {className: "int-slr"}, ...its.map(chip)));
+      });
+      const cnt = q => vs.filter(x => qOf(x) === q).length, lab = q => el("span", {className: "int-ql", title: QS[q].s, textContent: QS[q].t + " · " + cnt(q)});
+      const gt = el("span", {className: "int-gh-t"}), gh = el("div", {className: "int-gh", hidden: true, "aria-hidden": "true"}, gt);
+      const grid = el("div", {className: "int-grid", "aria-hidden": "true", style: `grid-template-columns:repeat(${NI},minmax(0,1fr));grid-template-rows:repeat(${NP},minmax(0,1fr))`}, ...Array.from({length: NP * NI}, () => el("div", {className: "int-cell"})));
+      const plot = el("div", {className: "int-plot t-" + K.tam + (K.grid ? " rej" : ""), role: "group", "aria-label": "Matriz de " + NP + " filas (poder) por " + NI + " columnas (interés)", title: REGLA,
+        style: K.cuad ? `height:auto;aspect-ratio:${NI}/${NP}` : `height:max(${K.h}px,${NP * 48}px)`},
+        ...["ms", "gc", "mon", "mi"].map(q => el("div", {className: "int-qb q-" + q, "aria-hidden": "true"})), grid, el("div", {className: "int-cx v", "aria-hidden": "true"}), el("div", {className: "int-cx h", "aria-hidden": "true"}), ...ticks, ...huecos, gh);
+      const donde = ev => { const r = plot.getBoundingClientRect(); return [snap((r.bottom - ev.clientY) / r.height * NP + .5, NP), snap((ev.clientX - r.left) / r.width * NI + .5, NI)]; };
+      plot.ondragover = ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; const [p, i] = donde(ev); gh.hidden = false; gh.style.left = px(i); gh.style.top = py(p); gh.classList.toggle("ab", p > NP - 1); gt.textContent = posTxt(p, i); };
+      plot.ondragleave = ev => { if (!plot.contains(ev.relatedTarget)) gh.hidden = true; };
+      plot.ondrop = ev => { ev.preventDefault(); gh.hidden = true; const [p, i] = donde(ev); mover(ev.dataTransfer.getData("text/plain"), p, i); };
       const sin = vs.filter(it => qOf(it) === "sin"), tray = zona(el("div", {className: "int-tray"}, ...sin.map(chip),
         ...(sin.length ? [] : [el("span", {className: "muted", textContent: "Todos clasificados. Arrastra aquí para quitar de la matriz."})])), id => mover(id, null, null));
-      zMx.replaceChildren(el("div", {className: "sec-h"}, el("h3", {textContent: "Matriz poder / interés"})),
-        el("div", {className: "int-leg"}, ...ACTS.map(a => el("span", {className: "int-lg " + ACT[a][1]}, el("span", {className: "int-ic", "aria-hidden": "true", textContent: ACT[a][0]}), " " + a)),
-          el("span", {className: "int-lg"}, el("span", {className: "int-ic prop-s", "aria-hidden": "true", textContent: "▢"}), " borde discontinuo = propuesto por la IA")),
-        el("div", {className: "int-mx-in"}, el("span", {className: "int-ax int-ay", textContent: "Poder →"}),
-          el("div", {className: "int-mx"}, el("div", {className: "int-grid"}, ...cells), lab("ms", "tl"), lab("gc", "tr"), lab("mon", "bl"), lab("mi", "br")),
-          el("span", {className: "int-ax int-axx", textContent: "Interés →"})),
+      zMx.style.cssText = `--mx-h:${K.h}px;--chip-gap:${K.gap}px`;
+      zMxB.replaceChildren(
+        el("div", {className: "int-mxw"}, el("div", {className: "int-ax int-ay", textContent: "Poder ↑ (más poder arriba)"}),
+          el("div", {className: "int-mxc"}, ...(K.etq ? [el("div", {className: "int-qh"}, lab("ms"), lab("gc"))] : []), plot,
+            ...(K.etq ? [el("div", {className: "int-qh"}, lab("mon"), lab("mi"))] : []), el("div", {className: "int-ax int-axx", textContent: "Interés → (más interés a la derecha)"}))),
+        el("p", {className: "muted int-nota", title: REGLA, textContent: QS.lim.t + " · " + cnt("lim") + " — Valores intermedios (x,5) = en la línea entre dos casillas. Poder o interés exactamente en el centro (poder " + fmt(mp) + ", interés " + fmt(mi) + ") = entre dos zonas: no se asigna a ningún cuadrante."}),
         el("h4", {textContent: "Sin clasificar · " + sin.length}), el("p", {className: "muted", textContent: "Arrastra a la matriz (o usa las flechas con el chip enfocado) para fijar poder e interés. La IA no los infiere."}), tray);
     }
 
@@ -215,11 +282,11 @@
         const q = qOf(it), ins = typeof regInsignias === "function" ? regInsignias(it) : [];
         return el("tr", {className: "reg-r" + (it.revision === "propuesto" ? " prop" : "") + (it.revision === "descartado" || it.revision === "fusionado" ? " cerr" : ""), "data-id": it.id},
           el("td", {className: "c"}, chk), ...COLS.map(([kk, t, tp]) => el("td", {className: tp === "n" ? "int-n" : ""}, ctl(it, kk, tp, t, "tabla"))),
-          el("td", {}, el("span", {className: "badge" + (q === "sin" ? " w" : ""), textContent: QS[q].t})), el("td", {className: "reg-ins"}, ...ins),
+          el("td", {}, el("span", {className: "badge" + (q === "sin" ? " w" : ""), textContent: QS[q].t})), el("td", {className: "reg-ins"}, ...ins, regFusiona(it, c, trasSeparar)),
           el("td", {className: "reg-ops"},
             ...(it.revision === "descartado" ? [el("button", {className: "sec sm", textContent: "Restaurar", onclick: () => revisar([it.id], "restaurar")})] : []),
             ...(it.revision === "propuesto" ? [el("button", {className: "sec sm", textContent: "Aprobar", onclick: () => revisar([it.id], "aprobar")}), el("button", {className: "link", textContent: "Descartar", onclick: () => revisar([it.id], "descartar")})] : []),
-            el("button", {className: "link", textContent: "Ficha", onclick: () => { S.open = it.id; pintaFicha(); }})));
+            ...regBotonSeparar(it, c, trasSeparar), el("button", {className: "link", textContent: "Ficha", onclick: () => { S.open = it.id; pintaFicha(); }})));
       };
       zTb.replaceChildren(el("div", {className: "sec-h"}, el("h3", {textContent: "Tabla · " + xs.length})),
         xs.length ? el("div", {className: "int-scroll"}, el("table", {className: "reg-t int-t"}, el("thead", {}, el("tr", {}, el("th", {className: "c"}, todos), ...COLS.map(th), el("th", {textContent: "Cuadrante"}), el("th", {textContent: "Revisión"}), el("th"))),
@@ -248,7 +315,7 @@
       zFi.replaceChildren(
         el("div", {className: "sec-h"}, el("h3", {textContent: it.titulo}), el("button", {className: "sec sm", textContent: "Cerrar", onclick: () => { S.open = null; pintaFicha(); }})),
         el("div", {className: "row wrap"}, ...(typeof regInsignias === "function" ? regInsignias(it) : []), el("span", {className: "badge" + (q === "sin" ? " w" : ""), textContent: QS[q].t})),
-        el("div", {className: "int-fs"}, campo("Nombre", "titulo", "t"), campo("Rol", "campos.rol", "t"), campo("Organización", "campos.organizacion", "t"), campo("Poder (1-5)", "campos.poder", "n"), campo("Interés (1-5)", "campos.interes", "n"),
+        el("div", {className: "int-fs"}, campo("Nombre", "titulo", "t"), campo("Rol", "campos.rol", "t"), campo("Organización", "campos.organizacion", "t"), campo("Poder (1-" + NP + ")", "campos.poder", "n"), campo("Interés (1-" + NI + ")", "campos.interes", "n"),
           campo("Actitud", "campos.actitud", "s"), campo("Canal", "campos.canal", "t")),
         campo("Estrategia", "campos.estrategia", "a"),
         ...(sg && !estr ? [el("button", {className: "sec sm", textContent: "Usar la sugerida: " + sg, onclick: () => guarda(it, "campos.estrategia", sg)})] : []),
@@ -273,6 +340,7 @@
     document.addEventListener("keydown", ev => { if (ev.key === "Escape" && S.open && raiz.isConnected && !ev.defaultPrevented) { S.open = null; pintaFicha(); } });
     // Ctrl+Z global (registro.js) también deshace aquí
     if (typeof REG_ACTIVA !== "undefined") REG_ACTIVA = {recargar: cargar, vivo: () => raiz.isConnected, tecla: ev => { if (ev.ctrlKey && ev.key.toLowerCase() === "z" && !(typeof regEnCampo === "function" && regEnCampo())) { ev.preventDefault(); deshacer(); return true; } return false; }};
+    pintaAjustes();
     await cargar();
     return [raiz];
   }

@@ -102,16 +102,29 @@ def _s(v):
 
 
 # ---------- modelo del documento (docx, html, md) ----------
-def _cuadrante(items, filas):
-    n = lambda v: int(v) if str(v).strip().isdigit() else 0
-    q, sin = {(p, i): [] for p in (0, 1) for i in (0, 1)}, []
+def _cuadrante(items, filas, niv=6, niv_i=None):
+    """Matriz 2×2: alto > punto medio de su eje ((N+1)/2; N = niv para poder, niv_i para interés), bajo < punto medio. Solo hay cuadrante si AMBOS valores
+    difieren del medio; si uno lo iguala está en el límite entre dos cuadrantes; si ambos, en el centro. -> (matriz, sin clasificar, [(texto, nombre)])."""
+    n = lambda v: registro.num_medio(v) or 0
+    mp, mi = (niv + 1) / 2, ((niv_i or niv) + 1) / 2
+    q, sin, lim = {(p, i): [] for p in (0, 1) for i in (0, 1)}, [], []
+    G, M, I, S = "Gestionar de cerca", "Mantener satisfecho", "Mantener informado", "Monitorizar"
     for x, f in zip(items, filas):
         po, it = n(f["Poder"]), n(f["Interés"])
         nom = f["Nombre"] + (" (borrador)" if f["Revisión"] == BORR else "")
-        (q[(po >= 4, it >= 4)].append(nom) if po and it else sin.append(nom))
+        if not (po and it):
+            sin.append(nom)
+        elif po == mp and it == mi:
+            lim.append(("En el centro (entre las cuatro zonas)", nom))
+        elif po == mp:  # entre alto y bajo poder, del lado de su interés
+            lim.append((f"En el límite entre {G} y {M}" if it > mi else f"En el límite entre {I} y {S}", nom))
+        elif it == mi:  # entre bajo y alto interés, del lado de su poder
+            lim.append((f"En el límite entre {G} y {I}" if po > mp else f"En el límite entre {M} y {S}", nom))
+        else:
+            q[(po > mp, it > mi)].append(nom)
     cel = lambda p, i, lab: f"{lab}\n" + (", ".join(q[(p, i)]) or "—")
-    return [["Interés alto", cel(0, 1, "Mantener informado"), cel(1, 1, "Gestionar de cerca")],
-            ["Interés bajo", cel(0, 0, "Monitorizar"), cel(1, 0, "Mantener satisfecho")]], sin
+    return [["Interés alto", cel(0, 1, I), cel(1, 1, G)],
+            ["Interés bajo", cel(0, 0, S), cel(1, 0, M)]], sin, lim
 
 
 def modelo(c, vista, items, filas, borrador):
@@ -125,8 +138,13 @@ def modelo(c, vista, items, filas, borrador):
     else:
         m.append(("p", "Solo elementos aprobados."))
     if vista == "interesados":
-        mat, sin = _cuadrante(items, filas)
-        m += [("h", "Matriz poder / interés", False), ("tabla", ["", "Poder bajo", "Poder alto"], mat)] + ([("p", "Sin clasificar: " + ", ".join(sin))] if sin else [])
+        np_, ni = registro.niveles_ejes(c) if c else (registro.NIVELES_DEF,) * 2
+        mat, sin, lim = _cuadrante(items, filas, np_, ni)
+        m += [("h", "Matriz poder / interés", False), ("p", f"Escala: Poder 1–{np_} · Interés 1–{ni} (valores intermedios 0,5 = entre casillas)."),
+              ("tabla", ["", "Poder bajo", "Poder alto"], mat)]
+        for t in dict.fromkeys(t for t, _ in lim):
+            m.append(("p", f"{t}: " + ", ".join(nm for tt, nm in lim if tt == t)))
+        m += [("p", "Sin clasificar: " + ", ".join(sin))] if sin else []
         m.append(("h", "Listado", False))
     if cortas:
         m.append(("tabla", cortas, [[f[k] for k in cortas] for f in filas]))

@@ -291,19 +291,28 @@ def borrar(eid, lote=None, db=None):
     return editar(eid, {"revision": "descartado"}, lote, db)
 
 
+RELLENA = ("titulo", "detalle", "dueno", "prioridad", "fecha_limite")  # columnas que fusionar() copia al destino si allí están vacías
+NO_RELLENA = ("fuente", "huerfano", "clave", "seccion")  # claves de campos que no se copian (del sistema o del documento)
+
+
 def fusionar(destino, origenes, lote=None):
-    """Los orígenes pasan a «fusionado» (fusionado_en=destino, relación «fusion»); el destino recibe copia de sus citas y relaciones."""
+    """Los orígenes pasan a «fusionado» (fusionado_en=destino, relación «fusion»); el destino recibe copia de sus citas y relaciones,
+    rellena con los del origen sus campos VACÍOS y, si el texto del origen dice otra cosa, una línea «Fusionado desde D-xx: …» en su detalle.
+    Un registro «fusionar» por origen (origen, revisión previa, citas, relaciones, relleno, nota) para separar(); todo en un lote (Ctrl+Z)."""
     lote = lote or uuid.uuid4().hex[:10]
     with _db(escribe=True) as db:
-        d, hecho = _uno(db, destino), {"citas": [], "rel": []}
+        d = _uno(db, destino)
         if d["revision"] in OCULTA:
             raise ValueError("El destino de la fusión está descartado o fusionado")
         for o in dict.fromkeys(origenes):
             if o == destino:
                 continue
-            x = _uno(db, o)
+            x, hecho = _uno(db, o), {"origen": o, "citas": [], "rel": []}
             if (x["tipo"], x["proyecto_id"]) != (d["tipo"], d["proyecto_id"]):
                 raise ValueError("Solo se fusionan entidades del mismo tipo y proyecto")
+            if x["revision"] in OCULTA:
+                raise ValueError(f"{x['codigo'] or 'El origen'} ya está descartado o fusionado")
+            hecho["revision"] = x["revision"]
             for r in db.execute("SELECT mid, ver, t, texto, verificada FROM cita WHERE entidad_id=?", (o,)).fetchall():
                 hecho["citas"].append(db.execute("INSERT INTO cita(entidad_id, mid, ver, t, texto, verificada) VALUES (?,?,?,?,?,?)", (destino, *r)).lastrowid)
             rels = [(destino if a == o else a, destino if b == o else b, t, p) for a, b, t, p in
@@ -311,9 +320,66 @@ def fusionar(destino, origenes, lote=None):
             for a, b, t, p in rels:
                 if a != b and db.execute("INSERT OR IGNORE INTO relacion(a, b, tipo, propuesta) VALUES (?,?,?,?)", (a, b, t, p)).rowcount:
                     hecho["rel"].append([a, b, t])
+            d = _uno(db, destino)
+            rel = {k: x[k] for k in RELLENA if not str(d[k] or "").strip() and str(x[k] or "").strip()}
+            rc = {k: v for k, v in x["campos"].items() if k not in NO_RELLENA and v not in ("", None) and d["campos"].get(k) in ("", None)}
+            resto = [s for s in (x["titulo"] if "titulo" not in rel and x["titulo"].strip() != d["titulo"].strip() else "",
+                                 x["detalle"] if "detalle" not in rel and x["detalle"].strip() not in ("", d["detalle"].strip()) else "") if s.strip()]
+            nota = f"Fusionado desde {x['codigo'] or o}: " + " — ".join(s.strip() for s in resto) if resto else ""
+            cambios = {**rel, **({"campos": rc} if rc else {})}
+            if nota:
+                det = cambios.get("detalle", d["detalle"])
+                cambios["detalle"] = (det.rstrip() + "\n" if det.strip() else "") + nota
+            if cambios:
+                editar(destino, cambios, lote, db)
+            hecho.update(relleno={**rel, "campos": rc}, nota=nota)
             editar(o, {"revision": "fusionado", "fusionado_en": destino}, lote, db)
-        _hist(db, d["proyecto_id"], destino, "fusionar", None, hecho, lote)
+            _hist(db, d["proyecto_id"], destino, "fusionar", None, hecho, lote)
         return _uno(db, destino)
+
+
+def separar(destino, origen, lote=None):
+    """Deshace UNA fusión aunque haya habido cambios después: el origen vuelve a su revisión previa y el destino pierde las citas y relaciones
+    que le trajo, la nota «Fusionado desde…» y lo rellenado que siga igual. Un lote propio (Ctrl+Z vuelve a fusionar).
+    Límites: una relación que ya traían dos orígenes se quita al separar el primero; fusiones de antes de este registro solo
+    recuperan la revisión del origen y la relación «fusion» (no se sabe qué citas trajeron)."""
+    lote = lote or uuid.uuid4().hex[:10]
+    with _db(escribe=True) as db:
+        x, d = _uno(db, origen), _uno(db, destino)
+        if x["revision"] != "fusionado" or x["fusionado_en"] != destino:
+            raise ValueError(f"{x['codigo'] or 'Ese elemento'} no está fusionado en {d['codigo'] or 'ese destino'}")
+        f = next((json.loads(r[0]) for r in db.execute("SELECT despues FROM historial WHERE entidad_id=? AND accion='fusionar' ORDER BY id DESC", (destino,))
+                  if json.loads(r[0]).get("origen") == origen), None)
+        if f is None:  # fusión antigua: la revisión previa sale del «editar» que la marcó fusionada
+            prev = next((json.loads(r[0]).get("revision") for r in db.execute("SELECT antes FROM historial WHERE entidad_id=? AND accion='editar' AND despues LIKE '%fusionado%' ORDER BY id DESC", (origen,))), None)
+            f = {"revision": prev or "propuesto", "citas": [], "rel": [[origen, destino, "fusion"]], "relleno": {}, "nota": ""}
+        cs = [dict(r) for r in db.execute(f"SELECT * FROM cita WHERE id IN ({','.join('?' * len(f['citas']))})", f["citas"])] if f["citas"] else []
+        rs = [list(r) for a, b, t in f["rel"] for r in db.execute("SELECT a, b, tipo, propuesta FROM relacion WHERE a=? AND b=? AND tipo=?", (a, b, t))]
+        db.executemany("DELETE FROM cita WHERE id=?", [(c["id"],) for c in cs])
+        db.executemany("DELETE FROM relacion WHERE a=? AND b=? AND tipo=?", [r[:3] for r in rs])
+        _hist(db, d["proyecto_id"], destino, "separar", {"citas": cs, "rel": rs}, {"origen": origen}, lote)
+        rel = f.get("relleno") or {}
+        cambios = {k: "" for k, v in rel.items() if k != "campos" and d[k] == v and k != "titulo"}  # el título no se vacía nunca
+        if rc := {k: "" for k, v in (rel.get("campos") or {}).items() if d["campos"].get(k) == v}:
+            cambios["campos"] = rc
+        if f.get("nota") and f["nota"] in (det := cambios.get("detalle", d["detalle"])):
+            cambios["detalle"] = (det.replace("\n" + f["nota"], "", 1) if "\n" + f["nota"] in det else det.replace(f["nota"], "", 1)).strip()
+        if cambios:
+            editar(destino, cambios, lote, db)
+        editar(origen, {"revision": f["revision"], "fusionado_en": None}, lote, db)
+        return _uno(db, destino)
+
+
+def fusionadas(ids, db=None):
+    """{destino: [{id, codigo, titulo, fecha, citas}]} de lo fusionado (y aún oculto) en cada id."""
+    if not ids:
+        return {}
+    out = {}
+    with _db(db) as db:
+        for r in db.execute(f"SELECT e.id, e.codigo, e.titulo, e.modificado, e.fusionado_en, (SELECT COUNT(*) FROM cita WHERE entidad_id=e.id) "
+                            f"FROM entidad e WHERE e.revision='fusionado' AND e.fusionado_en IN ({','.join('?' * len(ids))}) ORDER BY e.modificado", list(ids)):
+            out.setdefault(r[4], []).append({"id": r[0], "codigo": r[1], "titulo": r[2], "fecha": dt.datetime.fromtimestamp(r[3] or 0).strftime("%Y-%m-%d %H:%M"), "citas": r[5]})
+    return out
 
 
 def _ultimo(db, c):
@@ -345,11 +411,84 @@ def _revertir(db, pid, lote):
             db.execute("DELETE FROM entidad WHERE id=?", (h["entidad_id"],))
         elif h["accion"] == "editar":
             _poner(db, h["entidad_id"], antes)
+        elif h["accion"] == "niveles":
+            _extra(db, h["proyecto_id"], matriz_niveles_poder=antes.get("niveles_poder", antes.get("niveles")),
+                   matriz_niveles_interes=antes.get("niveles_interes", antes.get("niveles")))
         elif h["accion"] == "fusionar":
             db.executemany("DELETE FROM cita WHERE id=?", [(i,) for i in despues["citas"]])
             db.executemany("DELETE FROM relacion WHERE a=? AND b=? AND tipo=?", despues["rel"])
+        elif h["accion"] == "separar":  # vuelve a poner las citas (mismo id: la fusión las sigue reconociendo) y relaciones que quitó
+            for ci in antes["citas"]:
+                db.execute(f"INSERT OR IGNORE INTO cita({', '.join(ci)}) VALUES ({', '.join('?' * len(ci))})", list(ci.values()))
+            db.executemany("INSERT OR IGNORE INTO relacion(a, b, tipo, propuesta) VALUES (?,?,?,?)", antes["rel"])
     db.execute("DELETE FROM historial WHERE proyecto_id=? AND lote=?", (pid, lote))
     return len(hs)
+
+
+# ---------- escala de la matriz de interesados (poder/interés 1..N; N en proyecto.extra) ----------
+NIVELES_DEF = 6
+
+
+def _extra(db, pid, **k):
+    ext = json.loads(db.execute("SELECT extra FROM proyecto WHERE id=?", (pid,)).fetchone()[0] or "{}")
+    db.execute("UPDATE proyecto SET extra=? WHERE id=?", (_j({**ext, **k}), pid))
+
+
+def niveles_ejes(c, db=None):
+    """(huecos de poder, huecos de interés); cae en `matriz_niveles` (antiguo, un solo N) y luego en NIVELES_DEF."""
+    e = ((proyecto(c, False, db) or {}).get("extra") or {})
+    return (int(e.get("matriz_niveles_poder") or e.get("matriz_niveles") or NIVELES_DEF),
+            int(e.get("matriz_niveles_interes") or e.get("matriz_niveles") or NIVELES_DEF))
+
+
+def niveles(c, db=None):
+    return niveles_ejes(c, db)[0]
+
+
+def num_medio(v):
+    """Valor de poder/interés como número múltiplo de 0,5 (int si es entero) o None si no lo es."""
+    if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+        return None
+    try:
+        f = float(str(v).strip().replace(",", ".")) if isinstance(v, str) else float(v)
+    except ValueError:
+        return None
+    return (int(f) if f == int(f) else f) if f * 2 == int(f * 2) else None
+
+
+def matriz(c, poder=None, interes=None, reescalar=False):
+    """Pone los huecos de la matriz de interesados (poder = filas, interés = columnas; 3..10 cada eje; None = no cambia), en un solo lote del usuario
+    (deshacer lo revierte todo, niveles incluidos). reescalar: cada eje se remapea proporcionalmente a pasos de 0,5; si no, solo se recorta lo que pase.
+    -> (ids cambiados, recortados). ValueError si algún nivel no vale o no hay ninguno."""
+    if poder is None and interes is None:
+        raise ValueError("Falta niveles_poder o niveles_interes")
+    for n in (poder, interes):
+        if n is not None and (isinstance(n, bool) or not isinstance(n, int) or not 3 <= n <= 10):
+            raise ValueError("niveles debe ser un entero de 3 a 10")
+    lote, cambiados, recortados = uuid.uuid4().hex[:10], [], 0
+    with _db(escribe=True) as db:
+        pid = proyecto(c, db=db)["id"]
+        op, oi = niveles_ejes(c, db)
+        np_, ni = poder or op, interes or oi
+        for r in db.execute("SELECT id FROM entidad WHERE proyecto_id=? AND tipo='interesado'", (pid,)).fetchall():
+            x = _uno(db, r[0])
+            cm = {}
+            for k, old, nuevo in (("poder", op, np_), ("interes", oi, ni)):
+                v = num_medio(x["campos"].get(k, ""))
+                if v is None:
+                    continue
+                n = min(max(int(((v - 1) * (nuevo - 1) / (old - 1) + 1) * 2 + 0.5) / 2, 1), nuevo) if reescalar else min(v, nuevo)
+                n = int(n) if n == int(n) else n
+                if n != v:
+                    cm[k] = n
+                    recortados += not reescalar
+            if cm:
+                editar(x["id"], {"campos": cm}, lote, db)
+                cambiados.append(x["id"])
+        if (np_, ni) != (op, oi):
+            _hist(db, pid, None, "niveles", {"niveles_poder": op, "niveles_interes": oi}, {"niveles_poder": np_, "niveles_interes": ni}, lote)
+            _extra(db, pid, matriz_niveles_poder=np_, matriz_niveles_interes=ni)
+    return cambiados, recortados
 
 
 def historial(eid):
@@ -613,8 +752,12 @@ def completas(xs):
             rel = {"a": r[0], "b": r[1], "tipo": r[2], "propuesta": bool(r[3])}
             for k in {r[0], r[1]}:
                 re_.setdefault(k, []).append(rel)
-    return [{k: x[k] for k in ECOLS if k not in ("proyecto_id", "fusionado_en", "orden")} | {"editado": bool(x["editado"]), "huerfano": bool(x["campos"].get("huerfano")),
-            "citas": ci.get(x["id"], []), "relaciones": re_.get(x["id"], [])} for x in xs]
+        fu = fusionadas(ids, db)
+        dest = {x["fusionado_en"] for x in xs if x["fusionado_en"]}
+        cod = {r[0]: r[1] for r in db.execute(f"SELECT id, codigo FROM entidad WHERE id IN ({','.join('?' * len(dest))})", list(dest))} if dest else {}
+    return [{k: x[k] for k in ECOLS if k not in ("proyecto_id", "orden")} | {"editado": bool(x["editado"]), "huerfano": bool(x["campos"].get("huerfano")),
+            "citas": ci.get(x["id"], []), "relaciones": re_.get(x["id"], []), "fusionadas": fu.get(x["id"], []),
+            "fusionado_en_codigo": cod.get(x["fusionado_en"])} for x in xs]
 
 
 def de(c, eid):
@@ -667,7 +810,7 @@ def ultimo_lote_ids(c):
     """ids de las entidades tocadas por el último lote del usuario (el que revertirá deshacer(); para devolverlas tras deshacer)."""
     with _db() as db:
         r = _ultimo(db, c)
-        return r and [h[0] for h in db.execute("SELECT DISTINCT entidad_id FROM historial WHERE proyecto_id=? AND lote=?", r)] or []
+        return r and [h[0] for h in db.execute("SELECT DISTINCT entidad_id FROM historial WHERE proyecto_id=? AND lote=? AND entidad_id IS NOT NULL", r)] or []
 
 
 def ultimo_lote(c):
