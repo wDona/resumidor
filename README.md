@@ -255,3 +255,4 @@ El primer arranque prepara el entorno en `~/Library/Application Support/Actas` (
 Aceleración: el LLM usa Metal en Apple Silicon (`ACTAS_CPU=1` lo desactiva); el vídeo condensado se codifica con VideoToolbox. El ASR (faster-whisper) y todo en Intel van por CPU. En Intel, `onnxruntime` queda fijado a 1.23.2 (última con ruedas para macOS Intel; ver `pyproject.toml`).
 
 Construir (en un Mac): `python3 tools/fetch_bins.py --uv && installer/macos/build.sh arm64|x64 <versión>`. ffmpeg/ffprobe: builds estáticos GPL de https://ffmpeg.martin-riedl.de (fuentes enlazadas allí).
+<!-- release -->
