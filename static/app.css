@@ -2,6 +2,7 @@
 :root{--bg:#f4f5f7;--bg2:#f8f9fb;--card:#fff;--ink:#1f2933;--ink2:#3e4c59;--mut:#616e7c;--line:#d9dee4;--line2:#e6e9ee;--inp:#b7c0cc;
  --acc:#1d5fd1;--acc-d:#174ba3;--acc-s:#eef4ff;--acc-s2:#e3ecfb;--acc-ln:#b9cff5;--on-acc:#fff;--err:#b42318;--err-s:#fef3f2;--warn:#8a5a00;--warn-s:#fffbea;--warn-ln:#f0d77a;
  --ok:#155d33;--ok-s:#dcefe3;--err-ln:#f3b8b2;--wb:#fde68a;--wbt:#5c3d00;--r:8px;--r2:12px;--r3:10px;--focus:#8db4f5;--shadow:0 8px 30px rgba(15,23,42,.18);
+ --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;  /* escala de espaciado (huecos, rellenos, márgenes) de las vistas del registro */
  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;color:var(--ink);color-scheme:light dark}
 @media(prefers-color-scheme:dark){:root{--bg:#14171c;--bg2:#1a1f26;--card:#1d222a;--ink:#e6e9ee;--ink2:#c5ccd5;--mut:#9aa5b1;--line:#333b46;--line2:#2a313a;--inp:#4a5565;
  --acc:#6ea3ff;--acc-d:#8db4f5;--acc-s:#1b2a45;--acc-s2:#22324f;--acc-ln:#2f4a7a;--on-acc:#0b1220;--err:#ff8a80;--err-s:#3a1c1a;--warn:#f0c36a;--warn-s:#2e2713;--warn-ln:#5a4a1c;
@@ -248,6 +249,15 @@ a.ts:hover{text-decoration:underline}
 details{margin:4px 0;color:var(--mut)}summary{cursor:pointer;font-size:13px;min-height:28px}
 blockquote{margin:6px 0;padding-left:12px;border-left:3px solid var(--line);color:var(--ink)}blockquote span.o{opacity:.55}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:var(--r);z-index:30;max-width:90vw}
+#toast .link{color:inherit;font-weight:600;min-height:0;font-size:inherit}
+/* fusionar (registro.js): vista previa, «Fusiona N» y separar */
+.reg-fus-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.reg-fus-it{display:flex;flex-direction:column;gap:6px;border:2px solid var(--line);border-radius:var(--r);padding:12px;cursor:pointer;background:var(--card)}
+.reg-fus-it.dest{border-color:var(--acc)}.reg-fus-it:focus-within{outline:2px solid var(--acc);outline-offset:2px}
+.reg-fus-it p{margin:0;white-space:pre-wrap;max-height:9em;overflow:auto}.reg-fus-it h4{margin:0}
+.reg-fus-exp{margin:14px 0 0}
+.reg-fus-it:not(.dest) .reg-fus-q{visibility:hidden}.reg-fus-top{display:flex;align-items:center;gap:8px}.reg-fus-top input{margin:0;width:18px;height:18px}
+.reg-fus summary{cursor:pointer;color:var(--acc);font-size:14px}.reg-fus ul{margin:6px 0 0;padding-left:18px}.reg-fus li{margin:2px 0}.reg-fus li>*{display:inline;vertical-align:baseline}.reg-fus li .link{min-height:0}
 
 /* ajustes */
 .ah{background:var(--card);border-bottom:1px solid var(--line)}
@@ -477,10 +487,18 @@ tr.f[draggable=true]{cursor:grab}tr.f[draggable=true]:active{cursor:grabbing}
 .fila-mv{margin-left:8px}
 
 /* ---- registro.js: tabla editable y bandeja ---- */
-.reg-bar,.reg-acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.reg-chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
-.reg-bar input[type=search]{flex:1 1 200px}.reg-wrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:var(--r2);background:var(--card)}
-.reg-t{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}.reg-t th{position:sticky;top:0;z-index:1;background:var(--bg2);text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
-.reg-t td{padding:6px 8px;border-bottom:1px solid var(--line2);vertical-align:top}.reg-t tbody tr:nth-child(even){background:var(--bg2)}.reg-t tbody tr:hover{background:var(--acc-s)}
+.reg{display:flex;flex-direction:column;gap:var(--s3)}
+.reg-bar,.reg-acc,.reg-chips{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;margin:0}.reg-chips:empty,.reg-acc:not(:has(>:not(.grow))){display:none}
+.reg-bar input[type=search]{flex:1 1 200px;width:auto}.reg-bar select{width:auto;max-width:100%;flex:0 1 auto}.reg-wrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:var(--r2);background:var(--card)}
+.reg-t{width:100%;border-collapse:separate;border-spacing:0;font-size:14px}.reg-t th{position:sticky;top:0;z-index:2;background:var(--bg2);text-align:left;padding:var(--s2) var(--s3);border-bottom:1px solid var(--line);white-space:nowrap}
+.reg-t td{padding:var(--s2) var(--s3);border-bottom:1px solid var(--line2);vertical-align:top}.reg-t tbody tr{background:var(--card)}.reg-t tbody tr:nth-child(even){background:var(--bg2)}.reg-t tbody tr:hover{background:var(--acc-s)}
+.reg-t tbody tr:last-child td{border-bottom:0}
+/* acciones de fila siempre visibles aunque la tabla desborde en horizontal */
+.reg-t td.reg-ops,.reg-t th:last-child:empty{position:sticky;right:0;background:inherit;box-shadow:-1px 0 0 var(--line2)}.reg-t th:last-child:empty{z-index:3;background:var(--bg2)}
+.reg-ops>*+*{margin-left:var(--s2)}
+.reg-bandeja{display:flex;flex-direction:column;gap:var(--s4)}.reg-bandeja>p{margin:calc(-1 * var(--s2)) 0 0}.reg-bandeja>section>.sec-h{margin-bottom:var(--s2)}.reg-bandeja .sec-h{flex-wrap:wrap}
+.reg-bandeja>.card{margin:0}.reg-bandeja .f-lst li{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2);padding:var(--s2) 0}
+.reg-g .reg{gap:0}.reg-g .reg-bar{padding:var(--s3) var(--s3) var(--s2)}.reg-g .reg-acc{padding:0 var(--s3) var(--s2)}
 .reg-t td input:not([type=checkbox]),.reg-t td select,.reg-t td textarea{width:100%;min-width:90px;font:inherit;padding:4px 6px;border:1px solid transparent;background:transparent;color:var(--ink);border-radius:6px}
 .reg-t td input:hover,.reg-t td select:hover,.reg-t td textarea:hover{border-color:var(--inp)}.reg-t td input:focus,.reg-t td select:focus,.reg-t td textarea:focus{border-color:var(--acc);background:var(--card)}
 .reg-t td textarea{resize:vertical;min-width:220px}.reg-t .c{width:34px;text-align:center}.reg-r.prop td:first-child{box-shadow:inset 3px 0 0 var(--acc)}.reg-r.huer td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
@@ -488,4 +506,10 @@ tr.f[draggable=true]{cursor:grab}tr.f[draggable=true]:active{cursor:grabbing}
 .reg-or{white-space:nowrap}.reg-cita td{background:var(--acc-s)}.reg-cita blockquote{margin:2px 0;color:var(--ink2)}
 .reg-hist{position:fixed;right:0;top:0;bottom:0;width:min(380px,100vw);overflow:auto;background:var(--card);border-left:1px solid var(--line);box-shadow:var(--shadow);padding:16px;z-index:20}.reg-h{padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px}
 .reg-g{padding:0;overflow:hidden}.reg-g .reg-wrap{border:0;border-radius:0}
-@media(max-width:700px){.reg-t{font-size:13px}}
+/* navegación con foco (carpeta.js fIr): resaltado temporal al llegar + aviso de filtro */
+@keyframes f-flash{0%,30%{background:var(--wb);box-shadow:0 0 0 3px var(--warn-ln)}100%{box-shadow:0 0 0 0 transparent}}
+.f-flash,.f-flash>td{animation:f-flash 2.2s ease-out}
+@media(prefers-reduced-motion:reduce){.f-flash,.f-flash>td{animation:none;outline:3px solid var(--warn-ln);outline-offset:-3px}}
+.f-foco{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3);padding:var(--s2) var(--s3);border:1px solid var(--acc-ln);border-radius:var(--r);background:var(--acc-s);color:var(--ink);font-size:14px}
+.reg-chips .f-foco{flex:1 1 100%}
+@media(max-width:700px){.reg-t{font-size:13px}.reg-t td.reg-ops,.reg-t th:last-child:empty{position:static;box-shadow:none}}

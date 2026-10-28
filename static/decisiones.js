@@ -4,7 +4,7 @@
 (() => {
   const ESTADOS = ["vigente", "sustituida", "revocada"], CHIP = {vigente: "ok", sustituida: "w", revocada: "no"};
   const FORMATOS = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["xlsx", "Excel (.xlsx)"], ["csv", "CSV"], ["md", "Markdown"], ["json", "JSON"]];
-  const REVS = [["", "Todas"], ["propuesto", "Propuestas"], ["aprobado", "Aprobadas"], ["descartado", "Descartadas"]];
+  const REVS = [["", "Todas"], ["propuesto", "Propuestas"], ["aprobado", "Aprobadas"], ["descartado", "Descartadas"], ["fusionado", "Fusionadas"]];
   const enc = encodeURIComponent, cam = (it, k) => (it.campos || {})[k] ?? "";
   const estado = it => it.estado || "vigente";
   // la fecha editada se guarda en fecha_alta (y se duplica en campos.fecha, que manda en filas antiguas)
@@ -22,6 +22,8 @@
   function vista(c, e) {
     const S = {items: [], rels: [], prop: [], vista: lsGet("dec-vista", "linea"), asc: lsGet("dec-asc", false), vig: lsGet("dec-vig", false), soloAprob: lsGet("dec-aprob", false),
       f: {estado: "", dueno: "", revision: "", q: ""}, ctx: new Set(), edit: null, drawer: null, fusion: null};
+    const fo = typeof fTomaFoco === "function" ? fTomaFoco("decisiones") : null;  // foco desde el informe
+    if (fo) { S.ids = fo.ids; S.resaltar = true; S.vig = false; S.vista = "linea"; }
     const raiz = el("div", {className: "dec"}), barra = el("div", {className: "dec-bar"}), banner = el("div"), cuerpo = el("div", {className: "dec-cuerpo"}), cajon = el("aside", {className: "dec-draw", hidden: true, "aria-label": "Detalle de la decisión"});
     raiz.append(barra, banner, cuerpo, cajon); ACTIVA = raiz; raiz.deshacer = deshacer;
     let seq = 0;
@@ -31,7 +33,7 @@
       try {
         const [r, b] = await Promise.all([api("/api/reg?" + new URLSearchParams({c, tipo: "decision", ...(S.f.revision ? {revision: S.f.revision} : {})})), api("/api/reg/bandeja?c=" + enc(c))]);
         if (n !== seq) return;
-        S.items = r.items; S.prop = b.relaciones_propuestas || [];
+        S.items = r.items; S.prop = b.relaciones_propuestas || []; S.nFus = r.contadores?.fusionadas ?? 0;
         S.rels = S.items.flatMap(x => x.relaciones || []).filter(r => r.tipo === "sustituye" && !r.propuesta);
         if (S.edit && !S.items.some(x => x.id === S.edit)) S.edit = null;
         pintar();
@@ -45,7 +47,7 @@
     async function deshacer() { try { const r = await post("/api/reg/deshacer", {c}); aviso(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); await refrescar(); } catch (x) { err(x); } }
     async function revisar(ids, accion) { try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobada", restaurar: "Restaurada"}[accion] || "Descartada") + ". Ctrl+Z para deshacer"); await refrescar(); } catch (x) { err(x); } }
     async function patch(it, cambios) { try { await api("/api/reg/" + enc(it.id), {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({c, cambios})}); return true; } catch (x) { err(x); return false; } }
-    async function fusionar(destino, origen) { try { await post("/api/reg/fusionar", {c, destino, origenes: [origen]}); aviso("Fusionadas. Ctrl+Z para deshacer"); S.fusion = null; await refrescar(); } catch (x) { err(x); } }
+    function fusionar(destino, origen) { S.fusion = null; pintar(); regDialogoFusion(c, [porId(destino), porId(origen)], destino, refrescar); }
     async function nueva() {
       try {
         const x = await post("/api/reg", {c, tipo: "decision", titulo: "Nueva decisión", estado: "vigente"});
@@ -100,7 +102,7 @@
       const es = estado(it), sp = sustPor(it.id), sa = sustA(it.id), muerta = es !== "vigente", rev = it.revision;
       const btn = (txt, fn, cl = "link") => el("button", {className: cl, type: "button", textContent: txt, onclick: fn});
       const extra = [["Alternativas", cam(it, "alternativas")], ["Consecuencias", cam(it, "consecuencias")]].filter(x => x[1]);
-      const art = el("article", {id: "dec-" + it.id, tabIndex: -1, className: "dec-card" + (muerta ? " muerta" : "") + (rev === "propuesto" ? " prop" : "") + (rev === "descartado" ? " desc" : "")},
+      const art = el("article", {id: "dec-" + it.id, "data-id": it.id, tabIndex: -1, className: "dec-card" + (muerta ? " muerta" : "") + (rev === "propuesto" ? " prop" : "") + (rev === "descartado" ? " desc" : "")},
         el("header", {className: "dec-h"}, el("b", {className: "dec-cod", textContent: it.codigo || "D-?"}), el("h3", {className: "dec-t", textContent: it.titulo}),
           el("span", {className: "badge " + (CHIP[es] || ""), textContent: es}), ...regInsignias(it)),
         el("div", {className: "dec-meta muted", textContent: [cam(it, "decisor") || it.dueno ? "Decisor: " + (cam(it, "decisor") || it.dueno) : "Sin decisor", fecha(it) && fechaTxt(fecha(it))].filter(Boolean).join(" · ")}));
@@ -112,13 +114,14 @@
           ...(it.detalle ? [el("p", {textContent: it.detalle})] : []), ...extra.map(([k, v]) => el("p", {}, el("b", {textContent: k + ": "}), v)));
         art.append(det);
       }
-      art.append(...citas(it));
-      const fus = () => { const s = el("select", {ariaLabel: "Fusionar en", onchange: () => s.value && fusionar(s.value, it.id)}, new Option("Fusionar en…", ""), ...S.items.filter(x => x.id !== it.id).map(x => new Option((x.codigo || "") + " · " + x.titulo.slice(0, 60), x.id))); setTimeout(() => s.focus()); return s; };
+      art.append(...citas(it), regFusiona(it, c, refrescar));
+      const fus = () => { const s = el("select", {ariaLabel: "Fusionar con", onchange: () => s.value && fusionar(s.value, it.id), onkeydown: ev => { if (ev.key === "Escape") { S.fusion = null; pintar(); } }}, new Option("Fusionar con…", ""), ...S.items.filter(x => x.id !== it.id).map(x => new Option((x.codigo || "") + " · " + x.titulo.slice(0, 60), x.id))); setTimeout(() => s.focus()); return s; };
       art.append(el("div", {className: "dec-ops"},
         ...(rev === "propuesto" ? [btn("Aprobar", () => revisar([it.id], "aprobar"), "sec sm"), btn("Descartar", () => revisar([it.id], "descartar"))] : []),
         ...(rev === "descartado" ? [btn("Restaurar", () => revisar([it.id], "restaurar"), "sec sm")] : []),
         btn("Editar", () => { S.edit = it.id; pintar(); document.querySelector("#dec-" + it.id + " input")?.focus(); }), btn("Detalle ADR", () => abrirCajon(it.id)),
-        S.fusion === it.id ? fus() : btn("Fusionar…", () => { S.fusion = it.id; pintar(); }),
+        ...regBotonSeparar(it, c, refrescar),
+        ...(rev === "fusionado" ? [] : [S.fusion === it.id ? fus() : btn("Fusionar…", () => { S.fusion = it.id; pintar(); })]),
         ...(it.origen === "manual" ? [btn("Quitar", async () => { try { await api("/api/reg/" + enc(it.id) + "?c=" + enc(c), {method: "DELETE"}); await refrescar(); } catch (x) { err(x); } })] : [])));
       return art;
     }
@@ -147,7 +150,7 @@
     // ---- pintado ----
     function filtradas() {
       const q = S.f.q.toLowerCase();
-      return S.items.filter(x => (!S.vig || estado(x) === "vigente") && (!S.f.estado || estado(x) === S.f.estado) && (!S.f.dueno || (cam(x, "decisor") || x.dueno) === S.f.dueno)
+      return S.items.filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.vig || estado(x) === "vigente") && (!S.f.estado || estado(x) === S.f.estado) && (!S.f.dueno || (cam(x, "decisor") || x.dueno) === S.f.dueno)
         && (!q || [x.titulo, x.detalle, x.codigo, cam(x, "alternativas"), cam(x, "consecuencias"), cam(x, "decisor")].some(v => String(v || "").toLowerCase().includes(q))));
     }
     function pintarBarra() {
@@ -156,13 +159,15 @@
       const se = el("select", {ariaLabel: "Estado", onchange: ev => { S.f.estado = ev.target.value; pintarCuerpo(); }}, new Option("Todos los estados", ""), ...ESTADOS.map(x => new Option(x, x))); se.value = S.f.estado;
       const sd = el("select", {ariaLabel: "Decisor", onchange: ev => { S.f.dueno = ev.target.value; pintarCuerpo(); }}, new Option("Todos los decisores", ""), ...dec.map(x => new Option(x, x))); sd.value = S.f.dueno;
       const sr = el("select", {ariaLabel: "Revisión", onchange: ev => { S.f.revision = ev.target.value; cargar(); }}, ...REVS.map(([k, t]) => new Option(t, k))); sr.value = S.f.revision;
+      const fusP = el("button", {className: "f-pill", type: "button", "aria-pressed": S.f.revision === "fusionado", textContent: "Fusionadas (" + (S.nFus ?? 0) + ")", title: "Ver las decisiones fusionadas en otras",
+        onclick: () => { S.f.revision = S.f.revision === "fusionado" ? "" : "fusionado"; cargar(); }});
       const vig = el("label", {className: "dec-chk"}, el("input", {type: "checkbox", checked: S.vig, onchange: ev => { S.vig = ev.target.checked; lsSet("dec-vig", S.vig); pintarCuerpo(); }}), " Solo vigentes");
       const seg = (k, t) => el("button", {className: "f-pill", type: "button", "aria-pressed": S.vista === k, textContent: t, onclick: () => { S.vista = k; lsSet("dec-vista", k); pintar(); }});
       const ord = el("button", {className: "sec sm", type: "button", textContent: S.asc ? "Más antiguas primero ↑" : "Más recientes primero ↓", onclick: () => { S.asc = !S.asc; lsSet("dec-asc", S.asc); pintar(); }});
       const apr = el("label", {className: "dec-chk", title: "Desmarcado: se incluyen las no revisadas marcadas como BORRADOR"}, el("input", {type: "checkbox", checked: S.soloAprob, onchange: ev => { S.soloAprob = ev.target.checked; lsSet("dec-aprob", S.soloAprob); }}), " Solo aprobados");
       const exp = el("details", {className: "dec-exp"}, el("summary", {textContent: "Exportar ▾", className: "sec"}),
         el("div", {className: "dec-menu"}, apr, ...FORMATOS.map(([f, t]) => el("button", {className: "link", type: "button", textContent: t, onclick: () => { exp.open = false; exportar(f); }}))));
-      barra.replaceChildren(el("div", {className: "reg-bar"}, ...(S.vista === "linea" ? [q, se, sd, sr, vig] : []), el("span", {className: "grow"}), seg("linea", "Línea"), seg("tabla", "Tabla")),
+      barra.replaceChildren(el("div", {className: "reg-bar"}, ...(S.vista === "linea" ? [q, se, sd, sr, fusP, vig] : []), el("span", {className: "grow"}), el("div", {className: "row", role: "group", "aria-label": "Vista"}, seg("linea", "Línea"), seg("tabla", "Tabla"))),
         el("div", {className: "reg-acc"}, el("button", {className: "pri sm", type: "button", textContent: "+ Decisión", onclick: nueva}), el("button", {className: "sec sm", type: "button", textContent: "Deshacer", title: "Ctrl+Z", onclick: deshacer}),
           ...(S.vista === "linea" ? [ord] : []), el("span", {className: "grow"}), exp));
     }
@@ -186,7 +191,11 @@
       cuerpo.replaceChildren(el("ol", {className: "dec-linea"}, ...claves.map(k => el("li", {className: "dec-grupo"}, el("h3", {className: "dec-fecha", textContent: k ? fechaTxt(k) : "Sin fecha"}),
         ...g.get(k).sort((a, b) => (num(a) - num(b)) * dir).map(tarjeta)))));
     }
-    function pintar() { pintarBarra(); pintarBanner(); pintarCuerpo(); }
+    function pintar() {
+      pintarBarra(); pintarBanner(); pintarCuerpo();
+      if (S.ids && S.vista === "linea") banner.prepend(fChipFoco(filtradas().length, () => { S.ids = null; pintar(); }, fo?.etiqueta));
+      if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
+    }
     cargar();
     return [raiz];
   }

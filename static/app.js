@@ -100,7 +100,8 @@ const VISTAS = ["home", "nuevo", "grabar", "cola", "res", "preg", "ajustes", "us
 const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
   if (v !== "ajustes" && location.hash) history.replaceState(null, "", location.pathname); document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
-const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
+// aviso(texto, {txt, fn}?): con acción (p. ej. «Deshacer») el toast lleva un botón y dura más
+const aviso = (t, acc) => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.replaceChildren(t, ...(acc ? [" · ", el("button", {type: "button", className: "link", textContent: acc.txt, onclick: () => { n.hidden = true; acc.fn(); }})] : [])); n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, acc ? 8000 : 3500); };
 const irInicio = () => { fsel = undefined; ir("home"); };
 $("inicio").onclick = e => { e.preventDefault(); irInicio(); };
 $("nuevo-volver").onclick = $("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };

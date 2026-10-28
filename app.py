@@ -1473,7 +1473,7 @@ def _iso(v):
         return False
 
 
-def _reg_cambios(cm, tipo=None):
+def _reg_cambios(cm, tipo=None, c=None):
     if not isinstance(cm, dict):
         raise HTTPException(400, "cambios debe ser un objeto")
     if mal := set(cm) - registro.EDITABLES:
@@ -1488,10 +1488,14 @@ def _reg_cambios(cm, tipo=None):
     if tipo and "estado" in cm and cm["estado"] not in ESTADOS_TIPO.get(tipo, _EST_GEN):
         raise HTTPException(400, f"Estado no válido para {tipo}: {cm['estado']}")
     if tipo == "interesado":
-        for k in ("poder", "interes"):
+        ne = registro.niveles_ejes(c) if c else (10, 10)  # sin proyecto: el máximo posible
+        for k, n in zip(("poder", "interes"), ne):
             v = (cm.get("campos") or {}).get(k, "")
-            if v != "" and v is not None and (isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 5):
-                raise HTTPException(400, f"{k} debe ser un entero de 1 a 5 (o vacío)")
+            if v != "" and v is not None:
+                x = None if isinstance(v, str) else registro.num_medio(v)
+                if x is None or not 1 <= x <= n:
+                    raise HTTPException(400, f"{k} debe ser un número de 1 a {n} en pasos de 0,5 (o vacío)")
+                cm["campos"][k] = x
     return cm
 
 
@@ -1519,6 +1523,7 @@ def reg_list(request: Request, c: str, tipo: str = "", revision: str = "", estad
           and (not qs or any(qs in str(x[k] or "").casefold() for k in ("titulo", "detalle", "dueno", "codigo")))]
     return {"items": registro.completas(xs), "contadores": {"por_tipo": dict(Counter(x["tipo"] for x in vis)),
             "por_revision": {r: sum(x["revision"] == r for x in todas) for r in ("propuesto", "aprobado", "descartado")},
+            "fusionadas": sum(x["revision"] == "fusionado" and (not tipo or x["tipo"] == tipo) for x in todas),  # del tipo pedido: chip «Fusionadas (n)»
             "huerfanos": sum(bool(x["campos"].get("huerfano")) for x in vis)}}
 
 
@@ -1539,10 +1544,29 @@ def reg_crear(d: dict):
     """{c, tipo, titulo, detalle?, estado?, dueno?, prioridad?, fecha_limite?, campos?}: entidad manual ya aprobada (sin cita)."""
     c = _c(d)
     f = {k: d[k] for k in ("detalle", "estado", "dueno", "prioridad", "fecha_limite", "campos") if d.get(k) not in (None, "")}
-    _reg_cambios(f, d.get("tipo"))
+    _reg_cambios(f, d.get("tipo"), c)
     if not str(d.get("titulo") or "").strip():
         raise HTTPException(400, "Falta el título")
     return registro.completas([_ok(registro.crear, c, _reg_tipo(d.get("tipo")), titulo=str(d["titulo"]).strip(), origen="manual", revision="aprobado", **f)])[0]
+
+
+@app.get("/api/reg/matriz")
+def reg_matriz_get(c: str):
+    p, i = registro.niveles_ejes(_c({"c": c}))
+    return {"niveles_poder": p, "niveles_interes": i, "niveles": p}
+
+
+@app.post("/api/reg/matriz")
+def reg_matriz_set(d: dict):
+    """{c, niveles_poder?, niveles_interes?, niveles? (ambos), reescalar: bool}, 3..10 cada uno: huecos de poder/interés; un solo lote deshacible.
+    -> {ok, niveles_poder, niveles_interes, niveles, recortados, items}."""
+    c = _c(d)
+    if not c:
+        raise HTTPException(404, "No existe esa carpeta")
+    g = lambda k: d.get(k, d.get("niveles")) if "niveles" in d or k in d else None
+    ids, rec = _ok(registro.matriz, c, g("niveles_poder"), g("niveles_interes"), bool(d.get("reescalar")))
+    p, i = registro.niveles_ejes(c)
+    return {"ok": True, "niveles_poder": p, "niveles_interes": i, "niveles": p, "recortados": rec, "items": registro.completas([registro.de(c, i) for i in ids])}
 
 
 @app.post("/api/reg/revisar")
@@ -1557,7 +1581,7 @@ def reg_revisar(d: dict):
         with registro._db(escribe=True) as db:  # una sola transacción: si una entidad falla no se aplica nada
             for i in ids:
                 x = _ok(registro.de, c, i)
-                _reg_cambios(cm, x["tipo"])
+                _reg_cambios(cm, x["tipo"], c)
                 rev = "descartado" if acc == "descartar" else "aprobado" if acc == "aprobar" or x["origen"] in ("manual", "migrado") else "propuesto"
                 _ok(registro.editar, i, {**cm, "revision": rev}, lote, db)
         return {"ok": True, "items": registro.completas([registro.de(c, i) for i in ids])}
@@ -1589,6 +1613,18 @@ def reg_fusionar(d: dict):
             raise HTTPException(400, "El destino no puede ser un origen")
         _ok(registro.fusionar, dest, orig)
         return registro.completas([registro.de(c, dest)])[0]
+
+
+@app.post("/api/reg/separar")
+def reg_separar(d: dict):
+    """{c, destino, origen}: deshace una fusión concreta (el origen reaparece; el destino pierde lo que le trajo). Un lote, deshacible."""
+    c = _c(d)
+    with registro.LOCK:
+        if d.get("destino") == d.get("origen"):
+            raise HTTPException(400, "Destino y origen deben ser distintos")
+        dest, orig = _reg_ids(c, [d.get("destino"), d.get("origen")])
+        _ok(registro.separar, dest, orig)
+        return {"ok": True, "items": registro.completas([registro.de(c, dest), registro.de(c, orig)])}
 
 
 @app.post("/api/reg/deshacer")
@@ -1742,7 +1778,7 @@ def reg_historial(eid: str, c: str):
 def reg_editar(eid: str, d: dict):
     c = _c(d)
     with registro.LOCK:
-        cm = _reg_cambios(d.get("cambios"), _ok(registro.de, c, eid)["tipo"])
+        cm = _reg_cambios(d.get("cambios"), _ok(registro.de, c, eid)["tipo"], c)
         _ok(registro.editar, eid, cm, uuid.uuid4().hex[:10])
         return registro.completas([registro.de(c, eid)])[0]
 
@@ -1767,7 +1803,7 @@ def _inf_docs(c):
 
 
 def _inf_vista(c, x):
-    return {**x, "graficos": informe.graficos(x["contenido"]["kpis"]), "proyecto": {"carpeta": c, "datos": (registro.proyecto(c, False) or {}).get("datos") or []},
+    return {**x, "graficos": informe.graficos(x["contenido"]["kpis"]), "etiquetas": informe.ETIQUETAS, "proyecto": {"carpeta": c, "datos": (registro.proyecto(c, False) or {}).get("datos") or []},
             "en_cola": any(e["kind"] == "informe" and e["spec"].get("c") == c and e["state"] in ACTIVOS for e in cola)}
 
 

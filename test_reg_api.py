@@ -62,7 +62,7 @@ def test_fusionar(cl):
     r = t.post("/api/reg/fusionar", json={"c": C, "destino": a["id"], "origenes": [b["id"]]}).json()
     assert r["id"] == a["id"] and any(x["tipo"] == "fusion" for x in r["relaciones"])
     assert b["id"] not in todos(t) and todos(t, revision="fusionado") == [b["id"]]
-    assert t.post("/api/reg/deshacer", json={"c": C}).json()["revertidas"] == 2
+    assert t.post("/api/reg/deshacer", json={"c": C}).json()["revertidas"] == 3  # editar origen + nota en destino + fusionar
     assert t.post("/api/reg/fusionar", json={"c": C, "destino": a["id"], "origenes": [a["id"]]}).status_code == 400
 
 

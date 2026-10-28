@@ -11,7 +11,7 @@
     {k: "campos.solicitante", label: "Solicitante", lista: "rq-dl-sol"}, {k: "estado", label: "Estado", tipo: "select", ops: ESTADOS, chip: ex},
     {k: "campos.criterios", label: "Criterios de aceptación", tipo: "area"}, {k: "campos.version", label: "Versión"}];
   const GRUPOS = [["", "Sin agrupar"], ["campos.solicitante", "Solicitante"], ["campos.tipo_req", "Tipo"], ["prioridad", "Prioridad"], ["estado", "Estado"]];
-  const REVS = [["", "Todos"], ["propuesto", "Propuestos"], ["aprobado", "Aprobados"], ["descartado", "Descartados"]];
+  const REVS = [["", "Todos"], ["propuesto", "Propuestos"], ["aprobado", "Aprobados"], ["descartado", "Descartados"], ["fusionado", "Fusionados"]];
   const val = (it, k) => k.startsWith("campos.") ? (it.campos || {})[k.slice(7)] ?? "" : it[k] ?? "";
   const num = it => parseInt(String(it.codigo || "").replace(/\D/g, "")) || 0;
   const err = x => aviso(x.message || String(x));
@@ -37,7 +37,8 @@
   const FMT = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["xlsx", "Excel (.xlsx)"], ["csv", "CSV"], ["md", "Markdown"], ["json", "JSON"], ["csv_jira", "Jira (.csv)"], ["csv_azure", "Azure DevOps (.csv)"]];
 
   function vista(c) {
-    const S = {all: [], f: {q: "", estado: "", prio: "", rev: lsGet("rq-rev", "")}, grupo: lsGet("rq-grupo", ""), cerrados: new Set(), sel: new Set(), hu: {}, pr: {}, drawer: null};
+    const fo = typeof fTomaFoco === "function" ? fTomaFoco("requisitos") : null;  // foco desde el informe
+    const S = {all: [], f: {q: "", estado: "", prio: "", rev: fo ? "" : lsGet("rq-rev", "")}, grupo: lsGet("rq-grupo", ""), cerrados: new Set(), sel: new Set(), hu: {}, pr: {}, drawer: null, ids: fo?.ids || null, resaltar: !!fo};
     let seq = 0;
     const raiz = el("div", {className: "reg rq", tabIndex: -1}), cab = el("div", {className: "reg-bar"}), resumen = el("div", {className: "rq-sum"}), chips = el("div", {className: "reg-chips"}),
       acc = el("div", {className: "reg-acc"}), cuerpo = el("div", {className: "reg-wrap"}), dr = el("aside", {className: "reg-hist rq-dr", hidden: true}),
@@ -47,7 +48,7 @@
     async function cargar() {
       const n = ++seq;
       try {
-        const [r, d] = await Promise.all([api("/api/reg?" + new URLSearchParams({c})), S.f.rev === "descartado" ? api("/api/reg?" + new URLSearchParams({c, tipo: "requisito", revision: "descartado"})) : null]);
+        const [r, d] = await Promise.all([api("/api/reg?" + new URLSearchParams({c})), ["descartado", "fusionado"].includes(S.f.rev) ? api("/api/reg?" + new URLSearchParams({c, tipo: "requisito", revision: S.f.rev})) : null]);
         if (n !== seq) return;
         S.all = r.items; S.desc = d ? d.items : []; S.cont = r.contadores;
         const byId = Object.fromEntries(r.items.map(x => [x.id, x]));
@@ -63,10 +64,10 @@
         pintar();
       } catch (x) { if (n === seq) cuerpo.replaceChildren(el("p", {className: "err", textContent: x.message})); }
     }
-    const reqs = () => S.f.rev === "descartado" ? S.desc : S.all.filter(x => x.tipo === "requisito" && (!S.f.rev || x.revision === S.f.rev));
+    const reqs = () => ["descartado", "fusionado"].includes(S.f.rev) ? S.desc : S.all.filter(x => x.tipo === "requisito" && (!S.f.rev || x.revision === S.f.rev));
     const visibles = () => {
       const q = S.f.q.toLowerCase();
-      return reqs().filter(x => (!S.f.estado || x.estado === S.f.estado) && (!S.f.prio || x.prioridad === S.f.prio) &&
+      return reqs().filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.f.estado || x.estado === S.f.estado) && (!S.f.prio || x.prioridad === S.f.prio) &&
         (!q || [x.codigo, x.titulo, x.detalle, val(x, "campos.solicitante"), val(x, "campos.criterios")].some(v => String(v || "").toLowerCase().includes(q)))).sort((a, b) => num(a) - num(b));
     };
 
@@ -84,7 +85,7 @@
       if (!ids.length) return;
       try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length + ". Ctrl+Z para deshacer"); S.sel.clear(); await cargar(); } catch (x) { err(x); }
     };
-    const fusionar = async (destino, origenes) => { try { await post("/api/reg/fusionar", {c, destino, origenes}); aviso("Fusionado. Ctrl+Z para deshacer"); S.sel.clear(); await cargar(); } catch (x) { err(x); } };
+    const fusionar = (destino, origenes) => regDialogoFusion(c, [destino, ...origenes].map(id => S.all.find(x => x.id === id)), destino, async () => { S.sel.clear(); await cargar(); });
     const deshacer = async () => { try { const r = await post("/api/reg/deshacer", {c}); aviso(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); await cargar(); } catch (x) { err(x); } };
     const duplicar = async it => {
       try {
@@ -116,13 +117,13 @@
     }
     function fila(it) {
       const chk = el("input", {type: "checkbox", checked: S.sel.has(it.id), ariaLabel: "Seleccionar " + it.codigo, onchange: () => { chk.checked ? S.sel.add(it.id) : S.sel.delete(it.id); pintarAcc(); }});
-      const cit = (it.citas || [])[0], or = el("span", {className: "reg-or"}, cit?.mid ? fLink({mid: cit.mid, ver: cit.ver, t: cit.t}, "[" + mmss(cit.t || 0) + "]") : el("span", {className: "muted", textContent: it.origen === "manual" ? "—" : "sin cita"}));
+      const cit = (it.citas || [])[0], or = el("span", {className: "reg-or"}, cit?.mid ? fLink({mid: cit.mid, ver: cit.ver, t: cit.t}, "[" + mmss(cit.t || 0) + "]") : el("span", {className: "muted", textContent: it.origen === "manual" ? "—" : "sin cita"}), regFusiona(it, c, cargar));
       return el("tr", {className: "reg-r" + (it.revision === "propuesto" ? " prop" : "") + (it.revision === "descartado" || it.revision === "fusionado" ? " cerr" : ""), tabIndex: 0, "data-id": it.id},
         el("td", {className: "c"}, chk), ...COLS.map(col => el("td", {}, celda(it, col))), el("td", {}, traza(it)), el("td", {}, or), el("td", {className: "reg-ins"}, ...regInsignias(it)),
         el("td", {className: "reg-ops"},
           ...(it.revision === "descartado" ? [el("button", {className: "sec sm", textContent: "Restaurar", onclick: () => revisar([it.id], "restaurar")})] : []),
           ...(it.revision === "propuesto" ? [el("button", {className: "sec sm", textContent: "Aprobar", onclick: () => revisar([it.id], "aprobar")}), el("button", {className: "link", textContent: "Descartar", onclick: () => revisar([it.id], "descartar")})] : []),
-          el("button", {className: "link", textContent: "Detalle", onclick: () => detalle(it)}), el("button", {className: "link", textContent: "Duplicar", onclick: () => duplicar(it)})));
+          ...regBotonSeparar(it, c, cargar), el("button", {className: "link", textContent: "Detalle", onclick: () => detalle(it)}), el("button", {className: "link", textContent: "Duplicar", onclick: () => duplicar(it)})));
     }
     function pintarAcc() {
       const n = S.sel.size, ids = [...S.sel];
@@ -169,8 +170,10 @@
         el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => { try { await post("/api/reg", {c, tipo: "requisito", titulo: "Nuevo requisito", estado: "borrador"}); await cargar(); } catch (x) { err(x); } }}),
         menuExportar(c, "requisitos", FMT));
       resumen.replaceChildren(...barra(base));
-      chips.replaceChildren(...REVS.map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.rev === k, textContent: t + " · " + (k ? co[k] ?? 0 : (co.propuesto ?? 0) + (co.aprobado ?? 0)), onclick: () => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }})));
+      chips.replaceChildren(...REVS.map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.rev === k, textContent: t + " · " + (k === "fusionado" ? regNumFusionadas(S.all.filter(x => x.tipo === "requisito")) : k ? co[k] ?? 0 : (co.propuesto ?? 0) + (co.aprobado ?? 0)), onclick: () => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }})),
+        ...(S.ids ? [fChipFoco(xs.length, () => { S.ids = null; pintar(); }, fo?.etiqueta)] : []));
       pintarAcc();
+      if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
       const todos = el("input", {type: "checkbox", ariaLabel: "Seleccionar todo", checked: xs.length > 0 && xs.every(x => S.sel.has(x.id)), onchange: ev => { S.sel = ev.target.checked ? new Set(xs.map(i => i.id)) : new Set(); pintar(); }});
       if (!xs.length) { cuerpo.replaceChildren(el("div", {className: "vacio", textContent: "No hay requisitos con estos filtros. La IA los propone al poblar el proyecto; también puedes usar «+ Añadir»."})); return; }
       const tb = [];
