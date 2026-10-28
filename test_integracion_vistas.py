@@ -46,7 +46,7 @@ def test_flujo_completo(cl):
     r = patch(t, it, {"campos": {"poder": "", "interes": ""}})
     assert r.status_code == 200 and r.json()["campos"]["poder"] == "" and r.json()["campos"]["interes"] == ""
     assert patch(t, it, {"campos": {"poder": 5, "interes": 1}}).status_code == 200
-    for mal in (0, 6, "alto", 2.5, True):
+    for mal in (0, 7, "alto", 2.3, True):
         assert patch(t, it, {"campos": {"poder": mal}}).status_code == 400, mal
     assert patch(t, rq, {"campos": {"poder": "alto"}}).status_code == 200  # solo se valida en interesados
     assert patch(t, vieja, {"fecha_alta": "2026-02-01"}).json()["fecha_alta"] == "2026-02-01"

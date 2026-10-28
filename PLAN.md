@@ -254,3 +254,8 @@ Todas las pruebas que usen LLM se ejecutan con passthrough de suscripción (CLI 
 ### Decisiones tomadas (referencia)
 
 D1 python-pptx sí (no disponible offline → `pptx_min`) · D2 exportar todo con marca BORRADOR (conmutador «solo aprobados») · D3 migrados entran aprobados · D4 manuales sin cita permitidos · D5 interesados sin contacto · D6 códigos por proyecto · D7 umbrales de semáforo fijos y editables por informe · D8 poblar automático con opción de apagarlo.
+
+### 2026-10-28
+
+- Hecho: Pendientes solo muestra SEGUIBLES (y expone `eid` = id de entidad, que usan las tarjetas KPI del informe para filtrar/resaltar); aprobar individual refresca bandeja y contadores; diseño: escala de espaciado `--s1..--s6`; matriz poder/interés simétrica, ancho completo, panel «Ajustar matriz» + escala por proyecto + reescalar (`/api/reg/matriz`); informe: mapa de riesgos con códigos y leyenda, tarjetas KPI clicables con resalte; panel nube: suscripción CLI primero + «Detectar de nuevo».
+- Pendiente: PDF de requisitos pobre (añadir tabla resumen con MoSCoW agrupado); la barra de pestañas desborda a 1280px con las nuevas Riesgos/Preguntas/Hitos; N=10 contra servidor real sin probar; drag-and-drop sin probar en navegador real; Ctrl+Z dentro de las vistas requisitos/historias sin probar; `cli:codex` sigue sin verificar; cambios sin commitear encima de los 4 commits (decidir commit).

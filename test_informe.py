@@ -37,13 +37,14 @@ def reg(cl):
 
 
 def test_kpis(reg):
+    x = reg[1]
     k = informe.kpis(C, D, H)
     t = k["tareas"]
     assert (t["abiertas"], t["vencidas"], t["cerradas"], t["propuestos"]) == (2, 1, 1, 1)
     assert t["lista_abiertas"][0]["titulo"] == "Enviar presupuesto" and t["lista_abiertas"][0]["vencida"]
     r = k["riesgos"]
     assert r["total"] == 3 and r["por_severidad"] == {"alta": 1, "media": 1, "baja": 0, "sin_valorar": 1}
-    assert [x["sev"] for x in r["top"]] == [16, 6, None] and {"p": 4, "i": 4, "items": [{"codigo": "R-001", "titulo": "Retraso del proveedor"}]} in r["matriz"]
+    assert [x["sev"] for x in r["top"]] == [16, 6, None] and {"p": 4, "i": 4, "items": [{"id": x["r1"]["id"], "codigo": "R-001", "titulo": "Retraso del proveedor", "sev": 16, "dueno": "Luis"}]} in r["matriz"]
     assert k["decisiones"]["n"] == 1 and k["preguntas"]["abiertas"] == 1 and k["preguntas"]["propuestos"] == 1
     assert k["requisitos"]["por_estado"] == {"abierto": 1, "hecho": 1} and k["historias"]["por_estado"] == {"sin estado": 1}
     assert k["hitos"]["vencidos"] == 1 and k["revision"]["propuesto"] == 4

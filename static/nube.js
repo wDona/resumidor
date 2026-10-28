@@ -10,18 +10,20 @@ function nubePanel(host, clave, pedirEstimacion) {
   P.pintar = async () => {
     host.replaceChildren(); if (!P.abierto) return;
     const i = NB.info || await nubeCarga(), s = NB.sel;
-    if (!s.proveedor) s.proveedor = "openai";
+    if (!s.proveedor || (s.proveedor.startsWith("cli:") && !i.clis.some(c => c.id === s.proveedor))) s.proveedor = i.clis.length ? i.clis[0].id : "openai";
     const cli = s.proveedor.startsWith("cli:"), p = nubeProv(s.proveedor) || {}, sinURL = !cli && !["propio", "azure"].includes(s.proveedor);
     const sel = el("select", {onchange: () => { s.proveedor = sel.value; s.modelo = nubeProv(s.proveedor)?.modelo || ""; s.url = ""; P.pintar(); }});
-    const g1 = el("optgroup", {label: "API (con tu clave)"}); sel.append(g1); i.proveedores.forEach(x => g1.append(new Option(x.nombre, x.id)));
-    if (i.clis.length) { const g2 = el("optgroup", {label: "Mi suscripción (programa instalado en este equipo)"}); i.clis.forEach(x => g2.append(new Option(x.nombre, x.id))); sel.append(g2); }
+    if (i.clis.length) { const g2 = el("optgroup", {label: "Suscripción (CLI instalada)"}); i.clis.forEach(x => g2.append(new Option(x.nombre, x.id))); sel.append(g2); }
+    const g1 = el("optgroup", {label: "API con clave"}); sel.append(g1); i.proveedores.forEach(x => g1.append(new Option(x.nombre, x.id)));
     sel.value = s.proveedor;
     const kids = [
       el("p", {style: "margin:0 0 4px"}, el("b", {textContent: "☁ " + i.envia})),
       el("p", {style: "margin:0 0 12px"}, el("b", {textContent: "🔒 " + i.nunca})),
       el("div", {className: "field"}, el("label", {textContent: "Proveedor"}), sel)];
+    const redet = el("button", {type: "button", className: "link", textContent: i.clis.length ? "Volver a detectar" : "Detectar de nuevo", onclick: async () => { await nubeCarga().catch(() => {}); P.pintar(); }});
+    if (!i.clis.length) kids.push(el("small", {textContent: "¿Tienes suscripción de Claude o ChatGPT? Instala el programa (claude o codex), inicia sesión en él y pulsa «Detectar de nuevo». Actas no detecta ninguno ahora mismo en su PATH."}), redet);
     if (cli) {
-      kids.push(el("small", {className: "warn", textContent: i.cli_aviso}), el("small", {textContent: "Usa la sesión que ya tienes iniciada en el programa; Actas no ve ni guarda ningún token."}));
+      kids.push(el("small", {textContent: "Usa tu suscripción: se aprovecha tu sesión ya iniciada en el programa instalado. Sin clave de API ni modelo; el consumo va a tu plan."}), el("small", {className: "warn", textContent: i.cli_aviso}), redet);
     } else {
       if (!sinURL) {
         const u = el("input", {value: s.url || p.url || "", placeholder: s.proveedor === "azure" ? "https://TU-RECURSO.openai.azure.com/openai/v1" : "http://localhost:11434/v1", oninput: () => { s.url = u.value.trim(); }});

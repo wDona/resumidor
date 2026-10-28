@@ -38,7 +38,8 @@
   }
 
   function vista(c) {
-    const S = {all: [], f: {epica: "", req: globalThis.histFiltroReq || "", rev: lsGet("hu-rev", "")}, modo: lsGet("hu-modo", "tablero"), ed: null, tabla: null};
+    const fo = typeof fTomaFoco === "function" ? fTomaFoco("historias") : null;  // foco desde el informe
+    const S = {all: [], f: {epica: "", req: globalThis.histFiltroReq || "", rev: fo ? "" : lsGet("hu-rev", "")}, modo: lsGet("hu-modo", "tablero"), ed: null, tabla: null, ids: fo?.ids || null, resaltar: !!fo};
     globalThis.histFiltroReq = "";
     let seq = 0;
     const raiz = el("div", {className: "hu"}), cab = el("div", {className: "reg-bar"}), filtros = el("div", {className: "reg-bar"}), cuerpo = el("div", {className: "hu-body"}), panel = el("aside", {className: "reg-hist hu-ed", hidden: true});
@@ -55,7 +56,7 @@
     }
     const hus = () => S.all.filter(x => x.tipo === "historia");
     const reqDe = it => { for (const r of it.relaciones || []) if (r.tipo === "deriva_de") { const o = S.byId[r.a === it.id ? r.b : r.a]; if (o?.tipo === "requisito") return o; } return null; };
-    const visibles = () => hus().filter(x => (!S.f.rev || x.revision === S.f.rev) && (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req));
+    const visibles = () => hus().filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.f.rev || x.revision === S.f.rev) && (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req));
 
     // solo claves de campos que cambian: el servidor fusiona sobre los vigentes
     const dif = (prev, cambios) => cambios.campos ? {...cambios, campos: Object.fromEntries(Object.entries(cambios.campos).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(prev.campos[k])))} : cambios;
@@ -111,10 +112,12 @@
         el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => { try { await post("/api/reg", {c, tipo: "historia", titulo: "Nueva historia", estado: "backlog"}); await cargar(); } catch (x) { err(x); } }}), menuExportar(c, "historias", FMT));
       filtros.replaceChildren(sel("Todas las épicas", S.f.epica, epicas.map(e => [e, e]), v => S.f.epica = v), sel("Todos los requisitos", S.f.req, reqs.map(r => [r.id, r.codigo + " · " + r.titulo.slice(0, 40)]), v => S.f.req = v),
         ...(S.modo === "tablero" ? [...REVS.map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.rev === k, textContent: t + " · " + (k ? todas.filter(x => x.revision === k).length : todas.length), onclick: () => { S.f.rev = k; lsSet("hu-rev", k); pintar(); }})),
-        el("span", {className: "grow"}), el("small", {className: "muted", textContent: xs.length + " de " + todas.length + " historias · " + xs.reduce((a, x) => a + PUNTOS(x), 0) + " pt"})] : []));
+        el("span", {className: "grow"}), el("small", {className: "muted", textContent: xs.length + " de " + todas.length + " historias · " + xs.reduce((a, x) => a + PUNTOS(x), 0) + " pt"})] : []),
+        ...(S.ids && S.modo === "tablero" ? [fChipFoco(xs.length, () => { S.ids = null; pintar(); }, fo?.etiqueta)] : []));
+      if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
       if (S.modo === "tabla") {
         const w = el("div"); cuerpo.replaceChildren(w);
-        registroTabla(w, {c, tipo: "historia", onChange: cargar, filtro: its => its.filter(x => (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req)), columnas: [{k: "codigo", label: "Código", w: 90}, {k: "titulo", label: "Historia", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS},
+        registroTabla(w, {c, tipo: "historia", onChange: cargar, ...(S.ids ? {foco: {ids: S.ids, etiqueta: fo?.etiqueta}} : {}), filtro: its => its.filter(x => (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req)), columnas: [{k: "codigo", label: "Código", w: 90}, {k: "titulo", label: "Historia", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS},
           {k: "campos.epica", label: "Épica"}, {k: "req", label: "Requisito", render: it => reqDe(it)?.codigo || ""}, {k: "campos.puntos", label: "Puntos", tipo: "num", w: 70}], vacio: "Aún no hay historias. Se derivan de los requisitos (F5) o puedes añadirlas a mano."});
         return;
       }

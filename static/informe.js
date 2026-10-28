@@ -86,21 +86,46 @@
       return el("section", {className: "card"}, el("h3", {textContent: "Semáforos"}), el("div", {className: "inf-sems"}, ...["Global", "Alcance", "Plazo", "Coste", "Riesgos"].map(card)));
     }
     function kpis() {
-      const k = S.x.contenido.kpis, t = k.tareas, r = k.riesgos, p = k.preguntas;
-      const tarjeta = (n, lab, b, alerta) => el("div", {className: "inf-kpi" + (alerta ? " alerta" : "")}, el("b", {textContent: n}), el("span", {textContent: lab}),
-        b && b.propuestos ? el("small", {className: "inf-np", textContent: "incl. " + b.propuestos + " sin revisar"}) : "");
+      const k = S.x.contenido.kpis, t = k.tareas, r = k.riesgos, p = k.preguntas, IDS = k.ids || {};
+      // cada tarjeta lleva a su pestaña con foco en esos elementos (fIr de carpeta.js); sin ids (informes antiguos) solo abre la pestaña; 0 = no navegable
+      const ir = (tab, clave, lab, filtro) => () => typeof fIr === "function" && fIr(tab, IDS[clave] ? {ids: IDS[clave].map(x => typeof x === "object" ? x.id : x), filtro, etiqueta: lab} : null);
+      const tarjeta = (n, lab, b, alerta, nav, cuenta = n) => {
+        const ok = nav && Number(cuenta) > 0;
+        return el(ok ? "button" : "div", {className: "inf-kpi" + (alerta ? " alerta" : "") + (ok ? " inf-go" : ""), ...(ok ? {type: "button", onclick: nav, title: "Ver en su pestaña"} : {"aria-disabled": "true"})},
+          el("b", {textContent: n}), el("span", {textContent: lab}), b && b.propuestos ? el("small", {className: "inf-np", textContent: "incl. " + b.propuestos + " sin revisar"}) : "");
+      };
+      // bandas de severidad = UMBRALES de informe.py (sev_ambar 6, sev_rojo 12)
+      const banda = s => s == null ? ["sin valorar", ""] : s >= 12 ? ["alto", "no"] : s >= 6 ? ["medio", "w"] : ["bajo", "ok"];
+      const aRiesgo = x => typeof fIr === "function" && fIr("riesgos", {ids: [x.id], etiqueta: x.codigo || x.titulo});
       return el("section", {className: "card"}, el("h3", {textContent: "Indicadores"}), el("div", {className: "inf-kpis"},
-        tarjeta(t.abiertas, "Tareas abiertas", t), tarjeta(t.vencidas, "Tareas vencidas", null, t.vencidas > 0), tarjeta(t.cerradas, "Cerradas en el periodo"),
-        tarjeta(r.total, "Riesgos abiertos", r), tarjeta(r.por_severidad.alta, "Riesgos de severidad alta", null, r.por_severidad.alta > 0), tarjeta(r.por_severidad.sin_valorar, "Riesgos sin valorar"),
-        tarjeta(k.decisiones.n, "Decisiones del periodo", k.decisiones), tarjeta(p.abiertas, "Preguntas abiertas", p), tarjeta(p.escalados, "Escalados", null, p.escalados > 0),
-        tarjeta(k.requisitos.total, "Requisitos", k.requisitos), tarjeta(k.historias.total, "Historias", k.historias), tarjeta(k.hitos.vencidos + "/" + k.hitos.lista.length, "Hitos vencidos", k.hitos, k.hitos.vencidos > 0)),
-        el("p", {className: "muted", textContent: "Revisión: " + k.revision.aprobado + " aprobados · " + k.revision.propuesto + " propuestos."}),
-        r.top.length ? el("table", {className: "inf-top"}, el("caption", {textContent: "Riesgos principales"}), el("tr", {}, ...["Código", "Riesgo", "P", "I", "Severidad", "Responsable"].map(h => el("th", {textContent: h}))),
-          ...r.top.map(x => el("tr", {}, el("td", {textContent: x.codigo}), el("td", {}, x.titulo, x.revision === "propuesto" ? el("span", {className: "badge w", textContent: " BORRADOR"}) : ""),
-            ...[x.p, x.i, x.sev].map(v => el("td", {textContent: v ?? "—"})), el("td", {textContent: x.dueno || ""})))) : "");
+        tarjeta(t.abiertas, "Tareas abiertas", t, false, ir("pendientes", "tareas_abiertas", "Tareas abiertas", "abierto")), tarjeta(t.vencidas, "Tareas vencidas", null, t.vencidas > 0, ir("pendientes", "tareas_vencidas", "Tareas vencidas", "abierto")),
+        tarjeta(t.cerradas, "Cerradas en el periodo", null, false, ir("pendientes", "tareas_cerradas", "Cerradas en el periodo", "cerrados")),
+        tarjeta(r.total, "Riesgos abiertos", r, false, ir("riesgos", "riesgos_abiertos", "Riesgos abiertos")), tarjeta(r.por_severidad.alta, "Riesgos de severidad alta", null, r.por_severidad.alta > 0, ir("riesgos", "riesgos_altos", "Severidad alta")),
+        tarjeta(r.por_severidad.sin_valorar, "Riesgos sin valorar", null, false, ir("riesgos", "riesgos_sin_valorar", "Riesgos sin valorar")),
+        tarjeta(k.decisiones.n, "Decisiones del periodo", k.decisiones, false, ir("decisiones", "decisiones", "Decisiones del periodo")), tarjeta(p.abiertas, "Preguntas abiertas", p, false, ir("preguntas", "preguntas_abiertas", "Preguntas abiertas")),
+        tarjeta(p.escalados, "Escalados", null, p.escalados > 0, ir("preguntas", "escalados", "Escalados")),
+        tarjeta(k.requisitos.total, "Requisitos", k.requisitos, false, ir("requisitos", "requisitos", "Requisitos")), tarjeta(k.historias.total, "Historias", k.historias, false, ir("historias", "historias", "Historias")),
+        tarjeta(k.hitos.vencidos + "/" + k.hitos.lista.length, "Hitos vencidos", k.hitos, k.hitos.vencidos > 0, ir("hitos", "hitos_vencidos", "Hitos vencidos"), k.hitos.vencidos)),
+        el("p", {className: "muted", textContent: "Revisión: " + k.revision.aprobado + " aprobados · " + k.revision.propuesto + " propuestos. Pulsa un indicador para ver sus elementos."}),
+        r.top.length ? el("div", {className: "inf-top-w"}, el("table", {className: "inf-top"}, el("caption", {textContent: "Riesgos principales"}),
+          el("thead", {}, el("tr", {}, ...[["Código"], ["Riesgo"], ["Probabilidad", "n"], ["Impacto", "n"], ["Severidad", "n"], ["Responsable"]].map(([h, cl]) => el("th", {scope: "col", className: cl || "", textContent: h})))),
+          el("tbody", {}, ...r.top.map(x => {
+            const [bt, bc] = banda(x.sev);
+            const tr = el("tr", {className: x.id ? "inf-go" : "", ...(x.id ? {tabIndex: 0, title: "Abrir el riesgo", onclick: () => aRiesgo(x), onkeydown: ev => { if (ev.key === "Enter") aRiesgo(x); }} : {})},
+              el("td", {className: "cod", textContent: x.codigo || "—"}), el("td", {}, x.titulo, x.revision === "propuesto" ? el("span", {className: "badge w", textContent: "BORRADOR"}) : ""),
+              ...[x.p, x.i].map(v => el("td", {className: "n", textContent: v ?? "—"})),
+              el("td", {className: "n"}, el("span", {className: "badge " + bc, textContent: bt + (x.sev != null ? " · " + x.sev : "")})), el("td", {textContent: x.dueno || "—"}));
+            return tr;
+          })))) : "");
     }
     function graficos() {
-      const g = S.x.graficos, fig = (k, t) => { if (!g[k]) return ""; const f = el("figure", {className: "inf-fig"}); f.innerHTML = g[k]; f.append(el("figcaption", {textContent: t})); return f; };
+      const g = S.x.graficos, fig = (k, t) => {
+        if (!g[k]) return ""; const f = el("figure", {className: "inf-fig"}); f.innerHTML = g[k]; f.append(el("figcaption", {textContent: t}));
+        // si el servidor marca celdas/filas con data-id (riesgos), se abren en su pestaña
+        for (const n of f.querySelectorAll("[data-id]")) { n.style.cursor = "pointer"; n.setAttribute("tabindex", "0"); n.setAttribute("role", "link");
+          const go = () => typeof fIr === "function" && fIr("riesgos", {ids: n.getAttribute("data-id").split(/[\s,]+/).filter(Boolean)}); n.addEventListener("click", go); n.addEventListener("keydown", ev => { if (ev.key === "Enter") go(); }); }
+        return f;
+      };
       return el("section", {className: "card"}, el("h3", {textContent: "Gráficos"}), el("div", {className: "inf-graf"},
         fig("estados", "Requisitos e historias por estado"), fig("calor", "Riesgos: probabilidad × impacto (pasa el ratón por una celda)"), fig("linea", "Tareas abiertas tras cada reunión")));
     }

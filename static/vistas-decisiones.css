@@ -30,3 +30,5 @@
 .dec-draw h4{margin:14px 0 2px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}.dec-draw p{margin:2px 0;overflow-wrap:anywhere}
 .dec-adr-t{font-size:20px;margin:12px 0 6px;overflow-wrap:anywhere}
 @media(max-width:700px){.dec-linea{padding-left:14px}.dec-grupo::before{left:-22px}.dec-card{padding:10px 12px}}
+.dec{display:flex;flex-direction:column;gap:var(--s3)}.dec-bar{display:flex;flex-direction:column;gap:var(--s2)}.dec-bar .reg-acc .row,.dec-bar .reg-bar .row{gap:var(--s2)}.dec-ban{margin:0}
+.dec>div:empty{display:none}

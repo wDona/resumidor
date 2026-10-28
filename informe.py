@@ -117,7 +117,7 @@ def kpis(c, desde, hasta, docs=(), solo_aprobados=False):
     mat = {}
     for r in val:
         if r["sev"]:
-            mat.setdefault((r["p"], r["i"]), []).append({"codigo": r["codigo"], "titulo": r["titulo"]})
+            mat.setdefault((r["p"], r["i"]), []).append({"id": r["id"], "codigo": r["codigo"], "titulo": r["titulo"], "sev": r["sev"], "dueno": r["dueno"]})
     riesgos = _bloque(rs, total=len(rs), por_severidad=sev, top=val[:5], matriz=[{"p": p, "i": i, "items": v} for (p, i), v in sorted(mat.items())])
     # decisiones del periodo
     fd = lambda x: _d(x["campos"].get("fecha")) or _alta(x)
@@ -143,7 +143,11 @@ def kpis(c, desde, hasta, docs=(), solo_aprobados=False):
         if x["revision"] in ("propuesto", "aprobado"):
             rev[x["revision"]] += 1
             rev["por_tipo"].setdefault(x["tipo"], {"propuesto": 0, "aprobado": 0})[x["revision"]] += 1
-    return {"periodo": {"desde": desde.isoformat(), "hasta": hasta.isoformat()}, "solo_aprobados": solo_aprobados, "tareas": tareas, "riesgos": riesgos,
+    ids = {"tareas_abiertas": ab, "tareas_vencidas": ve, "tareas_cerradas": ce, "riesgos_abiertos": rs, "riesgos_sin_valorar": [r for r in val if r["sev"] is None],
+           "riesgos_altos": [r for r in val if banda(r["sev"]) == "alta"], "decisiones": dec, "preguntas_abiertas": pq, "escalados": es, "requisitos": por.get("requisito", []),
+           "historias": por.get("historia", []), "hitos_vencidos": [h for h in hl if h["vencido"]]}
+    ids = {k: [x["id"] for x in v] for k, v in ids.items()}  # ids de entidades del registro (las tareas del acta se sincronizan como entidades tipo tarea)
+    return {"periodo": {"desde": desde.isoformat(), "hasta": hasta.isoformat()}, "ids": ids, "solo_aprobados": solo_aprobados, "tareas": tareas, "riesgos": riesgos,
             "decisiones": decisiones, "requisitos": _bloque(por.get("requisito", []), **est("requisito")), "historias": _bloque(por.get("historia", []), **est("historia")),
             "preguntas": preguntas, "hitos": hitos, "serie": serie, "revision": rev}
 
@@ -447,23 +451,53 @@ def svg_estados(k):
             + "".join(o + ley) + "</svg>")
 
 
+ETIQUETAS = {"p": "Probabilidad", "i": "Impacto", "sev": "Severidad"}
+
+
+def _banda(sv):
+    return "Alto" if sv >= UMBRALES["sev_rojo"] else "Medio" if sv >= UMBRALES["sev_ambar"] else "Bajo"
+
+
+def riesgos_valorados(k):
+    """Riesgos con probabilidad e impacto, de mayor a menor severidad: [{codigo, titulo, p, i, sev, dueno}]."""
+    o = [{**it, "p": c["p"], "i": c["i"], "sev": it.get("sev") or c["p"] * c["i"]} for c in k["riesgos"]["matriz"] for it in c["items"]]
+    return sorted(o, key=lambda r: (-r["sev"], r["codigo"] or ""))
+
+
+def _linea_riesgo(r):
+    return f"{r['codigo'] or ''} {r['titulo']} — P{r['p']} × I{r['i']} = {r['sev']}" + (f" ({r['dueno']})" if r.get("dueno") else "")
+
+
+def calor_lista(k):
+    """Lista HTML bajo el mapa: «R-001 Retraso del proveedor — P4 × I5 = 20 (Marta)», por severidad."""
+    rs = riesgos_valorados(k)
+    return '<ol class="inf-calor-lista">' + "".join(f"<li>{_e(_linea_riesgo(r))}</li>" for r in rs) + "</ol>" if rs else ""
+
+
 def svg_calor(k):
-    """Mapa de calor 5×5 probabilidad × impacto: nº de riesgos por celda y su lista al pasar el ratón (<title>)."""
+    """Mapa de calor 5×5 probabilidad × impacto: los códigos de los riesgos de cada celda (3 como mucho, luego «+n»), leyenda de bandas y lista al pasar el ratón (<title>)."""
     m = {(c["p"], c["i"]): c["items"] for c in k["riesgos"]["matriz"]}
-    S, x0, o = 46, 40, []
+    S, x0, o = 52, 40, []
     for p in range(1, 6):
         for i in range(1, 6):
             s, its = p * i, m.get((p, i), [])
             f = "#c62828" if s >= UMBRALES["sev_rojo"] else "#f9a825" if s >= UMBRALES["sev_ambar"] else "#2e7d32"
             x, y = x0 + (i - 1) * S, (5 - p) * S
             tit = f"P{p} × I{i} = {s}: " + ("; ".join(f"{a['codigo']} {a['titulo']}" for a in its) or "sin riesgos")
+            ls = [a["codigo"] or "·" for a in its[:3]] + ([f"+{len(its) - 3}"] if len(its) > 3 else [])
+            t0 = y + (S - 2) / 2 - 11 * (len(ls) - 1) / 2 + 3.5
             o.append(f'<g><title>{_e(tit)}</title><rect x="{x}" y="{y}" width="{S - 2}" height="{S - 2}" fill="{f}" fill-opacity="{0.85 if its else 0.18}"/>'
-                     + (f'<text x="{x + S / 2 - 1}" y="{y + S / 2 + 5}" font-size="15" font-weight="700" text-anchor="middle" fill="#fff">{len(its)}</text>' if its else "") + "</g>")
+                     + "".join(f'<text x="{x + S / 2 - 1}" y="{t0 + 11 * j:.1f}" font-size="10" font-weight="700" text-anchor="middle" fill="{"#000" if f == "#f9a825" else "#fff"}">{_e(t)}</text>' for j, t in enumerate(ls)) + "</g>")
     o += [f'<text x="{x0 + (i - 1) * S + S / 2 - 1}" y="{5 * S + 14}" font-size="11" text-anchor="middle" fill="currentColor">{i}</text>' for i in range(1, 6)]
     o += [f'<text x="{x0 - 8}" y="{(5 - p) * S + S / 2 + 4}" font-size="11" text-anchor="end" fill="currentColor">{p}</text>' for p in range(1, 6)]
     o.append(f'<text x="{x0 + 5 * S / 2}" y="{5 * S + 30}" font-size="12" text-anchor="middle" fill="currentColor">Impacto</text>')
     o.append(f'<text x="12" y="{5 * S / 2}" font-size="12" text-anchor="middle" fill="currentColor" transform="rotate(-90 12 {5 * S / 2})">Probabilidad</text>')
-    return f'<svg viewBox="0 0 {x0 + 5 * S + 4} {5 * S + 36}" role="img" aria-label="Mapa de calor de riesgos" class="inf-svg inf-calor" xmlns="http://www.w3.org/2000/svg">{"".join(o)}</svg>'
+    a, r = UMBRALES["sev_ambar"], UMBRALES["sev_rojo"]
+    x = 0
+    for col, txt in (("#c62828", f"Alto ≥{r}"), ("#f9a825", f"Medio {a}–{r - 1}"), ("#2e7d32", f"Bajo <{a}")):
+        o.append(f'<rect x="{x}" y="{5 * S + 42}" width="12" height="12" fill="{col}"/><text x="{x + 16}" y="{5 * S + 52}" font-size="11" fill="currentColor">{_e(txt)}</text>')
+        x += 24 + 6 * len(txt)
+    return f'<svg viewBox="0 0 {x0 + 5 * S + 4} {5 * S + 60}" role="img" aria-label="Mapa de calor de riesgos" class="inf-svg inf-calor" xmlns="http://www.w3.org/2000/svg">{"".join(o)}</svg>'
 
 
 def svg_linea(k):
@@ -486,7 +520,7 @@ def svg_linea(k):
 
 
 def graficos(k):
-    return {"estados": svg_estados(k), "calor": svg_calor(k), "linea": svg_linea(k)}
+    return {"estados": svg_estados(k), "calor": svg_calor(k), "calor_lista": calor_lista(k), "linea": svg_linea(k)}
 
 
 # ---------- modelo para exportar ----------
@@ -540,7 +574,16 @@ def _top_filas(k):
     return [[r["codigo"] or "", r["titulo"] + (f" [{ER.BORR}]" if r["revision"] == "propuesto" else ""), v(r["p"]), v(r["i"]), v(r["sev"]), r["dueno"] or ""] for r in k["riesgos"]["top"]]
 
 
-TOP_CAB = ["Código", "Riesgo", "P", "I", "Severidad", "Responsable"]
+TOP_CAB = ["Código", "Riesgo", "Probabilidad", "Impacto", "Severidad", "Responsable"]
+MAPA_CAB = ["Código", "Riesgo", "Probabilidad", "Impacto", "Severidad", "Banda", "Responsable"]
+
+
+def _mapa_filas(k):
+    return [[r["codigo"] or "", r["titulo"], str(r["p"]), str(r["i"]), str(r["sev"]), _banda(r["sev"]), r.get("dueno") or ""] for r in riesgos_valorados(k)]
+
+
+def _leyenda():
+    return f"Alto ≥{UMBRALES['sev_rojo']} · Medio {UMBRALES['sev_ambar']}–{UMBRALES['sev_rojo'] - 1} · Bajo <{UMBRALES['sev_ambar']} (severidad = probabilidad × impacto)"
 
 
 def _cabecera(c, x, P_):
@@ -555,6 +598,8 @@ def a_md(c, x, P_):
     o += [f"| {d} | {FORMA[s['color']]} {NOMBRE[s['color']]} | {s['justificacion'].replace('|', '/')} |" for d, s in P_["sem"].items()]
     o += ["", "## Indicadores", "", "| Indicador | Valor |", "|---|---|"] + [f"| {a} | {b} |" for a, b in _kpi_filas(P_["k"])]
     o += ["", "## Riesgos principales (top 5)", "", "| " + " | ".join(TOP_CAB) + " |", "|" + "---|" * len(TOP_CAB)] + ["| " + " | ".join(f) + " |" for f in _top_filas(P_["k"])]
+    if mp := _mapa_filas(P_["k"]):
+        o += ["", "## Mapa de riesgos (probabilidad × impacto)", "", _leyenda(), "", "| " + " | ".join(MAPA_CAB) + " |", "|" + "---|" * len(MAPA_CAB)] + ["| " + " | ".join(f) + " |" for f in mp]
     for s, n in SECCIONES.items():
         o += ["", f"## {n}", ""] + ([f"- {_frase(f, P_['num'])}" for f in P_["narr"][s]] or ["—"])
     if x["contenido"].get("notas"):
@@ -601,6 +646,10 @@ def a_docx(c, x, P_, est):
     tabla(["Indicador", "Valor"], _kpi_filas(P_["k"]))
     B.H("Riesgos principales (top 5)", 1)
     tabla(TOP_CAB, _top_filas(P_["k"])) if P_["k"]["riesgos"]["top"] else doc.add_paragraph("Sin riesgos abiertos.")
+    if mp := _mapa_filas(P_["k"]):
+        B.H("Mapa de riesgos (probabilidad × impacto)", 1)
+        doc.add_paragraph(_leyenda())
+        tabla(MAPA_CAB, mp)
     for s, n in SECCIONES.items():
         B.H(n, 1)
         for f in P_["narr"][s] or [{"texto": "—"}]:
@@ -619,7 +668,7 @@ def a_docx(c, x, P_, est):
 
 CSS = ("@page{size:A4 landscape;margin:14mm}.aviso{background:#ffe58a;color:#000;padding:8px 12px;border-radius:6px;font-weight:600}"
        ".sem td.c{font-weight:700;color:#fff;white-space:nowrap}.sem td.ambar{color:#000}.graf{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}"
-       ".graf figure{flex:1 1 300px;margin:0;break-inside:avoid}.inf-svg{width:100%;height:auto;color:var(--ink)}.inf-calor{max-width:300px}.borr{color:#b02020;font-weight:700}")
+       ".graf figure{flex:1 1 300px;margin:0;break-inside:avoid}.inf-svg{width:100%;height:auto;color:var(--ink)}.inf-calor{max-width:340px}.inf-calor-lista{font-size:12px;margin:6px 0 0;padding-left:20px}.borr{color:#b02020;font-weight:700}")
 
 
 def a_html(c, x, P_, est):
@@ -632,7 +681,7 @@ def a_html(c, x, P_, est):
          "".join(f'<tr><td>{d}</td><td class="c {s["color"]}" style="background:#{HEX[s["color"]]}">{FORMA[s["color"]]} {NOMBRE[s["color"]]}</td><td>{e(s["justificacion"])}</td></tr>'
                  for d, s in P_["sem"].items()) + "</table>",
          "<h2>Indicadores</h2>" + tab(["Indicador", "Valor"], _kpi_filas(P_["k"])),
-         "<div class=graf>" + "".join(f"<figure>{g[k]}<figcaption>{t}</figcaption></figure>" for k, t in (("estados", "Requisitos e historias por estado"),
+         "<div class=graf>" + "".join(f"<figure>{g[k]}{g.get(k + '_lista', '')}<figcaption>{t}</figcaption></figure>" for k, t in (("estados", "Requisitos e historias por estado"),
                                                                                                         ("calor", "Riesgos: probabilidad × impacto"), ("linea", "Tareas abiertas por reunión")) if g[k]) + "</div>",
          "<h2>Riesgos principales (top 5)</h2>" + (tab(TOP_CAB, _top_filas(P_["k"])) if P_["k"]["riesgos"]["top"] else "<p>Sin riesgos abiertos.</p>")]
     for s, n in SECCIONES.items():

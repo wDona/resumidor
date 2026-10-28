@@ -33,6 +33,7 @@ SUGERIDOS = {"comunidad": ["Dirección", "Administrador", "Nº de vecinos"], "cl
 SENSIBLES = {"paciente", "candidato"}  # solo una referencia interna: nada que identifique a la persona
 # (casi todas son nunca_recortar en su perfil; «incidencias» de la junta de vecinos no, pero también es accionable)
 ACCION = {"compromisos", "pasos", "siguiente", "incidencias", "pendientes", "checklist", "derramas"}  # secciones de otros perfiles que son accionables
+SEGUIBLES = {"tarea", "riesgo", "incidencia", "supuesto", "dependencia", "pregunta", "hito"}  # entidades que van a Pendientes; requisito/historia/interesado/decision tienen su vista
 SUP, IGUAL, CAMB = 0.80, 0.92, 0.65  # coseno: decisión posterior que sustituye a otra · mismo punto sin cambios · mismo punto cambiado
 
 
@@ -173,15 +174,15 @@ def pendientes(c, ms, hoy=None):
     for d in ds:
         for it in items_doc(d):
             x = ents[it["id"]]
-            if x["revision"] not in registro.OCULTA:
+            if x["revision"] not in registro.OCULTA and x["tipo"] in SEGUIBLES:
                 ed = {"texto": x["titulo"], "resp": x["dueno"]} if x["editado"] else {}  # editada a mano: manda la entidad
-                res.append({**it, **ed, "tipo_ent": x["tipo"], "mtime": d["mtime"], "manual": False, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
+                res.append({**it, **ed, "eid": x["id"], "tipo_ent": x["tipo"], "mtime": d["mtime"], "manual": False, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
     for x in registro.listar(c, origen="manual"):
-        if x["revision"] in registro.OCULTA:
+        if x["revision"] in registro.OCULTA or x["tipo"] not in SEGUIBLES:
             continue
         pl = x["campos"].get("plazo", "")
         f = plazo_fecha(pl, dt.date.fromtimestamp(x["creado"]))
-        res.append({"id": x["id"], "tipo": "Manual", "tipo_ent": x["tipo"], "texto": x["titulo"], "resp": x["dueno"], "plazo": pl, "t": 0, "cita": "", "mid": "", "ver": "", "doc": "", "h": "",
+        res.append({"id": x["id"], "eid": x["id"], "tipo": "Manual", "tipo_ent": x["tipo"], "texto": x["titulo"], "resp": x["dueno"], "plazo": pl, "t": 0, "cita": "", "mid": "", "ver": "", "doc": "", "h": "",
                     "fecha": f and f.isoformat(), "mtime": x["creado"], "manual": True, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
     for p in res:
         dias = (dt.date.fromisoformat(p["fecha"]) - hoy).days if p["fecha"] else None

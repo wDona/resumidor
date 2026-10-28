@@ -1,10 +1,24 @@
 // Carpeta = expediente (diseño: design/Carpeta.dc.html): Resumen | Pendientes | Línea de tiempo | Preguntar | Comparar | Ajustes.
 // Se engancha a app.js por pintarHome() -> carpetaVista(c) y por sondear() -> carpetaTrasCola(); usa los ganchos #f-tabs / #f-panel / #f-nuevo.
-const FTABS = [["resumen", "Resumen"], ["revision", "Revisión"], ["pendientes", "Pendientes"], ["requisitos", "Requisitos"], ["historias", "Historias"], ["interesados", "Interesados"], ["decisiones", "Decisiones"], ["informe", "Informe"], ["linea", "Línea de tiempo"], ["preguntar", "Preguntar"], ["comparar", "Comparar"], ["ajustes", "Ajustes"]];
+const FTABS = [["resumen", "Resumen"], ["revision", "Revisión"], ["pendientes", "Pendientes"], ["requisitos", "Requisitos"], ["historias", "Historias"], ["interesados", "Interesados"], ["decisiones", "Decisiones"], ["riesgos", "Riesgos"], ["preguntas", "Preguntas"], ["hitos", "Hitos"], ["informe", "Informe"], ["linea", "Línea de tiempo"], ["preguntar", "Preguntar"], ["comparar", "Comparar"], ["ajustes", "Ajustes"]];
 // pestañas del registro (F3/F4): tipo de entidad que muestra cada una. Para sustituir el placeholder de una vista (F4) basta con registrar su función en FVISTAS[clave] = (c, e) => nodos.
-const FREG = {requisitos: "requisito", historias: "historia", interesados: "interesado", decisiones: "decision"}, FVISTAS = {};
+const FREG = {requisitos: "requisito", historias: "historia", interesados: "interesado", decisiones: "decision", riesgos: "riesgo", preguntas: "pregunta", hitos: "hito"}, FVISTAS = {};
+const FCTX = new Set(["riesgos", "preguntas", "hitos"]);  // pestañas contextuales: solo se ven mientras están abiertas (se llega desde el informe)
 let fReg = {rev: 0, tipos: {}, proyecto: false};  // contadores del registro de la carpeta abierta (para mostrar/ocultar pestañas)
-const fTabVisible = k => k === "revision" || !(k in FREG || k === "informe") || fReg.proyecto || !!fReg.tipos[FREG[k]];
+const fTabVisible = k => FCTX.has(k) ? ftab === k : k === "revision" || !(k in FREG || k === "informe") || fReg.proyecto || !!fReg.tipos[FREG[k]];
+// ---- navegación con foco: fIr(pestaña, {ids, filtro, etiqueta}) abre la pestaña y la vista destino consume el foco UNA vez (fTomaFoco):
+// filtra a esos ids si sabe, hace scroll al primero y lo resalta (~2 s). Sin ids (informes antiguos): solo abre la pestaña.
+let fFoco = null;
+function fIr(tab, foco) { fFoco = foco && foco.ids ? {...foco, tab} : null; ftab = tab; lsSet("ftab", tab); fsucio = true; pintarHome(); }
+function fTomaFoco(tab) { const f = fFoco && fFoco.tab === tab ? fFoco : null; if (f) fFoco = null; return f; }
+function fResalta(nodos) {
+  const ns = [...nodos].filter(Boolean); if (!ns.length) return;
+  ns[0].scrollIntoView({block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+  for (const n of ns) { n.classList.remove("f-flash"); void n.offsetWidth; n.classList.add("f-flash"); setTimeout(() => n.classList.remove("f-flash"), 2400); }
+}
+const fResaltaIds = (raiz, ids) => setTimeout(() => fResalta([...raiz.querySelectorAll("[data-id]")].filter(n => ids.includes(n.getAttribute("data-id")))), 60);
+const fChipFoco = (n, quitar, etq) => el("div", {className: "f-foco", role: "status"}, el("span", {textContent: "Mostrando " + n + (n === 1 ? " elemento" : " elementos") + " del informe" + (etq ? " · " + etq : "")}),
+  el("button", {className: "link", type: "button", textContent: "Quitar filtro", onclick: quitar}));
 const fTabTxt = (k, t) => k === "revision" ? t + " (" + fReg.rev + ")" : t;
 async function fCargaReg(c, tipoCarpeta) {
   try {
@@ -30,6 +44,7 @@ function carpetaVista(c) {
   $("f-nuevo").textContent = "+ Nuevo " + nm("documento");
   pintaTabs();
   if (fuC === c && !fsucio) return;
+  if (fuC !== c) fpenFoco = null;
   fuC = c; fsucio = false; pintaTabs(); fRender();
 }
 function pintaTabs() {
@@ -53,7 +68,7 @@ async function fRender() {
     const e = await api("/api/exp?c=" + encodeURIComponent(c));
     await fCargaReg(c, e.tipo);
     if (n !== fseq) return;
-    const nodos = await ({resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
+    const nodos = await ({resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
     if (n !== fseq) return;
     p.replaceChildren(...nodos);
     const pl_ = PL.find(t => t.id === e.perfil);
@@ -127,7 +142,10 @@ function cambiosResumen(cm, c) {
 }
 
 // ---- Pendientes ----
+let fpenFoco = null;  // {ids, etiqueta} desde el informe: filtra la tabla hasta «Quitar filtro»
 async function tPendientes(c, e) {
+  const fo = fTomaFoco("pendientes");
+  if (fo) { fpenFoco = fo; fpen.estado = fo.filtro || "abierto"; fpen.resp = ""; }
   const q = new URLSearchParams({c, estado: fpen.estado === "cerrados" ? "todos" : fpen.estado === "decisiones" ? "abierto" : fpen.estado, resp: fpen.resp, orden: fpen.orden});
   const [r, est] = await Promise.all([api("/api/exp/pendientes?" + q), fpen.estado === "decisiones" ? api("/api/exp/estado?c=" + encodeURIComponent(c)) : null]);
   const pill = (k, t, on) => el("button", {className: "f-pill", "aria-pressed": fpen.estado === k, textContent: t, onclick: () => { fpen.estado = k; fRe(); }});
@@ -138,7 +156,9 @@ async function tPendientes(c, e) {
   const cerr = r.n.hecho + r.n.descartado;
   const barra = el("div", {className: "toolbar f-barra"}, el("div", {className: "row wrap"}, pill("abierto", "Abiertos · " + r.n.abierto), pill("cerrados", "Cerrados · " + cerr), pill("decisiones", "Decisiones")),
     el("span", {className: "grow"}), ...(fpen.estado === "decisiones" ? [] : [el("label", {className: "row"}, "Responsable", sel), el("label", {className: "row"}, "Orden", ord)]));
-  const items = fpen.estado === "cerrados" ? r.items.filter(p => p.estado !== "abierto") : r.items;
+  let items = fpen.estado === "cerrados" ? r.items.filter(p => p.estado !== "abierto") : r.items;
+  const foco = fpenFoco && fpen.estado !== "decisiones" ? fpenFoco : null;
+  if (foco) items = items.filter(p => foco.ids.includes(p.eid || p.id));
   let lista;
   if (fpen.estado === "decisiones") {
     lista = el("div", {className: "card"}, el("h3", {textContent: "Decisiones vigentes (la última manda)"}), el("ul", {className: "f-lst"}, ...est.decisiones.vigentes.map(x => el("li", {}, x.texto + " ", fLink(x)))),
@@ -148,7 +168,8 @@ async function tPendientes(c, e) {
   const add = el("form", {className: "row wrap f-add"}, el("input", {id: "pm-t", placeholder: "Añadir un pendiente a mano…", ariaLabel: "Pendiente", style: "flex:2 1 220px"}),
     el("input", {id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable", style: "flex:1 1 130px"}), el("input", {id: "pm-p", placeholder: "Plazo (15/03/2026, el viernes…)", ariaLabel: "Plazo", style: "flex:1 1 170px"}), el("button", {className: "sec", textContent: "Añadir"}));
   add.onsubmit = fallo(async ev => { ev.preventDefault(); await post("/api/exp/pendientes", {c, texto: $("pm-t").value, resp: $("pm-r").value, plazo: $("pm-p").value}); await fRe(); });
-  return [...bannerSug(c, r.sugeridos), barra, lista, add, el("p", {className: "muted", textContent: "Cada pendiente enlaza al minuto exacto del documento donde se acordó. Marcar o desmarcar es siempre a mano: el seguimiento automático solo propone."})];
+  if (foco && fo) fResaltaIds(lista, foco.ids);
+  return [...bannerSug(c, r.sugeridos), barra, ...(foco ? [fChipFoco(items.length, () => { fpenFoco = null; fRe(); }, foco.etiqueta)] : []), lista, add, el("p", {className: "muted", textContent: "Cada pendiente enlaza al minuto exacto del documento donde se acordó. Marcar o desmarcar es siempre a mano: el seguimiento automático solo propone."})];
 }
 function filaPend(c, p) {
   const chk = el("input", {type: "checkbox", checked: p.estado !== "abierto", ariaLabel: p.estado === "abierto" ? "Marcar hecho: " + p.texto : "Reabrir: " + p.texto});
@@ -158,7 +179,7 @@ function filaPend(c, p) {
   const acc = [];
   if (p.estado === "abierto") acc.push(el("button", {className: "link", textContent: "Descartar", ariaLabel: "Descartar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: "descartado"}); await fRe(); })}));
   if (p.manual) acc.push(el("button", {className: "link", textContent: "Quitar", ariaLabel: "Quitar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, borrar: true}); await fRe(); })}));
-  return el("div", {className: "pr" + (sg ? " sug" : "") + (p.estado !== "abierto" ? " cerr" : "")}, el("span", {className: "pc"}, chk),
+  return el("div", {className: "pr" + (sg ? " sug" : "") + (p.estado !== "abierto" ? " cerr" : ""), "data-id": p.eid || p.id}, el("span", {className: "pc"}, chk),
     el("span", {className: "pt"}, el("span", {className: p.estado === "abierto" ? "" : "tach", textContent: p.texto}), " ", el("small", {className: "tipo", textContent: p.tipo}),
       ...(p.estado === "descartado" ? [el("span", {className: "badge", textContent: "descartado"})] : []), ...(sg ? [el("b", {className: "q", textContent: sg.tipo === "hecho" ? " ¿cerrado?" : " ¿actualizado?"})] : []),
       ...(p.nota ? [el("small", {textContent: p.nota})] : []),
@@ -278,6 +299,6 @@ async function tVista(c, e, k) {
   if (FVISTAS[k]) return FVISTAS[k](c, e);
   if (k === "informe") return [el("p", {className: "vacio", textContent: "Próximamente (F6)."})];
   const w = el("div");
-  registroTabla(w, {c, tipo: FREG[k], onChange: () => fCargaReg(c, e.tipo)});
+  registroTabla(w, {c, tipo: FREG[k], onChange: () => fCargaReg(c, e.tipo), foco: fTomaFoco(k)});
   return FPOBLAR[k] ? [fRegenerar(c, [FPOBLAR[k]]), w] : [w];
 }

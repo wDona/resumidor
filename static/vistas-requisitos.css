@@ -22,3 +22,4 @@ button.rq-seg{cursor:pointer}button.rq-seg[aria-pressed=true]{outline:3px solid 
 .rq-dr h4{margin:14px 0 4px}.rq-dr blockquote{margin:4px 0;color:var(--ink2)}
 .rq .reg-wrap{max-height:68vh}
 @media(max-width:700px){.rq-bar{flex-wrap:wrap}.rq-exp-p{right:auto;left:0}}
+.rq .reg-t tbody td:nth-child(2){white-space:nowrap}
