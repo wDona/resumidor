@@ -1,0 +1,27 @@
+/* Vista Historias (F4b): tablero kanban + editor Gherkin. Usa solo variables de app.css (claro/oscuro). */
+.hu-tab{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:8px}
+.hu-col{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r2);padding:8px;min-height:160px;transition:background .1s,border-color .1s}
+.hu-col.over{background:var(--acc-s);border-color:var(--acc);border-style:dashed}
+.hu-col h3{display:flex;gap:8px;align-items:center;margin:2px 4px 8px;font-size:15px;text-transform:capitalize;position:sticky;top:0}
+.hu-lst{display:flex;flex-direction:column;gap:8px;min-height:60px}.hu-vacio{text-align:center;padding:16px 0;margin:0;font-size:13px}
+.hu-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px;display:flex;flex-direction:column;gap:6px;cursor:grab;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.hu-card:hover{border-color:var(--acc-ln)}.hu-card:focus-visible{outline:2px solid var(--focus);outline-offset:1px}.hu-card.arr{opacity:.45}
+.hu-card.prop{border-left:4px solid var(--acc)}
+.hu-top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.hu-ep{background:var(--acc-s2);color:var(--acc-d);border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
+@media(prefers-color-scheme:dark){.hu-ep{color:var(--acc)}}
+.hu-pts{background:var(--line2);color:var(--ink2);border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
+.hu-txt{display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.35;color:var(--ink)}.hu-txt i{color:var(--mut);font-style:normal;font-weight:600}
+.hu-pie{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.hu-der-c{color:var(--warn);font-weight:600}
+.hu-mv{font-size:12px;min-height:28px;padding:2px 4px;border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:var(--r);align-self:flex-start}
+.hu-ed{width:min(520px,100vw)}.hu-ed .field{display:flex;flex-direction:column;gap:2px;margin:8px 0;flex:1 1 0}.hu-ed .field>span{font-size:13px;color:var(--mut);font-weight:600}
+.hu-ed .field input,.hu-ed .field textarea,.hu-ed .field select,.hu-ed>.field select{width:100%;font:inherit;padding:6px;border:1px solid var(--inp);background:var(--bg2);color:var(--ink);border-radius:var(--r)}
+.hu-ed .field textarea{resize:vertical}.hu-ed h4{margin:14px 0 4px}
+.hu-der{background:var(--warn-s);border:1px solid var(--warn-ln);color:var(--warn);padding:6px 10px;border-radius:var(--r);font-weight:600;margin:8px 0}
+.hu-crs{display:flex;flex-direction:column;gap:10px}
+.hu-cr{border:1px solid var(--line);border-radius:var(--r);padding:4px 10px 8px;margin:0;background:var(--card)}.hu-cr.prop{border-left:4px solid var(--acc);background:var(--acc-s)}
+.hu-cr legend{font-weight:700;padding:0 6px;display:flex;gap:6px;align-items:center}
+.hu-prev{font-family:ui-monospace,Consolas,Menlo,monospace;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:10px;margin:0;max-height:260px;overflow:auto;color:var(--ink)}
+.hu-pie2{margin-top:14px;position:sticky;bottom:0;background:var(--card);padding:8px 0}
+@media(max-width:900px){.hu-tab{grid-template-columns:repeat(4,260px)}}
+.hu{display:flex;flex-direction:column;gap:var(--s3)}.hu>small.muted{margin-top:calc(-1 * var(--s1))}

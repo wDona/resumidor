@@ -1,0 +1,76 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+<v Laura>Buenos días a todos. Hoy toca repasar el lanzamiento de la aplicación de reservas.</v>
+
+00:00:06.000 --> 00:00:11.000
+<v Carlos>Antes de empezar, se leyó el acta anterior y no hubo objeciones.</v>
+
+00:00:12.000 --> 00:00:17.000
+<v Marta>Se propuso adelantar la beta, pero no se ha decidido nada todavía.</v>
+
+00:00:18.000 --> 00:00:23.000
+<v Laura>Primer punto: el proveedor de pagos. Decidimos que Carlos confirme con ellos la fecha del quince de noviembre.</v>
+
+00:00:24.000 --> 00:00:29.000
+<v Carlos>De acuerdo, hablo con el proveedor antes del viernes.</v>
+
+00:00:30.000 --> 00:00:35.000
+<v Javier>El rendimiento de la búsqueda es un problema, tarda más de seis segundos en móviles antiguos.</v>
+
+00:00:36.000 --> 00:00:41.000
+<v Javier>Me encargo yo de arreglar los índices de la base de datos para el 20 de noviembre.</v>
+
+00:00:42.000 --> 00:00:47.000
+<v Laura>Perfecto, queda apuntado. Segundo punto: la campaña de correo.</v>
+
+00:00:48.000 --> 00:00:53.000
+<v Marta>Se propuso lanzar el correo ya, pero Carlos prefiere esperar a la beta abierta.</v>
+
+00:00:54.000 --> 00:00:59.000
+<v Laura>Entonces decidimos que la campaña de correo electrónico se lanza en la fase de beta abierta.</v>
+
+00:01:00.000 --> 00:01:05.000
+<v Carlos>Sí, de acuerdo.</v>
+
+00:01:06.000 --> 00:01:11.000
+<v Javier>Hay un riesgo: si el proveedor de pagos se retrasa, la beta cerrada no podrá empezar el uno de diciembre.</v>
+
+00:01:12.000 --> 00:01:17.000
+<v Laura>Lo tenemos en cuenta como riesgo principal del plan.</v>
+
+00:01:18.000 --> 00:01:23.000
+<v Marta>Una pregunta abierta: ¿quién redacta las preguntas frecuentes para la beta?</v>
+
+00:01:24.000 --> 00:01:29.000
+<v Carlos>Eso lo dejamos pendiente de decidir, lo vemos en la próxima reunión.</v>
+
+00:01:30.000 --> 00:01:35.000
+<v Laura>Repasemos las tareas. Javier arregla la búsqueda para el 20 de noviembre.</v>
+
+00:01:36.000 --> 00:01:41.000
+<v Laura>Carlos confirma la fecha con el proveedor antes del viernes.</v>
+
+00:01:42.000 --> 00:01:47.000
+<v Laura>Marta actualiza el plan de lanzamiento y lo envía antes del lunes.</v>
+
+00:01:48.000 --> 00:01:53.000
+<v Marta>Hecho, lo envío el lunes por la mañana.</v>
+
+00:01:54.000 --> 00:01:59.000
+<v Javier>Se leyó también el informe de incidencias, sin novedades.</v>
+
+00:02:00.000 --> 00:02:05.000
+<v Laura>Recuerdo lo que pidió Elena Ruiz, la directora comercial de Hoteles Sol: la aplicación debe permitir pagar con Bizum.</v>
+
+00:02:06.000 --> 00:02:11.000
+<v Javier>Otro requisito: la búsqueda tiene que responder en menos de dos segundos en cualquier móvil.</v>
+
+00:02:12.000 --> 00:02:17.000
+<v Marta>Y Pedro Gómez, el responsable de seguridad del cliente, insiste en que los datos de pago no se guarden en el móvil.</v>
+
+00:02:18.000 --> 00:02:23.000
+<v Laura>Gracias a todos. La próxima reunión será el martes que viene.</v>
+
+00:02:24.000 --> 00:02:29.000
+<v Carlos>Gracias, hasta luego.</v>

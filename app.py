@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import zipfile
+from collections import Counter
 import urllib.parse
 import urllib.request
 import uuid
@@ -30,11 +31,15 @@ import pipeline
 import carpetas
 import correo
 import dudas
+import export_registro
 import exportar
 import grabar
 import plantillas
+import poblar
+import preguntar_reg
 import privacidad
 import procs
+import registro
 import rag
 import transcripts
 
@@ -492,10 +497,17 @@ def _acta_fn(d):
                 raise
             except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
                 print("seguimiento:", ex, flush=True)
+        if carp0 and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto"                 and not (d.get("nube") and not nube.permitida(_tpl_de(out.parent.name), _ajustes())[0]):  # F3b: solo carpetas «Proyecto» (nunca sensibles): la IA puebla las vistas del proyecto (trabajo aparte en la cola, tras este)
+            start("poblar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": carp0, "mid": out.parent.name, "auto": True}, carp0, out.parent.name)
         if d.get("grabacion"):  # grabación: ya hay transcripción y medio en la reunión; fuera las pistas
             grabar.limpiar(pipeline.WORK / "grabaciones" / Path(d["grabacion"]).name)
         return {"id": out.parent.name, "acta": out.name}
     return fn
+
+
+def _tipo_carpeta(c):
+    """Etiqueta de tipo de la carpeta (la del expediente, la de su perfil o el nombre general de ajustes)."""
+    return carpetas.tipo_de(carpetas.leer(c), _carpetas()["plantillas"].get(c), ((_ajustes() or AJ_DEF)["nombres"]).get("carpeta"))
 
 
 def _llm_ctx(d, mids=(), glos=()):
@@ -606,7 +618,21 @@ def _condensar_fn(d):
     return fn
 
 
-FNS = {"acta": _acta_fn, "fondo": _fondo_fn, "condensar": _condensar_fn, **{k: _carpeta_job(k) for k in ("seguimiento", "estado", "comparar")}}
+def _poblar_fn(d):
+    """F3b: pasada `poblar` (poblar.py) sobre la carpeta d["c"]: solo d["mid"] si viene; d["vistas"]: solo esas."""
+    c = d["c"]
+
+    def fn(cb):
+        ms = _ms(c)
+        r = poblar.poblar(c, ms, _llm_ctx(d, [m["id"] for m in ms], carpetas.terminos_prompt(c)), [d["mid"]] if d.get("mid") else None, d.get("vistas"),
+                          carpetas.terminos_prompt(c), cb, local=not d.get("nube"))
+        if r.get("req_nuevos"):  # F5: tras la pasada (automática o «Regenerar con IA»), historias de los requisitos nuevos (trabajo aparte en la cola)
+            start("derivar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": c, "ids": r["req_nuevos"], **({"auto": True} if d.get("auto") else {})}, c)
+        return {"carpeta": c, **{k: r[k] for k in ("creadas", "citas", "llamadas")}}
+    return fn
+
+
+FNS = {"acta": _acta_fn, "fondo": _fondo_fn, "condensar": _condensar_fn, "poblar": _poblar_fn, **{k: _carpeta_job(k) for k in ("seguimiento", "estado", "comparar")}}
 
 
 # ---------- Vídeo de entrada ----------
@@ -907,7 +933,7 @@ def anon_defecto(mid):
 
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
 AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
-          "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es"}
+          "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es", "poblar_auto": True}
 
 
 def _ajustes():
@@ -930,7 +956,7 @@ def post_ajustes(d: dict):
     a = _ajustes() or dict(AJ_DEF)
     if d.get("modo") in ("simple", "avanzado"):
         a["modo"] = d["modo"]
-    for k in ("nube_visible", "anonimizar_defecto"):
+    for k in ("nube_visible", "anonimizar_defecto", "poblar_auto"):
         if isinstance(d.get(k), bool):
             a[k] = d[k]
     if isinstance(d.get("uso"), list):
@@ -999,7 +1025,7 @@ def carpeta(d: dict):
         CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
         return {}
     if old:
-        carpetas.renombrar(old, new)
+        _ok(carpetas.renombrar, old, new)
     pl, es = c["plantillas"].pop(old, None), c["estilos"].pop(old, None)
     if new and pl:
         c["plantillas"][new] = pl
@@ -1423,6 +1449,444 @@ def exp_glosario_set(d: dict):
     return {"glosario": carpetas.leer(c)["glosario"]}
 
 
+# ---------- Registro genérico (/api/reg): entidades del proyecto con revisión (bandeja) ----------
+def _reg_ids(c, ids):
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "Faltan ids")
+    return [_ok(registro.de, c, i)["id"] for i in dict.fromkeys(ids)]
+
+
+_EST_GEN = ["", "abierto", "en curso", "hecho", "bloqueado", "descartado", "pendiente", "mitigado", "cerrado", "resuelto", "aceptado", "materializado", "vigente", "sustituida"]
+ESTADOS_TIPO = {  # estados admitidos por tipo (permisivo: los de la UI genérica + los propios de cada vista)
+    **{t: _EST_GEN for t in registro.TIPOS},
+    "requisito": _EST_GEN + ["borrador", "validado", "aprobado", "rechazado", "implementado"],
+    "historia": _EST_GEN + ["backlog", "preparada", "hecha"],
+    "decision": _EST_GEN + ["revocada"]}
+RESERVADAS = ("fuente", "huerfano", "clave")  # claves de `campos` que gestiona el sistema
+
+
+def _iso(v):
+    try:
+        time.strptime(str(v), "%Y-%m-%d")
+        return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(v)))
+    except ValueError:
+        return False
+
+
+def _reg_cambios(cm, tipo=None, c=None):
+    if not isinstance(cm, dict):
+        raise HTTPException(400, "cambios debe ser un objeto")
+    if mal := set(cm) - registro.EDITABLES:
+        raise HTTPException(400, f"Campos no editables: {sorted(mal)}")
+    if "campos" in cm and not isinstance(cm["campos"], dict):
+        raise HTTPException(400, "campos debe ser un objeto")
+    if res := set(cm.get("campos") or {}) & set(RESERVADAS):
+        raise HTTPException(400, f"Campos reservados: {sorted(res)}")
+    for k in ("fecha_limite", "fecha_cierre", "fecha_alta"):
+        if cm.get(k) and not _iso(cm[k]):
+            raise HTTPException(400, f"{k} debe ser AAAA-MM-DD o vacía")
+    if tipo and "estado" in cm and cm["estado"] not in ESTADOS_TIPO.get(tipo, _EST_GEN):
+        raise HTTPException(400, f"Estado no válido para {tipo}: {cm['estado']}")
+    if tipo == "interesado":
+        ne = registro.niveles_ejes(c) if c else (10, 10)  # sin proyecto: el máximo posible
+        for k, n in zip(("poder", "interes"), ne):
+            v = (cm.get("campos") or {}).get(k, "")
+            if v != "" and v is not None:
+                x = None if isinstance(v, str) else registro.num_medio(v)
+                if x is None or not 1 <= x <= n:
+                    raise HTTPException(400, f"{k} debe ser un número de 1 a {n} en pasos de 0,5 (o vacío)")
+                cm["campos"][k] = x
+    return cm
+
+
+def _reg_tipo(t):
+    if t not in registro.TIPOS:
+        raise HTTPException(400, f"Tipo no válido: {t}")
+    return t
+
+
+@app.get("/api/reg")
+def reg_list(request: Request, c: str, tipo: str = "", revision: str = "", estado: str = "", q: str = "", dueno: str = "", huerfanos: int = 0, prioridad: str = ""):
+    c = _c({"c": c})
+    cf = {k[6:]: v for k, v in request.query_params.items() if k.startswith("campo_") and len(k) > 6}  # campo_<k>=<v>: igualdad sobre campos
+    if tipo:
+        _reg_tipo(tipo)
+    if revision and revision not in ("propuesto", "aprobado", "descartado", "fusionado"):
+        raise HTTPException(400, "Revisión no válida")
+    registro.sincronizar(c, carpetas.docs(_ms(c)))  # lista fresca, igual que carpetas.pendientes
+    todas = registro.listar(c)
+    vis = [x for x in todas if x["revision"] not in registro.OCULTA]
+    qs, ds = q.casefold(), dueno.casefold()
+    xs = [x for x in (todas if revision else vis) if (not tipo or x["tipo"] == tipo) and (not revision or x["revision"] == revision) and (not estado or x["estado"] == estado) and (not prioridad or x["prioridad"] == prioridad)
+          and all(str(x["campos"].get(k, "")) == v for k, v in cf.items())
+          and (not ds or ds in x["dueno"].casefold()) and (not huerfanos or x["campos"].get("huerfano"))
+          and (not qs or any(qs in str(x[k] or "").casefold() for k in ("titulo", "detalle", "dueno", "codigo")))]
+    return {"items": registro.completas(xs), "contadores": {"por_tipo": dict(Counter(x["tipo"] for x in vis)),
+            "por_revision": {r: sum(x["revision"] == r for x in todas) for r in ("propuesto", "aprobado", "descartado")},
+            "fusionadas": sum(x["revision"] == "fusionado" and (not tipo or x["tipo"] == tipo) for x in todas),  # del tipo pedido: chip «Fusionadas (n)»
+            "huerfanos": sum(bool(x["campos"].get("huerfano")) for x in vis)}}
+
+
+@app.get("/api/reg/exportar")
+def reg_exportar(c: str, vista: str, fmt: str, borrador: int = 1, estilo: str | None = None):
+    """Descarga de una vista del registro (docx pdf xlsx csv md json; historias: feature csv_jira csv_azure). borrador=1: todo lo no descartado con marca BORRADOR."""
+    c = _c({"c": c})
+    registro.sincronizar(c, carpetas.docs(_ms(c)))
+    try:
+        datos, nombre, mime = _ok(export_registro.exportar, c, vista, fmt, bool(borrador), carpetas.docs(_ms(c)), estilo)
+    except exportar.SinNavegador as ex:
+        raise HTTPException(409, str(ex))
+    return Response(datos, media_type=mime, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nombre)})
+
+
+@app.post("/api/reg")
+def reg_crear(d: dict):
+    """{c, tipo, titulo, detalle?, estado?, dueno?, prioridad?, fecha_limite?, campos?}: entidad manual ya aprobada (sin cita)."""
+    c = _c(d)
+    f = {k: d[k] for k in ("detalle", "estado", "dueno", "prioridad", "fecha_limite", "campos") if d.get(k) not in (None, "")}
+    _reg_cambios(f, d.get("tipo"), c)
+    if not str(d.get("titulo") or "").strip():
+        raise HTTPException(400, "Falta el título")
+    return registro.completas([_ok(registro.crear, c, _reg_tipo(d.get("tipo")), titulo=str(d["titulo"]).strip(), origen="manual", revision="aprobado", **f)])[0]
+
+
+@app.get("/api/reg/matriz")
+def reg_matriz_get(c: str):
+    p, i = registro.niveles_ejes(_c({"c": c}))
+    return {"niveles_poder": p, "niveles_interes": i, "niveles": p}
+
+
+@app.post("/api/reg/matriz")
+def reg_matriz_set(d: dict):
+    """{c, niveles_poder?, niveles_interes?, niveles? (ambos), reescalar: bool}, 3..10 cada uno: huecos de poder/interés; un solo lote deshacible.
+    -> {ok, niveles_poder, niveles_interes, niveles, recortados, items}."""
+    c = _c(d)
+    if not c:
+        raise HTTPException(404, "No existe esa carpeta")
+    g = lambda k: d.get(k, d.get("niveles")) if "niveles" in d or k in d else None
+    ids, rec = _ok(registro.matriz, c, g("niveles_poder"), g("niveles_interes"), bool(d.get("reescalar")))
+    p, i = registro.niveles_ejes(c)
+    return {"ok": True, "niveles_poder": p, "niveles_interes": i, "niveles": p, "recortados": rec, "items": registro.completas([registro.de(c, i) for i in ids])}
+
+
+@app.post("/api/reg/revisar")
+def reg_revisar(d: dict):
+    """{c, ids, accion: aprobar|descartar|restaurar, cambios?}: todo el lote es un solo paso para deshacer."""
+    c, acc = _c(d), d.get("accion")
+    if acc not in ("aprobar", "descartar", "restaurar"):
+        raise HTTPException(400, "Acción no válida")
+    cm = _reg_cambios(d.get("cambios") or {})
+    with registro.LOCK:
+        ids, lote = _reg_ids(c, d.get("ids")), uuid.uuid4().hex[:10]
+        with registro._db(escribe=True) as db:  # una sola transacción: si una entidad falla no se aplica nada
+            for i in ids:
+                x = _ok(registro.de, c, i)
+                _reg_cambios(cm, x["tipo"], c)
+                rev = "descartado" if acc == "descartar" else "aprobado" if acc == "aprobar" or x["origen"] in ("manual", "migrado") else "propuesto"
+                _ok(registro.editar, i, {**cm, "revision": rev}, lote, db)
+        return {"ok": True, "items": registro.completas([registro.de(c, i) for i in ids])}
+
+
+@app.post("/api/reg/{eid}/sugerencia")
+def reg_sugerencia(eid: str, d: dict):
+    """{c, accion: aceptar|rechazar}: resuelve la sugerencia de seguimiento (misma lógica que /api/exp/sugerencia); un lote, deshacible."""
+    c, acc = _c(d), d.get("accion")
+    if acc not in ("aceptar", "rechazar"):
+        raise HTTPException(400, "Acción no válida")
+    with registro.LOCK:
+        x = _ok(registro.de, c, eid)
+        s = x["sugerencia"]
+        antes = registro.ultimo_lote(c)
+        _ok(carpetas.resolver_sugerencia, c, _ms(c), registro.ref(x), acc == "aceptar")
+        lote = registro.ultimo_lote(c)
+        if acc == "aceptar" and s["tipo"] == "hecho" and lote and lote != antes:  # solo si el cierre abrió lote: mismo lote, un solo Ctrl+Z
+            registro.editar(eid, {"fecha_cierre": time.strftime("%Y-%m-%d")}, lote)
+        return registro.completas([registro.de(c, eid)])[0]
+
+
+@app.post("/api/reg/fusionar")
+def reg_fusionar(d: dict):
+    c = _c(d)
+    with registro.LOCK:
+        dest, orig = _reg_ids(c, [d.get("destino")])[0], _reg_ids(c, d.get("origenes"))
+        if dest in orig:
+            raise HTTPException(400, "El destino no puede ser un origen")
+        _ok(registro.fusionar, dest, orig)
+        return registro.completas([registro.de(c, dest)])[0]
+
+
+@app.post("/api/reg/separar")
+def reg_separar(d: dict):
+    """{c, destino, origen}: deshace una fusión concreta (el origen reaparece; el destino pierde lo que le trajo). Un lote, deshacible."""
+    c = _c(d)
+    with registro.LOCK:
+        if d.get("destino") == d.get("origen"):
+            raise HTTPException(400, "Destino y origen deben ser distintos")
+        dest, orig = _reg_ids(c, [d.get("destino"), d.get("origen")])
+        _ok(registro.separar, dest, orig)
+        return {"ok": True, "items": registro.completas([registro.de(c, dest), registro.de(c, orig)])}
+
+
+@app.post("/api/reg/deshacer")
+def reg_deshacer(d: dict):
+    c = _c(d)
+    with registro.LOCK:
+        ids = registro.ultimo_lote_ids(c)
+        n = registro.deshacer(c)
+        vivas = []
+        for i in ids:
+            with contextlib.suppress(KeyError):
+                vivas.append(registro.de(c, i))
+        return {"ok": True, "revertidas": n, "items": registro.completas(vivas)}
+
+
+@app.post("/api/reg/deshacer-pasada")
+def reg_deshacer_pasada(d: dict):
+    """{c, lote}: revierte una pasada de IA (poblar/derivar) por su lote auto. Un lote ajeno o del usuario -> 400/404."""
+    c, lote = _c(d), d.get("lote")
+    with registro.LOCK:
+        with registro._db() as db:
+            p = registro.proyecto(c, False, db)
+            r = p and isinstance(lote, str) and db.execute("SELECT DISTINCT entidad_id, auto FROM historial WHERE proyecto_id=? AND lote=?", (p["id"], lote)).fetchall()
+        if not r:
+            raise HTTPException(404, "Esa pasada no existe en la carpeta")
+        if not all(x["auto"] for x in r):
+            raise HTTPException(400, "Ese lote no es una pasada de IA")
+        n = registro.deshacer_pasada(c, lote)
+        vivas = []
+        for i in {x["entidad_id"] for x in r}:
+            with contextlib.suppress(KeyError):
+                vivas.append(registro.de(c, i))
+        return {"ok": True, "revertidas": n, "items": registro.completas(vivas)}
+
+
+@app.post("/api/reg/relacion")
+def reg_relacion(d: dict):
+    c = _c(d)
+    if d.get("aplicar") and d.get("tipo") == "sustituye":  # relación + antigua «sustituida» en un solo lote
+        with registro.LOCK:
+            _ok(registro.sustituir, c, d.get("a"), d.get("b"))
+        return {"ok": True}
+    _ok(registro.relacionar, c, d.get("a"), d.get("b"), d.get("tipo"), bool(d.get("propuesta")))
+    return {"ok": True}
+
+
+@app.delete("/api/reg/relacion")
+def reg_relacion_borrar(c: str, a: str, b: str, tipo: str):
+    _ok(registro.desrelacionar, _c({"c": c}), a, b, tipo)
+    return {"ok": True}
+
+
+@app.post("/api/reg/poblar")
+def reg_poblar(d: dict):
+    """{c, mid?, vistas?: [requisitos|decisiones|interesados|riesgos|preguntas], nube?, gpu?, calidad?}: encola la pasada `poblar`
+    («Regenerar con IA»): solo añade lo nuevo; respeta lo editado, aprobado y descartado."""
+    c = _c(d)
+    if _tipo_carpeta(c).casefold() in carpetas.SENSIBLES:
+        raise HTTPException(400, "Esta carpeta es de un tipo sensible (paciente, candidato): la IA no puebla su registro")
+    ms = [m for m in _ms(c) if not d.get("mid") or m["id"] == d["mid"]]
+    if not ms:
+        raise HTTPException(404, "Ese documento no está en la carpeta")
+    if not isinstance(d.get("vistas") or [], list) or set(d.get("vistas") or []) - set(poblar.VISTAS):
+        raise HTTPException(400, f"Vistas no válidas (valen: {', '.join(poblar.VISTAS)})")
+    if d.get("nube"):  # los documentos de una plantilla «solo en este equipo» no salen a la nube
+        for m in ms:
+            _nube_spec({"nube": d["nube"]}, _tpl_de(m["id"]))
+        _nube_spec(d)
+    falta(d, "fondo", False)
+    return start("poblar", {**d, "c": c}, c, d.get("mid") or "")
+
+
+@app.get("/api/reg/poblar/estado")
+def reg_poblar_estado(c: str):
+    """Última pasada de poblar en la carpeta {t, mids, vistas, creadas, citas, omitidas, descartadas, llamadas, segundos, coste, tokens}
+    y si hay una en cola."""
+    c = _c({"c": c})
+    return {"ultimo": carpetas.leer(c).get("poblar"), "en_cola": any(e["kind"] == "poblar" and e["spec"].get("c") == c and e["state"] in ACTIVOS for e in cola)}
+
+
+# ---------- F5: derivar historias + Gherkin + preguntas de los requisitos (derivar.py, op «derivar») ----------
+import derivar  # noqa: E402
+
+
+def _derivar_fn(d):
+    c = d["c"]
+
+    def fn(cb):
+        r = derivar.derivar(c, _llm_ctx(d, [m["id"] for m in _ms(c)], carpetas.terminos_prompt(c)), d.get("ids"), carpetas.terminos_prompt(c), cb)
+        return {"carpeta": c, **{k: r[k] for k in ("creadas", "llamadas")}}
+    return fn
+
+
+FNS["derivar"] = _derivar_fn
+
+
+@app.post("/api/reg/derivar")
+def reg_derivar(d: dict):
+    """{c, ids?: [requisito], nube?, gpu?, calidad?}: encola `derivar` (sin ids: los requisitos vivos sin historias). Solo añade lo nuevo."""
+    c = _c(d)
+    ids = d.get("ids")
+    if ids is not None:
+        vivos = {x["id"] for x in registro.listar(c, "requisito") if x["revision"] not in registro.OCULTA}
+        if not isinstance(ids, list) or not ids or set(ids) - vivos:
+            raise HTTPException(400, "Requisitos no válidos")
+    elif not derivar.pendientes(c):
+        raise HTTPException(400, "No hay requisitos sin historias")
+    if d.get("nube"):  # los documentos de una plantilla «solo en este equipo» no salen a la nube
+        for m in _ms(c):
+            _nube_spec({"nube": d["nube"]}, _tpl_de(m["id"]))
+        _nube_spec(d)
+    falta(d, "fondo", False)
+    return start("derivar", {**d, "c": c}, c)
+
+
+@app.get("/api/reg/derivar/estado")
+def reg_derivar_estado(c: str):
+    """Última derivación en la carpeta {t, requisitos, creadas, omitidas, descartadas, llamadas, segundos, coste, tokens} y si hay una en cola."""
+    c = _c({"c": c})
+    return {"ultimo": carpetas.leer(c).get("derivar"), "en_cola": any(e["kind"] == "derivar" and e["spec"].get("c") == c and e["state"] in ACTIVOS for e in cola)}
+
+
+@app.get("/api/reg/bandeja")
+def reg_bandeja(c: str):
+    """Lo que espera revisión: propuestos, sugerencias de seguimiento, relaciones «sustituye» propuestas entre decisiones, huérfanos."""
+    c = _c({"c": c})
+    ds = carpetas.docs(_ms(c))
+    registro.sincronizar(c, ds)
+    vis = [x for x in registro.listar(c) if x["revision"] not in registro.OCULTA]
+    dec = {(x["mid"], x["h"]): x for x in vis if x["tipo"] == "decision" and x["mid"]}
+    rels = []
+    if len(dec) > 1:
+        with contextlib.suppress(Exception):  # ponytail: si fallan los embeddings la bandeja sigue sin propuestas de sustitución
+            hechas = {(r["a"], r["b"]) for x in registro.completas(list(dec.values())) for r in x["relaciones"] if r["tipo"] == "sustituye"} | registro.rechazadas(c)
+            for s in carpetas.vigentes(ds)[1]:
+                viejo, nuevo = dec.get((s["mid"], carpetas._h(s["mid"], s["texto"]))), dec.get((s["por"]["mid"], carpetas._h(s["por"]["mid"], s["por"]["texto"])))
+                if viejo and nuevo and (nuevo["id"], viejo["id"]) not in hechas:
+                    rels.append({"a": nuevo["id"], "b": viejo["id"], "tipo": "sustituye", "propuesta": True, "a_titulo": nuevo["titulo"], "b_titulo": viejo["titulo"]})
+    sel = lambda f: registro.completas([x for x in vis if f(x)])
+    return {"propuestos": sel(lambda x: x["revision"] == "propuesto"), "sugerencias": sel(lambda x: x["sugerencia"]),
+            "relaciones_propuestas": rels, "huerfanos": sel(lambda x: x["campos"].get("huerfano"))}
+
+
+@app.get("/api/reg/{eid}/historial")
+def reg_historial(eid: str, c: str):
+    _ok(registro.de, _c({"c": c}), eid)
+    return [{k: h[k] for k in ("t", "accion", "antes", "despues", "lote")} for h in registro.historial(eid)]
+
+
+@app.patch("/api/reg/{eid}")
+def reg_editar(eid: str, d: dict):
+    c = _c(d)
+    with registro.LOCK:
+        cm = _reg_cambios(d.get("cambios"), _ok(registro.de, c, eid)["tipo"], c)
+        _ok(registro.editar, eid, cm, uuid.uuid4().hex[:10])
+        return registro.completas([registro.de(c, eid)])[0]
+
+
+@app.delete("/api/reg/{eid}")
+def reg_borrar(eid: str, c: str):
+    c = _c({"c": c})
+    with registro.LOCK:
+        _ok(registro.de, c, eid)
+        registro.borrar(eid)
+    return {"ok": True}
+
+
+# ---------- F6 Informe de estado / comité (/api/reg/informes; informe.py) ----------
+import informe  # noqa: E402
+
+
+def _inf_docs(c):
+    ds = carpetas.docs(_ms(c))
+    registro.sincronizar(c, ds)  # KPIs sobre las entidades al día (como /api/reg)
+    return ds
+
+
+def _inf_vista(c, x):
+    return {**x, "graficos": informe.graficos(x["contenido"]["kpis"]), "etiquetas": informe.ETIQUETAS, "proyecto": {"carpeta": c, "datos": (registro.proyecto(c, False) or {}).get("datos") or []},
+            "en_cola": any(e["kind"] == "informe" and e["spec"].get("c") == c and e["state"] in ACTIVOS for e in cola)}
+
+
+def _informe_fn(d):
+    """Trabajo «informe»: narrativa con IA (un LLM a la vez) en una versión nueva del informe d["id"]."""
+    c = d["c"]
+
+    def fn(cb):
+        ms = _ms(c)
+        ds = _inf_docs(c)
+        cb(0.05, "Arrancando modelo de lenguaje…")
+        with _llm_ctx(d, [m["id"] for m in ms], carpetas.terminos_prompt(c))() as chat:
+            cb(0.3, "Redactando el informe…")
+            x = informe.redactar_informe(c, d["id"], chat, ds)
+        return {"carpeta": c, "informe": x["id"]}
+    return fn
+
+
+FNS["informe"] = _informe_fn
+
+
+@app.get("/api/reg/informes")
+def inf_listar(c: str):
+    c = _c({"c": c})
+    return {"items": informe.listar(c), "periodo": informe.periodo_defecto(c)}
+
+
+@app.post("/api/reg/informes")
+def inf_crear(d: dict):
+    """{c, desde?, hasta?, titulo?}: borrador nuevo (periodo por defecto: desde el último informe o los últimos 30 días)."""
+    c = _c(d)
+    return _inf_vista(c, _ok(informe.crear, c, d.get("desde"), d.get("hasta"), d.get("titulo"), _inf_docs(c)))
+
+
+@app.get("/api/reg/informes/{iid}")
+def inf_ver(iid: int, c: str):
+    c = _c({"c": c})
+    return _inf_vista(c, _ok(informe.obtener, c, iid))
+
+
+@app.patch("/api/reg/informes/{iid}")
+def inf_editar(iid: int, d: dict):
+    """{c, cambios: {titulo, desde, hasta, estado, notas, narrativa, semaforos, umbrales}} (misma versión; ver informe.editar)."""
+    c = _c(d)
+    return _inf_vista(c, _ok(informe.editar, c, iid, d.get("cambios")))
+
+
+@app.delete("/api/reg/informes/{iid}")
+def inf_borrar(iid: int, c: str):
+    """Elimina esa versión (la serie entera si era la única). -> {ok, id: última versión que queda o null}."""
+    c = _c({"c": c})
+    return {"ok": True, "id": _ok(informe.eliminar, c, iid)}
+
+
+@app.post("/api/reg/informes/{iid}/recalcular")
+def inf_recalcular(iid: int, d: dict):
+    c = _c(d)
+    return _inf_vista(c, _ok(informe.recalcular, c, iid, _inf_docs(c)))
+
+
+@app.post("/api/reg/informes/{iid}/redactar")
+def inf_redactar(iid: int, d: dict):
+    """{c, nube?, gpu?, calidad?}: encola la narrativa con IA (op «informe»)."""
+    c = _c(d)
+    _ok(informe.obtener, c, iid)
+    if d.get("nube"):  # los documentos de una plantilla «solo en este equipo» no salen a la nube
+        for m in _ms(c):
+            _nube_spec({"nube": d["nube"]}, _tpl_de(m["id"]))
+        _nube_spec(d)
+    falta(d, "fondo", False)
+    return start("informe", {**d, "c": c, "id": iid}, c, "")
+
+
+@app.get("/api/reg/informes/{iid}/exportar")
+def inf_exportar(iid: int, c: str, fmt: str, borrador: int = 1, estilo: str | None = None):
+    c = _c({"c": c})
+    try:
+        datos, nombre, mime = _ok(informe.exportar, c, iid, fmt, bool(borrador), carpetas.docs(_ms(c)), estilo)
+    except exportar.SinNavegador as ex:
+        raise HTTPException(409, str(ex))
+    return Response(datos, media_type=mime, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nombre)})
+
+
 @app.get("/api/carpetas/resumen")
 def carpetas_resumen():
     """Para las tarjetas del inicio: {carpeta: {pend, sug, ultima}}."""
@@ -1461,6 +1925,8 @@ def preguntar(d: dict):
         its = [{k: p[k] for k in ("texto", "resp", "plazo", "fecha", "dias", "tipo", "mid", "ver", "doc", "t", "pronto", "vencido")} | {"v": vid.get(p["mid"])} for p in pq["items"]]
         return StreamingResponse(iter([json.dumps({"k": "pendientes", "resp": pq["resp"], "items": its, "en": rag.lang_q(q)}, ensure_ascii=False) + "\n", json.dumps({"k": "fin"}) + "\n"]),
                                  media_type="application/x-ndjson")
+    if sel.startswith("c:") and (registro.sincronizar(cg, carpetas.docs(ms)) or True) and (rq := preguntar_reg.pregunta(cg, q, ms)) is not None:  # «riesgos abiertos», «qué decidimos sobre X»: del registro, sin LLM
+        return StreamingResponse(iter([json.dumps({"k": "lista", **rq, "en": rag.lang_q(q)}, ensure_ascii=False) + "\n", json.dumps({"k": "fin"}) + "\n"]), media_type="application/x-ndjson")
     if aux["on"] or any(e["state"] == "marcha" for e in cola):
         raise HTTPException(409, "Hay un trabajo en marcha: espera a que termine")
     if d.get("nube"):  # también los documentos de una plantilla «solo en este equipo» quedan fuera de la nube

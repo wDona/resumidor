@@ -1,5 +1,6 @@
 """Exportar el documento (docx, pdf, md, obsidian, notion, ics, csv, srt/vtt), editarlo conservando el original y estilos de
 organización. Todo sale de los datos estructurados (acta.json), nunca del HTML. Edición: acta_editada.json junto al original."""
+import contextlib
 import copy
 import csv
 import datetime as dt
@@ -24,7 +25,8 @@ CAMPOS = [("numero", "Nº"), ("tipo", "Tipo de sesión"), ("lugar", "Lugar"), ("
 FORMATOS = {"docx": ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), "pdf": ("pdf", "application/pdf"),
             "md": ("md", "text/markdown; charset=utf-8"), "obsidian": ("obsidian.zip", "application/zip"), "notion": ("notion.zip", "application/zip"),
             "ics": ("ics", "text/calendar; charset=utf-8"), "csv_todoist": ("todoist.csv", "text/csv; charset=utf-8"),
-            "csv_jira": ("jira.csv", "text/csv; charset=utf-8"), "srt": ("srt", "application/x-subrip"), "vtt": ("vtt", "text/vtt; charset=utf-8")}
+            "csv_jira": ("jira.csv", "text/csv; charset=utf-8"),
+            "csv_azure": ("azure.csv", "text/csv; charset=utf-8"), "csv_planner": ("planner.csv", "text/csv; charset=utf-8"), "srt": ("srt", "application/x-subrip"), "vtt": ("vtt", "text/vtt; charset=utf-8")}
 
 
 class SinNavegador(Exception):
@@ -237,30 +239,46 @@ def navegador():
 
 
 def pdf_bytes(c, estilo=None):
+    return pdf_html(html_doc(c, base=c["d"].as_uri() + "/", estilo=estilo))
+
+
+def pdf_html(html):
+    """HTML (str) -> bytes de PDF con el navegador instalado; SinNavegador si no hay o falla."""
     exe = navegador()
     if not exe:
         raise SinNavegador("Usa Imprimir → Guardar como PDF")
-    with tempfile.TemporaryDirectory() as t:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:  # los hijos del navegador pueden retener el perfil en Windows: limpiar nunca es un 500
         f, out = Path(t) / "doc.html", Path(t) / "doc.pdf"
-        f.write_text(html_doc(c, base=c["d"].as_uri() + "/", estilo=estilo), encoding="utf-8")
+        f.write_text(html, encoding="utf-8")
         cmd = [exe, "--headless=new", "--disable-gpu", "--no-sandbox", f"--user-data-dir={t}/perfil", "--no-pdf-header-footer", f"--print-to-pdf={out}", f.as_uri()]
         pr = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # sin tuberías: los hijos del navegador las retienen
-        fin, last = time.time() + 90, -1
-        while time.time() < fin and pr.poll() is None:
-            time.sleep(0.3)
-            sz = out.stat().st_size if out.is_file() else 0
-            if sz and sz == last:  # el PDF ya está escrito y estable
-                break
-            last = sz
-        if pr.poll() is None:
-            pr.terminate()
-            try:
-                pr.wait(5)
-            except subprocess.TimeoutExpired:
-                pr.kill()
+        try:
+            fin, last = time.time() + 90, -1
+            while time.time() < fin and pr.poll() is None:
+                time.sleep(0.3)
+                sz = out.stat().st_size if out.is_file() else 0
+                if sz and sz == last:  # el PDF ya está escrito y estable
+                    break
+                last = sz
+        finally:
+            _matar(pr)
         if not out.is_file() or not out.stat().st_size:
             raise SinNavegador("No se pudo generar el PDF con el navegador. Usa Imprimir → Guardar como PDF")
         return out.read_bytes()
+
+
+def _matar(pr):
+    """Termina el navegador y todo su árbol de procesos (libera el perfil temporal) y espera a que salga."""
+    with contextlib.suppress(Exception):
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pr.pid), "/T", "/F"], capture_output=True, timeout=10)
+        elif pr.poll() is None:
+            pr.terminate()
+        pr.wait(5)
+    if pr.poll() is None:
+        with contextlib.suppress(Exception):
+            pr.kill()
+            pr.wait(5)
 
 
 # ---------- Markdown / Obsidian / Notion ----------
@@ -382,11 +400,22 @@ def ics(c, evento=False):
     return "\r\n".join(fold(l) for l in L + ["END:VCALENDAR", ""])
 
 
+def _celda(v):
+    """Inyección de fórmulas (CSV/Excel): una celda de texto que empieza por = + - @ (o tab/CR) lleva ' delante; números y fechas no se tocan."""
+    if not isinstance(v, str) or not v or v[0] not in "=+-@\t\r" or v in ("-", "+"):
+        return v
+    try:
+        float(v)
+        return v
+    except ValueError:
+        return "'" + v
+
+
 def _csv(cab, filas):
     b = io.StringIO()
     w = csv.writer(b, lineterminator="\r\n")
     w.writerow(cab)
-    w.writerows(filas)
+    w.writerows([_celda(v) for v in f] for f in filas)
     return "\ufeff" + b.getvalue()
 
 
@@ -399,6 +428,16 @@ def csv_todoist(c):
 def csv_jira(c):
     return _csv(["Summary", "Issue Type", "Description", "Assignee", "Due date"],
                 [[x["texto"], "Task", _desc(c, x), x["resp"].strip(" —-"), f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else ""] for x in tareas(c)])
+
+
+def csv_azure(c):  # ponytail: las tareas no llevan importancia -> Priority vacío
+    return _csv(["Work Item Type", "Title", "Description", "Assigned To", "Tags", "Priority"],
+                [["Task", x["texto"], _desc(c, x), x["resp"].strip(" —-"), c["data"]["titulo"], ""] for x in tareas(c)])
+
+
+def csv_planner(c):  # Priority vacío: las tareas no llevan importancia
+    return _csv(["Task Name", "Bucket", "Assigned To", "Start Date", "Due Date", "Priority", "Notes"],
+                [[x["texto"], c["data"]["titulo"], x["resp"].strip(" —-"), "", f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else "", "", _desc(c, x)] for x in tareas(c)])
 
 
 # ---------- subtítulos ----------
@@ -563,18 +602,19 @@ def estilo_para(c, eid=None):
 
 
 # ---------- DOCX ----------
-def docx_bytes(c, est=None):
-    from PIL import Image
+def doc_base(est, ctx=None):
+    """Documento Word con el estilo de organización (base, logo, cabecera, pie). ctx: {marcador: texto} para cabecera/pie/campos.
+    -> SimpleNamespace(doc, sub, H, li, estilo): sub sustituye marcadores, H(txt, nivel) títulos con el color, li(txt) viñeta, estilo(p, nombre)."""
+    from types import SimpleNamespace
     from docx import Document
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Inches, RGBColor
     est = est or {}
+    ctx = ctx or {}
     base = _est_dir() / est["base_docx"] if est.get("base_docx") else None
     doc = Document(str(base)) if base and base.is_file() else Document()
     rgb = RGBColor.from_string(est["color"][1:].upper()) if est.get("color") else None
-    D = c["data"]
-    ctx = {"{fecha}": f"{c['fecha']:%d/%m/%Y}", "{título}": D["titulo"], "{titulo}": D["titulo"]}
 
     def sub(txt):
         for k, v in ctx.items():
@@ -629,6 +669,16 @@ def docx_bytes(c, est=None):
         con_pagina(p, est.get("cabecera", ""))
     if est.get("pie"):
         con_pagina(sec.footer.paragraphs[0], est["pie"])
+    return SimpleNamespace(doc=doc, sub=sub, H=H, li=li, estilo=estilo)
+
+
+def docx_bytes(c, est=None):
+    from PIL import Image
+    from docx.shared import Inches
+    est = est or {}
+    D = c["data"]
+    B = doc_base(est, {"{fecha}": f"{c['fecha']:%d/%m/%Y}", "{título}": D["titulo"], "{titulo}": D["titulo"]})
+    doc, sub, H, li, estilo = B.doc, B.sub, B.H, B.li, B.estilo
     H(f"{c['doc'].capitalize()}: {D['titulo']}", 0).alignment = 0
     doc.add_paragraph(f"Duración {fm(D['duracion'])} · {c['fecha']:%d/%m/%Y}" + (f" · {D['nube']}" if D.get("nube") else ""))
     cf = [(n, est["campos"][k]) for k, n in CAMPOS if (est.get("campos") or {}).get(k)]
@@ -700,6 +750,7 @@ def exportar(mid, ver, fmt, estilo=None, hablantes=False, evento=False, anon=Fal
         raise ValueError("Sin transcripción")
     datos = {"docx": lambda: docx_bytes(c, est), "pdf": lambda: pdf_bytes(c), "md": lambda: md(c), "obsidian": lambda: obsidian_zip(c), "notion": lambda: notion_zip(c),
              "ics": lambda: ics(c, evento), "csv_todoist": lambda: csv_todoist(c), "csv_jira": lambda: csv_jira(c),
+             "csv_azure": lambda: csv_azure(c), "csv_planner": lambda: csv_planner(c),
              "srt": lambda: subtitulos(c["segs"], False, hablantes), "vtt": lambda: subtitulos(c["segs"], True, hablantes)}[fmt]()
     ext, mime = FORMATOS[fmt]
     slug = re.sub(r"[^\w.-]+", "_", c["data"]["titulo"], flags=re.A)[:60].strip("_") or "documento"

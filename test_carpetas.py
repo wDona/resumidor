@@ -103,6 +103,21 @@ def test_pendientes_agregados(cl):
     assert "Javier" in r["responsables"] and [p["resp"] for p in carpetas.listar(C, ms(), resp="ana")["items"]] == ["Ana"]
 
 
+def test_seguir_entidades(cl, monkeypatch):
+    # las tareas del acta y los pendientes manuales siguen siendo tareas
+    assert {p["tipo_ent"] for p in carpetas.pendientes(C, ms(), HOY) if ".tareas." in "." + p["id"].split("|")[-1]} == {"tarea"}
+    # con `seguir` en la plantilla del documento, la sección se sigue como esa entidad (aunque su id no esté en ACCION)
+    tpl = {"nombre": "Plantilla RAID", "secciones": [{"id": "riesgos", "seguir": "riesgo"}, {"id": "notas"}]}
+    monkeypatch.setattr(carpetas.plantillas, "todas", lambda: [tpl])
+    ac = acta("Comité", secs=[("riesgos", "Riesgos", [{"texto": "Retraso del proveedor", "responsable": "Ana", "t": 10}]),
+                              ("notas", "Notas", [{"texto": "Nota suelta", "t": 20}]), ("pasos", "Pasos", [{"texto": "Llamar", "t": 30}])])
+    ac["plantilla"] = "Plantilla RAID"
+    doc(Path(carpetas.P.WORK), "dddd4444", "Comité", 0, ac, [(0, "Hola", "Ana")])
+    ps = {p["texto"]: p for p in carpetas.pendientes(C, ms(), HOY)}
+    assert ps["Retraso del proveedor"]["tipo_ent"] == "riesgo" and ps["Retraso del proveedor"]["resp"] == "Ana"
+    assert "Nota suelta" not in ps and ps["Llamar"]["tipo_ent"] == "tarea"  # fallback ACCION
+
+
 def test_estados_y_alias(cl):
     pid = "aaaa1111|acta_normal_impaaaa|tareas.0"
     carpetas.set_estado(C, ms(), pid, "hecho", HOY)
@@ -206,7 +221,7 @@ def test_endpoints(cl):
     c, app = cl
     q = {"c": C}
     e = c.get("/api/exp", params=q).json()
-    assert e["n_docs"] == 3 and e["pend"] >= 5 and e["tipo"] == "Proyecto" and "Responsable" in e["sugerencias"]
+    assert e["n_docs"] == 3 and e["pend"] >= 5 and e["tipo"] == "Proyecto" and "Sponsor" in e["sugerencias"]
     pl = c.post("/api/carpeta", json={"nombre": C, "plantilla": "comunidad"}).status_code
     e = c.get("/api/exp", params=q).json()
     assert pl == 200 and e["tipo"] == "Comunidad" and e["sugerencias"] == ["Dirección", "Administrador", "Nº de vecinos"]
@@ -273,3 +288,26 @@ def test_redaccion_cita_y_verifica(cl):
     assert "sustituida" in visto["user"] and carpetas.estado_actual(C, ms(), HOY)["redaccion"]["n_docs"] == 3
     r = carpetas.redactar_comparacion(C, ms(), "aaaa1111", "bbbb2222", lambda *a, **k: {"frases": ["Hay una decisión nueva [1]."]})
     assert carpetas.comparar_ids(C, ms(), "bbbb2222", "aaaa1111")["redaccion"]["frases"][0]["refs"]
+
+
+def test_solo_seguibles_en_pendientes(cl):
+    import registro
+    no = [registro.crear(C, t, titulo=f"Manual {t}", origen="manual", revision="aprobado")["id"] for t in ("historia", "interesado", "requisito", "decision")]
+    si = [registro.crear(C, t, titulo=f"Manual {t}", origen="manual", revision="aprobado")["id"] for t in ("tarea", "riesgo", "incidencia", "pregunta")]
+    base = carpetas.resumen_home([m for m in ms()])[C]["pend"]
+    ids = {p["id"] for p in carpetas.pendientes(C, ms(), HOY)}
+    assert not set(no) & ids and set(si) <= ids
+    assert not set(no) & {p["id"] for p in carpetas.pregunta_pendientes(C, ms(), "¿Qué hay pendiente?")["items"]}
+    assert base == len([p for p in carpetas.pendientes(C, ms(), HOY) if p["estado"] == "abierto"])
+
+
+def test_pendientes_eid_coincide_con_kpis(cl):
+    import informe
+    import registro
+    registro.crear(C, "tarea", titulo="Manual abierta", origen="manual", revision="aprobado")
+    registro.crear(C, "riesgo", titulo="Riesgo manual", origen="manual", revision="aprobado")
+    ps = carpetas.pendientes(C, ms(), HOY)
+    assert ps and all(p.get("eid") for p in ps) and any(p["eid"] != p["id"] for p in ps)
+    ab = {p["eid"] for p in ps if p["estado"] == "abierto" and p["tipo_ent"] == "tarea"}
+    k = informe.kpis(C, "2000-01-01", "2100-01-01")
+    assert ab and ab == set(k["ids"]["tareas_abiertas"])

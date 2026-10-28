@@ -196,22 +196,50 @@ def embed_gguf(texts, query, threads):
     return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
 
 
+def no_embed():
+    """ACTAS_NO_EMBED=1 y sin el ONNX de EmbeddingGemma utilizable (fichero o onnxruntime/tokenizers ausentes): vectores léxicos, sin descargas ni modelos."""
+    import importlib.util as iu
+    return os.environ.get("ACTAS_NO_EMBED") == "1" and not ((P.ROOT / "models" / "gemma-emb" / ONNX).is_file() and (P.ROOT / "models" / "gemma-emb" / (ONNX + "_data")).is_file() and iu.find_spec("onnxruntime") and iu.find_spec("tokenizers"))
+
+
+def embed_lex(texts, dim=1024):
+    """Vectores por hashing de palabras con raíz (sin las vacías), normalizados: coseno = solapamiento léxico. Sin semántica (sinónimos): solo para ir sin modelo."""
+    import zlib
+    out = np.zeros((len(texts), dim), np.float32)
+    for i, t in enumerate(texts):
+        for w in P.words(t):
+            if w not in STOP or w in NUM:
+                out[i, zlib.crc32(stem(w).encode()) % dim] += 1.0
+    return out / np.maximum(np.linalg.norm(out, axis=1, keepdims=True), 1e-9)
+
+
 def embed(texts, query=False, threads=2, std=False):
     """std=True: siempre el ONNX de serie (el pipeline del acta está calibrado para él); el rol «emb» solo afecta al índice de Preguntar."""
     global _enc
     if not std and emb_id() != ONNX:
         return embed_gguf(texts, query, threads)
+    if no_embed():
+        return embed_lex(texts)
+    if _enc is False and os.environ.get("ACTAS_NO_EMBED") != "1":
+        _enc = None
     if _enc is None:
-        import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
-        from tokenizers import Tokenizer
-        d = P.ROOT / "models" / "gemma-emb"
-        get = lambda f: str(d / f) if (d / f).is_file() else hf_hub_download(REPO, f, local_dir=d)  # local (models.py) o Hugging Face
-        tok = Tokenizer.from_file(get("tokenizer.json"))
-        tok.enable_truncation(512)
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = threads
-        _enc = tok, ort.InferenceSession(get(ONNX), so, providers=["CPUExecutionProvider"])
+        try:
+            import onnxruntime as ort
+            from huggingface_hub import hf_hub_download
+            from tokenizers import Tokenizer
+            d = P.ROOT / "models" / "gemma-emb"
+            get = lambda f: str(d / f) if (d / f).is_file() else hf_hub_download(REPO, f, local_dir=d)  # local (models.py) o Hugging Face
+            tok = Tokenizer.from_file(get("tokenizer.json"))
+            tok.enable_truncation(512)
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = threads
+            _enc = tok, ort.InferenceSession(get(ONNX), so, providers=["CPUExecutionProvider"])
+        except Exception:  # ONNX incompleto o sin onnxruntime
+            if os.environ.get("ACTAS_NO_EMBED") != "1":
+                raise
+            _enc = False
+    if _enc is False:
+        return embed_lex(texts)
     tok, sess = _enc
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
     out = np.zeros((len(texts), 768), np.float32)
@@ -230,7 +258,8 @@ class Index:
         self.segs = units(wd, quality)
         texts = [s["text"] for s in self.segs]
         import hashlib
-        h = hashlib.sha1("\0".join([emb_id(), *texts]).encode()).hexdigest()[:8]  # la clave incluye el modelo de embeddings: cambiarlo reindexa
+        lex = "lex" if emb_id() == ONNX and (no_embed() or _enc is False) else ""  # léxico (1024-d) y ONNX (768-d) nunca comparten fichero
+        h = hashlib.sha1("\0".join([emb_id() + lex, *texts]).encode()).hexdigest()[:8]  # la clave incluye el modelo de embeddings: cambiarlo reindexa
         f = Path(wd) / f"rag_{quality}_{h}.npy"
         if f.exists():
             self.emb = np.load(f)

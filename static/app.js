@@ -100,7 +100,8 @@ const VISTAS = ["home", "nuevo", "grabar", "cola", "res", "preg", "ajustes", "us
 const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
   if (v !== "ajustes" && location.hash) history.replaceState(null, "", location.pathname); document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
-const aviso = t => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.textContent = t; n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, 3500); };
+// aviso(texto, {txt, fn}?): con acción (p. ej. «Deshacer») el toast lleva un botón y dura más
+const aviso = (t, acc) => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.replaceChildren(t, ...(acc ? [" · ", el("button", {type: "button", className: "link", textContent: acc.txt, onclick: () => { n.hidden = true; acc.fn(); }})] : [])); n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, acc ? 8000 : 3500); };
 const irInicio = () => { fsel = undefined; ir("home"); };
 $("inicio").onclick = e => { e.preventDefault(); irInicio(); };
 $("nuevo-volver").onclick = $("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };
@@ -464,6 +465,11 @@ function evento(ev, cuerpo, frag, estado) {
     cuerpo.insertBefore(el("div", {}, el("p", {}, el("b", {textContent: ev.items.length ? (ev.resp ? T[1] + " " + ev.resp : T[0]) + " · " + ev.items.length : T[2]})),
       el("ul", {className: "f-lst"}, ...ev.items.map(p => el("li", {}, p.texto + (ev.resp ? "" : p.resp ? " — " + p.resp : "") + (p.plazo ? " · " + T[3] + ": " + p.plazo : "") + " ", p.mid ? fLink(p) : "")))), estado);
   }
+  else if (ev.k === "lista") {  // pregunta de lista sobre el registro del proyecto: entidades con código, responsable y citas al minuto
+    cuerpo.insertBefore(el("div", {}, el("p", {}, el("b", {textContent: ev.titulo + " · " + ev.n})),
+      el("ul", {className: "f-lst"}, ...ev.items.map(p => el("li", {}, (p.codigo ? p.codigo + " · " : "") + p.texto + (p.resp ? " — " + p.resp : "") + (p.estado ? " · " + p.estado : "") + (p.sin_revisar ? " · sin revisar" : "") + " ", ...p.citas.flatMap(r => [fLink(r), " "])))),
+      ...(ev.n > ev.items.length ? [el("small", {textContent: "Se muestran " + ev.items.length + " de " + ev.n})] : [])), estado);
+  }
   else if (ev.k === "aviso") cuerpo.insertBefore(el("p", {}, el("small", {textContent: ev.text})), estado);
   else if (ev.k === "nada") cuerpo.insertBefore(el("p", {}, el("b", {textContent: ev.text})), estado);
   else if (ev.k === "error") cuerpo.append(el("p", {className: "err", textContent: ev.text}));
@@ -567,7 +573,8 @@ $("acta-frame").onload = () => {
 // ---- editar y exportar el documento (#acta-acciones es el gancho de la barra) ----
 let editando = false;
 const FMT = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["md", "Markdown"], ["obsidian", "Obsidian (.zip)"], ["notion", "Notion (.zip)"], ["ics", "Calendario (.ics)"],
-  ["csv_todoist", "Tareas · Todoist (.csv)"], ["csv_jira", "Tareas · Jira (.csv)"], ["srt", "Subtítulos (.srt)"], ["vtt", "Subtítulos (.vtt)"]];
+  ["csv_todoist", "Tareas · Todoist (.csv)"], ["csv_jira", "Tareas · Jira (.csv)"],
+  ["csv_azure", "Tareas · Azure DevOps (.csv)"], ["csv_planner", "Tareas · Planner (.csv)"], ["srt", "Subtítulos (.srt)"], ["vtt", "Subtítulos (.vtt)"]];
 async function descargar(fmt, extra = "") {
   const est = $("ex-est")?.value, q = "fmt=" + fmt + (est && est !== "auto" ? "&estilo=" + encodeURIComponent(est === "none" ? "" : est) : "") + extra;
   const r = await fetch(`/api/exportar/${cur.id}/${ver}?${q}`);
@@ -594,7 +601,7 @@ function pintarAcciones(a) {
   const sep = () => el("div", {className: "sep", role: "separator"}), mas = el("div", {className: "pop-g", hidden: simple()}), ex = el("div", {className: "pop", role: "menu", ariaLabel: "Exportar"});
   const item = (f, t, extra) => el("button", {type: "button", role: "menuitem", textContent: t, onclick: fallo(async () => { box.querySelector("details").open = false; await exportar(f, extra()); })});
   const hab = el("input", {type: "checkbox", id: "ex-hab"}), evt = el("input", {type: "checkbox", id: "ex-evt"});
-  mas.append(sep(), ...["ics", "csv_todoist", "csv_jira", "obsidian", "notion", "srt", "vtt"].map(f => FMT.find(x => x[0] === f)).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
+  mas.append(sep(), ...["ics", "csv_todoist", "csv_jira", "csv_azure", "csv_planner", "obsidian", "notion", "srt", "vtt"].map(f => FMT.find(x => x[0] === f)).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
     el("label", {className: "check"}, evt, "Calendario: como un solo evento"), el("label", {className: "check"}, hab, "Subtítulos: con quien habla"));
   ex.append(...(ESTILOS.length ? [el("div", {className: "t", textContent: "Estilo"}), (s => { s.append(new Option("El de la carpeta", "auto"), new Option("Sin estilo", "none"), ...ESTILOS.map(e => new Option(e.nombre, e.id))); return s; })(el("select", {id: "ex-est", ariaLabel: "Estilo de organización"})), sep()] : []),
     ...FMT.slice(0, 3).map(([f, t]) => item(f, t, () => "")),
