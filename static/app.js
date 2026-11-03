@@ -159,7 +159,7 @@ $("form").onsubmit = async e => {
 };
 
 // ---- cola de trabajos ----
-const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado", seguimiento: "Seguimiento de pendientes", estado: "Resumen del estado", comparar: "Resumen de diferencias"};
+const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "Búsqueda a fondo", condensar: "Vídeo condensado", describir: "Describir con IA", seguimiento: "Seguimiento de pendientes", estado: "Resumen del estado", comparar: "Resumen de diferencias"};
 let cola = {n: 0, items: []}, vistos = new Set(), colaKey = null;  // null: la cola aún no se ha pintado (también vacía)
 const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
 const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
@@ -356,6 +356,7 @@ const defecto = a => [a.plantilla, a.idioma && "en " + (IDI[a.idioma] || a.idiom
 const etiqueta = a => cur.versiones[a.name] || defecto(a);
 async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
+  if (!cur.actas.length) { aviso("Documento solo buscable (sin resumen): encuéntralo con Buscar o Preguntar"); return; }
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
   if (simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
   ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
@@ -394,7 +395,7 @@ function cambiarActa() {
   $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
   const imp = cur.importadas[a.asr];
-  $("imp-info").textContent = imp ? "Transcripción importada: " + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
+  $("imp-info").textContent = imp ? (imp.tipo ? "Documento: " : "Transcripción importada: ") + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
     (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : (cur.audio ? " · solo audio: sin capturas" : " · sin vídeo: sin capturas ni reproductor")) + (imp.aviso ? ". " + imp.aviso : "") : "";
   $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("imp-info").hidden = !imp; $("cond").hidden = !cur.video;
   zipAnon(); const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }

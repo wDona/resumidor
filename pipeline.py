@@ -193,13 +193,22 @@ def transcribe(video, quality, threads, dur, cb, t0=0, hot=None):
 
 
 # ---------- Transcripción importada ----------
+DOC_NOTE = ("\nOjo: el texto no es una transcripción sino un documento escrito (PDF, texto, imagen…): las marcas [mm:ss] solo dicen "
+            "dónde está cada trozo (cópialas igual) y no hay hablantes ni reunión.")
 SAMPLE = 150  # s del vídeo que se transcriben para alinear la transcripción importada (desde el minuto 1: sin la charla inicial)
 
 
-def import_transcript(path, video, threads, dur, cb):
+def import_transcript(path, video, threads, dur, cb, descripcion="", vision=None):
     """Transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR. Con vídeo, desfase automático: se transcribe una muestra
-    con whisper y se busca el desfase (±10 min) que más palabras comunes alinea; si no hay certeza, 0 y un aviso."""
-    r = transcripts.parse(path)
+    con whisper y se busca el desfase (±10 min) que más palabras comunes alinea; si no hay certeza, 0 y un aviso.
+    Un documento (PDF, Markdown, imagen… o un .txt/.docx sin marcas de tiempo) va a documentos.leer()."""
+    import documentos
+    try:
+        r = transcripts.parse(path) if Path(path).suffix.lower() in (".vtt", ".srt", ".txt", ".docx") and not descripcion else None
+    except ValueError:
+        r = None
+    if r is None:
+        return documentos.leer(path, cb, descripcion, vision)
     segs, info = r["segments"], {"fuente": Path(path).name, "formato": r["formato"], "segmentos": len(r["segments"]),
                                  "hablantes": r["speakers"], "desfase": 0, "aviso": None}
     if video:
@@ -1212,7 +1221,7 @@ def merge_segs(segs, span=15):
     segmentos de 2-3 palabras)."""
     out = []
     for s in segs:
-        if out and s["s"] - out[-1]["s"] < span and s.get("spk") == out[-1].get("spk"):
+        if out and s["s"] - out[-1]["s"] < span and s.get("spk") == out[-1].get("spk") and s.get("loc") == out[-1].get("loc"):  # documentos: nunca cruza de página o sección
             out[-1] = {**out[-1], "e": s["e"], "text": out[-1]["text"] + " " + s["text"]}
         else:
             out.append(s)
@@ -1655,6 +1664,9 @@ def group_section(chat, pts, ask_n, lang, mas, P=None):
     return sentences(res, c * 3 // 2), sorted(items, key=lambda i: i["t"])
 
 
+FINAL_CHARS = 14000  # ~4,5k tokens de partes en la redacción final (contexto de 8k)
+
+
 def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None):
     """Reduce jerárquico, nunca se pasa de contexto ni recorta: (1) una sección por bloque del map (título = su tema,
     viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el título y el resumen
@@ -1680,6 +1692,9 @@ def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None):
             secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res})
     if secs:
         src, text = "los resúmenes de cada parte", "\n\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {s['resumen']}" for s in secs)
+        if len(text) > FINAL_CHARS:  # PDF de cientos de páginas: la primera frase de cada parte (y, si aún no cabe, las primeras partes)
+            # ponytail: recorte duro; reduce jerárquico (resumen de grupos de partes) si se queda corto con documentos enormes
+            text = "\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {first_sentences(s['resumen'], 1)}" for s in secs)[:FINAL_CHARS]
     else:
         src = "los temas de cada parte y los puntos clave"  # los temas: que el resumen recorra toda la reunión
         text = "Partes:\n" + "\n".join(f"[{fmt(t)}] {m['tema']}" for t, m in zip(starts, maps)) + "\n\nPuntos clave:\n" + bullets(sel)
@@ -1953,7 +1968,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
                     f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
     nota = ""
     if imp:
-        nota = (f'<p class="meta">Transcripción importada: {esc(imp["fuente"])} ({imp["formato"]}, {imp["segmentos"]} segmentos'
+        nota = (f'<p class="meta">{"Documento" if imp.get("tipo") else "Transcripción importada"}: {esc(imp["fuente"])} ({imp["formato"]}, {imp["segmentos"]} segmentos'
                 + (f", desfase aplicado {imp['desfase']:+.0f} s" if vext and not imp["aviso"] else "") + ")."
                 + (f" <b>{esc(imp['aviso'])}</b>" if imp["aviso"] else "") + "</p>"
                 + (f'<p class="meta">Participantes: {esc(", ".join(imp["hablantes"]))}.</p>' if imp["hablantes"] else ""))
@@ -1988,7 +2003,7 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(cab)} — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><{med} id="v" src="video{vext}" controls preload="metadata"></{med}>
 <button type="button" id="pip" hidden>Imagen en imagen</button><p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
-<div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">Duración {fmt(dur)} · idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
+<div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">{'' if (extra or {}).get('locs') else 'Duración ' + fmt(dur) + ' · '}idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
 generado {time.strftime('%Y-%m-%d %H:%M')}{esc(' · ' + extra['nube']) if (extra or {}).get('nube') else ''}</p>
 {nota}{chr(10).join(parts)}
 </div></main><script>{JS}</script></body></html>"""
@@ -1998,6 +2013,10 @@ generado {time.strftime('%Y-%m-%d %H:%M')}{esc(' · ' + extra['nube']) if (extra
         page = re.sub(r'<div id="side">.*?</p></div>', "", page, flags=re.S).replace(f"<script>{JS}</script>", "")
         page = page.replace("<main>", '<main>', 1)
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
+    if (extra or {}).get("locs"):  # documento: la marca dice la página o la sección («p. 12», «§ Diseño»)
+        import documentos
+        lab = documentos.etiqueta(extra["locs"])
+        page = re.sub(r'<span class="ts">\[([\d:]+)\]</span>', lambda m: f'<span class="ts">[{esc(lab(parse_ts(m[1])))}]</span>', page)
     allshots = sorted({k["img"]: k for k in [*shots, *nshots.values(), *used]}.values(), key=lambda k: k["t"])
     allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
@@ -2166,8 +2185,10 @@ def eta():
 
 # ---------- Orquestación ----------
 def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None,
-        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None, nube=None):
-    """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR). Sin vídeo no hay capturas ni reproductor.
+        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None, nube=None, descripcion="", buscable=False, vision=None):
+    """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR; o un documento/imagen de documentos.py: PDF, Markdown, PNG…, con
+    `descripcion` opcional del usuario). Sin vídeo no hay capturas ni reproductor. buscable: solo transcripción/texto y OCR, sin LLM
+    (devuelve (wd, None, timings): queda para Buscar y Preguntar). vision: vision.elegir() para describir una imagen con IA.
     calidad "alta": chunking semántico + pasada 2. fondo: además la búsqueda a fondo de decisiones y tareas. reuse=(id, calidad_asr): rehace el acta
     de una reunión ya procesada (misma carpeta de trabajo, con los nombres y el vídeo de entonces), p. ej. para la búsqueda a fondo.
     plantilla: id o dict (plantillas.py; None = «Acta de reunión»); idioma: el del documento (None o "reunión" = el de la plantilla /
@@ -2177,6 +2198,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     (work/<id>/notas.json) entran en el documento tras el reduce (no tocan prompts ni cachés; sin notas, todo igual).
     nube: configuración de nube.py (norm()) para redactar con un modelo en la nube en vez del local (sin GPU); None = local, todo igual."""
     import grabar
+    import documentos
     import plantillas
     tpl = plantilla if isinstance(plantilla, dict) else plantillas.get(plantilla)
     idioma = idioma if idioma and idioma != "reunión" else tpl.get("idioma_acta", "reunión")
@@ -2196,7 +2218,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if habla and not reuse and not transcript and habla in (*IDIOMAS, "mezcla"):  # idioma forzado: otra transcripción (otra caché)
         quality = f"{quality}-{habla}"
     if transcript:  # la clave de caché lleva el hash del fichero: no choca con el ASR ni con otra transcripción
-        th = hashlib.sha1(Path(transcript).read_bytes()).hexdigest()
+        th = hashlib.sha1(Path(transcript).read_bytes() + descripcion.encode()).hexdigest()  # sin descripción: el hash de siempre
         quality = "imp" + th[:8]
     speakers = speakers and not pistas
     audio = bool(video) and not has_video(video)  # solo audio: sin capturas, OCR ni reproductor de vídeo
@@ -2214,14 +2236,14 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         LL = lambda: NB.backend(nube)
     else:
         model = acta_model(calidad)
-        if not model or not model.exists():
+        if (not model or not model.exists()) and not buscable:
             raise RuntimeError(f"Falta el modelo del nivel «{NIVELES[calidad][0]}»: descárgalo desde Calidad del acta")
         LL = lambda: llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0))
     rk = functools.partial(ritmo_key, alta=calidad if alta else "", gpu=use_gpu(gpu))
     # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
     todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
             ("capturas+ocr", pic and not (wd / "frames2.json").exists()), ("ocr_map", pic and not (wd / "frames_map.json").exists()),
-            ("llm_carga", True), ("map", True), ("reduce", True), ("fondo", fondo)) if on}
+            ("llm_carga", not buscable), ("map", not buscable), ("reduce", not buscable), ("fondo", fondo)) if on}
 
     def fase(name, lo, hi):
         """Empieza una fase: ETA con su ritmo y el de las que quedan; devuelve el cb de su tramo de la barra."""
@@ -2242,14 +2264,16 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if not tf.exists():
         t0 = time.time()
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
-        tr = import_transcript(transcript, video, threads, dur, pa) if transcript else \
+        tr = import_transcript(transcript, video, threads, dur, pa, descripcion, vision) if transcript else \
             grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario) if pistas else transcribe(video, quality, threads, dur, pa, hot=glosario)
         tf.write_text(json.dumps(tr, ensure_ascii=False))
-        stage("transcripción" if transcript else "asr", t0)
+        stage("documento" if (tr.get("importada") or {}).get("tipo") else "transcripción" if transcript else "asr", t0)  # documento: sin ritmo (OCR por página)
     tr = json.loads(tf.read_text())
     if not tr["segments"]:
         raise RuntimeError("No se ha detectado voz en el vídeo")
     imp = tr.get("importada")
+    if imp and imp.get("tipo") and transcript and not any(wd.glob("fuente.*")):  # el original junto al documento (/files/<id>/fuente.pdf)
+        put_file(Path(transcript).resolve(), wd / ("fuente" + Path(transcript).suffix.lower()))
     dur = dur or tr["segments"][-1]["e"]
     speakers = speakers and video and not (imp and imp["hablantes"])  # con nombres en el fichero no hace falta separar voces
     if imp:
@@ -2259,6 +2283,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         lang = IDIOMAS[idioma]
     otro = bool(idioma) and idioma != tr["language"]
     P = prompts(tpl, otro, glosario)
+    if imp and imp.get("tipo"):  # documento escrito (no cambia prompts ni cachés de las reuniones)
+        P = {**P, "map": P["map"] + DOC_NOTE}
     fondo = fondo and P["acta"]  # la búsqueda a fondo es de decisiones y tareas
 
     dh = hashlib.sha1(repr((DIAR_EMB, DIAR_PIECE, DIAR_MIN)).encode()).hexdigest()[:8]
@@ -2281,6 +2307,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         t0 = time.time()
         kf.write_text(json.dumps(keyframes(video, wd, threads, dur, fase("capturas+ocr", 0.5, 0.55)), ensure_ascii=False))
         stage("capturas+ocr", t0)
+    if buscable:  # «solo buscable»: transcripción/texto y OCR de pantallas, sin LLM (buscar.py lo indexa; Preguntar también va)
+        cb(1, "Listo")
+        return wd, None, timings
     vocab = {w for s in tr["segments"] for w in words(s["text"])}
     # lo que ve el informe: solo pantallas (sin caras ni cámaras), con las rachas de escritura reducidas
     kfs = collapse_typing([k for k in screens(json.loads(kf.read_text()), vocab) if k["screen"]]) if pic else []
@@ -2387,7 +2416,8 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     for k in render(out, nombre or red.get("titulo") or stem, dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
                     starts, tr["segments"], level, video.suffix if video else None, names, imp, audio, P, op.get("marcas", True),
                     ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {}) |
-                    ({"idioma": idioma} if idioma else {}) | ({"nube": NB.marca(nube)} if nube else {}) | ({"notas_usuario": filas} if filas else {}), filas):
+                    ({"idioma": idioma} if idioma else {}) | ({"nube": NB.marca(nube)} if nube else {}) | ({"notas_usuario": filas} if filas else {}) |
+                    ({"locs": lc} if (lc := documentos.locs(tr["segments"])) else {}), filas):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2

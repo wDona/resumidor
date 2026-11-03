@@ -39,6 +39,8 @@ CAT = {
     "maxima": ("Qwen3.6-35B-A3B", "Redactor del acta Máxima; el mayor (MoE), necesita mucha memoria", [(P.LLM_DE["maxima"],
                HFU("Qwen3.6-35B-A3B-GGUF", P.LLM_DE["maxima"]), "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61", 22134528992)]),
     "chat": ("Gemma 4 E4B", "Chat de Preguntar; mejor que el Qwen si hay memoria", [FILES[1]]),
+    "vision": ("Gemma 4 E4B + visión", "Describe imágenes y capturas con IA (opcional; vision.py)", [FILES[1], ("gemma-4-E4B-it-mmproj-F16.gguf",
+               HFU("gemma-4-E4B-it-GGUF", "mmproj-F16.gguf"), "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51", 990372672)]),
 }
 LLMS = [i for i in CAT if i in P.NIVELES]  # redactores
 tam = lambda i: sum(f[3] for f in CAT[i][2])
@@ -85,7 +87,7 @@ def recomendados(est=estado):
     """Esenciales + Rápida + UN redactor mayor (Alta+ si está «ok»; si no, el nivel más alto «ok») + chat si procede; el resto, solo con badge."""
     ok_ = [i for i in CAT if est(i)[0] == "ok"]
     mayor = [i for i in ok_ if i in LLMS and i != "rápida"]
-    return [i for i in ok_ if i not in LLMS or i == "rápida" or i == ("alta9" if "alta9" in mayor else mayor[-1] if mayor else None)]
+    return [i for i in ok_ if i != "vision" and (i not in LLMS or i == "rápida") or i == ("alta9" if "alta9" in mayor else mayor[-1] if mayor else None)]
 
 
 def catalogo():
@@ -100,7 +102,7 @@ def missing(ids):
 def faltan(accion, calidad="rápida", video=True, nube=False):
     """Qué hay que instalar para `accion` ("generar" | "fondo" | "preguntar") -> (mensaje, [ids]); ("", []) si está todo."""
     m = "rápida" if calidad in ("rápida", "alta") else calidad
-    llm = lambda: [] if nube or (f := P.acta_model(calidad)) and f.is_file() or m not in CAT else [m]
+    llm = lambda: [] if nube or accion == "buscable" or (f := P.acta_model(calidad)) and f.is_file() or m not in CAT else [m]
     hay = any(instalado(i) for i in LLMS) or any(Path(r).is_file() for r in P.OVER.values())
     rol = lambda r: bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file() or (r == "emb" and os.environ.get("ACTAS_NO_EMBED") == "1")  # rol sustituido por un .gguf propio
     if accion == "preguntar":
