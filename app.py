@@ -658,7 +658,9 @@ def generar(d: dict):
     if n["estado"] == "no" and not d.get("nube") and not d.get("buscable") and not d.get("tal_cual"):
         raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
     falta(d, "buscable" if d.get("buscable") or d.get("tal_cual") else "generar", bool(video.is_file() or url and not d.get("tal_cual") and (Path(urllib.parse.urlsplit(url).path).suffix.lower() in enlaces.MEDIA or enlaces.es_microsoft(url) or enlaces.especifico(url)) or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
-    return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse and not url else url[:80] if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
+    r = start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse and not url else url[:80] if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
+    adj = adjuntos_correo(d, v) if v.suffix.lower() in documentos.CORREO and not reuse else []  # tras encolar el correo: si este falla, no entra nada
+    return {**r, "adjuntos": adj} if adj else r  # correo: sus adjuntos ya están en la cola, en la misma carpeta
 
 
 @app.post("/api/fondo")
@@ -2138,6 +2140,29 @@ def preguntar(d: dict):
 
 LOTE_MAX, LOTE_GB = 500, 20  # ficheros y GB descomprimidos como mucho por zip de lote
 BASURA = re.compile(r"^(?:\.|~\$|__MACOSX$)|^(?:thumbs\.db|desktop\.ini)$", re.I)
+
+
+def adjuntos_correo(d, v):
+    """Adjuntos compatibles de un .eml/.msg -> a la cola con las mismas opciones (carpeta, plan…). Devuelve sus ids; los demás se ignoran."""
+    try:
+        c = documentos.correo(v)
+    except Exception as ex:
+        raise HTTPException(400, f"No se puede leer el correo: {ex}")
+    ok, ids = MEDIA + TR_EXT + documentos.EXT + (".zip",), []
+    h = hashlib.sha1(f"{v.name}|{v.stat().st_size}|{v.stat().st_mtime_ns}".encode()).hexdigest()[:12]
+    for n, a in enumerate(c["adjuntos"][:LOTE_MAX]):
+        nombre = Path(str(a.get("nombre") or "")).name
+        if not nombre or BASURA.search(nombre) or Path(nombre).suffix.lower() not in ok:
+            continue
+        f = UPLOADS / f"correo_{h}" / str(n) / nombre
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(a["datos"])
+        try:
+            r = generar({**d, "video": str(f), "transcripcion": "", "enlace": "", "descripcion": ""})
+            ids += r.get("ids") or [r["id"]]
+        except HTTPException:
+            pass  # un adjunto que no se puede procesar no impide el correo
+    return ids
 
 
 def lote(d, zp):

@@ -14,10 +14,11 @@ import numpy as np
 import pipeline as P
 import transcripts
 
-TEXTO = (".pdf", ".md", ".markdown", ".txt", ".docx", ".html", ".htm")
+CORREO = (".eml", ".msg")
+TEXTO = (".pdf", ".md", ".markdown", ".txt", ".docx", ".html", ".htm") + CORREO
 IMAGEN = (".png", ".jpg", ".jpeg", ".webp")
 EXT = TEXTO + IMAGEN
-FORMATO = {".pdf": "PDF", ".md": "Markdown", ".markdown": "Markdown", ".txt": "Texto", ".docx": "DOCX", ".html": "HTML", ".htm": "HTML"}
+FORMATO = {".pdf": "PDF", ".md": "Markdown", ".markdown": "Markdown", ".txt": "Texto", ".docx": "DOCX", ".html": "HTML", ".htm": "HTML", ".eml": "Correo (.eml)", ".msg": "Correo de Outlook (.msg)"}
 CPS = 15         # letras por «segundo»: ~2,5 palabras/s, el ritmo del habla (los ritmos medidos del map valen igual)
 TOPE = 59000     # s: las marcas del esquema del map llegan a 999:59; un documento enorme comprime su tiempo ficticio para caber
 TROZO = 300      # letras por segmento (~20 s ficticios: como los del ASR)
@@ -172,6 +173,12 @@ def _partes_imagen(imp):
     return [("descripción", imp["descripcion"]), ("descripción IA", imp["descripcion_ia"]), ("imagen", imp["ocr_texto"])]
 
 
+@functools.cache
+def correo(path):
+    import correo_entrada
+    return correo_entrada.leer(path)
+
+
 def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
     """Documento o imagen -> {"language", "segments", "importada"} (lo mismo que una transcripción importada, más tipo y páginas).
     Imagen: OCR + descripción del usuario + descripción con IA si hay `vision` (vision.elegir(); si falla, solo aviso)."""
@@ -206,6 +213,11 @@ def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
         partes += secciones(h.out)
     elif ext in (".md", ".markdown"):
         partes += secciones(_texto(p).split("\n"))
+    elif ext in CORREO:  # cuerpo del correo; los adjuntos entran aparte en la cola (app.generar)
+        c = correo(p)
+        cab = "\n".join(f"{k}: {v}" for k, v in (("Asunto", c["asunto"]), ("De", c["de"]), ("Fecha", c["fecha"]),
+                                                    ("Adjuntos", ", ".join(a["nombre"] for a in c["adjuntos"]))) if v)
+        partes += [("✉ cabecera", cab)] * bool(cab) + [(f"¶ {i}", x) for i, x in enumerate((x for x in re.split(r"\n\s*\n", c["texto"]) if x.strip()), 1)]
     else:
         raise ValueError(f"Formato no admitido: {ext}")
     segs = segmentos(partes)

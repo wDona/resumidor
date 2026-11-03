@@ -134,3 +134,25 @@ def test_outlook_endpoint_motivo_claro(monkeypatch):
     r = c.post("/api/correo/m1/v1/outlook/0")
     assert r.status_code == 400 and "Outlook" in r.json()["detail"]
     assert c.post("/api/correo/m1/v1/outlook/9").status_code == 404
+
+
+def test_correo_como_documento_y_adjuntos_a_la_cola(tmp_path, monkeypatch):
+    import app
+    import documentos
+    m = EmailMessage()
+    m["Subject"], m["From"] = "Comité 28-oct", "Ana <ana@x.es>"
+    m.set_content("Primer párrafo con la decisión.\n\nSegundo párrafo: Luis prepara el presupuesto.")
+    m.add_attachment(b"# Pliego\n\nTexto del pliego", maintype="text", subtype="markdown", filename="pliego.md")
+    m.add_attachment(b"MZ", maintype="application", subtype="octet-stream", filename="virus.exe")
+    p = tmp_path / "c.eml"
+    p.write_bytes(bytes(m))
+    r = documentos.leer(p)
+    textos = [s["text"] for s in r["segments"]]
+    assert any("Asunto: Comité 28-oct" in t and "pliego.md" in t for t in textos) and any("presupuesto" in t for t in textos)
+    assert r["importada"]["formato"] == "Correo (.eml)"
+    monkeypatch.setattr(app, "UPLOADS", tmp_path / "up")
+    vistos = []
+    real = app.generar
+    monkeypatch.setattr(app, "generar", lambda d: vistos.append(d) or {"id": f"a{len(vistos)}"})
+    assert real.__globals__["adjuntos_correo"]({"carpeta": "X"}, p) == ["a1"]  # solo el .md: el .exe no es compatible
+    assert vistos[0]["carpeta"] == "X" and vistos[0]["video"].endswith("pliego.md")
