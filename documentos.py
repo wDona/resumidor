@@ -246,3 +246,28 @@ def locs(segments):
     if not segments or "loc" not in segments[0]:
         return None
     return [[s["s"], s["loc"]] for i, s in enumerate(segments) if not i or s["loc"] != segments[i - 1]["loc"]]
+
+
+def acta_tal_cual(wd, titulo=None):
+    """«Ya está hecho, no resumir»: el texto del documento, sin LLM, como su única «acta» (acta_normal_<asr>/{index.html, acta.json}),
+    para que carpetas, envíos y recetas lo traten como cualquier documento. Los ítems (tareas, decisiones…) los extrae `poblar`, con su loc."""
+    import html
+    wd = Path(wd)
+    tf = max(wd.glob("transcript_*.json"), key=lambda f: f.stat().st_mtime)
+    tr = json.loads(tf.read_text())
+    titulo = titulo or (tr.get("importada") or {}).get("fuente") or wd.name
+    grupos = []  # [(loc, [textos])] seguidos con la misma loc
+    for s in tr["segments"]:
+        if grupos and grupos[-1][0] == s.get("loc"):
+            grupos[-1][1].append(s["text"])
+        else:
+            grupos.append((s.get("loc"), [s["text"]]))
+    out = wd / f"acta_normal_{tf.stem.split('_', 1)[1]}"
+    out.mkdir(exist_ok=True)
+    cuerpo = "".join(f"<section><h2>{html.escape(l or '')}</h2><p>{html.escape(' '.join(t))}</p></section>" for l, t in grupos)
+    (out / "index.html").write_text(f'<!doctype html><meta charset="utf-8"><title>{html.escape(titulo)}</title><h1>{html.escape(titulo)}</h1>{cuerpo}', encoding="utf-8")
+    (out / "acta.json").write_text(json.dumps({
+        "titulo": titulo, "duracion": round(tr["segments"][-1]["e"]) if tr["segments"] else 0, "nivel": "normal", "tal_cual": True, "fondo": False, "resumen": "",
+        "relato": [{"t": s["s"], "texto": s["text"]} for s in tr["segments"]], "puntos": [], "secciones": [], "decisiones": [], "tareas": [], "capturas": [],
+        "locs": locs(tr["segments"])}, ensure_ascii=False, indent=1), encoding="utf-8")
+    return out.name
