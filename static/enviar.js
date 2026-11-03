@@ -168,7 +168,10 @@ function editorCuando(cu0) {
 }
 function formReceta(ctx, r, alGuardar) {
   const nombre = el("input", {id: "env-rn", value: r?.nombre || ""});
-  const carp = el("input", {id: "env-rc", value: r?.cuando?.carpeta || "", placeholder: "Proyecto (carpeta)"});
+  const carp = el("input", {id: "env-rc", value: r?.cuando?.carpeta || "", placeholder: "Proyecto (carpeta)", autocomplete: "off"});
+  const dl = el("datalist", {id: "env-rc-l"}); carp.setAttribute("list", "env-rc-l"); // proyectos existentes como sugerencias
+  api("/api/carpetas").then(cs => dl.append(...cs.map(c => el("option", {value: c})))).catch(() => {});
+  carp.addEventListener("focus", () => carp.isConnected && !dl.isConnected && carp.after(dl), {once: true});
   const cu = editorCuando(r?.cuando);
   const ps = new Set(r?.presets || []);
   const lp = T("div", "env-lista", ...ctx.presets.map(p => T("label", "env-chk", el("input", {type: "checkbox", value: p.id, checked: ps.has(p.id)}), " " + p.nombre)));

@@ -80,3 +80,16 @@ Comparar, Glosario, Vídeo condensado, Buscar a fondo, Derivar, fusionar/separar
 - Nunca escribir la palabra RELEASE en commits (dispara CI de publicación).
 - Un `.py` nuevo se añade también a `installer/actas.iss` y `installer/macos/build.sh`.
 - Tests: `ACTAS_NO_EMBED=1 uv run pytest -q` (offline). Sin dependencias pesadas; stdlib primero.
+
+## Decisiones tomadas sin preguntar (usuario ausente, 2026-11-03)
+
+1. Trabajo en la rama local **`rediseno`** con commits de control; `master` intacto; sin push ni release.
+2. «Solo buscable» no dispara envíos ni recetas (no hay nada extraído que enviar).
+3. Imágenes a la nube apagado por defecto; visión local opcional = Gemma 4 E4B + mmproj (~1 GB, no se instala sola).
+4. PDFs muy largos: el resumen final usa como máximo 14k caracteres de las partes (cabe en el 4B); resumen jerárquico = mejora pendiente.
+5. Microsoft Graph: client ID/tenant configurables, sin valor por defecto (hace falta registrar una app en Entra).
+6. Enlaces: solo http/https; red local/privada bloqueada salvo ajuste `enlaces_red_local`.
+7. Notion «actualizar» = archiva la página anterior y crea otra.
+8. El plan de un trabajo (checklist de Añadir) sustituye a las recetas «al terminar» de su carpeta para ese documento: nunca se envía dos veces.
+9. Con «Anonimizar por defecto», si falta la copia anonimizada no se envía nada (error en historial); nunca sale vídeo/audio.
+10. Tests: `test_hardening::test_pdf_limpieza_no_es_500` y `test_nube::test_claude_argv_y_utf8` fallan en esta máquina también sin cambios (entorno); se excluyen al validar.
