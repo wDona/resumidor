@@ -8,9 +8,9 @@
 .hu-card:hover{border-color:var(--acc-ln)}.hu-card:focus-visible{outline:2px solid var(--focus);outline-offset:1px}.hu-card.arr{opacity:.45}
 .hu-card.prop{border-left:4px solid var(--acc)}
 .hu-top{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.hu-ep{background:var(--acc-s2);color:var(--acc-d);border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
+.hu-ep{background:var(--acc-s2);color:var(--acc-d);border-radius:var(--r-pill);padding:2px 8px;font-size:12px;font-weight:600}
 .hu-ep{color:var(--acc-t)}
-.hu-pts{background:var(--line2);color:var(--ink2);border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600}
+.hu-pts{background:var(--line2);color:var(--ink2);border-radius:var(--r-pill);padding:2px 8px;font-size:12px;font-weight:600}
 .hu-txt{display:flex;flex-direction:column;gap:2px;font-size:14px;line-height:1.35;color:var(--ink)}.hu-txt i{color:var(--mut);font-style:normal;font-weight:600}
 .hu-pie{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.hu-der-c{color:var(--warn);font-weight:600}
 .hu-mv{font-size:12px;min-height:28px;padding:2px 4px;border:1px solid var(--line);background:var(--bg2);color:var(--ink2);border-radius:var(--r);align-self:flex-start}

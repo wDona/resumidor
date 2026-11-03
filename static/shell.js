@@ -223,9 +223,9 @@ async function docFuente() {
     nodos.push(el("div", {className: "fu-img"}, el("img", {src: f.url, alt: f.descripcion || f.descripcion_ia || f.nombre || "Imagen"}),
       el("div", {}, el("div", {className: "field"}, el("label", {htmlFor: "fu-du", textContent: "Tu descripción"}), du), el("div", {className: "field"}, el("label", {htmlFor: "fu-dia", textContent: "Descripción de la IA"}), dia),
         el("button", {type: "button", className: "pri sm", textContent: "Guardar descripciones", onclick: fallo(async () => { await post("/api/imagen/" + id, {descripcion: du.value, descripcion_ia: dia.value}); aviso("Guardado: ya se puede buscar"); })}))),
-      ...(f.ocr_texto ? [el("details", {open: true}, el("summary", {textContent: "Texto reconocido (OCR)"}), el("pre", {className: "fu-ocr", textContent: f.ocr_texto}))] : []));
+      ...(f.ocr_texto ? [el("details", {open: false}, el("summary", {textContent: "Texto reconocido (OCR)"}), el("pre", {className: "fu-ocr", textContent: f.ocr_texto}))] : []));
   }
-  if (f.partes?.length) nodos.push(el("details", {open: !media}, el("summary", {textContent: (media ? "Transcripción · " : "Texto · ") + f.partes.length + (media ? " tramos" : " partes")}), el("div", {className: "fu-p"}, ...f.partes.map(sec))));
+  if (f.partes?.length) nodos.push(el("details", {open: !media && f.kind !== "imagen"}, el("summary", {textContent: (media ? "Transcripción · " : "Texto · ") + f.partes.length + (media ? " tramos" : " partes")}), el("div", {className: "fu-p"}, ...f.partes.map(sec))));
   w.replaceChildren(...nodos);
 }
 

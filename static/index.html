@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="vistas-decisiones.css">
 <link rel="stylesheet" href="vistas-informe.css">
 <link rel="stylesheet" href="vistas-enviar.css">
+<link rel="stylesheet" href="vistas-shell.css">
 </head>
 <body>
 <a class="skip" href="#main">Saltar al contenido</a>
@@ -22,13 +23,14 @@
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
   <a href="#/" id="inicio" class="logo" aria-label="Actas, ir al inicio">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg><span>Actas</span></a>
+  <button type="button" class="ic gh" id="omni-b" aria-controls="omni" aria-expanded="false" aria-label="Buscar" title="Buscar (/)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
   <form class="srch" id="omni" role="search" aria-label="Buscar o preguntar">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <label for="buscar" class="sr">Buscar o preguntar</label><input type="search" id="buscar" placeholder="Buscar o preguntar…" autocomplete="off" aria-keyshortcuts="/">
     <label for="omni-c" class="sr">Dónde buscar</label><select id="omni-c"><option value="">Todo</option></select>
     <kbd class="kbd" aria-hidden="true">/</kbd></form>
   <span class="grow"></span>
-  <button class="pill" id="b-cola" aria-controls="v-cola"><span class="qring" aria-hidden="true"></span><span><strong>Cola</strong><span class="t2" id="cola-txt"></span></span></button>
+  <button class="pill" id="b-cola" title="Cola de trabajos" aria-controls="v-cola"><span class="qring" aria-hidden="true"></span><span><strong>Cola</strong><span class="t2" id="cola-txt"></span></span></button>
   <button class="btn sec" id="b-importar" title="Abrir un documento exportado (.zip)" hidden>Importar</button>
   <button class="btn pri" id="nueva" aria-keyshortcuts="n" title="Añadir (N)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="fab-t" id="nueva-t">Añadir</span></button>
   <button class="btn sec ic" id="b-ajustes" aria-label="Ajustes" title="Ajustes">
@@ -44,12 +46,14 @@
       <div id="h-inicio">
         <div class="head" id="h-head" hidden><h1 id="h-tit">Inicio</h1><p class="muted" id="h-sub"></p></div>
         <section class="hdrop" id="h-drop" aria-labelledby="h-drop-t">
-          <svg class="ico" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
-          <h1 id="h-drop-t">Suelta archivos, pega una captura (Ctrl+V) o un enlace</h1>
-          <p class="muted">Vídeo · audio · PDF · Word · Markdown · texto · HTML · imágenes · .zip · correos (.eml, .msg)</p>
-          <form class="row wrap hd-enl" id="h-enl"><label for="h-enl-i" class="sr">Enlace</label><input id="h-enl-i" type="url" placeholder="https://… (vídeo, audio, pódcast o archivo)"><button class="sec">Añadir enlace</button></form>
-          <div class="row wrap hd-acc"><button type="button" class="pri" id="h-elegir">Elegir archivos</button><button type="button" class="sec" id="h-pegar">Pegar captura</button><button type="button" class="sec" id="h-grabar">Grabar reunión</button></div>
-          <p class="hd-rec" id="h-receta"></p>
+          <svg class="ico" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+          <div class="hd-m">
+            <div class="hd-tt"><h1 id="h-drop-t">Suelta archivos o pega un enlace</h1><button type="button" class="link hd-q" aria-label="Formatos admitidos: vídeo, audio, PDF, Word, Markdown, texto, HTML, imágenes, .zip y correos (.eml, .msg)" title="Vídeo · audio · PDF · Word · Markdown · texto · HTML · imágenes · .zip · correos (.eml, .msg)">?</button></div>
+            <div class="row wrap hd-acc"><button type="button" class="link" id="h-enl-b" aria-controls="h-enl" aria-expanded="false">Enlace</button><button type="button" class="link" id="h-pegar">Pegar captura</button><button type="button" class="link" id="h-grabar">Grabar reunión</button></div>
+            <p class="hd-rec" id="h-receta"></p>
+          </div>
+          <button type="button" class="sec" id="h-elegir">Elegir archivos</button>
+          <form class="row hd-enl" id="h-enl" hidden><label for="h-enl-i" class="sr">Enlace</label><input id="h-enl-i" type="url" placeholder="https://… (vídeo, audio, pódcast o archivo)"><button class="sec">Añadir enlace</button></form>
         </section>
         <section class="sug" id="h-sug" aria-label="Sugerencias"></section>
         <nav class="flujo" id="h-flujo" aria-label="Flujo: añadir, procesar, revisar, enviar"></nav>
@@ -88,12 +92,12 @@
   <section id="v-bib" class="page" hidden aria-labelledby="bib-t">
     <div class="sec-h bib-h" id="bib-h"><h1 id="bib-t">Biblioteca</h1><span class="muted" id="bib-n"></span><div class="bib-bulk" id="bib-bulk" hidden role="region" aria-label="Acciones con la selección"></div></div>
     <div class="bib-f" id="bib-f"></div>
-    <div class="bib-g"><div class="tabla bib-l"><table><thead><tr><th scope="col"><input type="checkbox" id="bib-all" aria-label="Seleccionar todo"></th><th scope="col">Documento</th><th scope="col">Tipo</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Estado</th></tr></thead><tbody id="bib-tb"></tbody></table><div class="vacio" id="bib-v" hidden></div></div>
-      <aside class="bib-p box" id="bib-p" aria-label="Vista previa" aria-live="polite"><p class="muted">Elige un documento para ver su resumen y sus acciones.</p></aside></div>
+    <div class="bib-g" id="bib-g"><div class="tabla bib-l"><table><thead><tr><th scope="col"><input type="checkbox" id="bib-all" aria-label="Seleccionar todo"></th><th scope="col">Documento</th><th scope="col">Tipo</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Estado</th></tr></thead><tbody id="bib-tb"></tbody></table><div class="vacio" id="bib-v" hidden></div></div>
+      <aside class="bib-p box" id="bib-p" aria-label="Vista previa" aria-live="polite" hidden><p class="muted">Elige un documento para ver su resumen y sus acciones.</p></aside></div>
   </section>
 
   <!-- ===== Pendientes (de todos los proyectos) ===== -->
-  <section id="v-pend" class="page" hidden aria-labelledby="pend-t"><div class="sec-h"><h1 id="pend-t">Pendientes</h1><span id="pend-f"></span></div><div id="pend-l" class="tabla"></div></section>
+  <section id="v-pend" class="page" hidden aria-labelledby="pend-t"><div class="sec-h"><h1 id="pend-t">Pendientes</h1><span id="pend-f"></span></div><div id="pend-l"></div></section>
 
   <!-- ===== Enviar (centro de salida, enviar.js) ===== -->
   <section id="v-enviar" class="page" hidden aria-labelledby="env-t"><h1 id="env-t" class="sr">Enviar</h1><div id="env-raiz"></div></section>
@@ -114,38 +118,42 @@
         <button type="button" class="sec qi" id="an-x" aria-label="Cerrar">&times;</button></div>
       <div class="sh-b">
         <section class="an-sec" id="f-fuente-c" aria-labelledby="an-h1">
-          <h2 class="an-h" id="an-h1">1 · Archivos, enlace o captura</h2>
+          <h2 class="an-h sr" id="an-h1">Archivos, enlace o captura</h2>
           <div id="f-fuente">
-            <div class="an-drop" id="drop"><div class="t" id="drop-t">Suelta aquí vídeo, audio, PDF, Word, Markdown, texto, imágenes, .zip o correos</div>
-              <div class="row wrap"><button type="button" class="pri" id="an-elegir">Elegir archivos</button>
-                <input type="file" id="an-file" multiple hidden accept="video/*,audio/*,.mp4,.mkv,.webm,.mov,.m4v,.avi,.mp3,.m4a,.wav,.ogg,.opus,.flac,.aac,.pdf,.md,.txt,.docx,.html,.htm,.png,.jpg,.jpeg,.webp,.zip,.eml,.msg">
-                <button type="button" id="elegir" class="sec" title="Usa el archivo donde está, sin copiarlo (vídeos grandes)">Elegir sin copiar</button>
-                <button type="button" class="sec" id="an-pegar">Pegar captura</button><span id="n-grabar" hidden></span></div>
+            <div class="an-drop" id="drop">
+              <svg class="ico" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+              <div class="t" id="drop-t">Suelta aquí tus archivos</div>
+              <button type="button" class="sec" id="an-elegir">Elegir archivos</button>
+              <small class="muted">Vídeo, audio, PDF, Word, Markdown, texto, imágenes, .zip o correos</small>
+              <input type="file" id="an-file" multiple hidden accept="video/*,audio/*,.mp4,.mkv,.webm,.mov,.m4v,.avi,.mp3,.m4a,.wav,.ogg,.opus,.flac,.aac,.pdf,.md,.txt,.docx,.html,.htm,.png,.jpg,.jpeg,.webp,.zip,.eml,.msg">
+              <div class="row wrap an-mini"><button type="button" class="link" id="an-enl-b" aria-controls="t-enlace" aria-expanded="false">Enlace</button><span id="n-grabar" hidden></span>
+                <button type="button" id="elegir" class="link" title="Usa el archivo donde está, sin copiarlo (vídeos grandes)">Elegir sin copiar</button>
+                <button type="button" class="link" id="an-pegar">Pegar captura</button></div>
               <label for="ruta" class="sr">Archivo elegido</label><input id="ruta" readonly hidden>
               <ul class="an-files" id="an-files" aria-label="Archivos para procesar"></ul>
               <small id="subida" aria-live="polite"></small></div>
             <div class="field" id="an-desc-w" hidden><label for="an-desc">Descripción de la imagen (opcional; también se puede buscar)</label><textarea id="an-desc" rows="2" placeholder="Error 403 tras el cambio de contraseña"></textarea></div>
             <label class="check" id="an-tc-w" hidden><input type="checkbox" id="an-tc"> <span>Ya está hecho, no resumir<small>Se guarda tal cual, se indexa y se extraen sus tareas, decisiones y requisitos con su cita.</small></span></label>
-            <div class="field" id="t-enlace"><label for="enlace">O pega un enlace</label>
+            <div class="field" id="t-enlace" hidden><label for="enlace">Enlace</label>
               <input id="enlace" type="url" placeholder="https://…" title="Vídeo, audio, pódcast, reunión grabada o archivo"></div>
             <div id="n-notas" class="card" hidden></div>
           </div>
         </section>
         <section class="an-sec" id="an-obj" aria-labelledby="an-h2">
-          <h2 class="an-h" id="an-h2">2 · ¿Qué quieres sacar y dónde?</h2>
-          <p class="muted">Elige un atajo o marca lo que necesites.</p>
+          <h2 class="an-h" id="an-h2">Qué sacar y dónde</h2>
           <div class="an-goals" id="an-goals" role="group" aria-label="Atajos de objetivo"></div>
           <div id="an-check"></div>
         </section>
-        <section class="an-sec cols" aria-label="Proyecto y tipo">
+        
+        <details class="an-av" id="an-av"><summary>Proyecto y ajustes <span class="muted" id="gen-res"></span></summary>
+          <div class="an-avb">
+            <div class="cols an-pt" role="group" aria-label="Proyecto y tipo">
           <div class="field"><label for="n-carpeta" id="n-carpeta-l">Proyecto</label><select id="n-carpeta"></select>
             <input id="n-carpeta-nueva" class="mt8" aria-label="Nombre nuevo" placeholder="Nombre" hidden></div>
           <div class="field" id="f-plantilla"><label for="plantilla" id="plantilla-l">Tipo</label><select id="plantilla"></select><small id="info-plant"></small>
             <a class="solo-av sm-l" href="#/ajustes/plantillas">Editar plantillas</a></div>
           <div class="field"><label for="an-nombre">Nombre base (opcional)</label><input id="an-nombre" placeholder="Comité 28-oct"><small>Se usa para nombrar lo que se envía.</small></div>
-        </section>
-        <details class="an-av" id="an-av"><summary>Ajustes de procesado <span class="muted" id="gen-res"></span></summary>
-          <div class="an-avb">
+        </div>
             <div class="field solo-sim" id="sp-bloque"><label id="sp-ql">Calidad</label>
               <div class="chips" id="sp-cal" role="radiogroup" aria-labelledby="sp-ql">
                 <button type="button" role="radio" class="chip" data-q="r" aria-checked="true"><b>Rápido</b><small>Menos espera</small></button>
@@ -222,9 +230,9 @@
           <h1 id="cab-titulo"></h1><div class="meta" id="cab-meta"></div></div>
         <div class="acc" id="doc-acc">
           <button class="pri" id="d-resumir" hidden>Resumir y extraer</button>
-          <button class="sec" id="d-preg">Preguntar</button>
-          <span class="split" id="d-env-w"><button class="sec" id="d-env">Enviar</button><button class="sec ic" id="d-env-m" aria-label="Elegir a dónde enviar" title="Elegir destino">&#9662;</button></span>
-          <!-- #acta-acciones: Exportar ▾ (o la barra de edición) — pintarAcciones -->
+          <button class="sec" id="d-preg" hidden>Preguntar</button><!-- Preguntar es una pestaña; el botón queda para atajos -->
+          <span class="split" id="d-env-w"><button class="pri" id="d-env">Enviar</button><button class="pri ic" id="d-env-m" aria-label="Elegir a dónde enviar" title="Elegir destino">&#9662;</button></span>
+          <!-- #acta-acciones: la barra de edición (Exportar va en ⋯) — pintarAcciones -->
           <span id="acta-acciones" hidden></span>
           <details class="menu" id="d-mas"><summary aria-label="Más acciones del documento" title="Más acciones">&#8943;</summary>
             <div class="pop" role="menu">
@@ -238,12 +246,14 @@
               <button role="menuitem" id="fondo" title="Repasa toda la transcripción en bloques pequeños buscando decisiones y tareas">Buscar todas a fondo</button>
               <div class="sep" role="separator"></div>
               <button role="menuitem" id="d-desc">Descargar…</button>
+              <details class="sub" id="d-exp"><summary>Exportar como…</summary><div class="sub-l" id="d-exp-l"></div></details>
               <a role="menuitem" id="dl-zip" download>Descargar (.zip)</a>
               <a role="menuitem" id="dl-vid" download title="Documento y vídeo en un zip: las marcas de tiempo saltan al momento sin internet">Descargar con vídeo</a>
               <div class="sep" role="separator"></div>
               <button role="menuitem" id="d-otra">Otra versión…</button>
               <button role="menuitem" id="d-vren">Renombrar versión</button>
               <button role="menuitem" id="d-dud">Dudas: siguiente</button>
+              <button role="menuitem" id="d-det" aria-controls="imp-info">Detalles del archivo</button>
               <button role="menuitem" id="d-rest" class="dng" hidden>Restaurar original</button>
             </div></details>
         </div>
@@ -287,7 +297,7 @@
           <div class="cond-h"><h2 id="cond-t">Vídeo condensado</h2>
           <p class="muted" id="rec">Primero los silencios largos, después lo menos importante según el documento.</p></div>
           <div class="row wrap cond-r"><label for="pct">% a quitar</label><input type="range" id="pct" min="10" max="90" value="40"><output id="pct-o" for="pct">40</output>
-            <button class="pri" id="condensar">Generar vídeo condensado</button></div>
+            <button class="sec" id="condensar">Generar vídeo condensado</button></div>
           <ul class="list conds" id="conds"></ul>
           <video id="cvideo" controls preload="metadata" hidden></video>
         </section>
@@ -317,11 +327,11 @@
     <div class="ah"><div class="ah-in">
       <div><a class="back" href="#/" id="aj-volver">&larr; Inicio</a><h1>Ajustes</h1></div>
       <nav class="tabs" role="tablist" aria-label="Ajustes" id="aj-tabs">
-        <a role="tab" href="#/ajustes/general" data-t="general">General</a><a role="tab" href="#/ajustes/modelos" data-t="modelos">Modelos</a>
-        <a role="tab" href="#/ajustes/plantillas" data-t="plantillas">Plantillas</a><a role="tab" href="#/ajustes/enviar" data-t="enviar">Enviar</a>
-        <a role="tab" href="#/ajustes/avanzado" data-t="avanzado">Avanzado</a>
+        <a role="tab" href="#/ajustes/general" data-g="ap">Apariencia</a><a role="tab" href="#/ajustes/modelos" data-g="pr">Proceso</a><a role="tab" href="#/ajustes/enviar" data-g="en">Enviar</a>
       </nav></div></div>
     <div class="page">
+      <div class="aj-bus"><input type="search" id="aj-q" placeholder="Buscar un ajuste…" aria-label="Buscar un ajuste" autocomplete="off"><ul id="aj-res" class="aj-res" hidden></ul></div>
+      <nav class="aj-sub" id="aj-sub" aria-label="Secciones" hidden></nav>
       <div id="aj-general" role="tabpanel"></div>
       <div id="aj-enviar" role="tabpanel" hidden></div>
       <div id="aj-avanzado" role="tabpanel" hidden><div id="aj-av"></div><h2 class="aj-up-t">Perfiles de uso</h2></div>

@@ -310,6 +310,7 @@ async function cargarLista() {
     api("/api/carpetas/estilos").catch(() => ({})), api("/api/estilos").catch(() => []), api("/api/carpetas/resumen").catch(() => ({})), PL.length ? null : cargarPlant()]);
   if (fsel && !carpetas.includes(fsel)) fsel = undefined;
   pintarHome(); typeof homePend === "function" && homePend();
+  if (vistaAct === "pend" && typeof pintarPendPag === "function") pintarPendPag();  // abierta por enlace antes de tener RES: se repinta con los datos
 }
 const plural = n => n + " " + (n === 1 ? nm("documento") : pl(nm("documento")));
 const fechaC = t => new Date(t * 1000).toLocaleDateString("es", {day: "numeric", month: "short"});
@@ -395,7 +396,7 @@ async function abrir(id, acta, quedar) {
   ver = cur.solo ? "" : (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
   if (!quedar) { desde = fsel; if (vistaAct !== "res") docDesde = rutaHash(); }
   $("cab-carpeta").textContent = desdeTxt(docDesde); $("cab-titulo").textContent = cur.m.label;
-  const au = cur.audio; $("t-video").hidden = false;
+  const au = cur.audio; $("t-video").hidden = false; $("vslot").hidden = !cur.video; $("t-acta").hidden = $("t-ext").hidden = cur.solo;
   $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
   if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
   vista("res"); document.title = cur.m.label + " · Actas"; soloUI(cur.solo);
@@ -403,7 +404,7 @@ async function abrir(id, acta, quedar) {
   pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
 }
 // documento «solo buscable»: oculta lo que necesita un acta y ofrece «Resumir y extraer» (otra versión con la misma fuente, sin buscable)
-const SOLO_OCULTOS = ["d-env-w", "d-editar", "d-correo", "d-anon", "d-otra", "d-vren", "d-dud", "d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"];
+const SOLO_OCULTOS = ["d-env-w", "d-editar", "d-correo", "d-anon", "d-otra", "d-vren", "d-dud", "d-rest", "fondo", "dl-zip", "dl-vid", "d-cond", "d-exp", "d-det"];
 function soloUI(on) { SOLO_OCULTOS.forEach(i => { if (on || !["d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"].includes(i)) $(i).hidden = on; }); $("d-resumir").hidden = !on; $("d-mas").open = false; }
 $("d-resumir").onclick = $("solo-resumir").onclick = () => formNuevo(cur.m, {asr: cur.asr, nivel: "normal", calidad: "rápida"});
 const tab = (p, dir = 0) => {  // dir: eje X al cambiar de pestaña a mano (−1 izquierda, 1 derecha)
@@ -432,15 +433,17 @@ function pintarVers() {
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver), nd = a.doc || "acta"; editando = false; pintarAcciones(a);
    $("dl-zip").textContent = "Descargar (.zip)"; $("fondo").hidden = !!a.plantilla;
-  $("cab-meta").replaceChildren(...[cur.m.dur ? Math.round(cur.m.dur / 60) + " min" : "", cap(nd), a.idioma && (IDI[a.idioma] || a.idioma), cap(a.nivel), a.nube ? "☁ " + a.nube : nivelInfo(a.calidad)?.nombre, a.editado && "editado", cur.carpeta].filter(Boolean).map(t => el("span", {textContent: t})));
+  const imp = cur.importadas[a.asr], proc = [cap(nd), a.nube ? "☁ " + a.nube : nivelInfo(a.calidad)?.nombre || "Rápida"].join(" · ");
+  $("cab-meta").replaceChildren(...[!imp?.tipo && cur.m.dur ? Math.round(cur.m.dur / 60) + " min" : "", a.editado && "editado"].filter(Boolean).map(t => el("span", {textContent: t})),
+    el("span", {className: "pchip", title: "Procesado: " + etiqueta(a)}, "Procesado: " + proc, el("button", {type: "button", className: "link", textContent: "Reprocesar", title: "Otra versión con otras opciones", onclick: () => formNuevo(cur.m, a)})),
+    ...(cur.carpeta ? [el("a", {href: "#/p/" + encodeURIComponent(cur.carpeta), textContent: cur.carpeta})] : []));
   // desde los datos: lleva data-p (marcas de dudas) y lo editado
   $("acta-frame").src = `/api/vista/${cur.id}/${a.name}?v=` + Date.now();
   $("fondo").disabled = a.fondo; $("fondo").textContent = a.fondo ? "Búsqueda a fondo hecha" : "Buscar todas a fondo"; $("dl-zip").hidden = !a.zip; if (a.zip) { $("dl-zip").href = a.zip; $("dl-zip").download = cur.nombre ? cur.nombre + ".zip" : ""; }
   $("dl-vid").hidden = !cur.video; $("dl-vid").href = "/api/zipvideo/" + cur.id + "/" + a.name; $("dl-vid").textContent = "Descargar con " + (cur.audio ? "audio" : "vídeo") + " (" + cur.videomb + " MB)";
-  const imp = cur.importadas[a.asr];
   $("imp-info").textContent = imp ? (imp.tipo ? "Documento: " : "Transcripción importada: ") + imp.fuente + " (" + imp.formato + ", " + imp.segmentos + " segmentos, " + imp.hablantes.length + " hablantes)" +
     (cur.video ? (imp.aviso ? "" : " · desfase aplicado " + (imp.desfase >= 0 ? "+" : "") + Math.round(imp.desfase) + " s") : (cur.audio ? " · solo audio: sin capturas" : " · sin vídeo: sin capturas ni reproductor")) + (imp.aviso ? ". " + imp.aviso : "") : "";
-  $("imp-info").className = imp && imp.aviso ? "err" : "muted"; $("imp-info").hidden = !imp; $("cond").hidden = !cur.video;
+  $("imp-info").className = imp && imp.aviso ? "err" : "muted det"; $("imp-info").hidden = !imp?.aviso; $("d-det").hidden = !imp; $("cond").hidden = !cur.video;  // sin aviso: en ⋯ › Detalles
   zipAnon(); const rec = cur.recomendado[a.asr]; if (rec) { $("pct").value = rec; $("pct-o").textContent = rec; $("rec").textContent = "Recomendado para esta reunión: " + rec + " %. Primero los silencios largos, después lo menos importante."; }
 }
 $("fondo").onclick = async () => {
@@ -453,6 +456,7 @@ $("condensar").onclick = async () => {
   catch (err) { alert(err.message); }
 };
 $("m-ren").onclick = () => renombrar(cur.m, $("ed-res"));
+$("d-det").onclick = () => { tab("p-acta"); $("imp-info").hidden = !$("imp-info").hidden; };
 $("m-mover").onclick = () => mover(cur.m, $("ed-res"));
 $("pct").oninput = () => $("pct-o").textContent = $("pct").value;
 $("volver").onclick = e => {
@@ -575,7 +579,14 @@ function ubicar() {  // en las pestañas Vídeo/Audio y Preguntar el reproductor
   if (slot) { const r = slot.getBoundingClientRect(); Object.assign(m.style, {left: r.left + scrollX + "px", top: r.top + scrollY + "px", width: r.width + "px"}); slot.style.height = m.offsetHeight + "px"; }
   else if (!m.dataset.arrastrado) Object.assign(m.style, {left: "", top: "", width: ""});
 }
-addEventListener("resize", ubicar); new ResizeObserver(() => !MP().hidden && ubicar()).observe(MP());  // el vídeo cambia de alto al cargar: el hueco lo sigue
+addEventListener("resize", ubicar);
+// Fuente de una imagen: las descripciones se guardan solas al dejar de escribir («Guardado ✓»; el botón queda de respaldo)
+let fuT; $("p-fuente").addEventListener("input", e => {
+  const w = e.target.closest(".fu-img"); if (!w || e.target.tagName !== "TEXTAREA") return;
+  const id = cur.id, [du, dia] = w.querySelectorAll("textarea"), ok = w.querySelector(".fu-ok") || w.querySelector(".pri").after(el("span", {className: "fu-ok muted", role: "status"})) || w.querySelector(".fu-ok");
+  ok.textContent = "Guardando…"; clearTimeout(fuT);
+  fuT = setTimeout(() => post("/api/imagen/" + id, {descripcion: du.value, descripcion_ia: dia.value}).then(() => ok.textContent = "Guardado ✓", x => ok.textContent = "No se pudo guardar: " + x.message), 800);
+}); new ResizeObserver(() => !MP().hidden && ubicar()).observe(MP());  // el vídeo cambia de alto al cargar: el hueco lo sigue
 $("mp-x").onclick = mpCerrar;
 $("mp-min").onclick = () => { MP().classList.toggle("min"); $("mp-min").setAttribute("aria-label", MP().classList.contains("min") ? "Restaurar" : "Minimizar"); };
 $("mp-pip").onclick = () => (document.pictureInPictureElement ? document.exitPictureInPicture() : VID().requestPictureInPicture()).catch(e => aviso("No se pudo abrir imagen en imagen: " + e.message));
@@ -587,11 +598,12 @@ $("mp-bar").onpointerdown = e => {  // arrastrar (opcional) desde la barra
 };
 // dentro de la app el documento se lee como en design/DocResumen.dc.html (solo la vista: exportar no cambia)
 const DOC_CSS = "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}" +
-  ":root{--bg2:#f8f9fb}@media(prefers-color-scheme:dark){:root{--bg2:#1a1f26}}body{max-width:none;padding:36px 44px}@media(max-width:700px){body{padding:20px 16px}}" +
+  ":root{--bg2:#f8f9fb}@media(prefers-color-scheme:dark){:root{--bg2:#1a1f26}}body{max-width:none;padding:28px 36px}@media(max-width:700px){body{padding:20px 16px}}" +
   "h2{scroll-margin-top:16px}.meta+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:19px;line-height:1.55}" +
   "h2+ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}h2+ul>li{background:var(--bg2);border-radius:10px;padding:12px 16px}" +
   "table{border:1px solid var(--line2);border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden}th{background:var(--bg2);padding:10px}td{padding:12px 10px}" +
-  "details{border:1px solid var(--line2);border-radius:10px;padding:12px 16px;margin:8px 0}summary{cursor:pointer;font-weight:600;min-height:28px}";
+  "details{border:1px solid var(--line2);border-radius:10px;padding:12px 16px;margin:8px 0}summary{cursor:pointer;font-weight:600;min-height:28px}" +
+  ".ts.cita{border-radius:999px;padding:0 7px;font-size:12px;font-weight:600;white-space:nowrap;cursor:help}";
 // «En este documento»: los apartados (h2) del documento con cuántos elementos tienen; se marca el que se está leyendo
 function docIndice(d) {
   const hs = [...d.querySelectorAll("h2")], nav = $("doc-i"); nav.hidden = hs.length < 3;
@@ -601,16 +613,31 @@ function docIndice(d) {
   });
   nav.replaceChildren(el("div", {className: "t", textContent: "En este documento"}), ...its,
     ...(cur?.video ? [el("p", {className: "doc-n"}, "Cada ", el("span", {className: "ts", textContent: "mm:ss"}), " salta a ese momento del " + (cur.audio ? "audio" : "vídeo") + ".")] : []));
-  const spy = () => { let k = 0; hs.forEach((h, i) => { if (h.getBoundingClientRect().top < 90) k = i; }); its.forEach((a, i) => a.setAttribute("aria-current", i === k ? "true" : "false")); };
+  // bajo 1100 px el índice es un desplegable encima del documento
+  const sel = $("doc-isel") || document.querySelector("#p-acta .dbar").appendChild(el("select", {id: "doc-isel", className: "doc-isel", ariaLabel: "Ir a un apartado"}));
+  sel.hidden = hs.length < 3; sel.replaceChildren(...hs.map((h, i) => new Option(h.textContent, i))); sel.onchange = () => hs[sel.value]?.scrollIntoView({behavior: "smooth", block: "start"});
+  const spy = () => { let k = 0; hs.forEach((h, i) => { if (h.getBoundingClientRect().top < 90) k = i; }); its.forEach((a, i) => a.setAttribute("aria-current", i === k ? "true" : "false")); sel.value = k; };
   d.defaultView.addEventListener("scroll", spy, {passive: true}); spy();
+}
+// citas de documentos: «[§ Comité · Proyecto · 28 de octubre]» → chip «§1» (cada apartado, su número; la etiqueta entera en el title); «[p. 12]» → «p. 12».
+// En documentos de texto la «Duración» de la cabecera no significa nada: fuera
+function citasCortas(d) {
+  const n = new Map();
+  for (const t of d.querySelectorAll(".ts")) {
+    const m = /^\[(§ .+|p\. ?\d.*)\]$/.exec(t.textContent.trim()); if (!m) continue;
+    t.dataset.full = t.textContent.trim(); t.title = m[1]; t.classList.add("cita");
+    t.textContent = m[1][0] === "§" ? "§" + (n.get(m[1]) || n.set(m[1], n.size + 1).get(m[1])) : m[1];
+  }
+  const a = cur?.actas.find(x => x.name === ver), me = d.querySelector(".meta");
+  if (me?.firstChild && cur.importadas[a?.asr]?.tipo) me.firstChild.textContent = me.firstChild.textContent.replace(/^Duración [\d:]+ · /, "");
 }
 // el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
 $("acta-frame").onload = () => {
   let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
-  d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d);
+  d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d); citasCortas(d);
   d.addEventListener("click", e => {
     const a = e.target.closest("[data-t]"); if (!a) return;
-    if (!cur?.video) { e.preventDefault(); e.stopImmediatePropagation(); citaIr(+a.dataset.t, a.textContent.trim()); return; }  // PDF, texto: a la pestaña Fuente
+    if (!cur?.video) { e.preventDefault(); e.stopImmediatePropagation(); citaIr(+a.dataset.t, (a.dataset.full || a.textContent).trim()); return; }  // PDF, texto: a la pestaña Fuente
     e.preventDefault(); e.stopImmediatePropagation();
     if (d.getElementById("big")) d.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape"}));  // cierra el visor de capturas
     mpSeek(+a.dataset.t, cur.videourl, cur.m.label);
@@ -645,8 +672,9 @@ function pintarAcciones(a) {
     return;
   }
   // menú Exportar (design/Documento.dc.html): formatos de documento | tareas, notas y subtítulos | opciones
-  const sep = () => el("div", {className: "sep", role: "separator"}), mas = el("div", {className: "pop-g", hidden: simple()}), ex = el("div", {className: "pop", role: "menu", ariaLabel: "Exportar"});
-  const item = (f, t, extra) => el("button", {type: "button", role: "menuitem", textContent: t, onclick: fallo(async () => { box.querySelector("details").open = false; await exportar(f, extra()); })});
+  const sep = () => el("div", {className: "sep", role: "separator"}), mas = el("div", {className: "pop-g", hidden: simple()}), ex = el("div", {role: "group", ariaLabel: "Exportar"});
+  const cierra = () => { $("d-exp").open = $("d-mas").open = false; };
+  const item = (f, t, extra) => el("button", {type: "button", role: "menuitem", textContent: t, onclick: fallo(async () => { cierra(); await exportar(f, extra()); })});
   const hab = el("input", {type: "checkbox", id: "ex-hab"}), evt = el("input", {type: "checkbox", id: "ex-evt"});
   mas.append(sep(), ...["ics", "csv_todoist", "csv_jira", "csv_azure", "csv_planner", "obsidian", "notion", "srt", "vtt"].map(f => FMT.find(x => x[0] === f)).map(([f, t]) => item(f, t, () => f === "srt" || f === "vtt" ? (hab.checked ? "&hablantes=1" : "") : f === "ics" && evt.checked ? "&evento=1" : "")),
     el("label", {className: "check"}, evt, "Calendario: como un solo evento"), el("label", {className: "check"}, hab, "Subtítulos: con quien habla"));
@@ -655,12 +683,12 @@ function pintarAcciones(a) {
     ...(simple() ? [el("button", {type: "button", className: "link mas", textContent: "Más formatos…", onclick: e => { mas.hidden = false; e.currentTarget.remove(); }})] : []), mas, sep(),
     el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-anon", checked: anonOn(), onchange: e => { anonSel = e.target.checked; zipAnon(); }}), "Anonimizar"),
     el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-dud"}), "Incluir marcas de confianza"),
-    ...(window.Descargar ? [sep(), el("button", {type: "button", role: "menuitem", textContent: "Descargar varias cosas…", onclick: () => { box.querySelector("details").open = false; Descargar.abrir({docs: [cur.id + "/" + ver]}); }})] : []));
+    ...(window.Descargar ? [sep(), el("button", {type: "button", role: "menuitem", textContent: "Descargar varias cosas…", onclick: () => { cierra(); Descargar.abrir({docs: [cur.id + "/" + ver]}); }})] : []));
   // Editar, Correo y Restaurar viven en el menú ⋯ de la cabecera (index.html)
   $("d-editar").onclick = () => { tab("p-acta"); editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); };
   $("d-correo").onclick = abrirCorreo; $("d-rest").hidden = !a.editado;
   $("d-rest").onclick = fallo(async () => { if (!confirm("¿Volver al texto original? Se pierden tus ediciones de esta versión.")) return; await post(`/api/doc/${cur.id}/${ver}/restaurar`); await abrir(cur.id, ver, true); aviso("Original restaurado"); });
-  box.replaceChildren(el("details", {className: "menu"}, el("summary", {className: "sec", textContent: "Exportar ▾"}), ex));
+  box.replaceChildren(); box.hidden = true; $("d-exp-l").replaceChildren(ex);  // Exportar vive en ⋯ (submenú plegable)
 }
 document.addEventListener("click", e => document.querySelectorAll("details.menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
 

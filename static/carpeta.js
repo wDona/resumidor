@@ -52,25 +52,28 @@ function carpetaVista(c) {
 const FTOP = [["resumen", "Resumen"], ["documentos", "Documentos"], ["extraido", "Extraído"], ["informe", "Informe"], ["preguntar", "Preguntar"]];
 const FEXT = [["pendientes", "Tareas"], ["decisiones", "Decisiones"], ["requisitos", "Requisitos"], ["historias", "Historias"], ["interesados", "Interesados"], ["riesgos", "Riesgos"], ["preguntas", "Preguntas"], ["hitos", "Hitos"]];
 const FMAS = {linea: "Línea de tiempo", comparar: "Comparar", ajustes: "Ajustes del proyecto"};
-let fPend = 0, fUltExt = lsGet("fext", "pendientes"), fScrollA = null;
+let fCnt = {}, fPend = 0, fUltExt = lsGet("fext", "pendientes"), fScrollA = null;
 const fTop = k => k === "revision" || FEXT.some(([x]) => x === k) ? "extraido" : FMAS[k] ? "" : k;
 const fN = k => k === "pendientes" ? fPend : fReg.tipos[FREG[k]] || 0;
 const fImportable = k => ["requisitos", "historias", "interesados", "decisiones"].includes(k);
 function pintaTabs() {
   if (fuC === null) return;
-  if (!fTabVisible(ftab)) ftab = "resumen";
-  const top = fTop(ftab), nExt = Object.values(fReg.tipos).reduce((a, x) => a + x, 0) + fPend, nDoc = todas.filter(m => (m.carpeta || "") === fuC).length;
-  const ir = k => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }, c = t => el("span", {className: "c", textContent: t ? " " + t : ""});
-  $("f-tabs").replaceChildren(...FTOP.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === top, onclick: () => ir(k === "extraido" ? (fTabVisible(fUltExt) ? fUltExt : "pendientes") : k)},
-    t, c(k === "extraido" ? nExt : k === "documentos" ? nDoc : 0))));
-  if (top === "extraido") { fUltExt = ftab; lsSet("fext", ftab); }
+  if (ftab === "extraido") ftab = (fUltExt === "revision" || FEXT.some(([k]) => k === fUltExt)) && fTabVisible(fUltExt) ? fUltExt : "pendientes";  // la ruta …/extraido abre la última sub-pestaña
+  if (!FORDEN.includes(ftab) || !fTabVisible(ftab)) ftab = "resumen";
+  const top = fTop(ftab), nDoc = todas.filter(m => (m.carpeta || "") === fuC).length;
+  const ir = k => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }, c = (t, k) => { const id = fuC + "|" + k, tic = id in fCnt && fCnt[id] !== t; fCnt[id] = t; return el("span", {className: "c" + (tic ? " tic" : ""), textContent: t ? " " + t : ""}); };  // tic: el número cambió
   const segs = [["revision", "Por revisar"], ...FEXT].filter(([k]) => k === ftab || (k === "revision" ? fReg.rev : fTabVisible(k) && (fN(k) || k === "pendientes" || fReg.proyecto && !FCTX.has(k))));
+  const nExt = segs.reduce((a, [k]) => a + (k === "revision" ? 0 : fN(k)), 0);
+  $("f-tabs").replaceChildren(...FTOP.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === top, onclick: () => ir(k === "extraido" ? (fTabVisible(fUltExt) ? fUltExt : "pendientes") : k)},
+    t, c(k === "extraido" ? nExt : k === "documentos" ? nDoc : 0, k))));
+  if (top === "extraido") { fUltExt = ftab; lsSet("fext", ftab); }
   $("f-sub").replaceChildren(...(top === "extraido" ? [
-    ...(fReg.rev && ftab !== "revision" ? [el("div", {className: "aviso w f-rev", role: "status"}, el("span", {}, el("b", {textContent: fReg.rev + " por revisar"}), " · propuestos por la IA, sin aprobar"), el("span", {className: "grow"}),
-      el("button", {className: "sec sm", textContent: "Revisar", onclick: () => ir("revision")}), el("button", {className: "pri sm", textContent: "Aprobar todo", onclick: fallo(() => fAprobarTodo(fuC))}))] : []),
-    el("div", {className: "row wrap f-seg"}, el("div", {className: "seg", role: "tablist", ariaLabel: "Qué se ha extraído"}, ...segs.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === ftab, onclick: () => ir(k)}, t, c(k === "revision" ? fReg.rev : fN(k))))),
+    ...(fReg.rev && ftab !== "revision" ? [el("div", {className: "aviso f-rev", role: "status"}, el("span", {}, el("b", {textContent: fReg.rev + " por revisar"}), " · propuestos por la IA, sin aprobar"), el("span", {className: "grow"}),
+      el("span", {className: "split"}, el("button", {className: "sec", textContent: "Revisar", onclick: () => ir("revision")}), el("button", {className: "sec", textContent: "Aprobar todo", title: "Aprueba los " + fReg.rev + " (se puede deshacer)", onclick: fallo(() => fAprobarTodo(fuC))})))] : []),
+    el("div", {className: "row wrap f-seg"}, el("div", {className: "seg", role: "tablist", ariaLabel: "Qué se ha extraído"}, ...segs.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === ftab, onclick: () => ir(k)}, t, c(k === "revision" ? fReg.rev : fN(k), k)))),
       el("span", {className: "grow"}), ...(fImportable(ftab) ? [el("button", {className: "sec sm", textContent: "Importar Excel/CSV", onclick: () => regImportar(fuC, ftab)})] : []))]
     : FMAS[ftab] ? [el("div", {className: "row f-mas-v"}, el("button", {className: "link", textContent: "← Resumen", onclick: () => ir("resumen")}), el("h2", {textContent: FMAS[ftab]}))] : []));
+  for (const w of [$("f-tabs"), $("f-sub").querySelector(".seg")]) { const on = w?.querySelector("[aria-selected=true]"); if (on && w.scrollWidth > w.clientWidth) w.scrollLeft += on.getBoundingClientRect().left - w.getBoundingClientRect().left - (w.clientWidth - on.offsetWidth) / 2; }  // la activa, centrada
 }
 $("f-nuevo").onclick = () => formNuevo();
 // «+ Nuevo documento» dentro de la carpeta hereda perfil, estilo (al exportar), glosario y carpeta (en el servidor) e idioma por defecto
@@ -91,16 +94,18 @@ async function fRender() {
     const e = await api("/api/exp?c=" + encodeURIComponent(c)); fPend = e.pend || 0;
     await fCargaReg(c, e.tipo);
     if (n !== fseq) return;
-    const nodos = await ({documentos: async () => [], resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
+    const nodos = await (({documentos: async () => [], resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab] || tResumen)(c, e, ftab);
     if (n !== fseq) return;
     p.replaceChildren(...nodos);
     const dir = fPintado.c === c && fPintado.tab !== ftab ? Math.sign(FORDEN.indexOf(ftab) - FORDEN.indexOf(fPintado.tab)) : 0; fPintado = {c, tab: ftab};
     ejeX(ftab === "documentos" ? $("docs-w") : p, dir);
     const pl_ = PL.find(t => t.id === e.perfil);
-    $("fsub").textContent = [e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v), plural(e.n_docs), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · ");
+    $("fsub").textContent = [e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v), plural(todas.filter(m => (m.carpeta || "") === c).length), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · ");
     $("docs-w").hidden = ftab !== "documentos"; fAutoLinea(c);
     if (fScrollA) { $(fScrollA)?.scrollIntoView({block: "start"}); fScrollA = null; }
-  } catch (err) { if (n === fseq) p.replaceChildren(el("p", {className: "err", textContent: err.message})); }
+  } catch (err) {  // estado vacío amable con «Reintentar» (el detalle técnico, en el title)
+    if (n === fseq) p.replaceChildren(el("div", {className: "vacio f-fallo", role: "alert", title: err.message}, el("p", {textContent: "No se ha podido cargar esta sección."}), el("button", {className: "sec", textContent: "Reintentar", onclick: fRe})));
+  }
 }
 const fRe = () => { fsucio = true; return fRender(); };
 const H = (t, ...k) => el("div", {className: "sec-h"}, el("h2", {textContent: t}), ...k);
@@ -137,8 +142,14 @@ async function tResumen(c, e) {
   const [est, pen] = await Promise.all([api("/api/exp/estado?c=" + encodeURIComponent(c)), api("/api/exp/pendientes?c=" + encodeURIComponent(c))]);
   const nodos = [...bannerSug(c, pen.sugeridos)];
   // datos de la carpeta (clave/valor libres con sugerencias por tipo)
-  let datos = e.datos.map(d => ({...d})), tipo = e.tipo;
-  const caja = el("div", {className: "card"}), pintD = () => {
+  let datos = e.datos.map(d => ({...d})), tipo = e.tipo, abierto = false;
+  const caja = el("div"), pintD = () => {
+    caja.className = abierto ? "card" : "";
+    if (!abierto) {  // solo los datos rellenos, como chips; el editor se abre con «Añadir datos del proyecto +» / «Editar»
+      const llenos = e.datos.filter(d => d.k && d.v);
+      return caja.replaceChildren(...(e.aviso ? [el("p", {className: "aviso w", textContent: e.aviso})] : []), el("div", {className: "f-datos"}, ...llenos.map(d => el("span", {className: "dchip"}, el("b", {textContent: d.k}), d.v)),
+        el("button", {className: "link", textContent: llenos.length ? "Editar datos" : "Añadir datos del " + (tipo || nm("carpeta")).toLowerCase() + " +", onclick: () => { abierto = true; pintD(); caja.querySelector("input, button")?.focus(); }})));
+    }
     const rows = datos.map((d, i) => el("div", {className: "row f-dato"}, el("input", {value: d.k, ariaLabel: "Dato", placeholder: "Dato", oninput: ev => d.k = ev.target.value, style: "flex:0 1 200px"}),
       el("input", {value: d.v, ariaLabel: "Valor de " + d.k, placeholder: "Valor", oninput: ev => d.v = ev.target.value}),
       el("button", {className: "sec sm", textContent: "×", ariaLabel: "Quitar " + d.k, onclick: () => { datos.splice(i, 1); pintD(); }})));
@@ -146,6 +157,7 @@ async function tResumen(c, e) {
     caja.replaceChildren(H("Datos de " + (tipo ? "la " : "") + "carpeta" + (tipo ? " · " + tipo : "")), ...(e.aviso ? [el("p", {className: "aviso w", textContent: e.aviso})] : []), ...rows,
       el("div", {className: "row wrap", style: "margin-top:8px"}, ...sug.map(k => el("button", {className: "sec sm", textContent: "+ " + k, onclick: () => { datos.push({k, v: ""}); pintD(); }})),
         el("button", {className: "sec sm", textContent: "+ Otro dato", onclick: () => { datos.push({k: "", v: ""}); pintD(); }}), el("span", {className: "grow"}),
+        el("button", {className: "sec sm", textContent: "Cancelar", onclick: () => { datos = e.datos.map(d => ({...d})); abierto = false; pintD(); }}),
         el("button", {className: "pri sm", textContent: "Guardar datos", onclick: fallo(async () => { await post("/api/exp/datos", {c, datos}); aviso("Datos guardados"); await fRe(); })})));
   };
   pintD(); nodos.push(caja);
@@ -158,13 +170,15 @@ async function tResumen(c, e) {
     ...(dv.superadas.length ? [el("details", {}, el("summary", {textContent: "Sustituidas por una decisión posterior · " + dv.superadas.length}),
       el("ul", {className: "f-lst"}, ...dv.superadas.map(x => el("li", {}, el("s", {textContent: x.texto}), " ", fLink(x), " → ahora: " + x.por.texto + " ", fLink(x.por)))))] : []),
     el("h3", {textContent: "Pendientes abiertos · " + est.pendientes.length}),
-    el("p", {}, est.pendientes.slice(0, 3).map(p => p.texto).join(" · ") || "Ninguno. ", " ", el("a", {href: "#", textContent: "Ver todos", onclick: ev => { ev.preventDefault(); ftab = "pendientes"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }})),
+    ...(est.pendientes.length ? [el("ul", {className: "f-lst"}, ...est.pendientes.slice(0, 3).map(p => el("li", {textContent: p.texto})))] : [el("p", {className: "muted", textContent: "Ninguno."})]),
+    el("a", {href: "#", textContent: est.pendientes.length > 3 ? "Ver los " + est.pendientes.length : "Ver todos", onclick: ev => { ev.preventDefault(); ftab = "pendientes"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}),
     ...(est.cambios ? [el("h3", {textContent: "Desde el documento anterior"}), cambiosResumen(est.cambios, c)] : [])));
   return nodos;
 }
 function cambiosResumen(cm, c) {
-  const n = (k, t) => cm[k][t].length, txt = [["decisiones", "decisiones"], ["tareas", "tareas"], ["puntos", "puntos clave"]].map(([k, t]) => `${t}: ${n(k, "nuevo")} nuevas, ${n(k, "cambiado")} cambiadas, ${n(k, "ya_no")} ya no aparecen`).join(" · ");
-  return el("p", {}, txt + " ", el("a", {href: "#", textContent: "Comparar", onclick: e => { e.preventDefault(); fcmp = {a: cm.a.mid, b: cm.b.mid}; ftab = "comparar"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}));
+  const n = (k, t) => cm[k][t].length;
+  return el("div", {}, el("div", {className: "f-tiles"}, ...[["decisiones", "Decisiones"], ["tareas", "Tareas"], ["puntos", "Puntos clave"]].map(([k, t]) => el("div", {className: "f-tile"}, el("b", {textContent: t}),
+    el("span", {}, el("span", {className: n(k, "nuevo") ? "n-nuevo" : "", textContent: "+" + n(k, "nuevo") + " nuevas"}), " · " + n(k, "cambiado") + " cambiadas"), el("span", {textContent: n(k, "ya_no") + " ya no aparecen"})))), el("a", {href: "#", textContent: "Comparar", onclick: e => { e.preventDefault(); fcmp = {a: cm.a.mid, b: cm.b.mid}; ftab = "comparar"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}));
 }
 
 // ---- Pendientes ----
