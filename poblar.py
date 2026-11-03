@@ -54,6 +54,10 @@ VISTAS = {
                   "de aclarar («¿quién…?», «eso lo dejamos pendiente»). texto = la cuestión formulada como pregunta. No incluyas las que se "
                   "responden en la propia reunión. dirigida_a: a quién se dirige, solo si se dice.", {"dirigida_a": 60}),
 }
+# Opcional (solo si se pide en `vistas`; no entra en la pasada por defecto): tareas de un documento «tal cual» (el acta humana no pasa por el map/reduce)
+EXTRA = {"tareas": ("tarea", "encargos o compromisos de una persona con algo que hacer («Ana enviará…», «me encargo de…», «se encarga Luis de…»). "
+                    "responsable: quien lo hará, solo si se dice; plazo: fecha o plazo, solo si se dice.", {"responsable": 60, "plazo": 40})}
+TODAS = {**VISTAS, **EXTRA}
 CABECERA = """Extraes los elementos de un proyecto de un fragmento de transcripción automática (con errores) de una reunión, con marcas \
 [mm:ss] y, a veces, «Nombre:» de quien habla. Los revisará una persona: solo lo que se DICE en el fragmento, sin deducir ni completar; no \
 inventes nombres, cifras, fechas, prioridades ni responsables. Ante la duda, déjalo fuera: mejor una lista vacía que un elemento dudoso. \
@@ -66,10 +70,10 @@ FINAL = "Listas vacías si no hay. Escribe en {lang}."
 
 def prompt(vistas, glosario=()):
     """(sistema, esquema) de una pasada con las vistas pedidas. glosario: términos de la carpeta (como en pipeline.prompts)."""
-    sis = CABECERA + "".join(f"{v}: {VISTAS[v][1]}\n" for v in vistas) + FINAL
+    sis = CABECERA + "".join(f"{v}: {TODAS[v][1]}\n" for v in vistas) + FINAL
     if glosario:
         sis += "\nTérminos de este proyecto (escríbelos exactamente así): " + "; ".join(glosario).replace("{", "(").replace("}", ")") + "."
-    item = lambda v: P.arr(P.obj(cita=P.S(160), texto=P.S(200), **{k: P.S(n) for k, n in VISTAS[v][2].items()}), N_MAX)
+    item = lambda v: P.arr(P.obj(cita=P.S(160), texto=P.S(200), **{k: P.S(n) for k, n in TODAS[v][2].items()}), N_MAX)
     return sis, P.obj(**{v: item(v) for v in vistas})
 
 
@@ -104,13 +108,13 @@ def comprobar(r, segs, texto, vistas):
 
 def _entidad(v, it, d):
     """Elemento verificado -> columnas de registro.crear."""
-    tipo, ex = VISTAS[v][0], {k: it[k] for k in VISTAS[v][2] if it.get(k)}
+    tipo, ex = TODAS[v][0], {k: it[k] for k in TODAS[v][2] if it.get(k)}
     h = carpetas._h(d["mid"], it["cita"])
     f = {"titulo": it["texto"], "mid": d["mid"], "ver": d["ver"], "ruta": f"poblar.{tipo}.{h}", "h": h, "origen": "reunion", "revision": "propuesto",
          "fecha_alta": d["fecha"], "campos": {"fuente": "poblar", "seccion": v.capitalize(), **ex}}
     if tipo == "interesado":
         f["detalle"] = ex.get("rol", "")
-    if tipo == "riesgo" and ex.get("responsable"):
+    if tipo in ("riesgo", "tarea") and ex.get("responsable"):
         f["dueno"] = ex["responsable"]
     if tipo == "requisito" and ex.get("prioridad"):
         f["prioridad"] = ex["prioridad"]
@@ -137,7 +141,7 @@ def guardar(c, d, items, lote):
     """Elementos verificados de un documento -> registro. -> {creadas: {tipo: n}, citas: n, omitidas: n} (omitidas = ya estaban
     descartadas/fusionadas). Compara con las entidades del proyecto del mismo tipo y con las creadas en esta misma pasada."""
     res = {"creadas": {}, "citas": 0, "omitidas": 0}
-    if ts := [it["texto"] for v, it in items if VISTAS[v][0] != "interesado"]:  # embeddings ANTES del cerrojo de escritura: dentro, carpetas.sim tira de su caché
+    if ts := [it["texto"] for v, it in items if TODAS[v][0] != "interesado"]:  # embeddings ANTES del cerrojo de escritura: dentro, carpetas.sim tira de su caché
         with registro._db() as db:
             q = registro.proyecto(c, False, db)
             ya = [r[0] for r in db.execute("SELECT titulo FROM entidad WHERE proyecto_id=?", (q["id"],))] if q else []
@@ -168,7 +172,7 @@ def poblar(c, ms, chat_ctx, mids=None, vistas=None, glosario=(), cb=lambda f, m:
     """Pasada sobre los documentos de la carpeta c (ms = sus reuniones; mids: solo esas). chat_ctx() da el chat (pipeline.llama o
     nube.backend; local=True si es el modelo local: una llamada por vista). -> resumen de la pasada (también en el expediente: carpetas.leer(c)["poblar"])."""
     import nube
-    vistas = [v for v in VISTAS if v in (vistas or VISTAS)]
+    vistas = [v for v in TODAS if v in (vistas or VISTAS)]
     todos = ds = carpetas.docs(ms)
     registro.sincronizar(c, ds)  # las decisiones del acta ya son entidades: poblar no las duplica
     ds = [d for d in ds if (not mids or d["mid"] in mids) and not d["sin"] and (P.WORK / d["mid"] / f"transcript_{d['asr']}.json").is_file()]

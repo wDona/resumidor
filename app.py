@@ -33,6 +33,7 @@ import carpetas
 import correo
 import documentos
 import dudas
+import enlaces
 import export_registro
 import exportar
 import destinos
@@ -479,6 +480,34 @@ def descargar(url, solo_audio, nav, cb, dest=None):
     return f
 
 
+def resolver_enlace(url, solo_audio, nav, cb):
+    """Enlace inteligente -> ("media", ruta) | ("doc", ruta): extractor propio de yt-dlp = vídeo/audio; fichero directo o página = documento
+    (mismo camino que una subida). Nubes de Microsoft: yt-dlp una vez y, si falla, un mensaje con la salida práctica."""
+    import tempfile
+    red = bool((_ajustes() or {}).get("enlaces_red_local"))
+    try:
+        enlaces.comprobar(url, red)
+    except ValueError as ex:
+        raise RuntimeError(str(ex)) from None
+    if enlaces.es_microsoft(url):
+        try:
+            return "media", descargar(url, solo_audio, nav, cb)
+        except RuntimeError as ex:
+            raise RuntimeError("No se pudo bajar este enlace de OneDrive/SharePoint/Teams/Stream (suele pedir iniciar sesión). Usa la carpeta de OneDrive "
+                               "sincronizada en tu equipo, o descarga el fichero a mano y súbelo. Detalle: " + str(ex)) from None
+    if enlaces.especifico(url):
+        return "media", descargar(url, solo_audio, nav, cb)
+    (UPLOADS / "enlaces").mkdir(parents=True, exist_ok=True)
+    dest = tempfile.mkdtemp(dir=UPLOADS / "enlaces")
+    try:
+        k, f = enlaces.traer(url, dest, cb, red)
+    except ValueError as ex:
+        raise RuntimeError(str(ex)) from None
+    except (OSError, urllib.error.URLError) as ex:  # HTTPError y timeouts incluidos
+        raise RuntimeError(error_descarga(ex, nav)) from None
+    return ("media" if f.suffix.lower() in enlaces.MEDIA else "doc"), f
+
+
 def _acta_fn(d):
     video, tr, url = Path(d.get("video") or ""), d.get("transcripcion") or "", (d.get("enlace") or "").strip()
     video = video if video.is_file() else None
@@ -486,12 +515,21 @@ def _acta_fn(d):
     nivel, asr, calidad, reuse = d.get("nivel", "normal"), d.get("asr", "calidad"), d.get("calidad", "rápida"), d.get("reuse")
     carp0 = str(d.get("carpeta") or "").strip()[:120] or (meta(pipeline.WORK / Path(reuse).name).get("carpeta", "") if reuse else "")
 
-    bus = bool(d.get("buscable"))  # «solo buscable»: sin LLM ni acta; seguimiento y poblar tampoco
+    tc = bool(d.get("tal_cual"))  # «Ya está hecho, no resumir»: el documento es el acta tal cual (sin LLM); se indexa y poblar extrae sus ítems con cita
+    bus = bool(d.get("buscable")) or tc  # «solo buscable»: sin LLM ni acta; seguimiento y poblar tampoco (tal_cual sí puebla)
 
     def fn(cb):
-        dl = None
+        dl, tmp, tr = None, None, d.get("transcripcion") or ""
         if url:  # la descarga es la 1.ª fase del trabajo; luego sigue el proceso normal con el fichero bajado
-            dl = descargar(url, bool(d.get("solo_audio")), d.get("navegador") or "", cb)
+            k, f = resolver_enlace(url, bool(d.get("solo_audio")), d.get("navegador") or "", cb)
+            if f.suffix.lower() == ".zip":  # lote o acta exportada: como subir el zip
+                r = lote({**d, "enlace": "", "video": ""}, f)
+                shutil.rmtree(f.parent, ignore_errors=True)
+                return {**r, "id": (r.get("ids") or [r.get("id")])[0]}
+            if k == "media":
+                dl = f
+            else:
+                tr, tmp = str(f), f.parent
         out, _, _ = pipeline.run(dl or video, nivel, asr, THREADS, cb, names, bool(d.get("hablantes")), tr or None, calidad, d.get("gpu"),
                                  reuse=(Path(reuse).name, asr) if reuse else None, plantilla=d.get("plantilla") or None,
                                  idioma=d.get("idioma") or carpetas.leer(carp0)["ajustes"]["idioma"] or None, habla=d.get("habla") or None,
@@ -499,6 +537,13 @@ def _acta_fn(d):
                                  descripcion=str(d.get("descripcion") or "").strip()[:2000], buscable=bus,
                                  vision=vision.elegir(_ajustes(), d.get("nube")) if tr and documentos.tipo(tr) == "imagen" else None)  # glosario e idioma de la carpeta (vacíos: nada cambia)
         wd = out if bus else out.parent
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+        ver = documentos.acta_tal_cual(wd, d.get("nombre_acta")) if tc else out.name
+        if url:
+            (wd / "meta.json").write_text(json.dumps({**meta(wd), "url": url}, ensure_ascii=False))
+        if tc:
+            (wd / "meta.json").write_text(json.dumps({**meta(wd), "tal_cual": True}, ensure_ascii=False))
         if dl and not any(m.is_symlink() for m in wd.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(wd).get("carpeta"):  # carpeta pedida al generar
@@ -518,14 +563,14 @@ def _acta_fn(d):
                 raise
             except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
                 print("seguimiento:", ex, flush=True)
-        pob = bool(carp0 and not bus and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto"                 and not (d.get("nube") and not nube.permitida(_tpl_de(wd.name), _ajustes())[0]))  # F3b: solo carpetas «Proyecto» (nunca sensibles): la IA puebla las vistas del proyecto (trabajo aparte en la cola, tras este)
+        pob = bool(carp0 and (tc or not bus) and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto"                 and not (d.get("nube") and not nube.permitida(_tpl_de(wd.name), _ajustes())[0]))  # F3b: solo carpetas «Proyecto» (nunca sensibles): la IA puebla las vistas del proyecto (trabajo aparte en la cola, tras este)
         if pob:
-            start("poblar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": carp0, "mid": wd.name, "auto": True, **({"plan": d["plan"]} if d.get("plan") is not None else {})}, carp0, wd.name)
-        if not bus:  # «solo buscable» no extrae nada: no hay qué enviar
-            destinos.tras_documento(wd.name, out.name, d.get("plan"), pob)  # envíos/recetas: hilo aparte, nunca rompe el trabajo
+            start("poblar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": carp0, "mid": wd.name, "auto": True, **({"vistas": [*poblar.VISTAS, "tareas"]} if tc else {}), **({"plan": d["plan"]} if d.get("plan") is not None else {})}, carp0, wd.name)
+        if tc or not bus:  # «solo buscable» no extrae nada: no hay qué enviar
+            destinos.tras_documento(wd.name, ver, d.get("plan"), pob)  # envíos/recetas: hilo aparte, nunca rompe el trabajo
         if d.get("grabacion"):  # grabación: ya hay transcripción y medio en la reunión; fuera las pistas
             grabar.limpiar(pipeline.WORK / "grabaciones" / Path(d["grabacion"]).name)
-        return {"id": wd.name, "acta": None if bus else out.name}
+        return {"id": wd.name, "acta": ver if tc else None if bus else out.name}
     return fn
 
 
@@ -577,6 +622,8 @@ def generar(d: dict):
         return lote(d, v)
     if v.suffix.lower() in TR_EXT + documentos.EXT:
         d = {**d, "video": "", "transcripcion": str(v)}
+    if d.get("tal_cual") and (d.get("reuse") or Path(d.get("video") or "").is_file() or Path(d.get("transcripcion") or "x").suffix.lower() in (".vtt", ".srt", *documentos.IMAGEN)):
+        raise HTTPException(400, "«Ya está hecho, no resumir» vale para un documento de texto (Word, PDF, Markdown, texto o HTML) o un enlace a uno")
     video, tr, reuse, url = Path(d.get("video") or ""), d.get("transcripcion") or "", d.get("reuse"), (d.get("enlace") or "").strip()
     if url and not url_valida(url):
         raise HTTPException(400, "El enlace debe empezar por http:// o https://")
@@ -601,9 +648,9 @@ def generar(d: dict):
         raise HTTPException(400, "Idioma no válido")
     _nube_spec(d, plantillas.get(d.get("plantilla") or None))
     n = next(x for x in niveles() if x["id"] == d.get("calidad", "rápida"))
-    if n["estado"] == "no" and not d.get("nube") and not d.get("buscable"):
+    if n["estado"] == "no" and not d.get("nube") and not d.get("buscable") and not d.get("tal_cual"):
         raise HTTPException(400, f"El nivel «{n['nombre']}» no cabe en este equipo (necesita ~{n['necesita']:.0f} GB de memoria)")
-    falta(d, "buscable" if d.get("buscable") else "generar", bool(video.is_file() or url or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
+    falta(d, "buscable" if d.get("buscable") or d.get("tal_cual") else "generar", bool(video.is_file() or url and not d.get("tal_cual") and (Path(urllib.parse.urlsplit(url).path).suffix.lower() in enlaces.MEDIA or enlaces.es_microsoft(url) or enlaces.especifico(url)) or reuse and next((pipeline.WORK / Path(reuse).name).glob("video.*"), None)) and not tr)
     return start("acta", d, (video if video.is_file() else Path(tr)).name if not reuse and not url else url[:80] if not reuse else meta(pipeline.WORK / Path(reuse).name).get("nombre") or Path(reuse).name, Path(reuse).name if reuse else "")
 
 
@@ -709,7 +756,7 @@ ZIP_OK = re.compile(r"index\.html|acta\.json|transcript\.json|video\.[A-Za-z0-9]
 def importar(d: dict):
     """Importa un acta exportada por la app (zip ligero o «con vídeo»): se valida el zip (solo ficheros esperados, sin rutas fuera,
     tamaños razonables) y se crea una reunión en work/ visible sin modelos. Con transcript.json también se podrá preguntar."""
-    zp = Path(d.get("path", ""))
+    zp, carp = Path(d.get("path", "")), str(d.get("carpeta") or d.get("c") or "").strip()[:120]
     if zp.suffix.lower() != ".zip" or not zp.is_file() or not zipfile.is_zipfile(zp):
         raise HTTPException(400, "Elige un .zip de acta exportado por la aplicación")
     with zipfile.ZipFile(zp) as z:
@@ -739,7 +786,9 @@ def importar(d: dict):
     for v in wd.glob("video.*"):
         pipeline.put_file(v, out / v.name)
     nombre = re.sub(r"( \(con (vídeo|audio)\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
-    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre}, ensure_ascii=False))
+    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False))
+    if carp and tr and tr.get("segments") and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp).casefold() == "proyecto":
+        start("poblar", {"c": carp, "mid": wd.name, "auto": True}, carp, wd.name)  # como un documento nuevo del proyecto
     return {"id": wd.name}
 
 
@@ -1003,7 +1052,7 @@ def anon_defecto(mid):
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
 AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
           "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es", "poblar_auto": True,
-          "nube_imagenes": False, "describir_capturas": False, "vision": {}}  # vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
+          "nube_imagenes": False, "describir_capturas": False, "enlaces_red_local": False, "vision": {}}  # vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
 
 
 def _ajustes():
@@ -1026,7 +1075,7 @@ def post_ajustes(d: dict):
     a = _ajustes() or dict(AJ_DEF)
     if d.get("modo") in ("simple", "avanzado"):
         a["modo"] = d["modo"]
-    for k in ("nube_visible", "anonimizar_defecto", "poblar_auto", "nube_imagenes", "describir_capturas"):
+    for k in ("nube_visible", "anonimizar_defecto", "poblar_auto", "nube_imagenes", "describir_capturas", "enlaces_red_local"):
         if isinstance(d.get(k), bool):
             a[k] = d[k]
     if isinstance(d.get("vision"), dict):  # servidor de visión (LM Studio, Ollama…): {} lo quita
@@ -1766,8 +1815,8 @@ def reg_poblar(d: dict):
     ms = [m for m in _ms(c) if not d.get("mid") or m["id"] == d["mid"]]
     if not ms:
         raise HTTPException(404, "Ese documento no está en la carpeta")
-    if not isinstance(d.get("vistas") or [], list) or set(d.get("vistas") or []) - set(poblar.VISTAS):
-        raise HTTPException(400, f"Vistas no válidas (valen: {', '.join(poblar.VISTAS)})")
+    if not isinstance(d.get("vistas") or [], list) or set(d.get("vistas") or []) - set(poblar.TODAS):
+        raise HTTPException(400, f"Vistas no válidas (valen: {', '.join(poblar.TODAS)})")
     if d.get("nube"):  # los documentos de una plantilla «solo en este equipo» no salen a la nube
         for m in ms:
             _nube_spec({"nube": d["nube"]}, _tpl_de(m["id"]))
@@ -2071,7 +2120,7 @@ def lote(d, zp):
     ok = MEDIA + TR_EXT + documentos.EXT
     with zipfile.ZipFile(zp) as z:
         if {"index.html", "acta.json"} <= set(z.namelist()):
-            return importar({"path": str(zp)})
+            return importar({"path": str(zp), "carpeta": d.get("carpeta")})
         infos, omitidos = [], []
         for i in z.infolist():
             partes = re.split(r"[\\/]", i.filename)
