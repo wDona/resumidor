@@ -34,3 +34,11 @@ De serie (solo lectura, «Duplicar para editar», «Restablecer») + propios («
 
 - R1: base de movimiento + View Transitions + skeletons/escalonado + snackbar con Deshacer + presets (Añadir, Descargar, Enviar fijados, apariencia).
 - R2…R5: captura de todas las pantallas (claro/oscuro/móvil) → crítica → mejoras → QA automática (sin errores JS en ninguna ruta).
+
+## Estado (2026-11-03, sesión interrumpida por el usuario)
+
+- Hechas: R1 (movimiento, tema/densidad/animaciones, deshacer, presets), R2 (tokens, Documento con «Enviar ▾» + ⋯, Inicio «Siguiente paso», Enviar/Descargar/Ajustes), R3 (tipografía y chip únicos, Extraído y Pendientes sin cortes, móvil, «Enviar proyecto» dividido, cola solo con trabajos, «+ Añadir»), R4 A+C (3 presets + «Más», Descargar por defecto, legibilidad) y R4-B parcial (marco).
+- Pendiente R4-B (interrumpido): revisar contra `docs/ui/critica-ronda4.md` los puntos B — Añadir simple con foco en «Elegir archivos» y «Procesar» fijo; Biblioteca con una sola fila de filtros y barra contextual; paleta con grupos, iconos, atajos y «Recientes»; imagen con «Abrir original»/«Describir con IA» como iconos sobre la imagen y «Ver más» en la descripción IA; ocultar «+ Añadir» de la barra en proyectos ≤700 px.
+- Pendiente R5: crítica final con capturas (claro/oscuro/390) + pulido; «Descartar» visible en táctil; menú «Filtros» para los selects de Proyecto.
+- Herramientas de QA: `docs/ui/qa-app.sh` (app con latido en el puerto 57377 y `ACTAS_WORK` aparte) y `docs/ui/cdp.mjs` (Brave sin interfaz con `--remote-debugging-port=9333`: errores JS/HTTP + capturas por ruta).
+- Probado con modelos reales en GPU (RX 6600, Vulkan): Qwen3.5-4B (acta de un .md, extracción al proyecto, resumen por partes de un documento de 429k caracteres) y Gemma 4 E4B + mmproj (descripción de una captura de pantalla, buscable).
