@@ -7,6 +7,7 @@ import io
 import json
 import ssl
 import threading
+import time
 import types
 import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -14,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 import destinos
+
+HILO = destinos._hilo
 import destinos_tipos as T
 import registro
 import test_carpetas as TC
@@ -274,9 +277,15 @@ def test_recetas_al_terminar_no_rompe(E, mk, monkeypatch):
     t.patch(f"/api/recetas/{rc['id']}", json={"activa": False})
     destinos.tras_documento("aaaa1111", "acta_normal_impaaaa", {"salidas": [{"que": "decisiones", "como": "destino", "destino": "nope", "configurar": True}]})  # plan roto: solo historial
     assert t.get("/api/envios").json()[0]["estado"] == "error"
-    monkeypatch.undo()
+    monkeypatch.setattr(destinos, "_hilo", HILO)  # el hilo de verdad (sin monkeypatch.undo(): devolvería WORK al work/ real)
     monkeypatch.setattr(destinos, "_auto", lambda *a: 1 / 0)
     destinos.tras_documento("x", "y")  # nunca lanza (el hilo registra el error)
+    for _ in range(100):  # esperar al hilo antes de que acabe la prueba (y se restaure WORK)
+        if any("division by zero" in e.get("error", "") for e in t.get("/api/envios").json()):
+            break
+        time.sleep(0.02)
+    else:
+        raise AssertionError("el hilo no registró el error")
 
 
 def test_programada_reloj_inyectado_solo_nuevo_atrasado(E, mk):
