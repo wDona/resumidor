@@ -397,6 +397,7 @@ async function abrir(id, acta, quedar) {
   if (!quedar) { desde = fsel; if (vistaAct !== "res") docDesde = rutaHash(); }
   $("cab-carpeta").textContent = desdeTxt(docDesde); $("cab-titulo").textContent = cur.m.label;
   const au = cur.audio; $("t-video").hidden = false; $("vslot").hidden = !cur.video; $("t-acta").hidden = $("t-ext").hidden = cur.solo;
+  $("cond").hidden = !cur.video;  // imagen, PDF o texto: sin «Vídeo condensado»
   $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
   if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
   vista("res"); document.title = cur.m.label + " · Actas"; soloUI(cur.solo);
@@ -599,7 +600,7 @@ $("mp-bar").onpointerdown = e => {  // arrastrar (opcional) desde la barra
 // dentro de la app el documento se lee como en design/DocResumen.dc.html (solo la vista: exportar no cambia)
 const DOC_CSS = "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}" +
   ":root{--bg2:#f8f9fb}@media(prefers-color-scheme:dark){:root{--bg2:#1a1f26}}body{max-width:none;padding:28px 36px}@media(max-width:700px){body{padding:20px 16px}}" +
-  "h2{scroll-margin-top:16px}.meta+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:19px;line-height:1.55}" +
+  "h2{scroll-margin-top:16px}h1{font-size:26px;line-height:1.25}h2{font-size:20px}h3{font-size:17px}h1,h2,h3,h4,b,strong,th{font-weight:600}.meta+h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:17px;line-height:1.6}" +
   "h2+ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}h2+ul>li{background:var(--bg2);border-radius:10px;padding:12px 16px}" +
   "table{border:1px solid var(--line2);border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden}th{background:var(--bg2);padding:10px}td{padding:12px 10px}" +
   "details{border:1px solid var(--line2);border-radius:10px;padding:12px 16px;margin:8px 0}summary{cursor:pointer;font-weight:600;min-height:28px}" +

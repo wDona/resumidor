@@ -29,9 +29,20 @@
     function pintar() {
       if (!S.x) {
         const d = el("input", {type: "date", value: S.def?.[0] || "", ariaLabel: "Desde"}), h = el("input", {type: "date", value: S.def?.[1] || "", ariaLabel: "Hasta"});
-        raiz.replaceChildren(el("div", {className: "card"}, el("h3", {textContent: "Informe de estado / comité"}),
+        // plazo rápido: chips que rellenan Desde/Hasta (las fechas siguen editables)
+        const iso = x => new Date(x - x.getTimezoneOffset() * 6e4).toISOString().slice(0, 10), hoy = new Date(), y = hoy.getFullYear(), m = hoy.getMonth();
+        const rangos = [["Este mes", new Date(y, m, 1), hoy], ["Mes pasado", new Date(y, m - 1, 1), new Date(y, m, 0)], ["Trimestre", new Date(y, m - m % 3, 1), hoy], ["Últimos 30 días", new Date(y, m, hoy.getDate() - 29), hoy]];
+        const chips = el("div", {className: "row wrap inf-rap", role: "group", ariaLabel: "Plazo rápido"}, ...rangos.map(([t, a, b]) => el("button", {type: "button", className: "fchip", "aria-pressed": d.value === iso(a) && h.value === iso(b),
+          onclick: ev => { d.value = iso(a); h.value = iso(b); chips.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === ev.currentTarget)); }}, t)));
+        d.oninput = h.oninput = () => chips.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", false));
+        const ej = (k, t, txt) => el("li", {}, el("span", {className: "inf-ej-k " + k, ariaHidden: "true"}), el("b", {textContent: t}), el("span", {className: "muted", textContent: txt}));
+        raiz.replaceChildren(el("div", {className: "card inf-vacio"}, el("h3", {textContent: "Informe de estado / comité"}),
           el("p", {className: "muted", textContent: "Indicadores, semáforos y narrativa del periodo a partir del registro del proyecto. Funciona sin IA; la IA solo propone la redacción."}),
-          el("div", {className: "inf-fila"}, el("label", {}, "Desde ", d), el("label", {}, "Hasta ", h), el("button", {className: "pri", type: "button", textContent: "Nuevo informe", onclick: () => nuevo(d.value, h.value)()}))));
+          chips, el("div", {className: "inf-fila"}, el("label", {}, "Desde ", d), el("label", {}, "Hasta ", h), el("button", {className: "pri", type: "button", textContent: "Crear informe", onclick: () => nuevo(d.value, h.value)()})),
+          el("div", {className: "inf-ej"}, el("p", {className: "ovl", textContent: "Qué incluye (ejemplo)"}), el("ul", {},
+            ej("ok", "Semáforos", "Alcance, plazo y riesgos en verde, ámbar o rojo, ajustables a mano"),
+            ej("w", "Indicadores", "Tareas cerradas, decisiones, requisitos aprobados y riesgos abiertos del periodo"),
+            ej("acc", "Narrativa", "Logros, próximos pasos y decisiones para el comité, con citas [n] a las fuentes")))));
         return;
       }
       raiz.replaceChildren(barra(), cabecera(), semaforos(), kpis(), graficos(), narrativa(), notas());

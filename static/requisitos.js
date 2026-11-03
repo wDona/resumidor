@@ -163,14 +163,15 @@
     function pintar() {
       const base = reqs(), xs = visibles(), co = S.cont?.por_revision || {};
       cab.replaceChildren(el("input", {type: "search", value: S.f.q, placeholder: "Buscar…", ariaLabel: "Buscar", oninput: ev => { S.f.q = ev.target.value; clearTimeout(pintar.t); pintar.t = setTimeout(() => { const p = ev.target.selectionStart; pintar(); const i = cab.querySelector("input"); i.focus(); i.setSelectionRange(p, p); }, 250); }}),
+        masFiltros([
         (() => { const s = el("select", {ariaLabel: "Estado", onchange: ev => { S.f.estado = ev.target.value; pintar(); }}, new Option("Todos los estados", ""), ...ESTADOS.map(x => new Option(x, x))); s.value = S.f.estado; return s; })(),
-        (() => { const s = el("select", {ariaLabel: "Agrupar por", onchange: ev => { S.grupo = ev.target.value; lsSet("rq-grupo", S.grupo); pintar(); }}, ...GRUPOS.map(([k, t]) => new Option(k ? "Agrupar: " + t : t, k))); s.value = S.grupo; return s; })(),
+        (() => { const s = el("select", {ariaLabel: "Agrupar por", onchange: ev => { S.grupo = ev.target.value; lsSet("rq-grupo", S.grupo); pintar(); }}, ...GRUPOS.map(([k, t]) => new Option(k ? "Agrupar: " + t : t, k))); s.value = S.grupo; return s; })()], +!!S.f.estado),
         el("span", {className: "grow"}),
         derivarBtn(), dinfo,
         el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => { try { await post("/api/reg", {c, tipo: "requisito", titulo: "Nuevo requisito", estado: "borrador"}); await cargar(); } catch (x) { err(x); } }}),
         menuExportar(c, "requisitos", FMT));
       resumen.replaceChildren(...barra(base));
-      chips.replaceChildren(...REVS.map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.rev === k, textContent: t + " · " + (k === "fusionado" ? regNumFusionadas(S.all.filter(x => x.tipo === "requisito")) : k ? co[k] ?? 0 : (co.propuesto ?? 0) + (co.aprobado ?? 0)), onclick: () => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }})),
+      chips.replaceChildren(...REVS.map(([k, t]) => el("button", {className: "fchip", "aria-pressed": S.f.rev === k, onclick: () => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }}, t, el("span", {className: "n", textContent: k === "fusionado" ? regNumFusionadas(S.all.filter(x => x.tipo === "requisito")) : k ? co[k] ?? 0 : (co.propuesto ?? 0) + (co.aprobado ?? 0)}))),
         ...(S.ids ? [fChipFoco(xs.length, () => { S.ids = null; pintar(); }, fo?.etiqueta)] : []));
       pintarAcc();
       if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }

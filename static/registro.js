@@ -88,6 +88,11 @@ function regInsignias(it) {
   return r;
 }
 
+// «Más filtros»: en ancho los filtros secundarios van en línea; en estrecho se pliegan tras un chip con el nº de activos
+// ponytail: abierto/cerrado se decide al pintar (las vistas se repintan a menudo); escuchar matchMedia si molesta al girar la pantalla
+function masFiltros(nodos, activos = 0) {
+  return el("details", {className: "mf", open: matchMedia("(min-width:701px)").matches}, el("summary", {className: "fchip"}, "Más filtros", ...(activos ? [el("span", {className: "n", textContent: activos})] : [])), el("div", {className: "mf-p"}, ...nodos));
+}
 function registroTabla(host, o) {
   const {c, tipo} = o, cols = o.columnas || REG_COLS[tipo] || REG_DEF, fijos = o.fijos || {};
   const S = {items: [], cont: null, sel: new Set(), f: {q: "", estado: "", dueno: "", revision: fijos.revision ?? (o.foco ? "" : lsGet("reg-rev", ""))}, foco: -1, hist: null, abiertas: new Set(), ids: o.foco?.ids || null, resaltar: !!o.foco};
@@ -169,8 +174,8 @@ function registroTabla(host, o) {
   function fila(it, i) {
     const chk = el("input", {type: "checkbox", checked: S.sel.has(it.id), ariaLabel: "Seleccionar " + (it.codigo || it.titulo), onchange: () => { chk.checked ? S.sel.add(it.id) : S.sel.delete(it.id); pintarAcc(); }});
     const tr = el("tr", {className: "reg-r" + (it.huerfano ? " huer" : "") + (it.revision === "propuesto" ? " prop" : "") + (it.revision === "descartado" || it.revision === "fusionado" ? " cerr" : "") + (i === S.foco ? " foco" : ""), tabIndex: 0, "data-id": it.id},
-      el("td", {className: "c"}, chk), ...cols.map(col => el("td", {style: col.w ? "min-width:" + col.w + "px" : ""}, celda(it, col))),
-      el("td", {}, origen(it)), el("td", {className: "reg-ins"}, ...regInsignias(it)),
+      el("td", {className: "c"}, chk), ...cols.map(col => el("td", {style: col.w ? "min-width:" + col.w + "px" : "", "data-l": col.label}, celda(it, col))),
+      el("td", {"data-l": "Origen"}, origen(it)), el("td", {className: "reg-ins"}, ...regInsignias(it)),
       el("td", {className: "reg-ops"},
         ...(it.revision === "descartado" ? [el("button", {className: "sec sm", textContent: "Restaurar", onclick: () => revisar([it.id], "restaurar")})] : []),
         ...(it.revision === "propuesto" ? [el("button", {className: "sec sm", textContent: "Aprobar", onclick: () => revisar([it.id], "aprobar")}), el("button", {className: "link", textContent: "Descartar", onclick: () => revisar([it.id], "descartar")})] : []),
@@ -193,7 +198,7 @@ function registroTabla(host, o) {
   }
   function pintar() {
     const co = S.cont || {}, pr = co.por_revision || {}, ph = (S.items.filter(i => i.huerfano).length, co.huerfanos ?? 0);
-    chips.replaceChildren(...REG_REV.filter(() => !fijos.revision).map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.revision === k, textContent: t + " · " + (k === "fusionado" ? co.fusionadas ?? 0 : k ? pr[k] ?? 0 : (pr.propuesto ?? 0) + (pr.aprobado ?? 0)), onclick: () => { S.f.revision = k; lsSet("reg-rev", k); cargar(); }})),
+    chips.replaceChildren(...REG_REV.filter(() => !fijos.revision).map(([k, t]) => el("button", {className: "fchip", "aria-pressed": S.f.revision === k, onclick: () => { S.f.revision = k; lsSet("reg-rev", k); cargar(); }}, t, el("span", {className: "n", textContent: k === "fusionado" ? co.fusionadas ?? 0 : k ? pr[k] ?? 0 : (pr.propuesto ?? 0) + (pr.aprobado ?? 0)}))),
       ...(ph ? [el("span", {className: "badge w", textContent: "Huérfanos · " + ph})] : []),
       ...(S.ids && typeof fChipFoco === "function" ? [fChipFoco(S.items.length, () => { S.ids = null; cargar(); }, o.foco.etiqueta)] : []));
     const resp = [...new Set(S.items.map(i => i.dueno).filter(Boolean))].sort(), est = [...new Set([...REG_ESTADOS, ...S.items.map(i => i.estado).filter(Boolean)])];
@@ -203,7 +208,7 @@ function registroTabla(host, o) {
     const add = el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => {
       try { const e = await post("/api/reg", {c, tipo: tipo || o.tipoNuevo || "requisito", titulo: "Nuevo", detalle: "", estado: "abierto"}); S.foco = -1; S.items.unshift(e); cambio(); pintar(); raiz.querySelector("[data-id='" + e.id + "'] textarea, [data-id='" + e.id + "'] input[type=text]")?.select(); } catch (e) { regAviso(e); }
     }});
-    barra.replaceChildren(q, ...(o.sinFiltros ? [] : [se, sd]), el("span", {className: "grow"}), ...(o.sinFiltros ? [] : [add]));
+    barra.replaceChildren(q, ...(o.sinFiltros ? [] : [masFiltros([se, sd], +!!S.f.estado + +!!S.f.dueno)]), el("span", {className: "grow"}), ...(o.sinFiltros ? [] : [add]));
     pintarAcc();
     const todos = el("input", {type: "checkbox", ariaLabel: "Seleccionar todo", checked: S.items.length > 0 && S.sel.size === S.items.length, onchange: ev => { S.sel = ev.target.checked ? new Set(S.items.map(i => i.id)) : new Set(); pintar(); }});
     cuerpo.replaceChildren(S.items.length ? el("table", {className: "reg-t"}, el("thead", {}, el("tr", {}, el("th", {className: "c"}, todos), ...cols.map(col => el("th", {scope: "col", textContent: col.label})), el("th", {textContent: "Origen"}), el("th", {textContent: "Estado de revisión"}), el("th"))),

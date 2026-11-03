@@ -176,3 +176,5 @@
 @media(max-width:560px){.desc-cols{gap:var(--s3)}.env-fmt{grid-template-columns:repeat(3,1fr)}}
 .env-vacio{max-width:960px}.env-tipo-c{justify-content:flex-start}
 .aj-tipos>summary{font-size:var(--fs-s,14px)}
+
+.env-split .sec.env-sp-a{border-left-color:var(--line)}

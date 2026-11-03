@@ -40,7 +40,12 @@ function carpetaVista(c) {
   const on = typeof c === "string" && c !== "";
   $("f-tabs").hidden = $("f-panel").hidden = $("f-nuevo").hidden = !on;
   for (const id of ["f-plant", "f-estilo", "f-preguntar"]) $(id).hidden = true;  // pasan a las pestañas Ajustes y Preguntar
-  $("docs-w").hidden = on && ftab !== "documentos"; $("f-env").hidden = $("f-mas").hidden = !on;
+  $("docs-w").hidden = on && ftab !== "documentos"; $("f-mas").hidden = !on;
+  if (on && window.Enviar?.split && $("f-env-s")?.dataset.c !== c) {  // split «Enviar proyecto ▾» (destino fijado/último + flecha); #f-env queda oculto para la paleta
+    $("f-env-s")?.remove(); const g = Enviar.split(null, {c}, {label: "Enviar proyecto", cls: "sec"}); g.id = "f-env-s"; g.dataset.c = c; $("f-env").after(g);
+  }
+  $("f-env").hidden = !on || !!$("f-env-s"); if ($("f-env-s")) $("f-env-s").hidden = !on;
+  if (!$("f-env-m")) $("f-ren").before(el("button", {role: "menuitem", id: "f-env-m", className: "solo-movil", textContent: "Enviar proyecto…", onclick: () => { $("f-mas").open = false; $("f-env").click(); }}));
   if (!on) { fuC = null; $("f-sub").replaceChildren(); $("f-auto").hidden = true; return; }
   $("f-nuevo").textContent = "+ Añadir";
   pintaTabs();
@@ -73,8 +78,14 @@ function pintaTabs() {
     el("div", {className: "row wrap f-seg"}, el("div", {className: "seg", role: "tablist", ariaLabel: "Qué se ha extraído"}, ...segs.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === ftab, onclick: () => ir(k)}, t, c(k === "revision" ? fReg.rev : fN(k), k)))),
       el("span", {className: "grow"}), ...(fImportable(ftab) ? [el("button", {className: "sec sm", textContent: "Importar Excel/CSV", onclick: () => regImportar(fuC, ftab)})] : []))]
     : FMAS[ftab] ? [el("div", {className: "row f-mas-v"}, el("button", {className: "link", textContent: "← Resumen", onclick: () => ir("resumen")}), el("h2", {textContent: FMAS[ftab]}))] : []));
-  for (const w of [$("f-tabs"), $("f-sub").querySelector(".seg")]) { const on = w?.querySelector("[aria-selected=true]"); if (on && w.scrollWidth > w.clientWidth) w.scrollLeft += on.getBoundingClientRect().left - w.getBoundingClientRect().left - (w.clientWidth - on.offsetWidth) / 2; }  // la activa, centrada
+  for (const w of [$("f-tabs"), $("f-sub").querySelector(".seg")]) {
+    const on = w?.querySelector("[aria-selected=true]"); if (!w) continue;
+    if (on && w.scrollWidth > w.clientWidth) { const a = on.getBoundingClientRect(), b = w.getBoundingClientRect(); if (a.left < b.left) w.scrollLeft += a.left - b.left - 28; else if (a.right > b.right) w.scrollLeft += a.right - b.right + 28; }  // la activa, a la vista (lo mínimo)
+    fBordes(w);
+  }
 }
+// borde difuminado solo del lado por el que queda contenido (clases fl/fr → máscara en app.css)
+const fBordes = w => { w.classList.add("fb"); const f = () => { w.classList.toggle("fl", w.scrollLeft > 2); w.classList.toggle("fr", w.scrollLeft + w.clientWidth < w.scrollWidth - 2); }; w.onscroll = f; f(); };
 $("f-nuevo").onclick = () => formNuevo();
 // «+ Nuevo documento» dentro de la carpeta hereda perfil, estilo (al exportar), glosario y carpeta (en el servidor) e idioma por defecto
 const formNuevo0 = formNuevo;
@@ -100,7 +111,8 @@ async function fRender() {
     const dir = fPintado.c === c && fPintado.tab !== ftab ? Math.sign(FORDEN.indexOf(ftab) - FORDEN.indexOf(fPintado.tab)) : 0; fPintado = {c, tab: ftab};
     ejeX(ftab === "documentos" ? $("docs-w") : p, dir);
     const pl_ = PL.find(t => t.id === e.perfil);
-    $("fsub").textContent = [e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v), plural(todas.filter(m => (m.carpeta || "") === c).length), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · ");
+    $("fsub").replaceChildren(...[plural(todas.filter(m => (m.carpeta || "") === c).length), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · "),
+      ...[e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v)].filter(Boolean).map(t => el("span", {className: "fs-x", textContent: " · " + t})));
     $("docs-w").hidden = ftab !== "documentos"; fAutoLinea(c);
     if (fScrollA) { $(fScrollA)?.scrollIntoView({block: "start"}); fScrollA = null; }
   } catch (err) {  // estado vacío amable con «Reintentar» (el detalle técnico, en el title)
@@ -108,6 +120,13 @@ async function fRender() {
   }
 }
 const fRe = () => { fsucio = true; return fRender(); };
+const fEspera = n => new Promise(ok => setTimeout(ok, 420 * (parseFloat(getComputedStyle(n).getPropertyValue("--mv")) || 0)));
+function fLogro(t, txt, acc, fn) {  // estado vacío «todo hecho»: check trazado + una acción
+  const svg = '<svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true"><circle cx="24" cy="24" r="21" pathLength="1"/><path d="M15 25l6 6 12-13" pathLength="1"/></svg>';
+  const w = el("div", {className: "vacio logro", role: "status"}); w.innerHTML = svg;
+  w.append(el("b", {textContent: t}), el("p", {textContent: txt}), ...(acc ? [el("button", {type: "button", className: "sec", textContent: acc, onclick: fn})] : []));
+  return w;
+}
 const H = (t, ...k) => el("div", {className: "sec-h"}, el("h2", {textContent: t}), ...k);
 
 // ---- inicio: pendientes abiertos de todas las carpetas (vencidos y con plazo primero) ----
@@ -188,14 +207,14 @@ async function tPendientes(c, e) {
   if (fo) { fpenFoco = fo; fpen.estado = fo.filtro || "abierto"; fpen.resp = ""; }
   const q = new URLSearchParams({c, estado: fpen.estado === "cerrados" ? "todos" : fpen.estado === "decisiones" ? "abierto" : fpen.estado, resp: fpen.resp, orden: fpen.orden});
   const [r, est] = await Promise.all([api("/api/exp/pendientes?" + q), fpen.estado === "decisiones" ? api("/api/exp/estado?c=" + encodeURIComponent(c)) : null]);
-  const pill = (k, t, on) => el("button", {className: "f-pill", "aria-pressed": fpen.estado === k, textContent: t, onclick: () => { fpen.estado = k; fRe(); }});
-  const sel = el("select", {ariaLabel: "Responsable", onchange: ev => { fpen.resp = ev.target.value; fRe(); }}, new Option("Todos", ""), ...r.responsables.map(x => new Option(x, x)));
+  const pill = (k, t, n) => el("button", {className: "fchip", "aria-pressed": fpen.estado === k, onclick: () => { fpen.estado = k; fRe(); }}, t, ...(n === undefined ? [] : [el("span", {className: "n", textContent: n})]));
+  const sel = el("select", {ariaLabel: "Responsable", onchange: ev => { fpen.resp = ev.target.value; fRe(); }}, new Option("Todos los responsables", ""), ...r.responsables.map(x => new Option(x, x)));
   sel.value = fpen.resp;
-  const ord = el("select", {ariaLabel: "Ordenar", onchange: ev => { fpen.orden = ev.target.value; fRe(); }}, new Option("Por plazo", "plazo"), new Option("Por documento", "doc"));
+  const ord = el("select", {ariaLabel: "Ordenar", onchange: ev => { fpen.orden = ev.target.value; fRe(); }}, new Option("Ordenar por plazo", "plazo"), new Option("Ordenar por documento", "doc"));
   ord.value = fpen.orden;
   const cerr = r.n.hecho + r.n.descartado;
-  const barra = el("div", {className: "toolbar f-barra"}, el("div", {className: "row wrap"}, pill("abierto", "Abiertos · " + r.n.abierto), pill("cerrados", "Cerrados · " + cerr), pill("decisiones", "Decisiones")),
-    el("span", {className: "grow"}), ...(fpen.estado === "decisiones" ? [] : [el("label", {className: "row"}, "Responsable", sel), el("label", {className: "row"}, "Orden", ord)]));
+  const barra = el("div", {className: "toolbar f-barra"}, el("div", {className: "row f-est", role: "group", ariaLabel: "Estado"}, pill("abierto", "Abiertos", r.n.abierto), pill("cerrados", "Cerrados", cerr), pill("decisiones", "Decisiones")),
+    el("span", {className: "grow"}), ...(fpen.estado === "decisiones" ? [] : [masFiltros([sel, ord], +!!fpen.resp)]));
   let items = fpen.estado === "cerrados" ? r.items.filter(p => p.estado !== "abierto") : r.items;
   const foco = fpenFoco && fpen.estado !== "decisiones" ? fpenFoco : null;
   if (foco) items = items.filter(p => foco.ids.includes(p.eid || p.id));
@@ -204,7 +223,7 @@ async function tPendientes(c, e) {
     lista = el("div", {className: "card"}, el("h3", {textContent: "Decisiones vigentes (la última manda)"}), el("ul", {className: "f-lst"}, ...est.decisiones.vigentes.map(x => el("li", {}, x.texto + " ", fLink(x)))),
       ...(est.decisiones.superadas.length ? [el("details", {}, el("summary", {textContent: "Sustituidas · " + est.decisiones.superadas.length}), el("ul", {className: "f-lst"}, ...est.decisiones.superadas.map(x => el("li", {}, el("s", {textContent: x.texto}), " ", fLink(x)))))] : []));
   } else lista = el("div", {className: "f-tabla"}, el("div", {className: "pr h"}, el("span"), el("span", {textContent: "Pendiente"}), el("span", {textContent: "Responsable"}), el("span", {textContent: "Fecha límite"}), el("span", {textContent: "Origen"})),
-    ...(items.length ? items.map(p => filaPend(c, p)) : [el("div", {className: "vacio", textContent: fpen.estado === "abierto" ? "No hay pendientes abiertos." : "Nada cerrado todavía."})]));
+    ...(items.length ? items.map(p => filaPend(c, p)) : [fpen.estado === "abierto" ? fLogro("Todo al día", "No quedan pendientes abiertos en este proyecto.", "Añadir un pendiente", () => $("pm-t").focus()) : el("div", {className: "vacio", textContent: "Nada cerrado todavía."})]));
   const add = el("form", {className: "row wrap f-add"}, el("input", {id: "pm-t", placeholder: "Añadir un pendiente a mano…", ariaLabel: "Pendiente", style: "flex:2 1 220px"}),
     el("input", {id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable", style: "flex:1 1 130px"}), el("input", {id: "pm-p", placeholder: "Plazo (15/03/2026, el viernes…)", ariaLabel: "Plazo", style: "flex:1 1 170px"}), el("button", {className: "sec", textContent: "Añadir"}));
   add.onsubmit = fallo(async ev => { ev.preventDefault(); await post("/api/exp/pendientes", {c, texto: $("pm-t").value, resp: $("pm-r").value, plazo: $("pm-p").value}); await fRe(); });
@@ -213,9 +232,14 @@ async function tPendientes(c, e) {
 }
 function filaPend(c, p) {
   const chk = el("input", {type: "checkbox", checked: p.estado !== "abierto", ariaLabel: p.estado === "abierto" ? "Marcar hecho: " + p.texto : "Reabrir: " + p.texto});
-  chk.onchange = fallo(async () => { const h = chk.checked; await post("/api/exp/pendientes", {c, id: p.id, estado: h ? "hecho" : "abierto"}); await fRe(); if (h) hechoDeshacer(c, p, fRe); });
+  chk.onchange = fallo(async () => {
+    const h = chk.checked, fila = chk.closest(".pr"); if (h) fila.classList.add("tachando");  // el trazo cruza el texto mientras se guarda
+    try { await Promise.all([post("/api/exp/pendientes", {c, id: p.id, estado: h ? "hecho" : "abierto"}), h && fEspera(fila)]); } catch (e) { fila.classList.remove("tachando"); chk.checked = !h; throw e; }
+    await fRe(); if (h) hechoDeshacer(c, p, fRe);
+  });
   const sg = p.sugerido && p.estado === "abierto" ? p.sugerido : null;
-  const plazo = p.vencido ? [el("b", {className: "err", textContent: "Vencido"}), " " + (p.plazo || fFecha(p.fecha))] : p.pronto ? [el("span", {className: "badge w", textContent: "Vence pronto"}), " " + (p.plazo || fFecha(p.fecha))] : [p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")];
+  const ft = p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha"), punto = (k, t) => el("span", {className: "dot " + k, role: "img", ariaLabel: t, title: t});
+  const plazo = p.vencido ? [punto("err", "Vencido"), el("b", {className: "err", textContent: "Vencido"}), " · " + ft] : p.pronto ? [punto("w", "Vence pronto"), ft] : [ft];
   const acc = [];
   if (p.estado === "abierto") acc.push(el("button", {className: "link", textContent: "Descartar", ariaLabel: "Descartar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: "descartado"}); await fRe(); hechoDeshacer(c, p, fRe, "Descartado"); })}));
   if (p.manual) acc.push(el("button", {className: "link", textContent: "Quitar", ariaLabel: "Quitar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, borrar: true}); await fRe(); })}));
@@ -226,7 +250,7 @@ function filaPend(c, p) {
       ...(sg ? [el("div", {className: "ev"}, "«" + sg.cita + "» ", fLink({mid: sg.mid, ver: sg.ver, t: sg.t}, sg.doc + " · " + mmss(sg.t)), " ",
         el("button", {className: "sec sm", textContent: sg.tipo === "hecho" ? "Sí, cerrar" : "Sí, anotar", onclick: fallo(async () => { await post("/api/exp/sugerencia", {c, id: p.id, aceptar: true}); await fRe(); })}),
         el("button", {className: "link", textContent: "No", onclick: fallo(async () => { await post("/api/exp/sugerencia", {c, id: p.id, aceptar: false}); await fRe(); })}))] : []), ...(acc.length ? [el("div", {className: "ac"}, ...acc)] : [])),
-    el("span", {className: "pw", textContent: p.resp || "—"}), el("span", {className: "pf"}, ...plazo), el("span", {className: "po"}, p.manual ? "Manual" : fLink(p)));
+    el("span", {className: "pw", textContent: p.resp || "—"}), el("span", {className: "pf" + (p.pronto && !p.vencido ? " w" : ""), title: p.pronto && !p.vencido ? "Vence pronto" : ""}, ...plazo), el("span", {className: "po"}, p.manual ? "Manual" : fLink(p)));
 }
 
 // ---- Línea de tiempo ----
