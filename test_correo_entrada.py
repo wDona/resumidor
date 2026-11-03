@@ -112,3 +112,25 @@ def test_eml(tmp_path):
     m2.set_content("<p>solo <i>html</i></p>", subtype="html")
     (tmp_path / "d.eml").write_bytes(bytes(m2))
     assert CE.leer(tmp_path / "d.eml")["texto"] == "solo html"
+
+
+def test_outlook_endpoint_motivo_claro(monkeypatch):
+    import app
+    from fastapi.testclient import TestClient
+    from pathlib import Path
+    import tempfile
+    d = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(app.pipeline, "WORK", d)
+    (d / "m1" / "v1" / "correos").mkdir(parents=True)
+    (d / "m1" / "v1" / "correos" / "0.eml").write_bytes(b"To: a@b.es\r\nSubject: Hola\r\nContent-Type: text/html\r\n\r\n<p>x</p>")
+    vistos = []
+    monkeypatch.setattr(app.correo, "abrir_outlook", lambda cor, pdf=None, nombre_pdf="": vistos.append((cor, pdf)))
+    c = TestClient(app.app)
+    assert c.post("/api/correo/m1/v1/outlook/0").json() == {"ok": True}
+    assert vistos[0][0]["para"] == "a@b.es" and vistos[0][0]["asunto"] == "Hola" and "<p>x</p>" in vistos[0][0]["html"] and vistos[0][1] is None
+    def no(*a, **k):
+        raise RuntimeError("Outlook clásico no está disponible")
+    monkeypatch.setattr(app.correo, "abrir_outlook", no)
+    r = c.post("/api/correo/m1/v1/outlook/0")
+    assert r.status_code == 400 and "Outlook" in r.json()["detail"]
+    assert c.post("/api/correo/m1/v1/outlook/9").status_code == 404

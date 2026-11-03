@@ -1320,6 +1320,25 @@ def get_eml(mid: str, ver: str, n: int):
     return Response(f.read_bytes(), media_type="message/rfc822", headers={"Content-Disposition": f"attachment; filename=\"borrador-{n + 1}.eml\""})
 
 
+@app.post("/api/correo/{mid}/{ver}/outlook/{n}")
+def post_outlook(mid: str, ver: str, n: int):
+    """Abre el borrador n ya generado en Outlook clásico (Windows), con su PDF adjunto si lo llevaba. 400 con el motivo si no se puede."""
+    import email
+    import email.policy
+    f = pipeline.WORK / Path(mid).name / Path(ver).name / "correos" / f"{n}.eml"
+    if not f.is_file():
+        raise HTTPException(404, "Genera antes el borrador")
+    m = email.message_from_bytes(f.read_bytes(), policy=email.policy.default)
+    h = m.get_body(("html", "plain"))
+    pdf = next((x for x in m.iter_attachments() if x.get_content_type() == "application/pdf"), None)
+    try:
+        correo.abrir_outlook({"para": str(m["To"] or ""), "asunto": str(m["Subject"] or ""), "html": h.get_content() if h else ""},
+                             pdf.get_content() if pdf else None, pdf.get_filename() or "documento.pdf" if pdf else "documento.pdf")
+    except RuntimeError as ex:
+        raise HTTPException(400, str(ex))
+    return {"ok": True}
+
+
 # ---------- Dudas ----------
 @app.get("/api/dudas/{mid}/{ver}")
 def get_dudas(mid: str, ver: str):
