@@ -60,7 +60,7 @@ def _escribir(f, d):
 
 
 def cfg():
-    return {"destinos": {}, "presets": {}, "recetas": {}, "url_base": "", **_leer(CFG(), {})}
+    return {"destinos": {}, "presets": {}, "recetas": {}, "objetivos": {}, "url_base": "", **_leer(CFG(), {})}
 
 
 def _kr():
@@ -883,7 +883,7 @@ def _val_preset(d):
     if not d.get("nombre"):
         raise ValueError("Falta el nombre")
     _pedido({**d, "preset": None})
-    return {k: d[k] for k in ("nombre", "destino", "que", "formatos", "solo_aprobados", "anonimizar", "opciones") if k in d}
+    return {k: d[k] for k in ("nombre", "destino", "que", "formatos", "solo_aprobados", "anonimizar", "opciones", "fijado") if k in d}
 
 
 def _val_receta(d):
@@ -942,6 +942,38 @@ def _crud(coleccion, val, vista=lambda x: x):
     router.delete(base + "/{i}")(borrar)
 
 
+def _doc(*qs):
+    return [{"que": q, "como": "documento"} for q in qs]
+
+
+# objetivos de «Añadir» de serie (solo lectura): id «serie:x», plan + plantilla (ids de plantillas.SERIE)
+OBJ_SERIE = [
+    ("reunion", "Acta de reunión", "acta", {"salidas": _doc("tareas", "decisiones")}),
+    ("requisitos", "Requisitos e historias", "requisitos", {"salidas": _doc("requisitos", "historias")}),
+    ("resumen", "Resumen y puntos clave", None, {"salidas": _doc("resumen")}),
+    ("seguimiento", "Seguimiento / informe", "raid", {"salidas": _doc("tareas", "decisiones", "riesgos")}),
+    ("entrevista", "Entrevista", "seleccion", {"salidas": _doc("resumen")}),
+    ("clase", "Apuntes de clase", "clase", {"salidas": _doc("resumen", "tareas")}),
+    ("buscable", "Solo hacerlo buscable", None, {"solo_buscable": True, "salidas": []}),
+]
+
+
+def _val_objetivo(d):
+    if not str(d.get("nombre") or "").strip():
+        raise ValueError("Falta el nombre")
+    o = {"nombre": d["nombre"].strip(), "plan": normalizar_plan(d.get("plan") or {}), "fijado": bool(d.get("fijado", False))}
+    if d.get("plantilla"):
+        o["plantilla"] = str(d["plantilla"])
+    return o
+
+
+@router.get("/api/objetivos")
+def api_objetivos():
+    serie = [{"id": "serie:" + i, "nombre": n, "serie": True, "plan": pl, **({"plantilla": t} if t else {})} for i, n, t, pl in OBJ_SERIE]
+    return serie + [{"id": i, **v} for i, v in cfg()["objetivos"].items()]
+
+
+_crud("objetivos", _val_objetivo)
 _crud("presets", _val_preset)
 _crud("recetas", _val_receta, lambda r: {**r, "proximo_iso": dt.datetime.fromtimestamp(r["proximo"]).isoformat(timespec="minutes") if r.get("proximo") else None})
 

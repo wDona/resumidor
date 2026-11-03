@@ -5,6 +5,13 @@ const QL = {documento: "Documento completo", resumen: "Resumen", transcripcion: 
 const ORDEN = Object.keys(QL);
 const BASICOS = {pdf: "PDF", docx: "Word", md: "Markdown", xlsx: "Excel", csv: "CSV"};
 const KEY = "desc.sel";
+const PK = "desc.presets", PU = "desc.ultimo";
+const SERIE = [
+  {id: "s:acta", nombre: "Acta en PDF", que: ["documento"], fmt: ["pdf"]},
+  {id: "s:comite", nombre: "Pack comité: decisiones + riesgos en Word y PDF", que: ["decisiones", "riesgos"], fmt: ["docx", "pdf"]},
+  {id: "s:tareas", nombre: "Tareas a Excel", que: ["tareas"], fmt: ["xlsx"]},
+  {id: "s:md", nombre: "Todo en Markdown", que: ["documento", "resumen", "tareas", "decisiones", "transcripcion"], fmt: ["md"]}];
+const ls = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const T = (t, c, ...k) => el(t, {className: c}, ...k);
 
 async function abrir({docs, c, ids} = {}) {
@@ -14,11 +21,32 @@ async function abrir({docs, c, ids} = {}) {
   let mem = {}; try { mem = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
   const ques = ORDEN.filter(q => op.que[q] && op.que[q][alcance]?.length), extra = ques.length ? [] : Object.keys(op.que);
   const lq = [...ques, ...extra];
-  const st = {que: new Set((mem.que || ["documento"]).filter(q => lq.includes(q))), fmt: new Set(mem.fmt || ["pdf"]), apr: !!mem.apr, mas: !!mem.mas};
+  const st = {que: new Set((mem.que || ["documento"]).filter(q => lq.includes(q))), fmt: new Set(mem.fmt || ["pdf"]), apr: !!mem.apr, mas: !!mem.mas, sel: null};
   if (!st.que.size && lq.length) st.que.add(lq[0]);
   const ok = (q, f) => !!op.que[q]?.[alcance]?.includes(f);
   const valido = f => [...st.que].some(q => ok(q, f));
   const d = el("dialog", {className: "env-dlg desc-dlg", "aria-label": "Descargar"});
+  let propios = ls(PK, []), flash = false;
+  const salir = () => matchMedia("(prefers-reduced-motion: reduce)").matches ? d.close() : (d.classList.add("saliendo"), setTimeout(() => d.close(), 160));
+  const aplicar = p => {
+    st.que = new Set(p.que.filter(q => lq.includes(q))); st.fmt = new Set(p.fmt); st.sel = p.id; flash = true;
+    if (p.fmt.some(f => !BASICOS[f])) st.mas = true;
+    pintar();
+  };
+  const guardar = () => {
+    const n = prompt("Nombre del preset"); if (!n?.trim()) return;
+    propios = [...propios, {id: "u:" + Date.now(), nombre: n.trim(), que: [...st.que], fmt: [...st.fmt].filter(valido)}];
+    localStorage.setItem(PK, JSON.stringify(propios)); st.sel = propios.at(-1).id; pintar();
+  };
+  const filaPre = () => {
+    const ult = ls(PU, null);
+    const chip = (p, own) => el("button", {type: "button", className: "env-chip env-pre" + (p.id === ult ? " ult" : ""), "aria-pressed": st.sel === p.id, onclick: () => aplicar(p),
+      title: p.que.map(q => QL[q] || q).join(", ") + " · " + p.fmt.map(f => BASICOS[f] || f).join(", ") + (p.id === ult ? " · último usado" : "")},
+      p.nombre, T("span", "env-badge" + (own ? " own" : ""), own ? "propio" : "de serie"));
+    return T("div", "env-chips desc-pre", ...SERIE.map(p => chip(p)), ...propios.map(p => T("span", "env-pg", chip(p, true), el("button", {type: "button", className: "env-chip env-mb", "aria-label": "Eliminar " + p.nombre, textContent: "×",
+      onclick: () => { propios = propios.filter(x => x.id !== p.id); localStorage.setItem(PK, JSON.stringify(propios)); pintar(); }}))),
+      el("button", {type: "button", className: "btn sec env-sm", textContent: "Guardar esta selección", onclick: guardar}));
+  };
   const cuerpo = T("div", "desc-body"), msg = T("div", "desc-msg"); msg.setAttribute("role", "status");
   const go = el("button", {type: "button", className: "btn pri", onclick: bajar});
   const pintar = () => {
@@ -26,11 +54,13 @@ async function abrir({docs, c, ids} = {}) {
     const chip = f => {
       const v = valido(f), on = st.fmt.has(f) && v;
       return el("button", {type: "button", className: "env-chip", "aria-pressed": on, disabled: !v, title: v ? "" : "No disponible para lo marcado",
-        textContent: BASICOS[f] || f, onclick: () => { st.fmt.has(f) ? st.fmt.delete(f) : st.fmt.add(f); pintar(); }});
+        textContent: BASICOS[f] || f, onclick: () => { st.fmt.has(f) ? st.fmt.delete(f) : st.fmt.add(f); st.sel = null; pintar(); }});
     };
+    const mov = flash; flash = false;
     cuerpo.replaceChildren(
+      T("fieldset", "desc-p", T("legend", "", "Preajustes"), filaPre()),
       T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
-        ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); pintar(); }}), " " + (QL[q] || q)))),
+        ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
       T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-chips", ...basicos.map(chip)),
         ...(mas.length ? [el("button", {type: "button", className: "btn sec env-sm", "aria-expanded": st.mas, textContent: st.mas ? "Menos formatos" : "Más formatos", onclick: () => { st.mas = !st.mas; pintar(); }}),
           ...(st.mas ? [T("div", "env-chips", ...mas.map(chip))] : [])] : [])),
@@ -38,9 +68,11 @@ async function abrir({docs, c, ids} = {}) {
     const n = [...st.fmt].filter(valido).length * st.que.size;
     go.disabled = !st.que.size || ![...st.fmt].some(valido);
     go.textContent = "Descargar" + (n > 1 ? " (.zip)" : "");
+    if (mov) cuerpo.querySelectorAll("input:checked,.env-chip[aria-pressed=true]").forEach(x => (x.closest("label") || x).classList.add("env-flash"));
   };
   async function bajar() {
     const formatos = [...st.fmt].filter(valido), que = [...st.que];
+    if (st.sel) localStorage.setItem(PU, JSON.stringify(st.sel));
     localStorage.setItem(KEY, JSON.stringify({que, fmt: [...st.fmt], apr: st.apr, mas: st.mas}));
     go.disabled = true; msg.className = "desc-msg"; msg.textContent = "Preparando…";
     try {
@@ -57,7 +89,7 @@ async function abrir({docs, c, ids} = {}) {
     } catch (e) { msg.className = "desc-msg env-bad"; msg.textContent = e.message; }
     go.disabled = false;
   }
-  d.append(T("h2", "", "Descargar"), cuerpo, msg, T("div", "row env-acc", go, el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: () => d.close()})));
+  d.append(T("h2", "", "Descargar"), cuerpo, msg, T("div", "row env-acc", go, el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: salir})));
   d.addEventListener("close", () => d.remove());
   document.body.append(d); pintar(); d.showModal();
 }

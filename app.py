@@ -2475,7 +2475,7 @@ if __name__ == "__main__":
         os.environ.get("ACTAS_NO_BROWSER") or webbrowser.open(url)
         sys.exit()
     with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
+        s.bind(("127.0.0.1", int(os.environ.get("ACTAS_PORT") or 0)))  # ACTAS_PORT: puerto fijo (pruebas); 0 = uno libre
         port = s.getsockname()[1]
     procs.cleanup_stale()
     LOCK.write_text(str(port))

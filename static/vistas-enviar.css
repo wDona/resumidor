@@ -53,5 +53,33 @@
 .desc-msg{min-height:1.4em;margin-top:var(--s2);font-size:14px}
 .desc-omit{margin-top:var(--s2);color:var(--warn)}
 .desc-omit ul{margin:var(--s1) 0 0;padding-left:var(--s4)}
-@media(prefers-reduced-motion:no-preference){.env-chip{transition:background .12s,border-color .12s}}
+
 .env-ms{margin:var(--s2) 0}.env-code{font:700 32px/1.2 ui-monospace,monospace;letter-spacing:.15em;padding:var(--s3);background:var(--acc-s);border-radius:var(--r);text-align:center;user-select:all}
+
+/* presets */
+.env-pres{margin-bottom:var(--s3)}
+.env-pg{position:relative;display:inline-flex;gap:2px;align-items:center}
+.env-pre{display:inline-flex;align-items:center;gap:var(--s2)}
+.env-pre.ult:not([aria-pressed=true]){border-style:dashed;border-color:var(--acc)}
+.env-badge{font-size:11px;font-weight:500;padding:0 6px;border-radius:8px;background:var(--line2);color:var(--muted,var(--ink))}
+.env-badge.own{background:var(--acc-s);color:var(--acc-d)}
+.env-mb{min-width:36px;padding:0 var(--s2)}
+.env-pmenu{position:absolute;top:100%;left:0;z-index:5;min-width:190px;margin-top:var(--s1);padding:var(--s2);background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.env-mi{width:100%;justify-content:flex-start}
+.env-sum{display:block;color:var(--muted,var(--ink));margin-top:var(--s1)}
+.env-star{background:none;border:0;font-size:20px;cursor:pointer;color:var(--acc);min-width:36px;min-height:36px}
+.env-pers>summary{cursor:pointer;font-weight:600;padding:var(--s2) 0}
+.desc-p{display:block}
+@keyframes env-in{from{opacity:0;transform:translateY(8px)}}
+@keyframes env-fl{from{background:var(--acc-s);transform:scale(.985)}}
+@keyframes env-dlg-in{from{opacity:0;transform:translateY(12px) scale(.98)}}
+@keyframes env-dlg-out{to{opacity:0;transform:translateY(8px) scale(.98)}}
+@media(prefers-reduced-motion:no-preference){
+.env-chip{transition:background var(--dur-s4,.15s) var(--ease-standard,ease),border-color var(--dur-s4,.15s) var(--ease-standard,ease),transform var(--dur-s4,.15s) var(--ease-standard,ease)}
+.env-chip:active:not(:disabled){transform:scale(.96)}
+.env-grid>*,.env-ul>li{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) both;animation-delay:calc(var(--i,0)*30ms)}
+.env-pres .env-chips>*{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) both;animation-delay:calc(var(--i,0)*30ms)}
+.env-flash{animation:env-fl var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}
+.env-dlg[open]{animation:env-dlg-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}
+.env-dlg.saliendo{animation:env-dlg-out .16s var(--ease-standard,ease) forwards}
+.env-toast{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}}
