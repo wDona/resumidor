@@ -94,7 +94,7 @@
 .pchip-s{color:var(--acc)}
 .pchip-m{width:0;min-width:0;padding:0;opacity:0;overflow:hidden;color:var(--mut)}
 .pchip:hover .pchip-m,.pchip:focus-within .pchip-m{width:30px;opacity:1}
-@media(hover:none){.pchip-m{width:30px;opacity:1}}
+@media(hover:none){.pchip.on .pchip-m{width:30px;opacity:1}}
 .pchip :is(button):focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .pchip>.env-pmenu{left:0}
 .env-pmenu{z-index:20}
@@ -140,7 +140,7 @@
 .env-seg.env-fmt{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));width:100%;overflow:visible;border:0;gap:var(--s2)}
 .env-fmt .env-chip,.env-fmt .env-chip+.env-chip{border:1px solid var(--line);border-radius:var(--r-s,8px);white-space:nowrap;padding:0 var(--s2)}
 .env-fmt .env-chip[aria-pressed=true]{border-color:var(--acc)}
-.env-fmt .env-chip[aria-disabled=true]{opacity:.5;border-style:dashed;text-decoration:line-through}
+.env-fmt .env-chip[aria-disabled=true]{opacity:.45;border-style:dashed}
 .desc-nota{margin-top:var(--s1)}
 .desc-dlg{max-width:min(720px,94vw)}
 .desc-pre .pchip,.env-chips .pchip{max-width:100%}.pchip-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -178,3 +178,16 @@
 .aj-tipos>summary{font-size:var(--fs-s,14px)}
 
 .env-split .sec.env-sp-a{border-left-color:var(--line)}
+
+/* R4 */
+.env-mas{position:relative;display:inline-flex}
+.env-mas>.btn{border-radius:var(--r-pill,999px);min-height:var(--h-m,36px)}
+.pchip:not(.on):not(:hover):not(:focus-within) .pchip-i{display:none}
+.desc-nota{display:none}
+.desc-cols{margin-bottom:0}.desc-dlg fieldset{margin-bottom:var(--s2)}.desc-opc{margin-top:0}
+.env-dlg .env-acc{position:sticky;bottom:0;background:var(--surf-2,var(--card));padding-top:var(--s3);margin-top:var(--s3)}
+@media(max-width:700px){.env-dlg .env-acc{box-shadow:0 -8px 12px -8px color-mix(in srgb,var(--ink) 25%,transparent)}.env-dlg .env-acc .btn.pri{flex:1;min-height:var(--h-l,44px)}}
+.env-ic{font-size:var(--fs-l,20px);line-height:1;margin-right:var(--s2)}
+.env-estado{font-size:var(--fs-xs,12px);color:var(--mut)}
+.env-ej{display:flex;flex-direction:column;gap:var(--s2);margin-top:var(--s4)}
+.env-ej .env-card{opacity:.85;flex-direction:row;align-items:center;gap:var(--s3)}

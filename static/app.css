@@ -7,8 +7,8 @@
 /* contrato de tokens (ronda 2): radios, alturas, superficies, texto y un único azul de acento */
 :root{--r-s:8px;--r-m:12px;--r-pill:999px;--h-s:28px;--h-m:36px;--h-l:44px;
  --surf-0:light-dark(#f4f5f7,#121519);--surf-1:light-dark(#fff,#1b2027);--surf-2:light-dark(#fff,#242a32);--shadow-2:0 1px 2px light-dark(rgba(15,23,42,.06),rgba(0,0,0,.3)),0 6px 20px light-dark(rgba(15,23,42,.12),rgba(0,0,0,.45));
- --txt-1:light-dark(#1f2933,#e6e9ee);--txt-2:light-dark(#3e4c59,#c5ccd5);--txt-3:light-dark(#5b6875,#9aa5b1);
- --bg:var(--surf-0);--bg2:light-dark(#f8f9fb,#171b21);--card:var(--surf-1);--ink:var(--txt-1);--ink2:var(--txt-2);--mut:var(--txt-3);--line:light-dark(#d9dee4,#333b46);--line2:light-dark(#e6e9ee,#2a313a);--inp:light-dark(#b7c0cc,#4a5565);
+ --txt-1:light-dark(#1f2933,#e6e9ee);--txt-2:light-dark(#3e4c59,#c5ccd5);--txt-3:light-dark(#4b5563,#a3adb9);
+ --bg:var(--surf-0);--bg2:light-dark(#f8f9fb,#171b21);--card:var(--surf-1);--ink:var(--txt-1);--ink2:var(--txt-2);--mut:var(--txt-3);--line:light-dark(#cfd5dc,#3d4652);--line2:light-dark(#e1e5ea,#323a45);--inp:light-dark(#b7c0cc,#4a5565);
  --acc:light-dark(#1d5fd1,#6ea3ff);--acc-d:light-dark(#174ba3,#8db4f5);--acc-s:light-dark(#eef4ff,#1b2a45);--acc-s2:light-dark(#e3ecfb,#22324f);--acc-ln:light-dark(#b9cff5,#2f4a7a);--on-acc:light-dark(#fff,#0b1220);--err:light-dark(#b42318,#ff8a80);--err-s:light-dark(#fef3f2,#3a1c1a);--warn:light-dark(#8a5a00,#f0c36a);--warn-s:light-dark(#fffbea,#2e2713);--warn-ln:light-dark(#f0d77a,#5a4a1c);
  --ok:light-dark(#155d33,#7fd6a2);--ok-s:light-dark(#dcefe3,#173325);--err-ln:light-dark(#f3b8b2,#6b2b27);--wb:light-dark(#fde68a,#4a3b12);--wbt:light-dark(#5c3d00,#f6d98a);--r:var(--r-s);--r2:var(--r-m);--r3:var(--r-m);--focus:light-dark(#8db4f5,#4d78c4);--shadow:var(--shadow-2);
  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--ctl:var(--h-l);  /* escala de espaciado (huecos, rellenos, márgenes) de las vistas del registro */
@@ -774,3 +774,15 @@ summary.fchip{list-style:none}summary.fchip::-webkit-details-marker{display:none
  .reg-t:not(.int-t) td.reg-ops{flex-basis:100%;white-space:normal;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.reg-t .reg-ops>*+*{margin-left:0}
  .reg-t:not(.int-t) td textarea{min-width:0}.reg-t:not(.int-t) tr.reg-cita,.reg-t:not(.int-t) tr.rq-gh{display:block}
 }
+
+/* ===== R4: overline único, parte de Proyecto/Documento, deleite ===== */
+html :is(.qcurso .k,.dec-draw h4,.inf-sem h4,.inf-top th,.int-ql,.sug-c .eb,.pal-h){font-size:var(--fs-xs);font-weight:var(--fw-sb);letter-spacing:.05em;text-transform:uppercase;color:var(--txt-3)}
+.f-camb{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}.f-camb .n-nuevo{color:var(--ok)}
+.sec-h .link{margin-right:auto;margin-left:var(--s3)}
+.f-add{flex-wrap:nowrap}.f-add input{min-width:0}
+@media(max-width:700px){.f-add{flex-wrap:wrap}}
+@media(hover:none){.f-tabla .pr .ac{opacity:.9}}
+/* imagen: sticky; columna IA acotada a ~5 líneas (con scroll) */
+.fu-img img{position:sticky;top:var(--s3)}.fu-img textarea{max-height:8lh;overflow:auto}.fu-img .field+.field textarea{max-height:5lh}
+@media(prefers-reduced-motion:no-preference){:root:not([data-anim=no]):not([data-anim=reducidas]) .f-tabla>.pr:not(.h){animation:m-fade var(--dur-s3,120ms) var(--ease-standard) both}}
+@keyframes m-fade{from{opacity:0}}

@@ -330,8 +330,10 @@ async function montar(raiz) {
       const sug = ["carpeta", "correo", "slack"].filter(t => ctx.cat.tipos[t]);
       raiz.replaceChildren(T("section", "env-sec env-vacio", T("h2", "", "Conecta un destino"),
         T("p", "muted", "Envía tareas, notas y archivos a donde ya trabajas. Elige uno para empezar; luego podrás crear presets y recetas automáticas."),
-        T("div", "env-grid env-grid3", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("strong", "", ctx.cat.tipos[t].nombre), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
-        el("button", {type: "button", className: "env-otro", onclick: () => catalogo(ctx, refrescar)}, "+ Otro destino")));
+        T("div", "env-grid env-grid3", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("span", "env-ic", {carpeta: "📁", correo: "✉️", slack: "💬"}[t]), T("strong", "", ctx.cat.tipos[t].nombre), T("small", "env-estado", "Sin conectar"), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
+        el("button", {type: "button", className: "env-otro", onclick: () => catalogo(ctx, refrescar)}, "+ Otro destino"),
+        T("div", "env-ej", T("h3", "", "Recetas de ejemplo"), ...[["Resumen semanal al equipo", "Cada lunes a las 09:00 · Resumen → Correo"], ["Tareas nuevas a tu gestor", "Al terminar un documento · Tareas → Jira / Planner"]].map(([n, d]) =>
+          T("div", "env-card card", T("span", "env-ic", "↻"), T("div", "", T("strong", "", n), T("small", "muted", d)), T("span", "grow"), T("span", "pill", "Ejemplo"))))));
       return;
     }
     const TABS = [["destinos", "Destinos", sDest, ctx.cat.destinos.length], ["presets", "Presets", sPre, ctx.presets.length], ["recetas", "Recetas", sRec, ctx.recetas.length], ["historial", "Historial", sHis, 0]];
@@ -389,15 +391,15 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
   const barra = () => {
     const orden = [...objs].sort((a, b) => fijado(b) - fijado(a)), ult = ls(OU, null);
     const vis = ["serie:reunion", "serie:resumen", "serie:buscable"].map(id => orden.find(o => o.id === id)).filter(Boolean);
-    const extra = orden.find(o => o.id === pre.sel) || orden.find(o => o.id === ult) || orden.find(o => fijado(o));
-    for (const o of orden) if (vis.length < 3 && !vis.includes(o) && o !== extra) vis.push(o);
-    if (extra && !vis.includes(extra)) vis.push(extra); else { const o = orden.find(o => !vis.includes(o) && fijado(o)); if (o && vis.length < 4) vis.push(o); }
+    for (const o of orden) if (vis.length < 3 && !vis.includes(o)) vis.push(o);
+    const extra = orden.find(o => o.id === pre.sel) || orden.find(o => o.id === ult);
+    if (extra && !vis.includes(extra)) vis.splice(2, 1, extra);  // 3 chips máx.: el elegido/último ocupa el 3.º hueco
     const mas = orden.filter(o => !vis.includes(o));
     const ch = o => chip({nombre: o.nombre, fijado: fijado(o), serie: o.serie, activo: pre.sel === o.id, ultimo: o.id === ult, titulo: resumen(o.plan, ctx), onSelect: () => aplicar(o), onMenu: a => menu(a, items(o))});
     const sum = pre.sel ? resumen(planActual(), ctx) : "";
     return T("div", "env-pres", T("div", "env-chips", ...esc(vis.map(ch)),
-      ...(mas.length ? [T("span", "pchip", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)])), {"aria-haspopup": "menu"}))] : []),
-      btn("Guardar como preset", "sec env-sm", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla})))),
+      T("span", "env-mas", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, [...mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)]),
+        ["Guardar lo actual como preset…", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla}))]]), {"aria-haspopup": "menu"}))),
       ...(sum ? [T("small", "env-sum", sum)] : []));
   };
   const rep = {on: !!plan.repetir, cada: "semana", dia_semana: 0, hora: "09:00", ...plan.repetir};

@@ -162,12 +162,14 @@ async function tResumen(c, e) {
   const nodos = [...bannerSug(c, pen.sugeridos)];
   // datos de la carpeta (clave/valor libres con sugerencias por tipo)
   let datos = e.datos.map(d => ({...d})), tipo = e.tipo, abierto = false;
+  const abrirD = t => el("button", {className: "link", textContent: t, onclick: () => { abierto = true; pintD(); caja.querySelector("input, button")?.focus(); }});
   const caja = el("div"), pintD = () => {
     caja.className = abierto ? "card" : "";
     if (!abierto) {  // solo los datos rellenos, como chips; el editor se abre con «Añadir datos del proyecto +» / «Editar»
       const llenos = e.datos.filter(d => d.k && d.v);
+      if (!llenos.length && !e.aviso) return caja.replaceChildren();
       return caja.replaceChildren(...(e.aviso ? [el("p", {className: "aviso w", textContent: e.aviso})] : []), el("div", {className: "f-datos"}, ...llenos.map(d => el("span", {className: "dchip"}, el("b", {textContent: d.k}), d.v)),
-        el("button", {className: "link", textContent: llenos.length ? "Editar datos" : "Añadir datos del " + (tipo || nm("carpeta")).toLowerCase() + " +", onclick: () => { abierto = true; pintD(); caja.querySelector("input, button")?.focus(); }})));
+        ...(llenos.length ? [abrirD("Editar datos")] : [])));
     }
     const rows = datos.map((d, i) => el("div", {className: "row f-dato"}, el("input", {value: d.k, ariaLabel: "Dato", placeholder: "Dato", oninput: ev => d.k = ev.target.value, style: "flex:0 1 200px"}),
       el("input", {value: d.v, ariaLabel: "Valor de " + d.k, placeholder: "Valor", oninput: ev => d.v = ev.target.value}),
@@ -180,9 +182,10 @@ async function tResumen(c, e) {
         el("button", {className: "pri sm", textContent: "Guardar datos", onclick: fallo(async () => { await post("/api/exp/datos", {c, datos}); aviso("Datos guardados"); await fRe(); })})));
   };
   pintD(); nodos.push(caja);
+  const hayDatos = e.datos.some(d => d.k && d.v);
   // estado actual
   const dv = est.decisiones, red = est.redaccion;
-  nodos.push(el("div", {className: "card"}, H("Estado actual", el("button", {className: "sec sm", textContent: red ? "Regenerar resumen" : "Generar resumen", onclick: fallo(() => fEnCola("/api/exp/estado", {c}))})),
+  nodos.push(el("div", {className: "card"}, H("Estado actual", ...(hayDatos ? [] : [abrirD("+ Datos del " + (tipo || nm("carpeta")).toLowerCase())]), el("button", {className: "sec sm", textContent: red ? "Regenerar resumen" : "Generar resumen", onclick: fallo(() => fEnCola("/api/exp/estado", {c}))})),
     ...(red ? [el("ul", {className: "f-red"}, ...red.frases.map(f => el("li", {}, f.texto + " ", ...f.refs.flatMap(r => [fLink(r), " "])))),
       ...(est.obsoleta ? [el("p", {className: "muted", textContent: "Hay documentos nuevos desde que se generó: regenéralo para incluirlos."})] : [])] : [el("p", {className: "muted", textContent: "Aún no hay resumen redactado; abajo, los datos con su fuente."})]),
     el("h3", {textContent: "Decisiones vigentes · " + dv.vigentes.length}), ...(dv.vigentes.length ? [el("ul", {className: "f-lst"}, ...dv.vigentes.map(x => el("li", {}, x.texto + " ", fLink(x))))] : [el("p", {className: "muted", textContent: "Ninguna."})]),
@@ -196,8 +199,9 @@ async function tResumen(c, e) {
 }
 function cambiosResumen(cm, c) {
   const n = (k, t) => cm[k][t].length;
-  return el("div", {}, el("div", {className: "f-tiles"}, ...[["decisiones", "Decisiones"], ["tareas", "Tareas"], ["puntos", "Puntos clave"]].map(([k, t]) => el("div", {className: "f-tile"}, el("b", {textContent: t}),
-    el("span", {}, el("span", {className: n(k, "nuevo") ? "n-nuevo" : "", textContent: "+" + n(k, "nuevo") + " nuevas"}), " · " + n(k, "cambiado") + " cambiadas"), el("span", {textContent: n(k, "ya_no") + " ya no aparecen"})))), el("a", {href: "#", textContent: "Comparar", onclick: e => { e.preventDefault(); fcmp = {a: cm.a.mid, b: cm.b.mid}; ftab = "comparar"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}));
+  return el("div", {className: "f-camb"}, ...[["decisiones", "Decisiones"], ["tareas", "Tareas"], ["puntos", "Puntos"]].map(([k, t]) => el("span", {className: "fchip", title: n(k, "nuevo") + " nuevas · " + n(k, "cambiado") + " cambiadas · " + n(k, "ya_no") + " ya no aparecen"},
+    t + " ", el("b", {className: n(k, "nuevo") ? "n-nuevo" : "", textContent: "+" + n(k, "nuevo")}), " ~" + n(k, "cambiado") + " −" + n(k, "ya_no"))),
+    el("a", {href: "#", textContent: "Comparar", onclick: e => { e.preventDefault(); fcmp = {a: cm.a.mid, b: cm.b.mid}; ftab = "comparar"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}));
 }
 
 // ---- Pendientes ----
@@ -225,7 +229,7 @@ async function tPendientes(c, e) {
   } else lista = el("div", {className: "f-tabla"}, el("div", {className: "pr h"}, el("span"), el("span", {textContent: "Pendiente"}), el("span", {textContent: "Responsable"}), el("span", {textContent: "Fecha límite"}), el("span", {textContent: "Origen"})),
     ...(items.length ? items.map(p => filaPend(c, p)) : [fpen.estado === "abierto" ? fLogro("Todo al día", "No quedan pendientes abiertos en este proyecto.", "Añadir un pendiente", () => $("pm-t").focus()) : el("div", {className: "vacio", textContent: "Nada cerrado todavía."})]));
   const add = el("form", {className: "row wrap f-add"}, el("input", {id: "pm-t", placeholder: "Añadir un pendiente a mano…", ariaLabel: "Pendiente", style: "flex:2 1 220px"}),
-    el("input", {id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable", style: "flex:1 1 130px"}), el("input", {id: "pm-p", placeholder: "Plazo (15/03/2026, el viernes…)", ariaLabel: "Plazo", style: "flex:1 1 170px"}), el("button", {className: "sec", textContent: "Añadir"}));
+    el("input", {id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable", style: "flex:1 1 130px"}), el("input", {id: "pm-p", placeholder: "Plazo (viernes…)", ariaLabel: "Plazo", style: "flex:1 1 170px"}), el("button", {className: "sec", textContent: "Añadir"}));
   add.onsubmit = fallo(async ev => { ev.preventDefault(); await post("/api/exp/pendientes", {c, texto: $("pm-t").value, resp: $("pm-r").value, plazo: $("pm-p").value}); await fRe(); });
   if (foco && fo) fResaltaIds(lista, foco.ids);
   return [...bannerSug(c, r.sugeridos), barra, ...(foco ? [fChipFoco(items.length, () => { fpenFoco = null; fRe(); }, foco.etiqueta)] : []), lista, add, el("p", {className: "muted", textContent: "Cada pendiente enlaza al minuto exacto del documento donde se acordó. Marcar o desmarcar es siempre a mano: el seguimiento automático solo propone."})];
@@ -244,7 +248,7 @@ function filaPend(c, p) {
   if (p.estado === "abierto") acc.push(el("button", {className: "link", textContent: "Descartar", ariaLabel: "Descartar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: "descartado"}); await fRe(); hechoDeshacer(c, p, fRe, "Descartado"); })}));
   if (p.manual) acc.push(el("button", {className: "link", textContent: "Quitar", ariaLabel: "Quitar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, borrar: true}); await fRe(); })}));
   return el("div", {className: "pr" + (sg ? " sug" : "") + (p.estado !== "abierto" ? " cerr" : ""), "data-id": p.eid || p.id}, el("span", {className: "pc"}, chk),
-    el("span", {className: "pt"}, el("span", {className: p.estado === "abierto" ? "" : "tach", textContent: p.texto}), " ", el("small", {className: "tipo", textContent: p.tipo}),
+    el("span", {className: "pt"}, el("span", {className: p.estado === "abierto" ? "" : "tach", textContent: p.texto}), " ", ...(/^tareas?$/i.test(p.tipo || "") ? [] : [el("small", {className: "tipo", textContent: p.tipo})]),
       ...(p.estado === "descartado" ? [el("span", {className: "badge", textContent: "descartado"})] : []), ...(sg ? [el("b", {className: "q", textContent: sg.tipo === "hecho" ? " ¿cerrado?" : " ¿actualizado?"})] : []),
       ...(p.nota ? [el("small", {textContent: p.nota})] : []),
       ...(sg ? [el("div", {className: "ev"}, "«" + sg.cita + "» ", fLink({mid: sg.mid, ver: sg.ver, t: sg.t}, sg.doc + " · " + mmss(sg.t)), " ",

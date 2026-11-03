@@ -26,7 +26,7 @@ async function abrir({docs, c, ids} = {}) {
   const ajustaFmt = () => { const v = Object.keys(BASICOS).filter(f => op.formatos.includes(f) && [...st.que].some(q => op.que[q]?.[alcance]?.includes(f))); if (v.length && !v.some(f => st.fmt.has(f))) st.fmt = new Set([v[0]]); };
   ajustaFmt();
   {  // preselecciona el último preset usado si coincide con lo recordado
-    const u = ls(PU, null), p = [...SERIE, ...ls(PK, [])].find(x => x.id === u), mismo = (A, B) => A.size === B.length && B.every(x => A.has(x));
+    const u = ls(PU, null) || "s:acta", p = [...SERIE, ...ls(PK, [])].find(x => x.id === u), mismo = (A, B) => A.size === B.length && B.every(x => A.has(x));
     if (p && mismo(st.que, p.que) && mismo(st.fmt, p.fmt)) st.sel = p.id;
   }
   const ok = (q, f) => !!op.que[q]?.[alcance]?.includes(f);
@@ -99,7 +99,7 @@ async function abrir({docs, c, ids} = {}) {
   }
   d.append(T("h2", "", "Descargar"), cuerpo, msg, T("div", "row env-acc", go, el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: salir})));
   d.addEventListener("close", () => d.remove());
-  document.body.append(d); pintar(); d.showModal();
+  document.body.append(d); pintar(); d.showModal(); go.focus();
 }
 window.Descargar = {abrir};
 })();
