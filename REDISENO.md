@@ -93,3 +93,9 @@ Comparar, Glosario, Vídeo condensado, Buscar a fondo, Derivar, fusionar/separar
 8. El plan de un trabajo (checklist de Añadir) sustituye a las recetas «al terminar» de su carpeta para ese documento: nunca se envía dos veces.
 9. Con «Anonimizar por defecto», si falta la copia anonimizada no se envía nada (error en historial); nunca sale vídeo/audio.
 10. Tests: `test_hardening::test_pdf_limpieza_no_es_500` y `test_nube::test_claude_argv_y_utf8` fallan en esta máquina también sin cambios (entorno); se excluyen al validar.
+11. Servidor MCP apagado por defecto, solo desde este equipo y con token; con «Anonimizar por defecto» activo no entrega contenido a herramientas externas (pueden usar la nube). `encolar` solo con permiso explícito.
+12. Carpetas vigiladas: un archivo entra cuando su tamaño/fecha no cambian en dos pasadas (10 s); «Mover a Procesados/» apagado por defecto.
+13. Correos .eml/.msg: el cuerpo es el documento y los adjuntos compatibles entran en la cola en el mismo proyecto (un adjunto que falla no impide el correo). Un .eml descargado por enlace se lee, pero sus adjuntos no se encolan.
+14. «Ya está hecho, no resumir» solo para documentos de texto; extrae tareas/decisiones/riesgos/requisitos al proyecto vía poblar.
+15. «Añadir a proyecto» no reenvía nada salvo que se marque «Enviar también».
+16. Importar de vuelta desde Excel/CSV: nunca borra; las filas nuevas entran como manuales aprobadas (sin cita) y todo el lote se puede deshacer.
