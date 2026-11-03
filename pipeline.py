@@ -1131,7 +1131,7 @@ def cache_keys(P, model, inputs, level, p2, lang=None):
     """(mh, vh, rh): map (prompt + esquema + modelo + entrada; + idioma si se fuerza), verificación y redacción encadenadas."""
     mh = hashlib.sha1("\0".join([P["map"], RESCUE_PROMPT, RESCUE.pattern, json.dumps(P["schema"]), str(model), *inputs, *([lang] if lang else [])]).encode()).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + P["sec"] + P["final"] + P["faithful"] + READ_NOTE + json.dumps(LEVELS[level]) + (P["sec2"] + str(DEDUP_THR) + "cifras") * p2).encode()).hexdigest()[:8]
+    rh = hashlib.sha1((vh + P["sec"] + P["final"] + P["faithful"] + READ_NOTE + json.dumps(LEVELS[level]) + (P["sec2"] + str(DEDUP_THR) + "cifras") * p2 + GROUP_PROMPT * (len(inputs) > LONG_BLOCKS)).encode()).hexdigest()[:8]
     return mh, vh, rh
 
 SEMCHUNK = os.environ.get("ACTAS_SEMCHUNK") == "1"
@@ -1665,9 +1665,41 @@ def group_section(chat, pts, ask_n, lang, mas, P=None):
 
 
 FINAL_CHARS = 14000  # ~4,5k tokens de partes en la redacción final (contexto de 8k)
+LONG_BLOCKS = 16  # más bloques del map que esto: documento enorme, el reduce puede ser jerárquico (cambia la clave de la caché)
+GROUP_PROMPT = """Resumes un tramo consecutivo de un documento largo. Recibes resúmenes de partes con marcas [mm:ss] (su lugar en el documento).
+resumen: {n} que sinteticen el tramo y conserven entre corchetes las marcas [mm:ss] de lo que cites, sin inventar otras. {faithful} Escribe en {lang}."""
 
 
-def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None):
+def reduce_parts(chat, lines, lang, P, cb=None, c=700):
+    """Reduce jerárquico de las líneas «[mm:ss] título: resumen»: mientras no quepan en FINAL_CHARS, se agrupan en orden en tramos que
+    caben, cada tramo se resume (con sus marcas [mm:ss]) y la línea resultante lleva la marca del primero; se repite con los resúmenes."""
+    done, last = 0, 0.0
+    while sum(len(x) + 1 for x in lines) > FINAL_CHARS and len(lines) > 1:
+        groups, cur = [], []
+        for x in lines:
+            if cur and sum(len(y) + 1 for y in cur) + len(x) > FINAL_CHARS // 2:
+                groups.append(cur)
+                cur = []
+            cur.append(x)
+        groups.append(cur)
+        if len(groups) >= len(lines):  # no comprime (partes enormes): que no dé vueltas
+            break
+        out = []
+        for i, g in enumerate(groups):
+            if len(g) == 1:
+                out.append(g[0])
+                continue
+            last = max(last, done / (done + len(groups) - i))
+            cb and cb(last, f"Resumen por partes {i + 1}/{len(groups)}…")
+            r = chat(GROUP_PROMPT.format(n=f"2-4 frases (como mucho unos {c} caracteres)", faithful=P["faithful"], lang=lang),
+                     "\n".join(g), obj(resumen=S(c * 3 // 2)), 600, 1.1)["resumen"]
+            out.append(f"{g[0].split(']')[0]}] {sentences(r, c * 3 // 2)}")
+            done += 1
+        lines = out
+    return lines
+
+
+def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None, partes=None):
     """Reduce jerárquico, nunca se pasa de contexto ni recorta: (1) una sección por bloque del map (título = su tema,
     viñetas = sus puntos elegidos) y el LLM solo redacta su resumen a partir de esas viñetas; (2) el título y el resumen
     global salen de los resúmenes de sección (breve: de los puntos elegidos). En los niveles con tope, las decisiones
@@ -1692,9 +1724,8 @@ def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None):
             secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res})
     if secs:
         src, text = "los resúmenes de cada parte", "\n\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {s['resumen']}" for s in secs)
-        if len(text) > FINAL_CHARS:  # PDF de cientos de páginas: la primera frase de cada parte (y, si aún no cabe, las primeras partes)
-            # ponytail: recorte duro; reduce jerárquico (resumen de grupos de partes) si se queda corto con documentos enormes
-            text = "\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {first_sentences(s['resumen'], 1)}" for s in secs)[:FINAL_CHARS]
+        if len(text) > FINAL_CHARS:  # PDF de cientos de páginas: reduce jerárquico (resumen de grupos de partes, en orden)
+            text = "\n".join(reduce_parts(chat, [f"[{fmt(s['t'])}] {s['titulo']}: {s['resumen']}" for s in secs], lang, P, partes and partes()))[:FINAL_CHARS]
     else:
         src = "los temas de cada parte y los puntos clave"  # los temas: que el resumen recorra toda la reunión
         text = "Partes:\n" + "\n".join(f"[{fmt(t)}] {m['tema']}" for t, m in zip(starts, maps)) + "\n\nPuntos clave:\n" + bullets(sel)
@@ -2156,7 +2187,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 # ---------- Tiempo restante ----------
 RITMOS = WORK / "ritmos.json"  # segundos de cada fase por segundo de vídeo medidos en este equipo (media con la anterior)
 RITMO0 = {"asr": .35, "transcripción": .01, "hablantes": .05, "capturas+ocr": .05, "ocr_map": .03, "llm_carga": .005,
-          "map": .45, "reduce": .1, "fondo": .5}  # portátil sin GPU, hasta la 1.ª acta; Alta x2 en map/reduce, GPU /4 en el LLM
+          "map": .45, "reduce": .1, "partes": .1, "fondo": .5}  # portátil sin GPU, hasta la 1.ª acta; Alta x2 en map/reduce, GPU /4 en el LLM
 ETA = {}  # fase en curso del trabajo (la lee /api/job)
 
 
@@ -2355,7 +2386,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
             valid = json.loads(vf.read_text())
             if not rf.exists():
-                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P), ensure_ascii=False))
+                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P, lambda: fase("partes", 0.92, 0.97)), ensure_ascii=False))
             stage("reduce", t0)
             if fondo and not ff.exists():
                 t0 = time.time()
