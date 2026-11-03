@@ -54,17 +54,19 @@ const cierraPal = () => document.querySelector("dialog.pal")?.close();
 addEventListener("hashchange", cierraPal); addEventListener("popstate", cierraPal);
 
 // ---------- raíl izquierdo (plegable: iconos + texto → solo iconos; en móvil, panel) ----------
+const RAIL_N = {};
 function pintarSide() {
   const r = vistaAct, cnt = c => todas.filter(m => (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
   const pend = Object.values(RES).reduce((s, x) => s + (x?.pend || 0), 0);
-  const a = (h, k, t, on, n) => el("a", {href: h, className: "nav", title: t, "aria-current": on ? "page" : "false"}, ico(k), el("span", {className: "rt", textContent: t}), el("span", {className: "c", textContent: n || ""}));
+  const a = (h, k, t, on, n) => { const c = el("span", {className: "c", textContent: n || ""}); if (RAIL_N[h] !== undefined && RAIL_N[h] !== (n || 0)) { c.classList.add("tick"); c.addEventListener("animationend", () => c.classList.remove("tick")); } RAIL_N[h] = n || 0;
+    return el("a", {href: h, className: "nav", title: t, "aria-current": on ? "page" : "false"}, ico(k), el("span", {className: "rt", textContent: t}), c); };
   $("side").replaceChildren(
     a("#/", "inicio", "Inicio", r === "home" && fsel === undefined), a("#/biblioteca", "bib", "Biblioteca", r === "bib", todas.length),
     a("#/pendientes", "pend", "Pendientes", r === "pend", pend), a("#/enviar", "env", "Enviar", r === "enviar"),
-    el("div", {className: "t"}, el("span", {className: "rt", textContent: cap(pl(nm("carpeta")))})),
+    el("div", {className: "t"}, el("span", {className: "rt", textContent: cap(pl(nm("carpeta")))}),
+      el("button", {type: "button", className: "gh ic rail-mas", title: cap(nm("carpeta")) + " nuevo", ariaLabel: cap(nm("carpeta")) + " nuevo", onclick: () => { if (vistaAct !== "home") irInicio(); nuevaCarpeta(); }}, ico("mas"))),
     ...carpetas.map(c => soltable(a("#/p/" + enc(c), "proy", c, r === "home" && fsel === c, cnt(c)), c)),
     ...(sin ? [soltable(a("#/p/", "proy", sinC(), r === "home" && fsel === "", cnt("")), "")] : []),
-    el("button", {type: "button", className: "nav m", title: cap(nm("carpeta")) + " nuevo", onclick: () => { if (vistaAct !== "home") irInicio(); nuevaCarpeta(); }}, ico("mas"), el("span", {className: "rt", textContent: "Nuevo"})),
     el("span", {className: "grow"}),
     ...(GR.activa ? [el("button", {type: "button", className: "nav rec", title: "Grabando", onclick: () => grabarAbrir()}, ico("rec"), el("span", {className: "rt", textContent: "Grabando…"}))] : []),
     a("#/ajustes/general", "aj", "Ajustes", r === "ajustes"));
@@ -84,7 +86,18 @@ function omniScope() {
   const s = $("omni-c"), v = s.value, p = vistaAct === "home" && fsel ? fsel : vistaAct === "res" && cur?.carpeta ? cur.carpeta : "";
   s.replaceChildren(new Option("Todo", ""), ...(p ? [new Option(p, "p:" + p)] : []), ...(vistaAct === "res" && cur ? [new Option("Este documento", "d:" + cur.id)] : []));
   if ([...s.options].some(o => o.value === v)) s.value = v;
+  omniChips();
 }
+// alcance como chips bajo el campo (el select sigue siendo el valor; en escritorio solo se ven con el foco)
+function omniChips() {
+  const s = $("omni-c"), w = $("omni-sc") || $("omni").appendChild(el("div", {id: "omni-sc", className: "omni-sc", role: "group", ariaLabel: "Dónde buscar"}));
+  w.replaceChildren(...[...s.options].map(o => el("button", {type: "button", className: "fchip", "aria-pressed": s.value === o.value, textContent: o.text, onclick: () => { s.value = o.value; omniChips(); $("buscar").focus(); }})));
+}
+$("omni-b").onclick = () => { const on = document.body.classList.toggle("omni-open"); $("omni-b").setAttribute("aria-expanded", on); if (on) $("buscar").focus(); };
+$("buscar").addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("omni-open")) { document.body.classList.remove("omni-open"); $("omni-b").setAttribute("aria-expanded", "false"); $("omni-b").focus(); } });
+addEventListener("hashchange", () => document.body.classList.remove("omni-open"));
+// «Cola»: sin trabajos, solo el aro; con trabajos, número
+{ const pp = pintarPill; pintarPill = function () { pp(); const n = cola.n, b = $("b-cola"); let q = b.querySelector(".qn"); if (!q) b.append(q = el("b", {className: "qn"})); q.textContent = n || ""; b.classList.toggle("idle", !n); }; }
 $("omni").onsubmit = e => { e.preventDefault(); const q = $("buscar").value.trim(); if (!q) return; if (location.hash === "#/buscar/" + enc(q)) buscarIr(q); else location.hash = "#/buscar/" + enc(q); };
 addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); paleta(); }
@@ -101,10 +114,12 @@ async function buscarIr(q) {
   BQ.q = q; $("buscar").value = q; const sc = $("omni-c").value, c = sc.startsWith("p:") ? sc.slice(2) : "", d = sc.startsWith("d:") ? sc.slice(2) : "";
   if (vistaAct !== "buscar") vista("buscar"); else rutaSync();
   document.title = q + " · Buscar · Actas"; $("bus-t").textContent = "Resultados de «" + q + "»";
-  const chip = (v, t) => el("button", {type: "button", className: "fchip", "aria-pressed": BQ.tipo === v, textContent: t, onclick: () => { BQ.tipo = v; buscarIr(q); }});
-  $("bus-f").replaceChildren(el("div", {className: "row wrap", role: "group", ariaLabel: "Tipo"}, chip("", "Todo"), ...Object.entries(KIND_T).map(([k, t]) => chip(k, t)),
-    chip("tarea", "Tareas"), chip("decision", "Decisiones"), chip("requisito", "Requisitos"), chip("riesgo", "Riesgos")),
-    el("small", {textContent: sc ? "En: " + $("omni-c").selectedOptions[0].text + " · cambia el alcance junto al buscador" : "En todo · elige un proyecto junto al buscador para acotar"}));
+  const cn = k => BQ.cnt?.q === q + "|" + sc && BQ.cnt[k] ? el("i", {textContent: " " + BQ.cnt[k]}) : "";  // contadores de la última búsqueda sin filtro de tipo
+  const chip = (v, t) => el("button", {type: "button", className: "fchip", "aria-pressed": BQ.tipo === v, onclick: () => { BQ.tipo = v; buscarIr(q); }}, t, cn(v || "_"));
+  $("bus-f").replaceChildren(el("div", {className: "row wrap bus-chips"}, el("div", {className: "row wrap", role: "group", ariaLabel: "Tipo de documento"}, chip("", "Todo"), ...Object.entries(KIND_T).map(([k, t]) => chip(k, t))),
+    el("span", {className: "fdiv", role: "separator", "aria-hidden": "true"}),
+    el("div", {className: "row wrap", role: "group", ariaLabel: "Elementos extraídos"}, chip("tarea", "Tareas"), chip("decision", "Decisiones"), chip("requisito", "Requisitos"), chip("riesgo", "Riesgos"))),
+    ...(sc ? [el("small", {textContent: "En: " + $("omni-c").selectedOptions[0].text})] : []));
   const skI = () => el("li", {className: "bus-i", "aria-hidden": "true"}, ...sk(3));
   $("bus-fr").replaceChildren(skI(), skI(), skI()); $("bus-el").replaceChildren(skI()); $("bus-fr").setAttribute("aria-busy", "true");
   let r;
@@ -112,12 +127,14 @@ async function buscarIr(q) {
   catch { r = {fragmentos: todas.filter(m => (!c || m.carpeta === c) && norm(m.label + " " + m.carpeta).includes(norm(q))).map(m => ({doc: m.id, titulo: m.label, c: m.carpeta, kind: m.kind, snippet: ""})), elementos: []}; }
   if (BQ.q !== q) return;
   const fr = r.fragmentos.filter(f => !d || f.doc === d), els = r.elementos.filter(x => !d || x.doc === d);
+  if (!BQ.tipo) { const k = {q: q + "|" + sc, _: fr.length + els.length}; fr.forEach(f => { k[f.kind] = (k[f.kind] || 0) + 1; }); els.forEach(x => { k[x.tipo] = (k[x.tipo] || 0) + 1; }); BQ.cnt = k; $("bus-f").querySelectorAll(".fchip").forEach(b => { const t = b.firstChild.textContent, v = [...Object.entries(KIND_T), ["tarea", "Tareas"], ["decision", "Decisiones"], ["requisito", "Requisitos"], ["riesgo", "Riesgos"], ["", "Todo"]].find(x => x[1] === t)?.[0]; const n = k[v || "_"]; if (n && !b.querySelector("i")) b.append(el("i", {textContent: " " + n})); }); }
+  $("bus-el").closest("section").hidden = !els.length; $("bus-fr").closest("section").hidden = !fr.length && !!els.length; $("bus-fr").closest(".bus-g").classList.toggle("uno", !els.length || !fr.length);
   $("bus-fr").replaceChildren(...(fr.length ? fr.map(f => {
     const loc = f.loc || (f.t != null ? mmss(f.t) : ""), go = () => fallo(citaDoc)(f.doc, f.t, f.loc);
     const p = el("p", {className: "bus-s"}); p.innerHTML = f.snippet || "";  // el servidor escapa el HTML y solo añade <mark>
     return el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, el("button", {type: "button", className: "doc-l", textContent: f.titulo || f.doc, onclick: go}),
       ...(loc ? [el("button", {type: "button", className: "cite", textContent: loc, onclick: go})] : []), el("span", {className: "muted", textContent: [KIND_T[f.kind] || f.tipo_fuente, f.c].filter(Boolean).join(" · ")})), p);
-  }) : [el("li", {className: "muted", textContent: "Sin fragmentos."})])); $("bus-fr").removeAttribute("aria-busy"); escalona($("bus-fr"), true); escalona($("bus-el"), true);
+  }) : [el("li", {className: "muted", textContent: "Sin resultados. Prueba con otra palabra o quita el filtro."})])); $("bus-fr").removeAttribute("aria-busy"); escalona($("bus-fr"), true); escalona($("bus-el"), true);
   $("bus-el").replaceChildren(...(els.length ? els.map(x => el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, badgeT(TIPO_T[x.tipo] || x.tipo, "acc"), el("b", {textContent: (x.codigo ? x.codigo + " · " : "") + x.texto})),
     el("small", {}, [x.estado, x.c].filter(Boolean).join(" · ") + " · ", el("a", {href: "#", textContent: "Abrir en el proyecto", onclick: ev => { ev.preventDefault(); irElemento(x.c, x.tipo, x.id); }})))) : [el("li", {className: "muted", textContent: "Sin elementos."})]));
   // Respuesta: el mismo panel de Preguntar, en el proyecto o documento del alcance (o en el del mejor fragmento)
@@ -292,8 +309,9 @@ function anBoton() {
 }
 const anParams = dest => ({buscable: !reuse && AN.buscable, descripcion: $("an-desc").value.trim(), tal_cual: !reuse && !$("an-tc-w").hidden && $("an-tc").checked,
   ...(!reuse && AN.plan ? {plan: {...AN.plan, carpeta: dest, plantilla: $("plantilla").value, ...($("an-nombre").value.trim() ? {nombre: $("an-nombre").value.trim()} : {}), ...(AN.buscable ? {solo_buscable: true} : {})}} : {})});
-function anLimpiar() { AN.files = []; setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); $("an-desc").value = ""; $("an-tc").checked = false; $("an-nombre").value = ""; anPintar(); }
-function anEnlace(u) { if (!$("v-nuevo").open) formNuevo(); $("enlace").value = u; $("enlace").oninput(); }
+function anLimpiar() { anEnlVer(false); AN.files = []; setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); $("an-desc").value = ""; $("an-tc").checked = false; $("an-nombre").value = ""; anPintar(); }
+const anEnlVer = on => { $("t-enlace").hidden = !on; $("an-enl-b").setAttribute("aria-expanded", on); };
+function anEnlace(u) { if (!$("v-nuevo").open) formNuevo(); anEnlVer(true); $("enlace").value = u; $("enlace").oninput(); }
 async function anPegar() {
   try {
     for (const it of await navigator.clipboard.read()) { const t = it.types.find(x => x.startsWith("image/")); if (t) { const b = await it.getType(t); await anSubir([new File([b], "captura-" + stamp() + "." + t.split("/")[1], {type: t})]); $("an-desc").focus(); return; } }
@@ -306,7 +324,7 @@ formNuevo = function (m, a) {
   formNuevo1(m, a);
   $("an-obj").hidden = $("an-nombre").closest(".field").hidden = !!m; $("an-av").open = !!m; $("form-t").textContent = m ? $("form-t").textContent : "Añadir";
   if (!m) { anGoals(); if (AN.goal && !anChips()) anGoal(AN.goal); anProyecto(); }
-  anPintar();
+  anEnlVer(!!$("enlace").value.trim()); anPintar();
 };
 $("n-carpeta").addEventListener("change", anProyecto);
 $("an-x").onclick = () => $("v-nuevo").close();
@@ -314,6 +332,9 @@ $("an-cancel").onclick = () => { anLimpiar(); $("v-nuevo").close(); };
 $("an-elegir").onclick = () => $("an-file").click();
 $("an-file").onchange = () => { anSubir([...$("an-file").files]); $("an-file").value = ""; };
 $("an-pegar").onclick = anPegar;
+$("an-enl-b").onclick = () => { anEnlVer($("t-enlace").hidden); if (!$("t-enlace").hidden) $("enlace").focus(); };
+$("drop").addEventListener("click", e => { if (e.target === $("drop") || e.target.closest(".t, .ico")) $("an-file").click(); });  // toda la zona abre el selector
+$("h-enl-b").onclick = () => { const f = $("h-enl"); f.hidden = !f.hidden; $("h-enl-b").setAttribute("aria-expanded", !f.hidden); if (!f.hidden) $("h-enl-i").focus(); };
 $("enlace").addEventListener("input", anPintar);
 $("nueva").onclick = () => formNuevo();
 // Inicio: zona grande de soltar
@@ -346,6 +367,18 @@ function iniDatos() {
   return INI.p = Promise.all([Promise.all(carpetas.slice(0, 12).map(c => api("/api/reg?" + new URLSearchParams({c})).then(r => ({c, r})).catch(() => null))),
     api("/api/envios?limit=200").catch(() => [])]).then(([regs, env]) => ({regs: regs.filter(Boolean), env}));
 }
+const stT = (t, c) => el("span", {className: "st " + c, textContent: t});  // estado: punto de color + texto (no parece botón)
+// container transform: la fila de «Continúa» se convierte en la cabecera del documento (View Transitions; sin soporte, abre directo)
+async function abrirVT(fila, id) {
+  if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.anim === "no") return abrir(id);
+  fila.style.viewTransitionName = "doc-vt";
+  const orig = document.startViewTransition.bind(document), okT = {finished: Promise.resolve(), ready: Promise.resolve(), updateCallbackDone: Promise.resolve()};
+  const t = orig(async () => { fila.style.viewTransitionName = "";
+    document.startViewTransition = f => { f(); return okT; };  // la vista() de app.js no debe abrir otra transición encima de esta
+    try { await abrir(id); } finally { document.startViewTransition = orig; } const h = $("cab-titulo")?.closest(".dh-t") || $("v-res"); h.style.viewTransitionName = "doc-vt"; });
+  t.ready.catch(() => {}); t.updateCallbackDone.catch(() => {});
+  try { await t.finished; } catch {} finally { $("cab-titulo")?.closest(".dh-t")?.style.removeProperty("view-transition-name"); }
+}
 function pintarInicio() {
   const vacio = !todas.length && !cola.items.length, act = cola.items.filter(e => ACT.includes(e.state)), run = act.find(e => e.state === "marcha");
   $("h-flujo").hidden = $("h-cont").hidden = vacio;
@@ -354,19 +387,18 @@ function pintarInicio() {
     el("button", {type: "button", className: "link", textContent: "Cambiar", onclick: () => formNuevo()}));
   // Continúa: lo que se está procesando y lo último
   const nuevas = act.filter(e => e.kind === "acta" && !e.mid).map(e => el("div", {className: "h-ci"}, el("span", {className: "n"}, el("b", {textContent: e.video}), el("small", {textContent: "Procesando"})),
-    badgeT(e.state === "marcha" ? "Procesando " + Math.round(e.frac * 100) + " %" : "En cola", "acc")));
+    stT(e.state === "marcha" ? "Procesando " + Math.round(e.frac * 100) + " %" : "En cola", "acc")));
   const recientes = todas.slice(0, 6).map(m => { const e = act.find(x => x.mid === m.id), r = RES[m.carpeta || ""] || {};
-    return el("button", {type: "button", className: "h-ci", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n"}, el("b", {textContent: m.label}),
+    const fila = el("button", {type: "button", className: "h-ci", onclick: fallo(() => abrirVT(fila, m.id))}, el("span", {className: "n"}, el("b", {textContent: m.label}),
       el("small", {textContent: [m.carpeta || sinC(), fechaC(m.mtime), m.dur ? Math.round(m.dur / 60) + " min" : KIND_T[m.kind]].filter(Boolean).join(" · ")})),
-      e ? badgeT(e.state === "marcha" ? "Procesando" : "En cola", "acc") : r.sug ? badgeT(r.sug + " por revisar", "w") : badgeT("Listo", "ok")); });
+      e ? stT(e.state === "marcha" ? "Procesando" : "En cola", "acc") : r.sug ? stT(r.sug + " por revisar", "w") : stT("Listo", "ok")); return fila; });
   $("h-cont-l").replaceChildren(...nuevas, ...recientes); escalona($("h-cont-l"));
   // tira del flujo (contadores clicables); los del registro y los envíos llegan después
   const tile = (n, t, v, s, f) => el("button", {type: "button", className: "fl", onclick: f}, el("span", {className: "fl-t", textContent: n + " · " + t}), v == null ? el("b", {className: "sk sk-n", "aria-label": "Cargando"}) : el("b", {textContent: v}), el("small", {textContent: s}));
-  const pinta = (rev, apr, hoy, ult) => $("h-flujo").replaceChildren(
-    tile(1, "En cola", act.length, run ? "Procesando: " + nombreDe(run) : act.length ? "Esperando turno" : "Nada en marcha", () => { location.hash = "#/cola"; }),
-    tile(2, "Por revisar", rev, "Elementos extraídos sin aprobar", () => $("rev").scrollIntoView({block: "start"})),
-    tile(3, "Listo para enviar", apr, "Elementos aprobados", () => { location.hash = "#/enviar"; }),
-    tile(4, "Enviado hoy", hoy, ult || "Historial en Enviar", () => { location.hash = "#/enviar"; }));
+  const pinta = (rev, apr, hoy, ult) => { const ts = [[act.length, 1, "En cola", run ? "Procesando: " + nombreDe(run) : "Esperando turno", () => { location.hash = "#/cola"; }],
+      [rev, 2, "Por revisar", "Elementos extraídos sin aprobar", () => $("rev").scrollIntoView({block: "start"})], [apr, 3, "Listo para enviar", "Elementos aprobados", () => { location.hash = "#/enviar"; }],
+      [hoy, 4, "Enviado hoy", ult || "Historial en Enviar", () => { location.hash = "#/enviar"; }]].filter(x => x[0] > 0);  // solo las etapas con algo
+    $("h-flujo").hidden = vacio || !ts.length; $("h-flujo").replaceChildren(...ts.map(([v, n, t, sb, f]) => tile(n, t, v, sb, f))); };
   pinta();
   // sugerencias: lo listo de la cola ya; lo del registro cuando llega (mismo hueco: esqueleto si la última vez hubo)
   const listo = cola.items.filter(e => e.kind === "acta" && e.state === "hecho" && e.mid && todas.some(m => m.id === e.mid)).pop();
@@ -396,7 +428,7 @@ function pintarInicio() {
 function sugerencias(l, prov, anim = !prov) {  // prov: lista provisional (falta el registro): esqueleto si la última vez hubo sugerencias
   const fuera = lsGet("ini.sug.x", []), vis = l.filter(x => !fuera.includes(x.k)), esperando = prov && INI.nSug > 0;
   if (!prov) INI.nSug = vis.length;
-  $("h-sug").replaceChildren(...vis.map(x => el("div", {className: "sug-c" + (x.w ? " w" : "")}, el("span", {className: "n"}, el("b", {textContent: x.t}), el("small", {textContent: x.s})),
+  $("h-sug").replaceChildren(...vis.slice(0, 1).map(x => el("div", {className: "sug-c" + (x.w ? " w" : "")}, el("span", {className: "n"}, el("small", {className: "eb", textContent: "Siguiente paso"}), el("b", {textContent: x.t}), el("small", {textContent: x.s})),
     el("button", {type: "button", className: "sec sm", textContent: x.b, onclick: x.f}),
     el("button", {type: "button", className: "qx", textContent: "✕", ariaLabel: "Descartar: " + x.t, title: "Descartar", onclick: () => { lsSet("ini.sug.x", [...fuera, x.k].slice(-40)); sugerencias(l, false, false); $("h-sug").querySelector(".qx")?.focus(); }}))),
     ...(esperando && !vis.length ? [el("div", {className: "sk-c", "aria-hidden": "true"}, ...sk(2))] : []));
@@ -408,20 +440,42 @@ const BIB = {ms: [], sel: new Set(), tipo: "", c: "*", est: "", dias: 0, q: "", 
 async function pintarBib() {
   if (!BIB.ms.length) $("bib-tb").replaceChildren(...Array.from({length: 6}, () => el("tr", {className: "sk-r", "aria-hidden": "true"}, el("td", {colSpan: 6}, el("span", {className: "sk"})))));
   BIB.ms = unicas(await api("/api/meetings").catch(() => todas)); BIB.sel = new Set([...BIB.sel].filter(id => BIB.ms.some(m => m.id === id))); pintarBibL(); }
+const BIB0 = {tipo: "", c: "*", est: "", dias: 0, q: ""}, BIB_SERIE = [{n: "Esta semana", dias: 7}, {n: "Solo buscable", est: "buscable"}, {n: "En cola", est: "cola"}];
+const bibVista = v => { Object.assign(BIB, BIB0, v); if (BIB.qEl) BIB.qEl.value = BIB.q; pintarBibL(); };
+// barra de filtros: buscador + un popover por filtro (Proyecto, Estado, Fecha) + «Guardar vista»; el buscador se crea una vez (no pierde el foco)
+function bibBarra(ms, chip) {
+  const f = $("bib-f");
+  if (!f.firstChild) {
+    BIB.qEl = el("input", {type: "search", placeholder: "Filtrar por nombre", ariaLabel: "Filtrar por nombre", oninput: () => { BIB.q = BIB.qEl.value; pintarBibL(); }});
+    f.append(el("div", {className: "fbar"}, BIB.qEl, el("span", {id: "bib-fp", className: "fp"})), el("div", {id: "bib-ft", className: "row wrap fchips", role: "group", ariaLabel: "Tipo"}), el("div", {id: "bib-fv", className: "row wrap fchips", role: "group", ariaLabel: "Vistas guardadas"}));
+    document.addEventListener("click", e => document.querySelectorAll("#bib-f details[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+    f.addEventListener("keydown", e => { if (e.key === "Escape") f.querySelectorAll("details[open]").forEach(d => { d.open = false; d.querySelector("summary").focus(); }); });
+  }
+  if (BIB.qEl.value !== BIB.q) BIB.qEl.value = BIB.q;
+  const pop = (lab, v, ops, def, fn) => { const cur = ops.find(o => String(o[0]) === String(v)), act = String(v) !== String(def), d = el("details", {className: "fpop" + (act ? " on" : "")}, el("summary", {className: "fchip", textContent: act ? lab + ": " + cur[1] : lab}),
+      el("div", {className: "fpop-l", role: "group", ariaLabel: lab}, ...ops.map(([k, t]) => el("button", {type: "button", className: "fpop-o", "aria-pressed": String(k) === String(v), textContent: t, onclick: () => { fn(k); pintarBibL(); }}))));
+    return d; };
+  $("bib-fp").replaceChildren(
+    ...(carpetas.length || ms.some(m => !m.carpeta) ? [pop(cap(nm("carpeta")), BIB.c, [["*", "Todos"], ...carpetas.map(c => [c, c]), ["", sinC()]], "*", v => BIB.c = v)] : []),
+    pop("Estado", BIB.est, [["", "Cualquiera"], ["listo", "Listo"], ["buscable", "Solo buscable"], ["cola", "En cola"]], "", v => BIB.est = v),
+    pop("Fecha", BIB.dias, [[0, "Cualquiera"], [1, "Hoy"], [7, "Últimos 7 días"], [30, "Últimos 30 días"]], 0, v => BIB.dias = +v),
+    el("button", {type: "button", className: "sec sm", textContent: "Guardar vista", title: "Guarda los filtros de ahora como una vista", onclick: () => {
+      const v = {tipo: BIB.tipo, c: BIB.c, est: BIB.est, dias: BIB.dias, q: BIB.q}, n = [KIND_T[v.tipo], v.c !== "*" && (v.c || sinC()), {listo: "Listo", buscable: "Solo buscable", cola: "En cola"}[v.est], v.dias && "Últimos " + v.dias + " d", v.q && "«" + v.q + "»"].filter(Boolean).join(" · ");
+      if (!n) return aviso("Elige algún filtro antes de guardar la vista");
+      lsSet("bib.vistas", [...lsGet("bib.vistas", []).filter(x => x.n !== n), {n, ...v}].slice(-8)); aviso("Vista guardada: " + n); pintarBibL(); }}));
+  const vistas = lsGet("bib.vistas", []);
+  $("bib-fv").replaceChildren(...BIB_SERIE.map(v => el("button", {type: "button", className: "fchip", textContent: v.n, title: "Vista de serie", onclick: () => bibVista(v)})),
+    ...vistas.map(v => el("span", {className: "fchip-x"}, el("button", {type: "button", className: "fchip", textContent: v.n, title: "Vista guardada", onclick: () => bibVista(v)}),
+      el("button", {type: "button", className: "qx", textContent: "✕", ariaLabel: "Quitar la vista " + v.n, onclick: () => { lsSet("bib.vistas", lsGet("bib.vistas", []).filter(x => x.n !== v.n)); pintarBibL(); }}))));
+  $("bib-ft").replaceChildren(chip("", "Todo", ms.length), ...Object.entries(KIND_T).map(([k, t]) => [k, t, ms.filter(m => m.kind === k).length]).filter(x => x[2]).map(x => chip(...x)));
+}
 const bibEst = m => cola.items.some(e => ACT.includes(e.state) && e.mid === m.id) ? "cola" : m.actas ? "listo" : "buscable";
 function pintarBibL() {
   const ms = BIB.ms, ok = m => (!BIB.tipo || m.kind === BIB.tipo) && (BIB.c === "*" || (m.carpeta || "") === BIB.c) && (!BIB.est || bibEst(m) === BIB.est)
     && (!BIB.dias || m.mtime * 1000 > Date.now() - BIB.dias * 864e5) && (!BIB.q || norm(m.label + " " + m.carpeta).includes(norm(BIB.q)));
   const vis = ms.filter(ok), chip = (v, t, n) => el("button", {type: "button", className: "fchip", "aria-pressed": BIB.tipo === v, onclick: () => { BIB.tipo = v; pintarBibL(); }}, t, el("i", {textContent: " " + n}));
-  const sel = (lab, v, ops, f) => { const s = el("select", {ariaLabel: lab, onchange: () => { f(s.value); pintarBibL(); }}, ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return s; };
-  const q = el("input", {type: "search", value: BIB.q, placeholder: "Filtrar por nombre", ariaLabel: "Filtrar por nombre", oninput: () => { BIB.q = q.value; pintarBibL(); q.focus(); }});
   $("bib-n").textContent = vis.length + " de " + ms.length;
-  if (document.activeElement?.closest?.("#bib-f")?.type !== "search") $("bib-f").replaceChildren(
-    el("div", {className: "row wrap", role: "group", ariaLabel: "Tipo"}, chip("", "Todo", ms.length), ...Object.entries(KIND_T).map(([k, t]) => [k, t, ms.filter(m => m.kind === k).length]).filter(x => x[2]).map(x => chip(...x))),
-    el("div", {className: "row wrap"}, sel(cap(nm("carpeta")), BIB.c, [["*", "Todos los " + pl(nm("carpeta").toLowerCase())], ...carpetas.map(c => [c, c]), ["", sinC()]], v => BIB.c = v),
-      sel("Estado", BIB.est, [["", "Cualquier estado"], ["listo", "Listo"], ["buscable", "Solo buscable"], ["cola", "En cola"]], v => BIB.est = v),
-      sel("Fecha", String(BIB.dias), [["0", "Cualquier fecha"], ["1", "Hoy"], ["7", "Últimos 7 días"], ["30", "Últimos 30 días"]], v => BIB.dias = +v), q));
-  else $("bib-f").querySelector("[role=group]").replaceWith(el("div", {className: "row wrap", role: "group", ariaLabel: "Tipo"}, chip("", "Todo", ms.length), ...Object.entries(KIND_T).map(([k, t]) => [k, t, ms.filter(m => m.kind === k).length]).filter(x => x[2]).map(x => chip(...x))));
+  bibBarra(ms, chip);
   const ESTT = {listo: ["Listo", "ok"], buscable: ["Solo buscable", ""], cola: ["En cola", "acc"]};
   $("bib-tb").replaceChildren(...vis.map(m => {
     const ck = el("input", {type: "checkbox", checked: BIB.sel.has(m.id), ariaLabel: "Seleccionar " + m.label, onchange: () => { ck.checked ? BIB.sel.add(m.id) : BIB.sel.delete(m.id); bibBulk(); }});
@@ -430,7 +484,10 @@ function pintarBibL() {
       el("td", {textContent: KIND_T[m.kind] || m.kind || ""}), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: fechaC(m.mtime)}), el("td", {}, badgeT(...ESTT[bibEst(m)])));
     return tr;
   })); escalona($("bib-tb"));
-  $("bib-v").hidden = !!vis.length; $("bib-v").textContent = ms.length ? "Nada coincide con los filtros." : "Aún no hay nada. Pulsa «+ Añadir» o suelta archivos en cualquier parte.";
+  $("bib-v").hidden = !!vis.length; $("v-bib").classList.toggle("sin-docs", !ms.length);
+  $("bib-v").replaceChildren(...(ms.length ? [el("p", {textContent: "Nada coincide con los filtros."}), el("button", {type: "button", className: "sec sm", textContent: "Quitar filtros", onclick: () => bibVista({})})]
+    : [el("span", {className: "vi", "aria-hidden": "true"}, "▤"), el("b", {textContent: "Tu biblioteca está vacía"}), el("p", {className: "muted", textContent: "Suelta archivos en cualquier parte de la ventana, pega un enlace o una captura."}),
+      el("button", {type: "button", className: "sec", textContent: "Añadir " + nm("documento"), onclick: () => formNuevo()})]));
   $("bib-all").checked = vis.length > 0 && vis.every(m => BIB.sel.has(m.id));
   $("bib-all").onchange = () => { vis.forEach(m => $("bib-all").checked ? BIB.sel.add(m.id) : BIB.sel.delete(m.id)); pintarBibL(); };
   bibBulk();
@@ -452,13 +509,13 @@ function bibBulk() {
 }
 $("v-bib").addEventListener("keydown", e => { if (e.key === "Escape" && BIB.sel.size && (e.target.type === "checkbox" || !editable(e.target))) { BIB.sel.clear(); pintarBibL(); $("bib-all").focus(); } });
 async function bibVer(m) {
-  BIB.act = m.id; pintarBibL(); const p = $("bib-p");
+  BIB.act = m.id; pintarBibL(); const p = $("bib-p"); p.hidden = false; $("bib-g").classList.add("con-p");
   const acc = el("div", {className: "row wrap"}, ...(m.actas ? [el("button", {type: "button", className: "pri sm", textContent: "Abrir", onclick: fallo(() => abrir(m.id))})] : []),
     el("button", {type: "button", className: "sec sm", textContent: "Enviar", onclick: () => window.Enviar ? Enviar.enviar({doc: m.id}) : sinEnviar()}),
     el("button", {type: "button", className: "sec sm", textContent: "Añadir a " + nm("carpeta").toLowerCase(), onclick: () => aProyecto([m.id])}),
     el("button", {type: "button", className: "sec sm", textContent: "Descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: [m.id]}) : sinEnviar()}),
     el("button", {type: "button", className: "sec sm", textContent: "Renombrar", onclick: () => renombrar(m, p)}), el("button", {type: "button", className: "sec sm", textContent: "Mover", onclick: () => mover(m, p)}));
-  p.replaceChildren(el("h2", {textContent: m.label}), el("p", {className: "muted", textContent: [KIND_T[m.kind], m.carpeta || sinC(), fechaC(m.mtime), m.dur ? Math.round(m.dur / 60) + " min" : "", m.actas > 1 ? m.actas + " versiones" : ""].filter(Boolean).join(" · ")}), acc,
+  p.replaceChildren(el("button", {type: "button", className: "gh ic bib-x", textContent: "✕", ariaLabel: "Cerrar la vista previa", title: "Cerrar", onclick: () => { BIB.act = null; p.hidden = true; $("bib-g").classList.remove("con-p"); pintarBibL(); }}), el("h2", {textContent: m.label}), el("p", {className: "muted", textContent: [KIND_T[m.kind], m.carpeta || sinC(), fechaC(m.mtime), m.dur ? Math.round(m.dur / 60) + " min" : "", m.actas > 1 ? m.actas + " versiones" : ""].filter(Boolean).join(" · ")}), acc,
     m.actas ? el("div", {className: "bib-res", "aria-busy": "true"}, ...sk(4)) : el("p", {className: "muted", textContent: "Solo buscable: se encuentra con Buscar y Preguntar."}));
   if (!m.actas) return;
   try {
@@ -473,18 +530,34 @@ async function bibVer(m) {
 // marcar hecho (o descartar) no pide confirmación: snackbar con «Deshacer» que lo reabre
 const hechoDeshacer = (c, p, luego, txt = "Hecho") => aviso(txt + ": «" + (p.texto.length > 48 ? p.texto.slice(0, 47) + "…" : p.texto) + "»", {txt: "Deshacer", fn: fallo(async () => {
   await post("/api/exp/pendientes", {c, id: p.id, estado: "abierto"}); await cargarLista(); fsucio = true; await luego(); })});
+const PEND = {c: "*", resp: "", g: ""}, PEND_G = [["venc", "Vencidas"], ["sem", "Esta semana"], ["desp", "Después"], ["sin", "Sin fecha"]];
+const pendG = p => p.vencido ? "venc" : p.pronto ? "sem" : p.fecha ? "desp" : "sin";
 async function pintarPendPag() {
-  const cs = Object.keys(RES).filter(c => RES[c]?.pend), w = $("pend-l");
-  if (!w.querySelector("table")) w.replaceChildren(el("div", {"aria-busy": "true"}, ...sk(5)));
-  const its = (await Promise.all(cs.map(c => api("/api/exp/pendientes?" + new URLSearchParams({c, estado: "abierto", orden: "plazo"})).then(r => r.items.filter(p => p.estado === "abierto").map(p => ({...p, c}))).catch(() => []))))
+  const w = $("pend-l");
+  if (!w.querySelector("table, .vacio")) w.replaceChildren(el("div", {"aria-busy": "true"}, ...sk(5)));
+  // el contador del raíl sale de RES; en una carga directa (#/pendientes) aún puede estar vacío: se pide fresco
+  const R = Object.keys(RES).length ? RES : await api("/api/carpetas/resumen").catch(() => ({})), cs = Object.keys(R).filter(c => R[c]?.pend);
+  const todos = (await Promise.all(cs.map(c => api("/api/exp/pendientes?" + new URLSearchParams({c, estado: "abierto", orden: "plazo"})).then(r => r.items.filter(p => p.estado === "abierto").map(p => ({...p, c}))).catch(() => []))))
     .flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
-  $("pend-f").textContent = its.length ? its.length + " abiertos" : "";
-  if (!its.length) return w.replaceChildren(el("p", {className: "vacio", textContent: "No hay pendientes abiertos."}));
-  w.replaceChildren(el("table", {}, el("thead", {}, el("tr", {}, ...["Hecho", "Pendiente", cap(nm("carpeta")), "Responsable", "Plazo"].map(t => el("th", {scope: "col", textContent: t})))),
-    el("tbody", {}, ...its.map(p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); pintarPendPag(); hechoDeshacer(p.c, p, pintarPendPag); })});
-      return el("tr", {className: "f"}, el("td", {}, chk), el("td", {}, p.texto, " ", ...(p.mid ? [fLink(p)] : [])), el("td", {}, el("a", {href: "#/p/" + enc(p.c) + "/pendientes", textContent: p.c || sinC()})), el("td", {textContent: p.resp || ""}),
-        el("td", {}, p.vencido ? el("b", {className: "err", textContent: "Vencido"}) : p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")));
-    }))));
+  $("pend-f").textContent = todos.length ? todos.length + " abiertos" : "";
+  if (!todos.length) return w.replaceChildren(el("div", {className: "vacio vacio-e"}, el("span", {className: "vi", "aria-hidden": "true"}, "✓"), el("b", {textContent: "Todo al día"}),
+    el("p", {className: "muted", textContent: "Aquí aparecen las tareas que salen de tus " + pl(nm("documento")) + " y las que añadas a mano, con su plazo y responsable."}),
+    el("div", {className: "row wrap"}, el("button", {type: "button", className: "sec", textContent: "Añadir " + nm("documento"), onclick: () => formNuevo()}), el("a", {href: "#/biblioteca", className: "btn sec", textContent: "Ver la biblioteca"}))));
+  const resps = [...new Set(todos.map(p => p.resp).filter(Boolean))].sort((a, b) => a.localeCompare(b)), projs = [...new Set(todos.map(p => p.c))];
+  if (PEND.c !== "*" && !projs.includes(PEND.c)) PEND.c = "*"; if (PEND.resp && !resps.includes(PEND.resp)) PEND.resp = "";
+  const base = todos.filter(p => (PEND.c === "*" || p.c === PEND.c) && (!PEND.resp || p.resp === PEND.resp)), its = base.filter(p => !PEND.g || pendG(p) === PEND.g);
+  const chip = (v, t, n) => el("button", {type: "button", className: "fchip", "aria-pressed": PEND.g === v, onclick: () => { PEND.g = v; pintarPendPag(); }}, t, el("i", {textContent: " " + n}));
+  const sel = (lab, v, ops, f) => { const s = el("select", {ariaLabel: lab, onchange: () => { f(s.value); pintarPendPag(); }}, ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return s; };
+  const bar = el("div", {className: "fbar"}, el("div", {className: "row wrap", role: "group", ariaLabel: "Plazo"}, chip("", "Todos", base.length), ...PEND_G.map(([k, t]) => [k, t, base.filter(p => pendG(p) === k).length]).filter(x => x[2]).map(x => chip(...x))),
+    ...(projs.length > 1 ? [sel(cap(nm("carpeta")), PEND.c, [["*", "Todos los " + pl(nm("carpeta").toLowerCase())], ...projs.map(c => [c, c || sinC()])], v => PEND.c = v)] : []),
+    ...(resps.length ? [sel("Responsable", PEND.resp, [["", "Cualquiera"], ...resps.map(r => [r, r])], v => PEND.resp = v)] : []));
+  const fila = p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); pintarPendPag(); hechoDeshacer(p.c, p, pintarPendPag); })});
+    return el("tr", {className: "f"}, el("td", {}, chk), el("td", {className: "pt"}, p.texto, " ", ...(p.mid ? [fLink(p)] : [])), el("td", {className: "pc"}, el("a", {href: "#/p/" + enc(p.c) + "/pendientes", textContent: p.c || sinC()})), el("td", {className: "pr", textContent: p.resp || ""}),
+      el("td", {className: "pp"}, p.vencido ? el("b", {className: "err", textContent: "Vencido"}) : p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha"))); };
+  const grupos = PEND_G.map(([k, t]) => [t, its.filter(p => pendG(p) === k)]).filter(g => g[1].length);
+  w.replaceChildren(bar, ...(its.length ? [el("div", {className: "tabla pend-t"}, el("table", {}, el("thead", {}, el("tr", {}, ...["Hecho", "Pendiente", cap(nm("carpeta")), "Responsable", "Plazo"].map(t => el("th", {scope: "col", textContent: t})))),
+    ...grupos.map(([t, l]) => el("tbody", {}, el("tr", {className: "grp"}, el("th", {colSpan: 5, scope: "colgroup", textContent: t + " · " + l.length})), ...l.map(fila)))))] : [el("p", {className: "vacio", textContent: "Nada coincide con los filtros."})]));
+  escalona(w);
 }
 
 // ---------- Proyecto: «Auto: …», Automático, ⋯ Más, aprobar todo, importar Excel/CSV, .zip, añadir a proyecto ----------
@@ -622,21 +695,29 @@ function paleta() {
   const cmds = palCmds(), d = el("dialog", {className: "pal", ariaLabel: "Paleta de comandos"}), ul = el("ul", {id: "pal-l", role: "listbox", ariaLabel: "Resultados"});
   const q = el("input", {type: "search", placeholder: "Acción, " + nm("carpeta").toLowerCase() + ", documento o búsqueda…", ariaLabel: "Comando", role: "combobox", "aria-controls": "pal-l", "aria-expanded": "true", "aria-autocomplete": "list"});
   let sel = 0, vis = [];
-  const run = c => { d.close(); setTimeout(() => fallo(async () => c.f())(), 0); };
+  const key = c => c.g + "|" + c.t, SC = {"Añadir archivos, enlace o captura": "N", "Pegar captura": "Ctrl V"}, GI = {"Acción": "mas", "Ir a": "inicio", "Documento": "bib", "Vista": "aj", "Ajustes": "aj", "Exportar": "env", "Buscar": "inicio", "Recientes": "inicio"};
+  const run = c => { if (c.g !== "Buscar") lsSet("pal.rec", [key(c), ...lsGet("pal.rec", []).filter(k => k !== key(c))].slice(0, 8)); d.close(); setTimeout(() => fallo(async () => c.f())(), 0); };
   const pint = () => {
-    const t = norm(q.value).trim(), w = t.split(/\s+/);
-    vis = cmds.filter(c => !t || w.every(x => norm(c.g + " " + c.t).includes(x))).slice(0, 80);
-    if (q.value.trim()) vis.push({g: "Buscar", t: "Buscar «" + q.value.trim() + "»", f: () => { $("buscar").value = q.value.trim(); $("omni").requestSubmit(); }});
+    const t = norm(q.value).trim(), w = t.split(/\s+/), gs = new Map();
+    const add = (g, c) => { if (!gs.has(g)) gs.set(g, []); gs.get(g).push(c); };
+    if (!t) { lsGet("pal.rec", []).map(k => cmds.find(c => key(c) === k)).filter(Boolean).slice(0, 5).forEach(c => add("Recientes", c)); }
+    const rec = new Set(gs.get("Recientes") || []);
+    for (const c of cmds) if ((!t || w.every(x => norm(c.g + " " + c.t).includes(x))) && !rec.has(c)) { if (!t && (gs.get(c.g) || []).length >= 5) continue; add(c.g, c); }  // sin texto: 5 por grupo; al escribir, todo
+    if (q.value.trim()) add("Buscar", {g: "Buscar", t: "Buscar «" + q.value.trim() + "»", f: () => { $("buscar").value = q.value.trim(); $("omni").requestSubmit(); }});
+    vis = []; const rows = [];
+    for (const [g, l] of gs) { rows.push(el("li", {role: "presentation", className: "pal-h", textContent: g})); for (const c of (t ? l.slice(0, 12) : l)) { rows.push(c); vis.push(c); } }
     sel = Math.max(0, Math.min(sel, vis.length - 1));
-    ul.replaceChildren(...vis.map((c, i) => el("li", {role: "option", id: "pal-" + i, "aria-selected": i === sel, onclick: () => run(c), onmousemove: () => { if (sel !== i) { sel = i; pint(); } }}, el("span", {className: "pal-g", textContent: c.g}), el("span", {textContent: c.t}))));
-    q.setAttribute("aria-activedescendant", vis.length ? "pal-" + sel : ""); ul.children[sel]?.scrollIntoView({block: "nearest"});
+    let i = 0; ul.replaceChildren(...rows.map(c => { if (c instanceof Node) return c; const n = i++;
+      return el("li", {role: "option", id: "pal-" + n, "aria-selected": n === sel, onclick: () => run(c), onmousemove: () => { if (sel !== n) { sel = n; pint(); } }}, ico(GI[c.g] || "proy"), el("span", {className: "pal-t", textContent: c.t}), ...(SC[c.t] ? [el("kbd", {className: "kbd", textContent: SC[c.t]})] : [])); }));
+    if (!vis.length) ul.replaceChildren(el("li", {className: "muted pal-0", role: "presentation", textContent: "Nada coincide. Prueba con otra palabra."}));
+    q.setAttribute("aria-activedescendant", vis.length ? "pal-" + sel : ""); $("pal-" + sel)?.scrollIntoView({block: "nearest"});
   };
   q.oninput = () => { sel = 0; pint(); };
   q.onkeydown = e => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + vis.length) % Math.max(vis.length, 1); pint(); }
     else if (e.key === "Enter") { e.preventDefault(); if (vis[sel]) run(vis[sel]); }
   };
-  d.append(q, ul, el("p", {className: "pal-n muted", textContent: "↑↓ elegir · Intro ejecutar · Esc cerrar"})); d.onclose = () => d.remove(); document.body.append(d); d.showModal(); pint();
+  d.append(q, ul, el("p", {className: "pal-n muted", textContent: "↑↓ elegir · Intro ejecutar · Esc cerrar · escribe para ver todo"})); d.onclose = () => d.remove(); document.body.append(d); d.showModal(); pint();
 }
 
 // ---------- Ajustes › General: carpetas vigiladas · Ajustes › Avanzado: MCP ----------
