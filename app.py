@@ -2480,9 +2480,12 @@ if __name__ == "__main__":
             urllib.request.urlopen(urllib.request.Request(url + "/api/encolar", json.dumps({"rutas": enc[0], "c": enc[1]}).encode(), {"Content-Type": "application/json"}), timeout=30)
         os.environ.get("ACTAS_NO_BROWSER") or webbrowser.open(url)
         sys.exit()
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", int(os.environ.get("ACTAS_PORT") or 0)))  # ACTAS_PORT: puerto fijo (pruebas); 0 = uno libre
-        port = s.getsockname()[1]
+    if os.environ.get("ACTAS_PORT"):  # puerto fijo (pruebas); uvicorn lo abre con SO_REUSEADDR
+        port = int(os.environ["ACTAS_PORT"])
+    else:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
     procs.cleanup_stale()
     LOCK.write_text(str(port))
     atexit.register(lambda: LOCK.unlink(missing_ok=True))
