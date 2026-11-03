@@ -34,7 +34,7 @@ const elegir = (btn, tipo, set) => btn.onclick = async () => {
   btn.disabled = true;
   try { const r = (await post("/api/pick", {tipo})).path; if (r) set(r); } finally { btn.disabled = false; }
 };
-elegir($("elegir"), "video", setRuta); elegir($("elegir-tr"), "transcripcion", setTr);
+elegir($("elegir"), "video", p => anAdd(p)); elegir($("elegir-tr"), "transcripcion", setTr);
 const soltar = (zona, set, msg) => {
   zona.ondragover = e => { e.preventDefault(); zona.classList.add("over"); };
   zona.ondragleave = () => zona.classList.remove("over");
@@ -46,7 +46,7 @@ const soltar = (zona, set, msg) => {
     catch (err) { $(msg).textContent = err.message; }
   };
 };
-soltar($("drop"), p => /\.(vtt|srt|txt|docx)$/i.test(p) ? setTr(p) : setRuta(p), "subida"); soltar($("drop-tr"), setTr, "info-tr");
+soltar($("drop-tr"), setTr, "info-tr");  // la hoja Añadir y toda la ventana aceptan archivos: shell.js
 
 // ---- GPU: autodetectada; la elección manual se recuerda ----
 api("/api/gpu").then(g => {
@@ -96,15 +96,17 @@ function pintarNivel() {
 // ---- vistas ----
 let qBuscar = "";
 let vistaAct = "home";
-const VISTAS = ["home", "nuevo", "grabar", "cola", "res", "preg", "ajustes", "uso"];
-const vista = v => { vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
-  if (v !== "ajustes" && location.hash) history.replaceState(null, "", location.pathname); document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); };
+const VISTAS = ["home", "grabar", "cola", "res", "preg", "ajustes", "uso", "bib", "pend", "enviar", "buscar"];
+// «nuevo» es la hoja Añadir (<dialog>): se abre encima de la vista actual
+const vista = v => { if (v === "nuevo") { if (!$("v-nuevo").open) $("v-nuevo").showModal(); return; } if ($("v-nuevo").open) $("v-nuevo").close();
+  vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
+  document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); typeof rutaSync === "function" && rutaSync(); };
 const ir = v => { if (v === "home") pintarHome(); vista(v); };
 // aviso(texto, {txt, fn}?): con acción (p. ej. «Deshacer») el toast lleva un botón y dura más
 const aviso = (t, acc) => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.replaceChildren(t, ...(acc ? [" · ", el("button", {type: "button", className: "link", textContent: acc.txt, onclick: () => { n.hidden = true; acc.fn(); }})] : [])); n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, acc ? 8000 : 3500); };
 const irInicio = () => { fsel = undefined; ir("home"); };
 $("inicio").onclick = e => { e.preventDefault(); irInicio(); };
-$("nuevo-volver").onclick = $("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };
+$("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };
 $("preg-volver").onclick = e => { e.preventDefault(); mpCerrar(); ir("home"); };
 $("b-cola").onclick = () => { vista("cola"); sondear(); };
 $("nueva").onclick = () => formNuevo();
@@ -145,17 +147,27 @@ $("form").addEventListener("input", genRes); $("form").addEventListener("change"
 $("enlace").oninput = () => { const v = !!$("enlace").value.trim(); $("l-solo-audio").hidden = !v; if (!v) $("solo-audio").checked = false; };  // «solo audio» solo con enlace
 const params = () => ({carpeta: reuse ? "" : $("n-carpeta").value === NUEVA_C ? $("n-carpeta-nueva").value.trim() : $("n-carpeta").value, video: reuse ? "" : ruta, enlace: reuse || ruta ? "" : $("enlace").value.trim(), solo_audio: $("solo-audio").checked, navegador: $("navegador").value, transcripcion: reuse ? "" : rutaTr, nivel: $("nivel").value, calidad: $("calidad").value, asr: reuse ? reuse.asr : "calidad", reuse: reuse?.id,
   hablantes: $("hablantes").checked, gpu: $("usar-gpu").checked, nombres: $("nombres").value, plantilla: $("plantilla").value, idioma: $("idioma").value, habla: reuse ? "" : $("habla").value, ...paramsSimple(), nube: nubeParams("f")});
-$("form").onsubmit = async e => {
+$("form").onsubmit = async e => {  // un trabajo por archivo (y otro por el enlace); el .zip de lote lo desempaqueta el servidor
   e.preventDefault();
-  if (!reuse && !ruta && !rutaTr && !$("enlace").value.trim()) { $("form-err").textContent = "Elige un vídeo, un audio, un enlace o una transcripción"; return; }
+  const fs = reuse ? [] : AN.files.map(f => f.path), enl = reuse ? "" : $("enlace").value.trim();
+  if (!reuse && !fs.length && !rutaTr && !enl) { $("form-err").textContent = "Elige archivos, pega un enlace o una captura"; return; }
   try {
     let dest = reuse ? "" : $("n-carpeta").value;
     if (dest === NUEVA_C) { dest = $("n-carpeta-nueva").value.trim(); if (!dest) { $("form-err").textContent = "Escribe el nombre de la " + nm("carpeta").toLowerCase() + " nueva"; return; } await post("/api/carpeta", {nuevo: dest}); }
     if (!await nubeOk("f")) return;
-    const r = await post("/api/generar", params());
-    if (!reuse) { setRuta(""); setTr(""); $("enlace").value = ""; $("enlace").oninput(); }
+    const p = {...params(), ...anParams(dest)};
+    const jobs = !fs.length && !enl ? [{}] : [...fs.map(v => ({video: v, enlace: "", transcripcion: fs.length === 1 ? p.transcripcion : "", descripcion: AN.files.find(f => f.path === v)?.img ? p.descripcion : ""})),
+      ...(enl ? [{video: "", enlace: enl, transcripcion: fs.length ? "" : p.transcripcion}] : [])];
+    $("generar").disabled = true; let n = 0, adj = 0; const errs = [];
+    for (const j of jobs) {
+      try { const r = await post("/api/generar", {...p, ...j}); n += r.lote || 1; adj += r.adjuntos?.length || 0; errs.push(...(r.errores || []).map(x => x.fichero + ": " + x.error)); }
+      catch (x) { errs.push(x.message); }
+    }
+    if (!n) throw new Error(errs.join(" · "));
+    if (!reuse) anLimpiar();
     $("form-err").textContent = ""; vista("cola"); sondear();
-  } catch (err) { $("form-err").textContent = err.message; }
+    aviso(n + (n === 1 ? " trabajo en cola" : " trabajos en cola") + (adj ? " · +" + adj + " adjuntos en cola" : "") + (errs.length ? " · " + errs.length + " con error: " + errs[0] : ""));
+  } catch (err) { $("form-err").textContent = err.message; } finally { $("generar").disabled = false; }
 };
 
 // ---- cola de trabajos ----
@@ -178,7 +190,7 @@ async function sondear() {
 }
 function pintarPill() {
   const r = cola.items.find(e => e.state === "marcha"), n = cola.n;
-  $("cola-mini").hidden = !r; if (r) $("cola-mini").firstChild.style.width = Math.round(r.frac * 100) + "%";
+  $("b-cola").style.setProperty("--p", r ? r.frac : 0); $("b-cola").classList.toggle("on", n > 0);  // anillo de progreso
   $("cola-txt").textContent = n ? " · " + (r ? "1 de " + n : n + " en espera") + (r && r.eta != null ? " · " + minutos(r.eta) : "") : "";
   $("b-cola").setAttribute("aria-label", "Cola de trabajos" + (n ? ", " + n : ""));
   if (vistaAct === "home") { const c = document.querySelector("#side [data-cola]"); if (c) c.textContent = n || ""; }
@@ -239,7 +251,7 @@ function pintarFases(r) {
 
 // ---- reuniones y carpetas ----
 // fsel: undefined = inicio, null = todos los documentos, "" = sin carpeta, otro = esa carpeta
-let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel, desde, RES = {};
+let cur, ver, tabAct = "p-acta", todas = [], carpetas = [], fsel, desde, RES = {}, docDesde = "#/";  // docDesde: ruta a la que vuelve «←» del documento
 const fallo = f => (...a) => f(...a).catch(err => alert(err.message));
 const refrescarTodo = async () => { await cargarLista(); if (vistaAct === "res") await abrir(cur.id, ver, true); };
 // formulario en la propia página (sin prompt/confirm): campo opcional + botón + Cancelar; Esc cancela
@@ -279,27 +291,17 @@ const soltable = (n, c) => {
   n.addEventListener("drop", fallo(async e => {
     e.preventDefault(); n.classList.remove("drop"); const m = arrastrando; arrastrando = null;
     if (!m || (m.carpeta || "") === c) return;
-    await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); aviso("Movido a " + (c || sinC()));
+    await (c ? post("/api/doc/a-proyecto", {mids: [m.id], c, modo: "mover"}) : post("/api/meta", {id: m.id, carpeta: c})); await refrescarTodo(); aviso("Movido a " + (c || sinC()));
   }));
   return n;
 };
-function pintarSide() {
-  const cnt = c => todas.filter(m => c === null || (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
-  const item = (txt, act, f, n, extra = {}) => el("button", {className: "nav" + (extra.m ? " m" : ""), "aria-current": act ? "page" : "false", onclick: f}, el("span", {textContent: txt}), el("span", {className: "c" + (extra.a ? " a" : ""), textContent: n ?? ""}));
-  const cl = item("Cola", false, () => { vista("cola"); sondear(); }, cola.n || "", {a: 1}); cl.lastChild.setAttribute("data-cola", "");
-  $("side").replaceChildren(item("Inicio", fsel === undefined, irInicio), cl, item(cap(pl(nm("documento"))) , fsel === null, () => { fsel = null; pintarHome(); }, cnt(null)), item(GR.activa ? "● Grabando…" : "● Grabar reunión", false, () => grabarAbrir(), "", {m: 1}),
-    el("div", {className: "t", textContent: cap(pl(nm("carpeta")))}),
-    ...carpetas.map(c => soltable(item(c, fsel === c, () => { fsel = c; pintarHome(); }, cnt(c)), c)), ...(sin || fsel === "" ? [soltable(item(sinC(), fsel === "", () => { fsel = ""; pintarHome(); }, cnt(""), {m: 1}), "")] : []),
-    item("+ " + cap(nm("carpeta")) + " nuevo", false, nuevaCarpeta, "", {m: 1}), el("hr"),
-    el("a", {className: "nav m", href: "#/ajustes/plantillas"}, el("span", {textContent: "Plantillas"})), el("a", {className: "nav m", href: "#/ajustes/general"}, el("span", {textContent: "Ajustes"})), el("button", {className: "nav m", onclick: () => $("b-importar").click()}, el("span", {textContent: "Importar"})));
-}
+// pintarSide (raíl izquierdo): shell.js
 const nuevaCarpeta = () => enLinea($("ed-home"), {valor: "", texto: "Nombre de la " + nm("carpeta").toLowerCase() + " nueva", boton: "Crear"}, async n => { if (!n) return; await post("/api/carpeta", {nuevo: n}); fsel = n; await cargarLista(); });
 function pintarHome() {
-  pintarSide();
+  typeof pintarSide === "function" && pintarSide();
   const ini = fsel === undefined, act = cola.items.filter(e => ACT.includes(e.state)), est = e => e.state === "marcha" ? "Generando" : "En cola (" + (act.indexOf(e) + 1) + "/" + act.length + ")";
-  $("h-inicio").hidden = !ini; $("f-cab").hidden = ini; $("proys-w").hidden = !ini;
+  $("h-inicio").hidden = !ini; $("f-cab").hidden = ini;
   if (ini) {
-    $("h-head").hidden = !!todas.length; pintarAsk();
     $("h-tit").textContent = "Inicio"; $("h-sub").textContent = todas.length ? "" : "Todavía no hay nada. Pulsa «" + nm("nuevo_boton") + "» para crear tu primer " + nm("documento") + " o «Importar» para abrir uno exportado.";
     $("proys-t").textContent = cap(pl(nm("carpeta")));
     const ult = c => todas.filter(m => (m.carpeta || "") === c).reduce((a, m) => Math.max(a, m.mtime), 0);
@@ -343,6 +345,8 @@ function pintarHome() {
   $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
   $("vacio").textContent = "Aún no hay " + pl(nm("documento")) + (fsel ? " en «" + fsel + "»" : "") + ".";
   document.querySelectorAll("#tabla th")[1].hidden = false;
+  if (ini) $("docs-w").hidden = true;  // Inicio: «Continúa» en vez de la tabla (shell.js)
+  if (typeof rutaSync === "function") { if (ini) pintarInicio(); if (vistaAct === "home") rutaSync(); }
 }
 $("f-ren").onclick = () => carpetaOp(fsel, false, $("ed-carpeta"));
 $("f-quitar").onclick = () => carpetaOp(fsel, true, $("ed-carpeta"));
@@ -360,9 +364,9 @@ async function abrir(id, acta, quedar) {
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
   if (simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
   ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
-  if (!quedar) desde = fsel;
-  $("cab-carpeta").textContent = desde === undefined ? "Inicio" : desde === null ? cap(pl(nm("documento"))) : desde || cur.carpeta || sinC(); $("cab-titulo").textContent = cur.m.label;
-  const au = cur.audio; $("t-video").hidden = !cur.video; $("t-video").textContent = au ? "Audio" : "Vídeo";
+  if (!quedar) { desde = fsel; if (vistaAct !== "res") docDesde = rutaHash(); }
+  $("cab-carpeta").textContent = desdeTxt(docDesde); $("cab-titulo").textContent = cur.m.label;
+  const au = cur.audio; $("t-video").hidden = false;
   $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
   if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
   vista("res"); document.title = cur.m.label + " · Actas"; pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
@@ -372,6 +376,7 @@ const tab = p => {
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   ubicar();
   if (p === "p-video" && typeof notasRes === "function") notasRes();
+  docTab(p);  // Extraído y Fuente: shell.js
   if (p === "p-preg") { $("p-preg-m").append($("qpanel")); $("qbox").hidden = !cur.video; const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; ubicar(); }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
@@ -384,11 +389,12 @@ function pintarVers() {
   const txt = x => etiqueta(x) + (x.editado ? " · editado" : ""), pon = n => { ver = n; pintarVers(); cambiarActa(); };
   const sel = cur.actas.length <= 3 ? el("div", {className: "seg vseg", role: "tablist", ariaLabel: "Versiones"}, ...cur.actas.map(x => el("button", {role: "tab", textContent: txt(x), "aria-selected": x.name === ver, onclick: () => pon(x.name)})))
     : el("label", {className: "vsel"}, el("span", {textContent: "Versión"}), el("select", {onchange: e => pon(e.target.value)}, ...cur.actas.map(x => Object.assign(new Option(txt(x), x.name), {selected: x.name === ver}))));
-  $("vers").replaceChildren(...(simple() ? [] : [sel, ren]), otra);
+  $("d-vren").onclick = ren.onclick; $("d-otra").onclick = otra.onclick;  // en el menú ⋯
+  $("vers").replaceChildren(...(cur.actas.length > 1 || !simple() ? [sel] : []));
 }
 function cambiarActa() {
   const a = cur.actas.find(a => a.name === ver), nd = a.doc || "acta"; editando = false; pintarAcciones(a);
-  $("t-acta").textContent = cap(nd); $("dl-zip").textContent = "Descargar (.zip)"; $("fondo").hidden = !!a.plantilla;
+   $("dl-zip").textContent = "Descargar (.zip)"; $("fondo").hidden = !!a.plantilla;
   $("cab-meta").replaceChildren(...[cur.m.dur ? Math.round(cur.m.dur / 60) + " min" : "", cap(nd), a.idioma && (IDI[a.idioma] || a.idioma), cap(a.nivel), a.nube ? "☁ " + a.nube : nivelInfo(a.calidad)?.nombre, a.editado && "editado", cur.carpeta].filter(Boolean).map(t => el("span", {textContent: t})));
   // desde los datos: lleva data-p (marcas de dudas) y lo editado
   $("acta-frame").src = `/api/vista/${cur.id}/${a.name}?v=` + Date.now();
@@ -414,7 +420,7 @@ $("m-mover").onclick = () => mover(cur.m, $("ed-res"));
 $("pct").oninput = () => $("pct-o").textContent = $("pct").value;
 $("volver").onclick = e => {
   e.preventDefault(); $("acta-frame").src = "about:blank"; mpCerrar(); $("cvideo").pause();
-  fsel = typeof desde === "string" && desde && !carpetas.includes(desde) ? undefined : desde; ir("home");
+  location.hash = docDesde || "#/";
 };
 function pintarConds() {
   $("cvideo").hidden = true; $("cvideo").removeAttribute("src");
@@ -498,7 +504,7 @@ function plantForm(id) {  // selector «Tipo»: en modo simple, solo los perfile
 }
 $("plantilla").onchange = () => {
   const t = plantDe($("plantilla").value); if (!t) return;
-  $("generar").textContent = "Generar " + t.documento.singular; $("info-plant").textContent = t.descripcion + (t.nube_permitida ? "" : " Solo en este equipo (datos especialmente protegidos: RGPD art. 9 y secreto profesional).");
+  anBoton(); $("info-plant").textContent = t.descripcion + (t.nube_permitida ? "" : " Solo en este equipo (datos especialmente protegidos: RGPD art. 9 y secreto profesional).");
   if (typeof nubePlantilla === "function") nubePlantilla(t);
   $("idioma").options[0].textContent = "Según la plantilla (" + (IDI[t.idioma_acta] || t.idioma_acta) + ")"; $("idioma").onchange();
 };
@@ -564,7 +570,8 @@ $("acta-frame").onload = () => {
   let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
   d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d);
   d.addEventListener("click", e => {
-    const a = e.target.closest("[data-t]"); if (!a || !cur?.video) return;
+    const a = e.target.closest("[data-t]"); if (!a) return;
+    if (!cur?.video) { e.preventDefault(); e.stopImmediatePropagation(); citaIr(+a.dataset.t, a.textContent.trim()); return; }  // PDF, texto: a la pestaña Fuente
     e.preventDefault(); e.stopImmediatePropagation();
     if (d.getElementById("big")) d.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape"}));  // cierra el visor de capturas
     mpSeek(+a.dataset.t, cur.videourl, cur.m.label);
@@ -608,23 +615,14 @@ function pintarAcciones(a) {
     ...FMT.slice(0, 3).map(([f, t]) => item(f, t, () => "")),
     ...(simple() ? [el("button", {type: "button", className: "link mas", textContent: "Más formatos…", onclick: e => { mas.hidden = false; e.currentTarget.remove(); }})] : []), mas, sep(),
     el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-anon", checked: anonOn(), onchange: e => { anonSel = e.target.checked; zipAnon(); }}), "Anonimizar"),
-    el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-dud"}), "Incluir marcas de confianza"));
-  box.replaceChildren(el("button", {className: "sec", textContent: "Editar", title: "Corregir el texto del documento", onclick: () => { tab("p-acta"); editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); }}),
-    el("button", {className: "sec", textContent: "Correo", title: "Borrador de correo con el resumen y las tareas", onclick: abrirCorreo}),
-    ...(a.editado ? [el("button", {className: "sec", textContent: "Restaurar original", onclick: fallo(async () => { if (!confirm("¿Volver al texto original? Se pierden tus ediciones de esta versión.")) return; await post(`/api/doc/${cur.id}/${ver}/restaurar`); await abrir(cur.id, ver, true); aviso("Original restaurado"); })})] : []),
-    el("details", {className: "menu"}, el("summary", {className: "pri", textContent: "Exportar"}), ex));
+    el("label", {className: "check"}, el("input", {type: "checkbox", id: "ex-dud"}), "Incluir marcas de confianza"),
+    ...(window.Descargar ? [sep(), el("button", {type: "button", role: "menuitem", textContent: "Descargar varias cosas…", onclick: () => { box.querySelector("details").open = false; Descargar.abrir({docs: [cur.id + "/" + ver]}); }})] : []));
+  // Editar, Correo y Restaurar viven en el menú ⋯ de la cabecera (index.html)
+  $("d-editar").onclick = () => { tab("p-acta"); editando = true; $("acta-frame").src = `/api/vista/${cur.id}/${ver}?editar=1`; pintarAcciones(a); };
+  $("d-correo").onclick = abrirCorreo; $("d-rest").hidden = !a.editado;
+  $("d-rest").onclick = fallo(async () => { if (!confirm("¿Volver al texto original? Se pierden tus ediciones de esta versión.")) return; await post(`/api/doc/${cur.id}/${ver}/restaurar`); await abrir(cur.id, ver, true); aviso("Original restaurado"); });
+  box.replaceChildren(el("details", {className: "menu"}, el("summary", {className: "sec", textContent: "Exportar ▾"}), ex));
 }
 document.addEventListener("click", e => document.querySelectorAll("details.menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
 
 // ---- inicio: buscar y preguntar ----
-$("buscar").oninput = e => { qBuscar = e.target.value; if (vistaAct !== "home") { fsel = null; vista("home"); } pintarHome(); };
-$("docs-todos").onclick = e => { e.preventDefault(); fsel = null; pintarHome(); };
-const SUG = ["¿Qué tengo pendiente esta semana?", "¿Quién se comprometió a qué en la última reunión?", "¿Qué ha cambiado desde el mes pasado?"];
-function pintarAsk() {
-  const sel = $("ask-c"), v = sel.value, sin = todas.some(m => !m.carpeta);
-  $("ask").hidden = !todas.length;
-  sel.replaceChildren(...carpetas.map(c => new Option(c, c)), ...(sin ? [new Option(sinC(), "")] : [])); if ([...sel.options].some(o => o.value === v)) sel.value = v;
-  sel.hidden = sel.options.length < 2; $("ask-s").replaceChildren(...SUG.map(t => el("button", {type: "button", textContent: t, onclick: () => { $("ask-q").value = t; $("ask").requestSubmit(); }})));
-}
-$("ask").onsubmit = e => { e.preventDefault(); const q = $("ask-q").value.trim(), c = $("ask-c").value; if (!q) return $("ask-q").focus();
-  fsel = c; $("preg-tit").textContent = "Preguntar · " + (c || sinC()); $("p-fcarpeta").append($("qpanel")); setQ("c:" + c); vista("preg"); $("pregunta").value = q; $("qform").requestSubmit(); $("ask-q").value = ""; };

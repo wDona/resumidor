@@ -99,10 +99,11 @@ function abrirCorreo() {
         el("button", {type: "button", className: "link", textContent: e.existe ? "Volver a anonimizar" : "Anonimizar ahora", onclick: () => { d.close(); abrirAnon(null); }}))); return; } }
       const r = await post(`/api/correo/${cur.id}/${ver}`, {modo: modo.value, tono: tono.value, idioma: idi.value, adjuntar_pdf: pdf.checked, anon: an.checked});
       esp.stop(); if (!d.open) return;
-      out.replaceChildren(...(r.aviso ? [el("div", {className: "aviso w", textContent: r.aviso})] : []), ...(r.llm ? [] : [el("small", {textContent: "Apertura y cierre de plantilla (sin modelo local)."})]), ...r.correos.map(c => el("div", {className: "co"},
+      out.replaceChildren(...(r.aviso ? [el("div", {className: "aviso w", textContent: r.aviso})] : []), ...(r.llm ? [] : [el("small", {textContent: "Apertura y cierre de plantilla (sin modelo local)."})]), ...r.correos.map((c, i) => el("div", {className: "co"},
         el("div", {className: "row wrap entre"}, el("div", {}, el("b", {textContent: "Para: " + c.para}), el("div", {className: "muted", textContent: c.asunto})), el("div", {className: "row"},
           el("button", {type: "button", className: "sec sm", textContent: "Copiar", onclick: fallo(async function () { await copiar(c); this.textContent = "Copiado"; setTimeout(() => this.textContent = "Copiar", 1800); })}),
-          el("a", {className: "btn sec sm", href: c.eml_url, download: "", textContent: "Descargar .eml"}))), el("pre", {textContent: c.texto}))));
+          el("a", {className: "btn sec sm", href: c.eml_url, download: "", textContent: "Descargar .eml"}),
+          ...(window.Enviar?.outlook ? [el("button", {type: "button", className: "sec sm", textContent: "Abrir en Outlook", onclick: () => Enviar.outlook(cur.id, ver, i)})] : []))), el("pre", {textContent: c.texto}))));
     } catch (err) { esp.stop(); out.replaceChildren(el("p", {className: "err", textContent: err.message})); } finally { go.disabled = false; }
   });
 }

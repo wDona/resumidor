@@ -5,7 +5,8 @@ const FTABS = [["resumen", "Resumen"], ["revision", "Revisión"], ["pendientes",
 const FREG = {requisitos: "requisito", historias: "historia", interesados: "interesado", decisiones: "decision", riesgos: "riesgo", preguntas: "pregunta", hitos: "hito"}, FVISTAS = {};
 const FCTX = new Set(["riesgos", "preguntas", "hitos"]);  // pestañas contextuales: solo se ven mientras están abiertas (se llega desde el informe)
 let fReg = {rev: 0, tipos: {}, proyecto: false};  // contadores del registro de la carpeta abierta (para mostrar/ocultar pestañas)
-const fTabVisible = k => FCTX.has(k) ? ftab === k : k === "revision" || !(k in FREG || k === "informe") || fReg.proyecto || !!fReg.tipos[FREG[k]];
+// las de FCTX (riesgos, preguntas, hitos) solo con contenido o abiertas; el resto de tipos, también en carpetas de tipo «Proyecto»
+const fTabVisible = k => FREG[k] ? k === ftab || fReg.proyecto && !FCTX.has(k) || !!fReg.tipos[FREG[k]] : true;
 // ---- navegación con foco: fIr(pestaña, {ids, filtro, etiqueta}) abre la pestaña y la vista destino consume el foco UNA vez (fTomaFoco):
 // filtra a esos ids si sabe, hace scroll al primero y lo resalta (~2 s). Sin ids (informes antiguos): solo abre la pestaña.
 let fFoco = null;
@@ -39,18 +40,37 @@ function carpetaVista(c) {
   const on = typeof c === "string" && c !== "";
   $("f-tabs").hidden = $("f-panel").hidden = $("f-nuevo").hidden = !on;
   for (const id of ["f-plant", "f-estilo", "f-preguntar"]) $(id).hidden = true;  // pasan a las pestañas Ajustes y Preguntar
-  $("docs-w").hidden = on && ftab !== "resumen";
-  if (!on) { fuC = null; return; }
-  $("f-nuevo").textContent = "+ Nuevo " + nm("documento");
+  $("docs-w").hidden = on && ftab !== "documentos"; $("f-env").hidden = $("f-mas").hidden = !on;
+  if (!on) { fuC = null; $("f-sub").replaceChildren(); $("f-auto").hidden = true; return; }
+  $("f-nuevo").textContent = "+ Añadir";
   pintaTabs();
   if (fuC === c && !fsucio) return;
   if (fuC !== c) fpenFoco = null;
   fuC = c; fsucio = false; pintaTabs(); fRender();
 }
+// 5 pestañas: Resumen | Documentos | Extraído (segmentado: Revisión, Tareas, Decisiones…) | Informe | Preguntar; Línea de tiempo, Comparar y Ajustes en «⋯ Más»
+const FTOP = [["resumen", "Resumen"], ["documentos", "Documentos"], ["extraido", "Extraído"], ["informe", "Informe"], ["preguntar", "Preguntar"]];
+const FEXT = [["pendientes", "Tareas"], ["decisiones", "Decisiones"], ["requisitos", "Requisitos"], ["historias", "Historias"], ["interesados", "Interesados"], ["riesgos", "Riesgos"], ["preguntas", "Preguntas"], ["hitos", "Hitos"]];
+const FMAS = {linea: "Línea de tiempo", comparar: "Comparar", ajustes: "Ajustes del proyecto"};
+let fPend = 0, fUltExt = lsGet("fext", "pendientes"), fScrollA = null;
+const fTop = k => k === "revision" || FEXT.some(([x]) => x === k) ? "extraido" : FMAS[k] ? "" : k;
+const fN = k => k === "pendientes" ? fPend : fReg.tipos[FREG[k]] || 0;
+const fImportable = k => ["requisitos", "historias", "interesados", "decisiones"].includes(k);
 function pintaTabs() {
   if (fuC === null) return;
   if (!fTabVisible(ftab)) ftab = "resumen";
-  $("f-tabs").replaceChildren(...FTABS.filter(([k]) => fTabVisible(k)).map(([k, t]) => el("button", {role: "tab", textContent: fTabTxt(k, t), "aria-selected": k === ftab, onclick: () => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }})));
+  const top = fTop(ftab), nExt = Object.values(fReg.tipos).reduce((a, x) => a + x, 0) + fPend, nDoc = todas.filter(m => (m.carpeta || "") === fuC).length;
+  const ir = k => { ftab = k; lsSet("ftab", k); fsucio = true; pintarHome(); }, c = t => el("span", {className: "c", textContent: t ? " " + t : ""});
+  $("f-tabs").replaceChildren(...FTOP.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === top, onclick: () => ir(k === "extraido" ? (fTabVisible(fUltExt) ? fUltExt : "pendientes") : k)},
+    t, c(k === "extraido" ? nExt : k === "documentos" ? nDoc : 0))));
+  if (top === "extraido") { fUltExt = ftab; lsSet("fext", ftab); }
+  const segs = [["revision", "Por revisar"], ...FEXT].filter(([k]) => k === ftab || (k === "revision" ? fReg.rev : fTabVisible(k) && (fN(k) || k === "pendientes" || fReg.proyecto && !FCTX.has(k))));
+  $("f-sub").replaceChildren(...(top === "extraido" ? [
+    ...(fReg.rev && ftab !== "revision" ? [el("div", {className: "aviso w f-rev", role: "status"}, el("span", {}, el("b", {textContent: fReg.rev + " por revisar"}), " · propuestos por la IA, sin aprobar"), el("span", {className: "grow"}),
+      el("button", {className: "sec sm", textContent: "Revisar", onclick: () => ir("revision")}), el("button", {className: "pri sm", textContent: "Aprobar todo", onclick: fallo(() => fAprobarTodo(fuC))}))] : []),
+    el("div", {className: "row wrap f-seg"}, el("div", {className: "seg", role: "tablist", ariaLabel: "Qué se ha extraído"}, ...segs.map(([k, t]) => el("button", {role: "tab", "aria-selected": k === ftab, onclick: () => ir(k)}, t, c(k === "revision" ? fReg.rev : fN(k))))),
+      el("span", {className: "grow"}), ...(fImportable(ftab) ? [el("button", {className: "sec sm", textContent: "Importar Excel/CSV", onclick: () => regImportar(fuC, ftab)})] : []))]
+    : FMAS[ftab] ? [el("div", {className: "row f-mas-v"}, el("button", {className: "link", textContent: "← Resumen", onclick: () => ir("resumen")}), el("h2", {textContent: FMAS[ftab]}))] : []));
 }
 $("f-nuevo").onclick = () => formNuevo();
 // «+ Nuevo documento» dentro de la carpeta hereda perfil, estilo (al exportar), glosario y carpeta (en el servidor) e idioma por defecto
@@ -65,15 +85,16 @@ async function fRender() {
   const c = fuC, n = ++fseq, p = $("f-panel");
   if (p.contains($("qpanel"))) { $("qpanel").hidden = true; document.querySelector("main").append($("qpanel")); }  // el panel de preguntas se conserva al cambiar de pestaña
   try {
-    const e = await api("/api/exp?c=" + encodeURIComponent(c));
+    const e = await api("/api/exp?c=" + encodeURIComponent(c)); fPend = e.pend || 0;
     await fCargaReg(c, e.tipo);
     if (n !== fseq) return;
-    const nodos = await ({resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
+    const nodos = await ({documentos: async () => [], resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
     if (n !== fseq) return;
     p.replaceChildren(...nodos);
     const pl_ = PL.find(t => t.id === e.perfil);
     $("fsub").textContent = [e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v), plural(e.n_docs), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · ");
-    $("docs-w").hidden = ftab !== "resumen";
+    $("docs-w").hidden = ftab !== "documentos"; fAutoLinea(c);
+    if (fScrollA) { $(fScrollA)?.scrollIntoView({block: "start"}); fScrollA = null; }
   } catch (err) { if (n === fseq) p.replaceChildren(el("p", {className: "err", textContent: err.message})); }
 }
 const fRe = () => { fsucio = true; return fRender(); };
@@ -87,7 +108,7 @@ async function homePend() {
     .then(r => r.items.filter(p => p.estado === "abierto").map(p => ({...p, c}))).catch(() => [])));
   if (n !== hpSeq) return;
   const its = rs.flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
-  $("h-pend").hidden = !its.length; $("h-pend-n").textContent = its.length > 5 ? "5 de " + its.length : "";
+  $("h-pend").hidden = !its.length; $("h-pend-n").textContent = its.length > 5 ? "Ver los " + its.length : "Ver todos";
   $("h-pend-l").replaceChildren(...its.slice(0, 5).map(p => {
     const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); await cargarLista(); })});
     const f = p.vencido ? el("b", {className: "hp-f err", textContent: "Vencido"}) : el("span", {className: "hp-f" + (p.pronto ? " w" : ""), textContent: p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")});
@@ -271,7 +292,7 @@ async function tAjustes(c, e) {
   return [el("div", {className: "card"}, H("Ajustes de la carpeta"), el("datalist", {id: "dl-tipos"}, ...["Proyecto", "Comunidad", "Cliente", "Paciente", "Asignatura", "Obra", "Estudio", "Serie", "Candidato"].map(v => el("option", {value: v}))),
     el("div", {className: "cols"}, fld("Perfil por defecto", perf, "El tipo de documento que propone «+ Nuevo»."), fld("Estilo por defecto", est, "Cómo se organiza al exportar."),
       fld("Tipo de carpeta", tipo, "Cambia el nombre del tipo y las sugerencias de datos."), fld("Idioma de los documentos nuevos", idi), fld("Anonimizar por defecto", anon, "Al exportar y descargar desde esta carpeta.")),
-    el("div", {className: "row"}, guardar)), caja];
+    el("div", {className: "row"}, guardar)), fAuto(c), Object.assign(caja, {id: "f-glos"})];
 }
 
 // ---- Registro: Revisión (bandeja) y vistas por tipo ----

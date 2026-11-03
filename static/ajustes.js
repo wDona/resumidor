@@ -31,9 +31,10 @@ const usos = () => [...USOS, ...UP.map(propioUso)];
 function aplicar() {
   const c = document.body.classList;
   c.toggle("simple", simple()); c.toggle("avanzado", !simple()); c.toggle("sin-nube", !AJ.nube_visible);
-  $("nueva").textContent = nm("nuevo_boton");
+  $("nueva").textContent = "+ Añadir";  // rediseño: siempre «Añadir» (archivos, enlaces, capturas); nm("nuevo_boton") sigue en los textos
   if (vistaAct === "home" && typeof todas !== "undefined") pintarHome();
   if (vistaAct === "ajustes" && tabAj === "general") pintarAjustes();
+  if (vistaAct === "ajustes" && tabAj === "avanzado") pintarAvanzado();
 }
 
 // ---- nuevo documento en modo simple: «Tipo» + Rápido/Calidad; el resto es automático ----
@@ -47,7 +48,7 @@ function formSimple() { setQ_(sq); hintCalidad(); pintarCal(); }
 function setQ_(q) { sq = q; document.querySelectorAll("#sp-cal .chip").forEach(b => b.setAttribute("aria-checked", b.dataset.q === q)); }
 document.querySelectorAll("#sp-cal .chip").forEach(b => b.onclick = () => setQ_(b.dataset.q));
 let focoModo = false;
-$("av-form").onclick = () => { focoModo = true; abrirAjustes("general"); };  // «Opciones avanzadas» -> Ajustes › General › Modo
+$("av-form").onclick = () => { focoModo = true; abrirAjustes("avanzado"); };  // «Más opciones» -> Ajustes › Avanzado › Modo
 function paramsSimple() {
   if (!simple()) return {};
   let calidad = "rápida";
@@ -96,20 +97,23 @@ async function abrirUso(primera) {
       : el("button", {className: "sec", textContent: "Cancelar", onclick: () => abrirAjustes("general")}), ok));
   act(); vista("uso");
 }
-$("dc-imp").onclick = () => { $("d-crear").close(); aviso("Usa «Importar» para abrir un documento exportado (.zip)"); };
+$("dc-imp").onclick = () => { $("d-crear").close(); $("b-importar").click(); };  // también en Ctrl+K y en Añadir (.zip)
 $("dc-crear").onclick = () => { $("d-crear").close(); abrirModelos(null, null, true); };
 
 // ---- Ajustes: pestañas ----
-const TABS = ["general", "modelos", "plantillas", "perfiles"];
+const TABS = ["general", "modelos", "plantillas", "enviar", "avanzado"];  // «perfiles» (ruta antigua) -> Avanzado
 let tabAj = "general";
 function abrirAjustes(t = "general", sub) {
-  tabAj = TABS.includes(t) ? t : "general";
+  tabAj = t === "perfiles" ? "avanzado" : TABS.includes(t) ? t : "general";
   const h = "#/ajustes/" + tabAj; if (location.hash !== h) history.pushState(null, "", h);
   vista("ajustes"); history.replaceState(null, "", h);
   document.querySelectorAll("#aj-tabs a").forEach(a => { const on = a.dataset.t === tabAj; a.setAttribute("aria-selected", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); });
-  for (const x of TABS) $({general: "aj-general", modelos: "aj-modelos", plantillas: "aj-plant", perfiles: "aj-perfiles"}[x]).hidden = x !== tabAj;
+  for (const x of TABS) $({general: "aj-general", modelos: "aj-modelos", plantillas: "aj-plant", enviar: "aj-enviar", avanzado: "aj-avanzado"}[x]).hidden = x !== tabAj;
+  $("aj-perfiles").hidden = tabAj !== "avanzado";
   document.title = "Ajustes · Actas";
-  if (tabAj === "general") pintarAjustes(); else if (tabAj === "modelos") pintarTabModelos(); else if (tabAj === "plantillas") pintarTabPlant(sub); else pintarTabPerfiles(sub);
+  if (tabAj === "general") pintarAjustes(); else if (tabAj === "modelos") pintarTabModelos(); else if (tabAj === "plantillas") pintarTabPlant(sub);
+  else if (tabAj === "enviar") window.Enviar ? Enviar.montar($("aj-enviar")) : $("aj-enviar").replaceChildren(el("p", {className: "muted", textContent: "El módulo de envío no está disponible."}));
+  else { pintarAvanzado(); pintarTabPerfiles(sub); }
 }
 $("aj-volver").onclick = e => { e.preventDefault(); irInicio(); };
 function ruta_() {  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantillas redirigen
@@ -120,15 +124,13 @@ function ruta_() {  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantil
 addEventListener("hashchange", () => { if (/^#\/(ajustes|modelos|plantillas)/.test(location.hash)) { const t = location.hash.match(/^#\/ajustes\/(\w+)/)?.[1]; if (vistaAct !== "ajustes" || (t && t !== tabAj) || !t) ruta_(); } });
 
 // ---- Ajustes › General ----
+const card = (t, ...k) => el("section", {className: "card"}, el("h2", {textContent: t}), ...k);
+const radio = (v, t, d) => el("label", {className: "opt"}, el("input", {type: "radio", name: "modo", checked: AJ.modo === v, onchange: fallo(async () => { await guardarAj({modo: v}); })}), el("span", {}, el("b", {textContent: t}), el("small", {textContent: d})));
+const chk2 = (lab, v, f, nota) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: v, onchange: fallo(async e => f(e.target.checked))}), el("span", {}, lab, ...(nota ? [el("small", {textContent: nota})] : [])));
 function pintarAjustes() {
   const U = usos(), u = U.filter(x => AJ.uso.includes(x.id));
-  const card = (t, ...k) => el("section", {className: "card"}, el("h2", {textContent: t}), ...k);
-  const radio = (v, t, d) => el("label", {className: "opt"}, el("input", {type: "radio", name: "modo", checked: AJ.modo === v, onchange: fallo(async () => { await guardarAj({modo: v}); })}), el("span", {}, el("b", {textContent: t}), el("small", {textContent: d})));
-  const chk2 = (lab, v, f, nota) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: v, onchange: fallo(async e => f(e.target.checked))}), el("span", {}, lab, ...(nota ? [el("small", {textContent: nota})] : [])));
   const nom = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: nm(k), onchange: fallo(async e => { if (e.target.value.trim()) await guardarAj({nombres: {[k]: e.target.value}}); })}));
   $("aj-general").replaceChildren(
-    card("Modo", el("div", {id: "modo-g", role: "radiogroup", ariaLabel: "Modo"}, radio("simple", "Simple", "Pocas decisiones: eliges el tipo de documento y Rápido o Calidad; lo demás es automático."),
-      radio("avanzado", "Avanzado", "Todas las opciones: niveles de calidad, idiomas, hablantes, plantillas, búsqueda a fondo, modelos locales…"))),
     card("Perfil de uso", el("p", {className: "muted", textContent: u.length ? u.map(x => x.t).join(", ") : "Sin elegir"}),
       el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Cambiar perfil de uso", onclick: () => abrirUso(false)}), el("button", {className: "link", textContent: "Gestionar perfiles de uso", onclick: () => abrirAjustes("perfiles")})),
       el("small", {textContent: "Vuelve a ejecutar el asistente. No toca tus carpetas ni documentos."}),
@@ -137,12 +139,30 @@ function pintarAjustes() {
         const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id); if (!l.length) { aviso("Debe quedar al menos un tipo"); return pintarAjustes(); } await guardarAj({perfil_uso: l}); })))),
     card("Nombres", el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     card("Privacidad", ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
-      chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
       chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")),
     card("Proyectos", chk2("Poblar proyecto automáticamente", AJ.poblar_auto !== false, v => guardarAj({poblar_auto: v}),
       "Al terminar cada reunión de una carpeta, la IA propone requisitos, decisiones, interesados, riesgos y preguntas abiertas con su cita (revísalos en «Revisión»).")));
   $("aj-general").append(Object.assign(card("Estilos de organización", el("p", {className: "muted", textContent: "Cabecera, pie, color, logo y firmas que llevan los documentos que exportas. Cada " + nm("carpeta").toLowerCase() + " puede tener uno por defecto."}), el("div", {id: "est-w"})), {className: "card solo-av"}));
   pintarEstilos();
+  if (typeof ajVigiladas === "function") $("aj-general").append(ajVigiladas());  // shell.js
+}
+// ---- Ajustes › Avanzado: modo, nube, imágenes con IA, red local (los perfiles de uso van debajo, #aj-perfiles) ----
+function pintarAvanzado() {
+  const vis = AJ.vision || {}, url = el("input", {value: vis.url || "", placeholder: "http://localhost:11434 (Ollama) o http://localhost:1234 (LM Studio)", ariaLabel: "URL del modelo con visión"}),
+    mod = el("input", {value: vis.modelo || "", placeholder: "qwen2.5vl, llava…", ariaLabel: "Modelo con visión"});
+  const fld = (t, c) => el("div", {className: "field"}, el("label", {}, t, c));
+  $("aj-av").replaceChildren(
+    card("Modo", el("div", {id: "modo-g", role: "radiogroup", ariaLabel: "Modo"}, radio("simple", "Simple", "Pocas decisiones: eliges el objetivo y Rápido o Calidad; lo demás es automático."),
+      radio("avanzado", "Avanzado", "Todas las opciones a la vista: niveles de calidad, idiomas, hablantes, plantillas, búsqueda a fondo, modelos locales…"))),
+    card("Nube", chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
+      el("small", {}, "Los niveles de calidad y los modelos están en ", el("a", {href: "#/ajustes/modelos", textContent: "Modelos"}), ".")),
+    card("Imágenes y capturas", el("p", {className: "muted", textContent: "La IA describe las imágenes para que se puedan buscar y preguntar. Usa un modelo local con visión (el mismo modelo si es multimodal, Ollama o LM Studio)."}),
+      chk2("Describir capturas con IA", !!AJ.describir_capturas, v => guardarAj({describir_capturas: v}), "También las capturas de pantalla de los vídeos (más lento)."),
+      chk2("Permitir enviar imágenes a la nube", !!AJ.nube_imagenes, v => guardarAj({nube_imagenes: v}), "Apagado por defecto: las imágenes no salen de este equipo. Las capturas pueden contener datos personales o confidenciales."),
+      el("div", {className: "cols"}, fld("Servidor con visión (opcional)", url), fld("Modelo", mod)),
+      el("div", {className: "row"}, el("button", {className: "sec", textContent: "Guardar modelo de visión", onclick: fallo(() => guardarAj({vision: {url: url.value.trim(), modelo: mod.value.trim()}}))}))),
+    card("Enlaces", chk2("Permitir enlaces a la red local", !!AJ.enlaces_red_local, v => guardarAj({enlaces_red_local: v}), "Deja procesar enlaces a equipos de tu red (NAS, intranet, 192.168…). Apagado por seguridad.")));
+  if (typeof ajMcp === "function") $("aj-av").append(ajMcp());  // shell.js
   if (focoModo) { focoModo = false; document.querySelector("#modo-g input:checked")?.focus(); }
 }
 
