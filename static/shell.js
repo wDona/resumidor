@@ -96,8 +96,9 @@ function omniChips() {
 $("omni-b").onclick = () => { const on = document.body.classList.toggle("omni-open"); $("omni-b").setAttribute("aria-expanded", on); if (on) $("buscar").focus(); };
 $("buscar").addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("omni-open")) { document.body.classList.remove("omni-open"); $("omni-b").setAttribute("aria-expanded", "false"); $("omni-b").focus(); } });
 addEventListener("hashchange", () => document.body.classList.remove("omni-open"));
-// «Cola»: sin trabajos, solo el aro; con trabajos, número
-{ const pp = pintarPill; pintarPill = function () { pp(); const n = cola.n, b = $("b-cola"); let q = b.querySelector(".qn"); if (!q) b.append(q = el("b", {className: "qn"})); q.textContent = n || ""; b.classList.toggle("idle", !n); }; }
+// «Cola»: oculta sin trabajos; con trabajos, aro de progreso + número y tooltip con el detalle
+{ const pp = pintarPill; pintarPill = function () { pp(); const n = cola.n, b = $("b-cola"); let q = b.querySelector(".qn"); if (!q) b.append(q = el("b", {className: "qn"})); if (q.textContent !== String(n || "")) { q.textContent = n || ""; anima(q, "pop", 300); }
+  b.hidden = !n; b.classList.toggle("idle", !n); b.title = n ? "Cola de trabajos:" + $("cola-txt").textContent.replace(/^ ·/, "") + " (clic para verla)" : "Cola de trabajos"; }; }
 $("omni").onsubmit = e => { e.preventDefault(); const q = $("buscar").value.trim(); if (!q) return; if (location.hash === "#/buscar/" + enc(q)) buscarIr(q); else location.hash = "#/buscar/" + enc(q); };
 addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); paleta(); }
@@ -109,6 +110,14 @@ let scrT = 0; addEventListener("scroll", () => { if (!scrT) scrT = requestAnimat
 
 // ---------- Buscar (resultado del omnibox): respuesta con citas, fragmentos y elementos ----------
 const BQ = {q: "", tipo: ""};
+// miniatura: imagen real (vía /api/fuente) o icono del tipo
+const BUS_ICO = {video: '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/>', audio: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>', pdf: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>', texto: '<path d="M5 6h14M5 11h14M5 16h9"/>', imagen: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>'};
+const BUS_URL = {};
+function miniBus(f) {
+  const w = el("span", {className: "bus-th", "aria-hidden": "true"}); w.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${BUS_ICO[f.kind] || BUS_ICO.texto}</svg>`;
+  if (f.kind === "imagen") (BUS_URL[f.doc] ||= api("/api/fuente/" + f.doc).then(r => r.url).catch(() => null)).then(u => { if (u) { const i = el("img", {src: u, alt: ""}); i.onload = () => w.replaceChildren(i); } });
+  return w;
+}
 const esPregunta = q => /[?¿]/.test(q) || /^(qu[eé]|qui[eé]n|cu[aá]ndo|c[oó]mo|d[oó]nde|por qu[eé]|cu[aá]l|cu[aá]nt)/i.test(q);
 async function buscarIr(q) {
   BQ.q = q; $("buscar").value = q; const sc = $("omni-c").value, c = sc.startsWith("p:") ? sc.slice(2) : "", d = sc.startsWith("d:") ? sc.slice(2) : "";
@@ -132,8 +141,8 @@ async function buscarIr(q) {
   $("bus-fr").replaceChildren(...(fr.length ? fr.map(f => {
     const loc = f.loc || (f.t != null ? mmss(f.t) : ""), go = () => fallo(citaDoc)(f.doc, f.t, f.loc);
     const p = el("p", {className: "bus-s"}); p.innerHTML = f.snippet || "";  // el servidor escapa el HTML y solo añade <mark>
-    return el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, el("button", {type: "button", className: "doc-l", textContent: f.titulo || f.doc, onclick: go}),
-      ...(loc ? [el("button", {type: "button", className: "cite", textContent: loc, onclick: go})] : []), el("span", {className: "muted", textContent: [KIND_T[f.kind] || f.tipo_fuente, f.c].filter(Boolean).join(" · ")})), p);
+    return el("li", {className: "bus-i bus-r"}, miniBus(f), el("div", {className: "bus-m"}, el("div", {className: "row wrap"}, el("button", {type: "button", className: "doc-l", textContent: f.titulo || f.doc, onclick: go}),
+      ...(loc ? [el("button", {type: "button", className: "cite", textContent: loc, onclick: go})] : []), el("span", {className: "muted", textContent: [KIND_T[f.kind] || f.tipo_fuente, f.c].filter(Boolean).join(" · ")})), p));
   }) : [el("li", {className: "muted", textContent: "Sin resultados. Prueba con otra palabra o quita el filtro."})])); $("bus-fr").removeAttribute("aria-busy"); escalona($("bus-fr"), true); escalona($("bus-el"), true);
   $("bus-el").replaceChildren(...(els.length ? els.map(x => el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, badgeT(TIPO_T[x.tipo] || x.tipo, "acc"), el("b", {textContent: (x.codigo ? x.codigo + " · " : "") + x.texto})),
     el("small", {}, [x.estado, x.c].filter(Boolean).join(" · ") + " · ", el("a", {href: "#", textContent: "Abrir en el proyecto", onclick: ev => { ev.preventDefault(); irElemento(x.c, x.tipo, x.id); }})))) : [el("li", {className: "muted", textContent: "Sin elementos."})]));

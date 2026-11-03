@@ -1,5 +1,5 @@
 // Ajustes (General · Modelos · Plantillas · Perfiles de uso), asistente de primer arranque y modo simple. Se carga tras app.js.
-let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Nuevo"},
+let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Añadir"},
   nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true, ...lsGet("apariencia", {})};
 let ajTiposAb = false, GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
 const simple = () => AJ.modo !== "avanzado";
@@ -80,7 +80,7 @@ async function abrirUso(primera) {
   await cargarUP();
   const sel = new Set(primera ? [] : AJ.uso), cuerpo = $("uso-cuerpo"), U = usos();
   const resumen = el("div", {className: "resumen"}), ok = el("button", {className: "pri", textContent: primera ? "Siguiente: modelos" : "Aplicar", disabled: !sel.size});
-  const nombresDe = us => ({carpeta: us[0].c, documento: us[0].d || "documento", nuevo_boton: us[0].nb || "+ Nuevo"});
+  const nombresDe = us => ({carpeta: us[0].c, documento: us[0].d || "documento", nuevo_boton: us[0].nb || "+ Añadir"});
   const act = () => {
     const us = U.filter(u => sel.has(u.id)); ok.disabled = !us.length; resumen.hidden = !us.length; if (!us.length) return;
     const perf = [...new Set(us.flatMap(u => u.p))].map(p => PL.find(t => t.id === p)?.nombre).filter(Boolean);
@@ -179,7 +179,7 @@ function pintarAvanzado() {
     mod = el("input", {value: vis.modelo || "", placeholder: "qwen2.5vl, llava…", ariaLabel: "Modelo con visión"});
   const fld = (t, c) => el("div", {className: "field"}, el("label", {}, t, c));
   $("aj-av").replaceChildren(
-    cardR("Nombres", (u => ({nombres: {carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Nuevo"}}))(usos().find(x => AJ.uso.includes(x.id))),
+    cardR("Nombres", (u => ({nombres: {carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Añadir"}}))(usos().find(x => AJ.uso.includes(x.id))),
       el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     cardR("Nube", {nube_visible: true}, chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
       el("small", {}, "Los niveles de calidad y los modelos están en ", el("a", {href: "#/ajustes/modelos", textContent: "Modelos"}), ".")),
@@ -196,7 +196,7 @@ function pintarAvanzado() {
 let upSel = null, upEd = null;
 async function pintarTabPerfiles(sub) {
   if (!PL.length) await cargarPlant().catch(() => {});
-  await cargarUP(); if (sub === "nuevo") { upSel = "nuevo"; upEd = {nombre: "", plantillas: [], carpeta: "Carpeta", documento: "documento", nuevo_boton: "+ Nuevo", nube: true, anonimizar: false}; }
+  await cargarUP(); if (sub === "nuevo") { upSel = "nuevo"; upEd = {nombre: "", plantillas: [], carpeta: "Carpeta", documento: "documento", nuevo_boton: "+ Añadir", nube: true, anonimizar: false}; }
   else if (upSel !== "nuevo" || !upEd) { if (!usos().some(x => x.id === upSel)) upSel = UP[0]?.id || "empresa"; upEd = null; }
   const li = x => el("button", {className: "nav", "aria-current": x.id === upSel ? "page" : "false", onclick: () => { upSel = x.id; upEd = null; pintarTabPerfiles(); }}, el("span", {textContent: x.t}), el("span", {className: "c", textContent: AJ.uso.includes(x.id) ? "en uso" : ""}));
   $("up-lista").replaceChildren(el("button", {className: "pri", textContent: "+ Nuevo perfil de uso", style: "margin-bottom:8px", onclick: () => { upSel = "nuevo"; upEd = null; pintarTabPerfiles("nuevo"); }}),
@@ -209,7 +209,7 @@ function pintarUP() {
   if (!p) {  // de serie: resumen y duplicar
     ed.replaceChildren(el("h2", {textContent: x.t}), el("p", {className: "muted", textContent: "Perfil de serie: no se edita. Duplícalo para ajustarlo."}),
       el("p", {textContent: "Tipos de documento: " + (x.p.map(i => PL.find(t => t.id === i)?.nombre).filter(Boolean).join(", ") || "los eliges tú")}), el("p", {textContent: "Las carpetas se llaman «" + x.c + "»."}),
-      el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Duplicar como perfil propio", onclick: () => { upEd = {nombre: x.t + " (mío)", plantillas: [...x.p], carpeta: x.c, documento: "documento", nuevo_boton: "+ Nuevo", nube: !x.sens, anonimizar: !!(x.sens || x.anon)}; upSel = "nuevo"; pintarTabPerfiles(); }}), usarBtn(x)));
+      el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Duplicar como perfil propio", onclick: () => { upEd = {nombre: x.t + " (mío)", plantillas: [...x.p], carpeta: x.c, documento: "documento", nuevo_boton: "+ Añadir", nube: !x.sens, anonimizar: !!(x.sens || x.anon)}; upSel = "nuevo"; pintarTabPerfiles(); }}), usarBtn(x)));
     return;
   }
   const t = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: p[k] ?? "", oninput: e => p[k] = e.target.value}));
@@ -225,7 +225,7 @@ function pintarUP() {
 }
 const usarBtn = x => el("button", {className: "sec", textContent: "Usar este perfil", onclick: fallo(async () => {
   const perf = x.p.filter(i => PL.some(t => t.id === i));
-  AJ = await post("/api/ajustes", {uso: [x.id], perfil_uso: perf.length ? perf : AJ.perfil_uso, nombres: {carpeta: x.c, documento: x.d || "documento", nuevo_boton: x.nb || "+ Nuevo"}, nube_visible: !(x.sens || x.nonube), anonimizar_defecto: !!(x.sens || x.anon)});
+  AJ = await post("/api/ajustes", {uso: [x.id], perfil_uso: perf.length ? perf : AJ.perfil_uso, nombres: {carpeta: x.c, documento: x.d || "documento", nuevo_boton: x.nb || "+ Añadir"}, nube_visible: !(x.sens || x.nonube), anonimizar_defecto: !!(x.sens || x.anon)});
   aplicar(); aviso("Perfil aplicado"); pintarTabPerfiles(); })});
 
 api("/api/ajustes").then(a => { AJ = a; aplicar(); if (!a.existe && !/^#\/(modelos|ajustes)/.test(location.hash)) abrirUso(true); }).catch(() => {});

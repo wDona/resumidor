@@ -1062,7 +1062,7 @@ def anon_defecto(mid):
 
 
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
-AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
+AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Añadir"},
           "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es", "poblar_auto": True,
           "nube_imagenes": False, "describir_capturas": False, "enlaces_red_local": False, "vision": {},
           "tema": "auto", "densidad": "comoda", "animaciones": "completas"}  # apariencia (Ajustes › General); vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
@@ -1075,7 +1075,12 @@ def _ajustes():
         d = json.loads(AJUSTES.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return {**AJ_DEF, **{k: d[k] for k in AJ_DEF if k in d}, "nombres": {**AJ_DEF["nombres"], **(d.get("nombres") or {})}} if isinstance(d, dict) else None
+    if not isinstance(d, dict):
+        return None
+    nom = {**AJ_DEF["nombres"], **(d.get("nombres") or {})}
+    if nom.get("nuevo_boton") == "+ Nuevo":  # el antiguo valor por defecto pasa al nuevo («+ Añadir»); un nombre propio se respeta
+        nom["nuevo_boton"] = AJ_DEF["nombres"]["nuevo_boton"]
+    return {**AJ_DEF, **{k: d[k] for k in AJ_DEF if k in d}, "nombres": nom}
 
 
 @app.get("/api/ajustes")
@@ -2372,7 +2377,7 @@ def set_perfil(d: dict):
     if d.get("id") and not any(p["id"] == pid for p in ps):
         raise HTTPException(404, "No existe ese perfil")
     p = {"id": pid, "nombre": nombre, "plantillas": pl, "carpeta": txt("carpeta", "Carpeta"), "documento": txt("documento", "documento"),
-         "nuevo_boton": txt("nuevo_boton", "+ Nuevo"), "nube": bool(d.get("nube", True)), "anonimizar": bool(d.get("anonimizar", False))}
+         "nuevo_boton": txt("nuevo_boton", "+ Añadir"), "nube": bool(d.get("nube", True)), "anonimizar": bool(d.get("anonimizar", False))}
     pipeline.WORK.mkdir(exist_ok=True)
     PERFILES.write_text(json.dumps([p if x["id"] == pid else x for x in ps] + ([] if any(x["id"] == pid for x in ps) else [p]), ensure_ascii=False, indent=1), encoding="utf-8")
     return p
