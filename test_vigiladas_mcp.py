@@ -114,3 +114,10 @@ def test_mcp_stdio(cl, monkeypatch):
     out = io.StringIO()
     mcp_servidor.stdio("http://x", io.StringIO('{"jsonrpc":"2.0","id":7,"method":"ping"}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n'), out)
     assert json.loads(out.getvalue()) == {"jsonrpc": "2.0", "id": 7, "result": {}}
+
+
+def test_mcp_respeta_anonimizar_por_defecto(monkeypatch):
+    import mcp_servidor as M
+    monkeypatch.setattr(M.A, "_ajustes", lambda: {"anonimizar_defecto": True})
+    r = M._llamar({"name": "proyectos", "arguments": {}})
+    assert r["isError"] and "Anonimizar" in r["content"][0]["text"]

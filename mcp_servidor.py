@@ -150,6 +150,8 @@ def _llamar(p):
     f = FN.get(p.get("name"))
     if not f:
         raise KeyError(p.get("name"))
+    if p.get("name") != "encolar" and (A._ajustes() or {}).get("anonimizar_defecto"):  # lo que sale hacia otra herramienta (que puede usar la nube) también es «exportar»
+        return {"content": [{"type": "text", "text": "«Anonimizar por defecto» está activo en Actas: no se entrega contenido a herramientas externas. Desactívalo en Ajustes si quieres usarlas."}], "isError": True}
     try:
         return {"content": [{"type": "text", "text": f(p.get("arguments") or {})}]}
     except HTTPException as e:
