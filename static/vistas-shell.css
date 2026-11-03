@@ -7,7 +7,6 @@
 .vi{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--acc-s);color:var(--acc-t,var(--acc));font-size:20px}
 .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}.fbar input[type=search]{width:auto;min-width:200px;flex:1 1 200px;max-width:320px;min-height:var(--h-m,36px);border-radius:var(--r-s,8px)}
 .fbar select{width:auto;min-height:var(--h-m,36px);border-radius:var(--r-s,8px)}.fp{display:contents}
-.fchips{margin-bottom:6px}
 
 /* ---- barra superior ---- */
 #omni-b{display:none}
@@ -81,7 +80,6 @@ details.fpop>summary::after{content:"▾";font-size:var(--fs-xs,12px);color:var(
 .fpop-l{position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:190px;max-height:50vh;overflow:auto;display:flex;flex-direction:column;padding:6px;background:var(--surf-2,var(--card));border:1px solid var(--line);border-radius:var(--r-m,12px);box-shadow:var(--shadow);animation:fadein var(--dur-s4,200ms) var(--ease-emph-decel,ease) both}
 .fpop-o{justify-content:flex-start;text-align:left;border:0;background:none;min-height:var(--h-m,36px);padding:0 12px;border-radius:var(--r-s,8px);font-weight:400;white-space:normal}.fpop-o:hover{background:var(--acc-s)}.fpop-o[aria-pressed=true]{background:var(--acc-s2);font-weight:600}
 .fchip-x{display:inline-flex;align-items:center;gap:0}.fchip-x .qx{min-height:var(--h-s,28px);width:var(--h-s,28px);padding:0;margin-left:-4px;border:0;background:none;color:var(--mut)}
-#bib-fv:empty,#bib-ft:empty{display:none}#bib-fv .fchip{border-style:dashed}
 .bib-g{grid-template-columns:minmax(0,1fr)}.bib-g.con-p{grid-template-columns:minmax(0,1fr) 380px}
 .bib-p[hidden]{display:none}.bib-g.con-p .bib-p{animation:slidein var(--dur-m2,300ms) var(--ease-emph-decel,ease) both;position:sticky}.bib-p{border-radius:var(--r-m,12px)}
 .bib-x{position:absolute;top:8px;right:8px;width:var(--h-m,36px);padding:0}.bib-p{position:relative}.bib-p h2{padding-right:36px}
@@ -94,7 +92,7 @@ details.fpop>summary::after{content:"▾";font-size:var(--fs-xs,12px);color:var(
  .bib-l td:nth-child(1){grid-area:1/1;padding:0!important;width:auto!important}.bib-l td:nth-child(2){grid-area:1/2/2/5;font-size:15px}.bib-l td:nth-child(6){grid-area:1/5;justify-self:end}
  .bib-l td:nth-child(3){grid-area:2/2}.bib-l td:nth-child(4){grid-area:2/3;max-width:16ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bib-l td:nth-child(5){grid-area:2/4}
  .bib-l td{color:var(--mut)}.bib-l td:nth-child(2){color:var(--ink)}.bib-l .doc-l{text-align:left;white-space:normal}
- .fchips{flex-wrap:nowrap!important;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:4px;-webkit-mask:linear-gradient(90deg,#000 92%,transparent)}.fchips>*{flex:none;scroll-snap-align:start}
+ #bib-fp{display:flex;flex:1 1 100%;gap:6px;align-items:center;flex-wrap:nowrap;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:4px}#bib-fp>*{flex:none;scroll-snap-align:start}
  .fbar input[type=search]{max-width:none;flex-basis:100%}
  .fpop-l{position:fixed;left:0;right:0;bottom:0;top:auto;max-height:60vh;border-radius:var(--r-m,12px) var(--r-m,12px) 0 0;padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
  .fpop-o{min-height:var(--h-l,44px)}
@@ -174,3 +172,52 @@ dialog.pal[open]{animation:sh-in var(--dur-s4,200ms) var(--ease-emph-decel,ease)
 }
 @media(prefers-reduced-motion:reduce){#b-cola .qn.pop{animation:none}}
 .pend-t thead th:first-child{font-size:0}
+
+/* ---- Ronda 4 (R4-B) ---- */
+/* raíl: «Ajustes» solo abajo en el raíl; el engranaje de arriba queda cuando el raíl va plegado en panel (≤860 px) */
+@media(min-width:861px){#b-ajustes{display:none}}
+/* móvil en un proyecto: su FAB sustituye a «+ Añadir» de arriba y nunca tapa el final del contenido */
+@media(max-width:700px){body.en-proy #nueva{display:none}body.en-proy #main{padding-bottom:calc(88px + env(safe-area-inset-bottom))}}
+/* Añadir: «Procesar» fijo con sombra; «Proyecto y ajustes» como línea de texto, no píldora */
+#v-nuevo .sh-f{position:relative;z-index:1;box-shadow:0 -10px 24px -14px light-dark(rgba(15,23,42,.3),rgba(0,0,0,.75))}
+#v-nuevo .an-av{border:0;background:none;border-radius:0}
+#v-nuevo .an-av>summary{min-height:var(--h-m);padding:0;gap:6px;font-size:var(--fs-s);font-weight:var(--fw-m);color:var(--txt-2)}
+#v-nuevo .an-av>summary::before{content:"▸";color:var(--txt-3);transition:transform var(--dur-s4) var(--ease-standard)}#v-nuevo .an-av[open]>summary::before{transform:rotate(90deg)}
+#v-nuevo .an-av>summary .muted{font-weight:var(--fw-r)}#v-nuevo .an-avb{padding:8px 0 0}
+/* Biblioteca: una fila (buscar | Tipo | Proyecto | Estado | Fecha | Vistas) y la barra contextual al seleccionar */
+.fpop-h{padding:8px 12px 2px}.fpop-l .fchip-x{display:flex}.fpop-l .fchip-x .fpop-o{flex:1}
+.fpop-g{margin-top:4px;border-top:1px solid var(--line2);border-radius:0 0 var(--r-s) var(--r-s);color:var(--acc-t,var(--acc))}.fpop-g:disabled{color:var(--txt-3);cursor:default}
+.fp-x{font-size:var(--fs-s);margin-left:4px}
+.bib-h.sel .bib-bulk{animation:bulk-in var(--dur-m2) var(--ease-emph-decel) both}@keyframes bulk-in{from{opacity:0;transform:translateY(-12px)}}
+@media(max-width:700px){.bib-bulk .grow{display:none}.bib-bulk>b{flex:1}}
+/* Documento › Fuente (imagen): acciones como iconos sobre la imagen; imagen fija al bajar; IA plegada con «Ver más» */
+.fu-fig{position:relative;margin:0}.fu-fig img{position:static}
+@media(min-width:861px){.fu-fig{position:sticky;top:var(--s3)}}
+.fu-ov{position:absolute;top:10px;right:10px;display:flex;gap:6px}
+.fu-ib{display:inline-grid;place-items:center;width:var(--h-m);height:var(--h-m);min-height:0;padding:0;border:1px solid var(--line);border-radius:var(--r-pill);background:color-mix(in srgb,var(--surf-1) 90%,transparent);color:var(--txt-1);box-shadow:var(--shadow-2);cursor:pointer}
+.fu-ib:hover{background:var(--surf-1);color:var(--acc)}@media(pointer:coarse){.fu-ib{width:var(--h-l);height:var(--h-l)}}
+.fu-img .field+.field textarea.abierta{max-height:none}.fu-ver{margin-top:6px;font-size:var(--fs-s)}
+/* Inicio: «Por revisar» como franja arriba; los «pendientes abiertos» ya están en la tarjeta Pendientes */
+#rev{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;min-height:56px}
+#rev>.sec-h{flex:none;gap:12px}#rev>.sec-h h2{font-size:var(--fs-m)}
+#rev #rev-l{flex-direction:row;flex-wrap:wrap;gap:8px;flex:1 1 auto}#rev #rev-reg,#rev #en-proc{flex:1 1 100%}
+#rev .rev-i{flex-direction:row;gap:6px;padding:0 14px;min-height:var(--h-m);align-items:center;border-radius:var(--r-pill)}#rev .rev-i small::before{content:"· "}
+#h-inicio:has(#h-pend:not([hidden])) #rev-l>.rev-i:not(.w){display:none}
+#h-inicio:has(#h-pend:not([hidden])) #rev:not(:has(#en-proc>*,#rev-reg>*,#rev-l>.w)){display:none}
+/* Inicio en táctil: título «Añadir» y un solo botón (enlace, captura y grabar están en la hoja y en la paleta) */
+body.tactil .hd-acc{display:none}body.tactil #h-drop{cursor:pointer}
+/* Buscar: aire bajo el título; «Preguntar a … →» en una línea hasta que hay respuesta */
+#v-buscar>.sec-h{margin-bottom:16px}
+#bus-resp.sin-r{padding:12px 16px}#bus-resp.sin-r>.sec-h{display:none}.bus-ask-r{align-items:center;gap:8px 16px}.bus-ask-r select{width:auto;min-height:var(--h-m)}
+/* paleta: campo sin doble borde, «Ver más» discreto, atajos a la derecha */
+dialog.pal input:focus-visible{outline:0;border-bottom-color:var(--acc)}
+#pal-l li[role=option]{align-items:center}#pal-l .kbd{margin-left:auto;flex:none}#pal-l .pal-mas{min-height:var(--h-m);color:var(--acc-t,var(--acc));font-size:var(--fs-s)}
+#pal-l li[aria-selected=true] .ri{color:var(--acc-d)}.pal-n .kbd{font-size:var(--fs-xs)}
+/* Pendientes en el móvil: una fila meta «Proyecto · Responsable · Plazo» a la izquierda */
+@media(max-width:700px){
+ .pend-t tr.f{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px;row-gap:2px}
+ .pend-t td:nth-child(1){flex:0 0 28px;margin-right:4px}.pend-t td.pt{flex:1 1 calc(100% - 44px)}
+ .pend-t td.pc{margin-left:38px}.pend-t td.pc,.pend-t td.pr,.pend-t td.pp{flex:none;max-width:none;font-size:var(--fs-s);color:var(--txt-3)}
+ .pend-t td.pr:empty{display:none}.pend-t td.pr::before,.pend-t td.pp::before{content:"· "}
+}
+@media(prefers-reduced-motion:reduce){.bib-h.sel .bib-bulk{animation:none}}

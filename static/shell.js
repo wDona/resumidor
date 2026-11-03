@@ -10,7 +10,11 @@ const editable = t => !!t?.closest?.("input, textarea, select, [contenteditable=
 const sinEnviar = () => aviso("El módulo de envío no está disponible");
 const ICO = {inicio: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>', bib: '<path d="M4 4h6v16H4zM14 4h6v16h-6z"/>', pend: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"/>',
   env: '<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>', proy: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', mas: '<path d="M12 5v14M5 12h14"/>',
-  aj: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>', rec: '<circle cx="12" cy="12" r="6"/>'};
+  aj: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>', rec: '<circle cx="12" cy="12" r="6"/>',
+  doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', subir: '<path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/>', bajar: '<path d="M12 4v12M6 10l6 6 6-6"/><path d="M4 20h16"/>',
+  clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h2"/>', mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  ia: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>', vista: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', preg: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+  editar: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', cola: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>', buscar: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>'};
 const ico = k => { const s = el("span", {className: "ri", "aria-hidden": "true"}); s.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICO[k]}</svg>`; return s; };
 const badgeT = (t, cls = "") => el("span", {className: "badge " + cls, textContent: t});
 
@@ -54,14 +58,16 @@ const cierraPal = () => document.querySelector("dialog.pal")?.close();
 addEventListener("hashchange", cierraPal); addEventListener("popstate", cierraPal);
 
 // ---------- raíl izquierdo (plegable: iconos + texto → solo iconos; en móvil, panel) ----------
-const RAIL_N = {};
+const RAIL_N = {}, BIB_N = {de: null, n: -1};  // la Biblioteca cuenta también los solo buscables (todas solo trae los que tienen acta)
 function pintarSide() {
+  if (BIB_N.de !== todas) { BIB_N.de = todas; api("/api/meetings").then(ms => { BIB_N.n = unicas(ms).length; pintarSide(); }).catch(() => {}); }
+  document.body.classList.toggle("en-proy", vistaAct === "home" && fsel != null);  // móvil: el FAB del proyecto sustituye a «+ Añadir» de arriba
   const r = vistaAct, cnt = c => todas.filter(m => (m.carpeta || "") === c).length, sin = todas.some(m => !m.carpeta);
   const pend = Object.values(RES).reduce((s, x) => s + (x?.pend || 0), 0);
   const a = (h, k, t, on, n) => { const c = el("span", {className: "c", textContent: n || ""}); if (RAIL_N[h] !== undefined && RAIL_N[h] !== (n || 0)) { c.classList.add("tick"); c.addEventListener("animationend", () => c.classList.remove("tick")); } RAIL_N[h] = n || 0;
     return el("a", {href: h, className: "nav", title: t, "aria-current": on ? "page" : "false"}, ico(k), el("span", {className: "rt", textContent: t}), c); };
   $("side").replaceChildren(
-    a("#/", "inicio", "Inicio", r === "home" && fsel === undefined), a("#/biblioteca", "bib", "Biblioteca", r === "bib", todas.length),
+    a("#/", "inicio", "Inicio", r === "home" && fsel === undefined), a("#/biblioteca", "bib", "Biblioteca", r === "bib", BIB_N.n >= 0 ? BIB_N.n : todas.length),
     a("#/pendientes", "pend", "Pendientes", r === "pend", pend), a("#/enviar", "env", "Enviar", r === "enviar"),
     el("div", {className: "t"}, el("span", {className: "rt", textContent: cap(pl(nm("carpeta")))}),
       el("button", {type: "button", className: "gh ic rail-mas", title: cap(nm("carpeta")) + " nuevo", ariaLabel: cap(nm("carpeta")) + " nuevo", onclick: () => { if (vistaAct !== "home") irInicio(); nuevaCarpeta(); }}, ico("mas"))),
@@ -150,10 +156,13 @@ async function buscarIr(q) {
   const docs = d ? [] : carpetas, s = el("select", {ariaLabel: "Preguntar en"}, ...(d ? [new Option("Este documento", "d")] : []), ...docs.map(x => new Option(x, "c:" + x)), ...(!d && todas.some(m => !m.carpeta) ? [new Option(sinC(), "c:")] : []));
   s.value = d ? "d" : "c:" + (c || fr[0]?.c || carpetas[0] || "");
   const preguntar = () => { if (s.value === "d") { const a = cur.actas.find(x => x.name === ver) || cur.actas[0]; setQ(cur.id + "|" + (a?.asr || cur.asr)); } else setQ(s.value); $("pregunta").value = q; $("qform").requestSubmit(); };
+  // sin respuesta todavía: una línea «Preguntar a <proyecto> →» (+ dónde, si hay varios); el título «Respuesta» sale con la respuesta
+  const ask = el("button", {type: "button", className: "sec bus-ask", onclick: () => { $("qpanel").hidden = false; $("bus-resp").classList.remove("sin-r"); preguntar(); }});
+  s.onchange = () => { ask.textContent = "Preguntar a " + (s.value === "d" ? "este documento" : s.selectedOptions[0]?.text || "") + " →"; }; s.onchange();
   $("bus-resp").hidden = !s.options.length;
-  $("bus-q").replaceChildren(el("div", {className: "row wrap"}, el("label", {className: "muted", textContent: "Preguntar en"}), s, el("button", {type: "button", className: "sec", textContent: "Preguntar «" + q.slice(0, 40) + "»", onclick: preguntar})), $("qpanel"));
-  $("qpanel").hidden = true;
-  if (esPregunta(q) && s.options.length) { $("qpanel").hidden = false; preguntar(); }
+  $("bus-q").replaceChildren(el("div", {className: "row wrap bus-ask-r"}, ask, ...(s.options.length > 1 ? [el("label", {className: "muted"}, "Cambiar: ", s)] : [])), $("qpanel"));
+  $("qpanel").hidden = true; $("bus-resp").classList.add("sin-r");
+  if (esPregunta(q) && s.options.length) ask.click();
 }
 function irElemento(c, tipo, id) { fsel = c; vista("home"); fIr(TIPO_TAB[tipo] || "revision", {ids: [id]}); }
 
@@ -225,17 +234,26 @@ async function docFuente() {
   const ia = el("button", {type: "button", className: "sec sm", textContent: f.kind === "imagen" ? "Describir con IA" : "Describir capturas con IA",
     onclick: fallo(async () => { await post("/api/describir", {id, gpu: $("usar-gpu").checked}); aviso("Añadido a la cola"); sondear(); FUENTE = null; })});
   const nodos = [el("div", {className: "row wrap fu-h"}, el("b", {textContent: f.nombre || ""}), ...(f.paginas ? [el("span", {className: "muted", textContent: f.paginas + " págs."})] : []),
-    el("span", {className: "grow"}), ...(f.url && !media ? [el("a", {className: "btn sec sm", href: f.url, target: "_blank", rel: "noopener", textContent: "Abrir el original"})] : []), ...(f.kind !== "audio" && f.kind !== "pdf" && f.kind !== "texto" ? [ia] : [])),
+    el("span", {className: "grow"}), ...(f.url && !media && f.kind !== "imagen" ? [el("a", {className: "btn sec sm", href: f.url, target: "_blank", rel: "noopener", textContent: "Abrir el original"})] : []), ...(!["audio", "pdf", "texto", "imagen"].includes(f.kind) ? [ia] : [])),
     ...(f.vision === "no_disponible" && (f.kind === "imagen" || f.kind === "video") ? [el("p", {className: "aviso w"}, "Sin modelo con visión: las imágenes no se describen solas. ", el("a", {href: "#/ajustes/modelos", textContent: "Instalar uno recomendado"}), " o configúralo en ", el("a", {href: "#/ajustes/avanzado", textContent: "Ajustes › Avanzado"}), ".")] : [])];
   if (f.kind === "imagen") {
     const du = el("textarea", {rows: 3, value: f.descripcion || "", id: "fu-du"}), dia = el("textarea", {rows: 3, value: f.descripcion_ia || "", id: "fu-dia"});
-    nodos.push(el("div", {className: "fu-img"}, el("img", {src: f.url, alt: f.descripcion || f.descripcion_ia || f.nombre || "Imagen"}),
-      el("div", {}, el("div", {className: "field"}, el("label", {htmlFor: "fu-du", textContent: "Tu descripción"}), du), el("div", {className: "field"}, el("label", {htmlFor: "fu-dia", textContent: "Descripción de la IA"}), dia),
+    // acciones como iconos sobre la imagen; la descripción de la IA, plegada a 5 líneas con «Ver más» si es larga
+    const icoB = (lab, d, extra) => { const b = el(extra.href ? "a" : "button", {className: "fu-ib", ariaLabel: lab, title: lab, ...extra}); if (!extra.href) b.type = "button";
+      b.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; return b; };
+    ia.className = "fu-ib"; ia.ariaLabel = ia.title = "Describir con IA";
+    ia.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
+    const ver = el("button", {type: "button", className: "link fu-ver", hidden: true, "aria-controls": "fu-dia", "aria-expanded": "false", textContent: "Ver más",
+      onclick: () => { const on = dia.classList.toggle("abierta"); ver.textContent = on ? "Ver menos" : "Ver más"; ver.setAttribute("aria-expanded", on); }});
+    nodos.push(el("div", {className: "fu-img"}, el("figure", {className: "fu-fig"}, el("img", {src: f.url, alt: f.descripcion || f.descripcion_ia || f.nombre || "Imagen"}),
+        el("div", {className: "fu-ov"}, ...(f.url ? [icoB("Abrir el original", '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>', {href: f.url, target: "_blank", rel: "noopener"})] : []), ia)),
+      el("div", {}, el("div", {className: "field"}, el("label", {htmlFor: "fu-du", textContent: "Tu descripción"}), du), el("div", {className: "field"}, el("label", {htmlFor: "fu-dia", textContent: "Descripción de la IA"}), dia, ver),
         el("button", {type: "button", className: "pri sm", textContent: "Guardar descripciones", onclick: fallo(async () => { await post("/api/imagen/" + id, {descripcion: du.value, descripcion_ia: dia.value}); aviso("Guardado: ya se puede buscar"); })}))),
       ...(f.ocr_texto ? [el("details", {open: false}, el("summary", {textContent: "Texto reconocido (OCR)"}), el("pre", {className: "fu-ocr", textContent: f.ocr_texto}))] : []));
   }
   if (f.partes?.length) nodos.push(el("details", {open: !media && f.kind !== "imagen"}, el("summary", {textContent: (media ? "Transcripción · " : "Texto · ") + f.partes.length + (media ? " tramos" : " partes")}), el("div", {className: "fu-p"}, ...f.partes.map(sec))));
   w.replaceChildren(...nodos);
+  const t = $("fu-dia"); if (t) requestAnimationFrame(() => { w.querySelector(".fu-ver").hidden = t.scrollHeight <= t.clientHeight + 2; });
 }
 
 // ---------- Añadir: hoja con archivos, objetivo («¿Qué quieres sacar y dónde?»), proyecto y ajustes de procesado plegados ----------
@@ -334,6 +352,7 @@ formNuevo = function (m, a) {
   $("an-obj").hidden = $("an-nombre").closest(".field").hidden = !!m; $("an-av").open = !!m; $("form-t").textContent = m ? $("form-t").textContent : "Añadir";
   if (!m) { anGoals(); if (AN.goal && !anChips()) anGoal(AN.goal); anProyecto(); }
   anEnlVer(!!$("enlace").value.trim()); anPintar();
+  if ($("v-nuevo").open) ($("an-elegir").offsetParent ? $("an-elegir") : $("generar")).focus();  // foco inicial: «Elegir archivos» (no el «×»)
 };
 $("n-carpeta").addEventListener("change", anProyecto);
 $("an-x").onclick = () => $("v-nuevo").close();
@@ -351,6 +370,10 @@ $("h-elegir").onclick = () => { formNuevo(); $("an-file").click(); };
 $("h-pegar").onclick = anPegar;
 $("h-grabar").onclick = () => grabarAbrir();
 $("h-enl").onsubmit = e => { e.preventDefault(); const u = $("h-enl-i").value.trim(); if (u) { anEnlace(u); $("h-enl-i").value = ""; } };
+// táctil o móvil: «Suelta archivos» no aplica → título «Añadir», un botón y la franja entera abre la hoja (enlace, captura y grabar van dentro)
+const tactil = matchMedia("(max-width: 560px), (pointer: coarse)"), hdTactil = () => { document.body.classList.toggle("tactil", tactil.matches); $("h-drop-t").textContent = tactil.matches ? "Añadir" : "Suelta archivos o pega un enlace"; $("drop-t").textContent = tactil.matches ? "Archivos, fotos o capturas" : "Suelta aquí tus archivos"; };
+tactil.addEventListener("change", hdTactil); hdTactil();
+$("h-drop").addEventListener("click", e => { if (tactil.matches && !e.target.closest("button, a, input, form")) formNuevo(); });
 // toda la ventana acepta soltar archivos o enlaces (no los arrastres internos de documentos a proyectos) y pegar capturas o enlaces
 const arrastreExt = e => !arrastrando && [...(e.dataTransfer?.types || [])].some(t => t === "Files" || t === "text/uri-list");
 addEventListener("dragover", e => { if (arrastreExt(e)) { e.preventDefault(); document.body.classList.add("soltando"); } });
@@ -451,40 +474,45 @@ async function pintarBib() {
   BIB.ms = unicas(await api("/api/meetings").catch(() => todas)); BIB.sel = new Set([...BIB.sel].filter(id => BIB.ms.some(m => m.id === id))); pintarBibL(); }
 const BIB0 = {tipo: "", c: "*", est: "", dias: 0, q: ""}, BIB_SERIE = [{n: "Esta semana", dias: 7}, {n: "Solo buscable", est: "buscable"}, {n: "En cola", est: "cola"}];
 const bibVista = v => { Object.assign(BIB, BIB0, v); if (BIB.qEl) BIB.qEl.value = BIB.q; pintarBibL(); };
-// barra de filtros: buscador + un popover por filtro (Proyecto, Estado, Fecha) + «Guardar vista»; el buscador se crea una vez (no pierde el foco)
-function bibBarra(ms, chip) {
+// una sola fila de filtros: buscador | Tipo | Proyecto | Estado | Fecha | Vistas (rápidas, guardadas y «Guardar la vista actual»); el buscador se crea una vez (no pierde el foco)
+function bibBarra(ms) {
   const f = $("bib-f");
   if (!f.firstChild) {
     BIB.qEl = el("input", {type: "search", placeholder: "Filtrar por nombre", ariaLabel: "Filtrar por nombre", oninput: () => { BIB.q = BIB.qEl.value; pintarBibL(); }});
-    f.append(el("div", {className: "fbar"}, BIB.qEl, el("span", {id: "bib-fp", className: "fp"})), el("div", {id: "bib-ft", className: "row wrap fchips", role: "group", ariaLabel: "Tipo"}), el("div", {id: "bib-fv", className: "row wrap fchips", role: "group", ariaLabel: "Vistas guardadas"}));
+    f.append(el("div", {className: "fbar"}, BIB.qEl, el("div", {id: "bib-fp", className: "fp", role: "group", ariaLabel: "Filtros"})));
     document.addEventListener("click", e => document.querySelectorAll("#bib-f details[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
     f.addEventListener("keydown", e => { if (e.key === "Escape") f.querySelectorAll("details[open]").forEach(d => { d.open = false; d.querySelector("summary").focus(); }); });
   }
   if (BIB.qEl.value !== BIB.q) BIB.qEl.value = BIB.q;
-  const pop = (lab, v, ops, def, fn) => { const cur = ops.find(o => String(o[0]) === String(v)), act = String(v) !== String(def), d = el("details", {className: "fpop" + (act ? " on" : "")}, el("summary", {className: "fchip", textContent: act ? lab + ": " + cur[1] : lab}),
-      el("div", {className: "fpop-l", role: "group", ariaLabel: lab}, ...ops.map(([k, t]) => el("button", {type: "button", className: "fpop-o", "aria-pressed": String(k) === String(v), textContent: t, onclick: () => { fn(k); pintarBibL(); }}))));
-    return d; };
+  const abierto = $("bib-fp").querySelector("details[open]")?.dataset.k;  // repintar no cierra el menú abierto
+  const caja = (k, lab, on, ...hijos) => { const d = el("details", {className: "fpop" + (on ? " on" : ""), "data-k": k, open: abierto === k}, el("summary", {className: "fchip", textContent: lab}), el("div", {className: "fpop-l", role: "group", ariaLabel: k}, ...hijos)); return d; };
+  const pop = (lab, v, ops, def, fn) => { const c = ops.find(o => String(o[0]) === String(v)), act = String(v) !== String(def);
+    return caja(lab, act ? lab + ": " + c[1] : lab, act, ...ops.map(([k, t]) => el("button", {type: "button", className: "fpop-o", "aria-pressed": String(k) === String(v), textContent: t, onclick: () => { fn(k); $("bib-fp").querySelector("details[open]")?.removeAttribute("open"); pintarBibL(); }}))); };
+  const guardar = () => {
+    const v = {tipo: BIB.tipo, c: BIB.c, est: BIB.est, dias: BIB.dias, q: BIB.q}, n = [KIND_T[v.tipo], v.c !== "*" && (v.c || sinC()), {listo: "Listo", buscable: "Solo buscable", cola: "En cola"}[v.est], v.dias && "Últimos " + v.dias + " d", v.q && "«" + v.q + "»"].filter(Boolean).join(" · ");
+    if (!n) return aviso("Elige algún filtro antes de guardar la vista");
+    lsSet("bib.vistas", [...lsGet("bib.vistas", []).filter(x => x.n !== n), {n, ...v}].slice(-8)); aviso("Vista guardada: " + n); pintarBibL(); };
+  const vistas = lsGet("bib.vistas", []), filtrado = BIB.tipo || BIB.c !== "*" || BIB.est || BIB.dias || BIB.q, vb = v => el("button", {type: "button", className: "fpop-o", textContent: v.n, onclick: () => { $("bib-fp").querySelector("details[open]")?.removeAttribute("open"); bibVista(v); }});
+  const tipos = Object.entries(KIND_T).map(([k, t]) => [k, t + " · " + ms.filter(m => m.kind === k).length, ms.some(m => m.kind === k)]).filter(x => x[2]);
   $("bib-fp").replaceChildren(
+    pop("Tipo", BIB.tipo, [["", "Todo · " + ms.length], ...tipos], "", v => BIB.tipo = v),
     ...(carpetas.length || ms.some(m => !m.carpeta) ? [pop(cap(nm("carpeta")), BIB.c, [["*", "Todos"], ...carpetas.map(c => [c, c]), ["", sinC()]], "*", v => BIB.c = v)] : []),
     pop("Estado", BIB.est, [["", "Cualquiera"], ["listo", "Listo"], ["buscable", "Solo buscable"], ["cola", "En cola"]], "", v => BIB.est = v),
     pop("Fecha", BIB.dias, [[0, "Cualquiera"], [1, "Hoy"], [7, "Últimos 7 días"], [30, "Últimos 30 días"]], 0, v => BIB.dias = +v),
-    el("button", {type: "button", className: "sec sm", textContent: "Guardar vista", title: "Guarda los filtros de ahora como una vista", onclick: () => {
-      const v = {tipo: BIB.tipo, c: BIB.c, est: BIB.est, dias: BIB.dias, q: BIB.q}, n = [KIND_T[v.tipo], v.c !== "*" && (v.c || sinC()), {listo: "Listo", buscable: "Solo buscable", cola: "En cola"}[v.est], v.dias && "Últimos " + v.dias + " d", v.q && "«" + v.q + "»"].filter(Boolean).join(" · ");
-      if (!n) return aviso("Elige algún filtro antes de guardar la vista");
-      lsSet("bib.vistas", [...lsGet("bib.vistas", []).filter(x => x.n !== n), {n, ...v}].slice(-8)); aviso("Vista guardada: " + n); pintarBibL(); }}));
-  const vistas = lsGet("bib.vistas", []);
-  $("bib-fv").replaceChildren(...BIB_SERIE.map(v => el("button", {type: "button", className: "fchip", textContent: v.n, title: "Vista de serie", onclick: () => bibVista(v)})),
-    ...vistas.map(v => el("span", {className: "fchip-x"}, el("button", {type: "button", className: "fchip", textContent: v.n, title: "Vista guardada", onclick: () => bibVista(v)}),
-      el("button", {type: "button", className: "qx", textContent: "✕", ariaLabel: "Quitar la vista " + v.n, onclick: () => { lsSet("bib.vistas", lsGet("bib.vistas", []).filter(x => x.n !== v.n)); pintarBibL(); }}))));
-  $("bib-ft").replaceChildren(chip("", "Todo", ms.length), ...Object.entries(KIND_T).map(([k, t]) => [k, t, ms.filter(m => m.kind === k).length]).filter(x => x[2]).map(x => chip(...x)));
+    caja("Vistas", "Vistas", false, el("p", {className: "ovl fpop-h", textContent: "Rápidas"}), ...BIB_SERIE.map(vb),
+      ...(vistas.length ? [el("p", {className: "ovl fpop-h", textContent: "Guardadas"}), ...vistas.map(v => el("span", {className: "fchip-x"}, vb(v),
+        el("button", {type: "button", className: "qx", textContent: "✕", ariaLabel: "Quitar la vista " + v.n, onclick: () => { lsSet("bib.vistas", lsGet("bib.vistas", []).filter(x => x.n !== v.n)); pintarBibL(); $("bib-fp").querySelector("[data-k=Vistas] summary")?.focus(); }})))] : []),
+      el("button", {type: "button", className: "fpop-o fpop-g", textContent: "Guardar la vista actual", disabled: !filtrado, title: filtrado ? "Guarda los filtros de ahora como una vista" : "Elige algún filtro antes", onclick: guardar})),
+    ...(filtrado ? [el("button", {type: "button", className: "link fp-x", textContent: "Quitar filtros", onclick: () => bibVista({})})] : []));
 }
 const bibEst = m => cola.items.some(e => ACT.includes(e.state) && e.mid === m.id) ? "cola" : m.actas ? "listo" : "buscable";
 function pintarBibL() {
   const ms = BIB.ms, ok = m => (!BIB.tipo || m.kind === BIB.tipo) && (BIB.c === "*" || (m.carpeta || "") === BIB.c) && (!BIB.est || bibEst(m) === BIB.est)
     && (!BIB.dias || m.mtime * 1000 > Date.now() - BIB.dias * 864e5) && (!BIB.q || norm(m.label + " " + m.carpeta).includes(norm(BIB.q)));
-  const vis = ms.filter(ok), chip = (v, t, n) => el("button", {type: "button", className: "fchip", "aria-pressed": BIB.tipo === v, onclick: () => { BIB.tipo = v; pintarBibL(); }}, t, el("i", {textContent: " " + n}));
-  $("bib-n").textContent = vis.length + " de " + ms.length;
-  bibBarra(ms, chip);
+  const vis = ms.filter(ok);
+  $("bib-n").textContent = vis.length === ms.length ? plural(ms.length) : vis.length + " de " + ms.length;
+  if (BIB_N.n !== ms.length) { BIB_N.n = ms.length; pintarSide(); }
+  bibBarra(ms);
   const ESTT = {listo: ["Listo", "ok"], buscable: ["Solo buscable", ""], cola: ["En cola", "acc"]};
   $("bib-tb").replaceChildren(...vis.map(m => {
     const ck = el("input", {type: "checkbox", checked: BIB.sel.has(m.id), ariaLabel: "Seleccionar " + m.label, onchange: () => { ck.checked ? BIB.sel.add(m.id) : BIB.sel.delete(m.id); bibBulk(); }});
@@ -507,14 +535,27 @@ function bibEnviar(ids) {  // un envío por documento; los solo buscables no tie
   Enviar.enviar({docs: con, omitidos: ids.length - con.length});
 }
 function bibBulk() {
-  const ids = [...BIB.sel], n = ids.length, cs = [...new Set(ids.map(id => BIB.ms.find(m => m.id === id)?.carpeta || ""))];
-  $("bib-bulk").hidden = !n; $("bib-h").classList.toggle("sel", !!n);  // la selección sustituye al título
+  const ids = [...BIB.sel], n = ids.length;
+  $("bib-bulk").hidden = !n; $("bib-h").classList.toggle("sel", !!n);  // la barra contextual sustituye al título (Esc la quita)
   $("bib-bulk").replaceChildren(el("button", {type: "button", className: "gh ic", textContent: "✕", ariaLabel: "Quitar selección", title: "Quitar selección (Esc)", onclick: () => { BIB.sel.clear(); pintarBibL(); $("bib-all").focus(); }}),
     el("b", {textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}), el("span", {className: "grow"}),
     el("button", {type: "button", className: "sec sm", textContent: "Enviar", onclick: () => !window.Enviar ? sinEnviar() : n === 1 ? Enviar.enviar({doc: ids[0]}) : bibEnviar(ids)}),
     el("button", {type: "button", className: "sec sm", textContent: "Añadir a " + nm("carpeta").toLowerCase() + "…", onclick: () => aProyecto(ids)}),
-    el("button", {type: "button", className: "sec sm", textContent: "Exportar / descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: ids}) : sinEnviar()}),
-  );
+    el("button", {type: "button", className: "sec sm", textContent: "Descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: ids}) : sinEnviar()}),
+    el("button", {type: "button", className: "sec sm", textContent: "Mover…", onclick: () => bibMover(ids)}));
+}
+// mover varios a otro proyecto (o a «Sin proyecto») sin reprocesar; con «Deshacer»
+function bibMover(ids) {
+  const {d, b, f} = dialogo("Mover " + ids.length + " " + (ids.length === 1 ? nm("documento") : pl(nm("documento"))), "Cambia el " + nm("carpeta").toLowerCase() + " sin reprocesar nada.");
+  const s = el("select", {id: "mv-c"}, ...carpetas.map(c => new Option(c, c)), new Option(sinC(), ""));
+  b.append(el("div", {className: "field"}, el("label", {htmlFor: "mv-c", textContent: cap(nm("carpeta"))}), s));
+  const ok = el("button", {type: "button", className: "pri", textContent: "Mover", onclick: fallo(async () => {
+    const antes = ids.map(id => [id, BIB.ms.find(m => m.id === id)?.carpeta || ""]), c = s.value; ok.disabled = true;
+    try { for (const id of ids) await post("/api/meta", {id, carpeta: c}); } finally { d.close(); }
+    BIB.sel.clear(); await cargarLista(); pintarBib();
+    aviso("Movido a «" + (c || sinC()) + "»", {txt: "Deshacer", fn: fallo(async () => { for (const [id, c0] of antes) await post("/api/meta", {id, carpeta: c0}); await cargarLista(); pintarBib(); })});
+  })});
+  f.append(el("span"), el("div", {className: "row"}, el("button", {type: "button", className: "sec", textContent: "Cancelar", onclick: () => d.close()}), ok));
 }
 $("v-bib").addEventListener("keydown", e => { if (e.key === "Escape" && BIB.sel.size && (e.target.type === "checkbox" || !editable(e.target))) { BIB.sel.clear(); pintarBibL(); $("bib-all").focus(); } });
 async function bibVer(m) {
@@ -689,35 +730,50 @@ function palCmds() {
       C(fsel, "Aprobar todo lo pendiente de revisar", () => fAprobarTodo(fsel)), ...proyAcc().map(([t, f]) => C(fsel, t, f)),
       C(fsel, "Enviar " + nm("carpeta").toLowerCase(), clk("f-env")), C(fsel, "Añadir documento aquí", () => formNuevo()), C(fsel, "Renombrar " + nm("carpeta").toLowerCase(), clk("f-ren")), C(fsel, "Quitar " + nm("carpeta").toLowerCase(), clk("f-quitar")));
   }
-  L.push(C("Acción", "Añadir archivos, enlace o captura", () => formNuevo()), C("Acción", "Elegir archivos…", () => { formNuevo(); $("an-file").click(); }), C("Acción", "Pegar captura", anPegar),
+  L.push(C("Acción", "Añadir archivos, enlace o captura", () => formNuevo()), C("Acción", "Buscar o preguntar", () => { if ($("omni-b").offsetParent) $("omni-b").click(); else $("buscar").focus(); }), C("Acción", "Elegir archivos…", () => { formNuevo(); $("an-file").click(); }), C("Acción", "Pegar captura", anPegar),
     C("Acción", "Grabar reunión", () => grabarAbrir()), C("Acción", "Importar documento exportado (.zip)", () => $("b-importar").click()), C("Acción", "Nuevo " + nm("carpeta").toLowerCase(), () => { irInicio(); nuevaCarpeta(); }),
     C("Acción", "Asistente: ¿para qué usas la app?", () => abrirUso(false)), C("Vista", simple() ? "Cambiar a modo avanzado" : "Cambiar a modo simple", () => guardarAj({modo: simple() ? "avanzado" : "simple"})),
     C("Vista", "Contraer o mostrar el menú lateral", railToggle),
     C("Ajustes", "Carpetas vigiladas", () => ajIr("general", "aj-vig")), C("Ajustes", "Conectar con otras herramientas de IA (MCP)", () => ajIr("avanzado", "aj-mcp")),
     C("Ir a", "Inicio", go("#/")), C("Ir a", "Biblioteca", go("#/biblioteca")), C("Ir a", "Pendientes", go("#/pendientes")), C("Ir a", "Enviar: destinos, recetas e historial", go("#/enviar")), C("Ir a", "Cola de trabajos", go("#/cola")),
     ...[["general", "General"], ["modelos", "Modelos"], ["plantillas", "Plantillas"], ["enviar", "Enviar"], ["avanzado", "Avanzado y perfiles de uso"]].map(([k, t]) => C("Ajustes", t, () => abrirAjustes(k))),
-    ...carpetas.map(c => C(cap(nm("carpeta")), c, go("#/p/" + enc(c)))), ...todas.slice(0, 60).map(m => C("Documento", m.label, () => abrir(m.id))));
+    ...carpetas.map(c => ({...C(cap(pl(nm("carpeta"))), c, go("#/p/" + enc(c))), i: "proy"})), ...todas.slice(0, 60).map(m => ({...C("Documentos", m.label, () => abrir(m.id)), i: "doc"})));
   return L;
 }
+// icono por tipo de acción (no por grupo): el primero que encaje; los documentos y proyectos de la lista llevan el suyo
+const PAL_I = [[/^Añadir archivos|^Nuevo /, "mas"], [/^Elegir archivos/, "subir"], [/^Pegar/, "clip"], [/^Grabar|condensado/, "mic"], [/Importar|Descargar|^Exportar|\(\.zip\)/, "bajar"], [/^Asistente|Resumir|^Dudas/, "ia"],
+  [/modo (simple|avanzado)|menú lateral/, "vista"], [/^Enviar|Borrador de correo/, "env"], [/^Preguntar/, "preg"], [/^Editar|^Renombrar|Anonimizar/, "editar"], [/^Mover|^Añadir a |^Quitar /, "proy"],
+  [/^Cola/, "cola"], [/^Buscar/, "buscar"], [/^Pendientes|Aprobar|revisar/i, "pend"], [/^Biblioteca/, "bib"], [/^Inicio/, "inicio"], [/^Ver /, "doc"]];
+const palIco = c => c.i || (c.g === "Ajustes" ? "aj" : c.g === "Exportar" ? "bajar" : PAL_I.find(([r]) => r.test(c.t))?.[1] || "doc");
 function paleta() {
   if (document.querySelector("dialog.pal")) return;
   const cmds = palCmds(), d = el("dialog", {className: "pal", ariaLabel: "Paleta de comandos"}), ul = el("ul", {id: "pal-l", role: "listbox", ariaLabel: "Resultados"});
   const q = el("input", {type: "search", placeholder: "Acción, " + nm("carpeta").toLowerCase() + ", documento o búsqueda…", ariaLabel: "Comando", role: "combobox", "aria-controls": "pal-l", "aria-expanded": "true", "aria-autocomplete": "list"});
   let sel = 0, vis = [];
-  const key = c => c.g + "|" + c.t, SC = {"Añadir archivos, enlace o captura": "N", "Pegar captura": "Ctrl V"}, GI = {"Acción": "mas", "Ir a": "inicio", "Documento": "bib", "Vista": "aj", "Ajustes": "aj", "Exportar": "env", "Buscar": "inicio", "Recientes": "inicio"};
-  const run = c => { if (c.g !== "Buscar") lsSet("pal.rec", [key(c), ...lsGet("pal.rec", []).filter(k => k !== key(c))].slice(0, 8)); d.close(); setTimeout(() => fallo(async () => c.f())(), 0); };
+  const key = c => c.g + "|" + c.t, SC = {"Añadir archivos, enlace o captura": "N", "Pegar captura": "Ctrl V", "Buscar o preguntar": "/"}, MAX = 4, mas = new Set();  // sin texto: 4 por grupo + «Ver más»
+  const run = c => { if (c.mas) { mas.add(c.mas); sel = vis.indexOf(c); pint(); return; }
+    if (c.g !== "Buscar") lsSet("pal.rec", [key(c), ...lsGet("pal.rec", []).filter(k => k !== key(c))].slice(0, 8)); d.close(); setTimeout(() => fallo(async () => c.f())(), 0); };
   const pint = () => {
     const t = norm(q.value).trim(), w = t.split(/\s+/), gs = new Map();
     const add = (g, c) => { if (!gs.has(g)) gs.set(g, []); gs.get(g).push(c); };
-    if (!t) { lsGet("pal.rec", []).map(k => cmds.find(c => key(c) === k)).filter(Boolean).slice(0, 5).forEach(c => add("Recientes", c)); }
+    if (!t) {  // «Recientes» primero: lo último usado en la paleta; la primera vez, los últimos documentos
+      const h = lsGet("pal.rec", []).map(k => cmds.find(c => key(c) === k)).filter(Boolean);
+      (h.length ? h : cmds.filter(c => c.i === "doc").slice(0, 3)).slice(0, MAX).forEach(c => add("Recientes", c));
+    }
     const rec = new Set(gs.get("Recientes") || []);
-    for (const c of cmds) if ((!t || w.every(x => norm(c.g + " " + c.t).includes(x))) && !rec.has(c)) { if (!t && (gs.get(c.g) || []).length >= 5) continue; add(c.g, c); }  // sin texto: 5 por grupo; al escribir, todo
-    if (q.value.trim()) add("Buscar", {g: "Buscar", t: "Buscar «" + q.value.trim() + "»", f: () => { $("buscar").value = q.value.trim(); $("omni").requestSubmit(); }});
+    for (const c of cmds) if ((!t || w.every(x => norm(c.g + " " + c.t).includes(x))) && !rec.has(c)) add(c.g, c);
+    if (q.value.trim()) add("Buscar", {g: "Buscar", t: "Buscar «" + q.value.trim() + "»", f: () => { $("buscar").value = q.value.trim(); $("omni").requestSubmit(); }, i: "buscar"});
     vis = []; const rows = [];
-    for (const [g, l] of gs) { rows.push(el("li", {role: "presentation", className: "pal-h", textContent: g})); for (const c of (t ? l.slice(0, 12) : l)) { rows.push(c); vis.push(c); } }
+    for (const [g, l] of gs) {
+      const tope = t ? 12 : MAX, ver = mas.has(g) ? l : l.slice(0, tope);
+      rows.push(el("li", {role: "presentation", className: "pal-h", textContent: g}));
+      for (const c of ver) { rows.push(c); vis.push(c); }
+      if (ver.length < l.length) { const c = {g, t: "Ver " + (l.length - ver.length) + " más", mas: g}; rows.push(c); vis.push(c); }
+    }
     sel = Math.max(0, Math.min(sel, vis.length - 1));
     let i = 0; ul.replaceChildren(...rows.map(c => { if (c instanceof Node) return c; const n = i++;
-      return el("li", {role: "option", id: "pal-" + n, "aria-selected": n === sel, onclick: () => run(c), onmousemove: () => { if (sel !== n) { sel = n; pint(); } }}, ico(GI[c.g] || "proy"), el("span", {className: "pal-t", textContent: c.t}), ...(SC[c.t] ? [el("kbd", {className: "kbd", textContent: SC[c.t]})] : [])); }));
+      return el("li", {role: "option", id: "pal-" + n, className: c.mas ? "pal-mas" : "", "aria-selected": n === sel, onclick: () => run(c), onmousemove: () => { if (sel !== n) { sel = n; pint(); } }},
+        c.mas ? el("span", {className: "ri", "aria-hidden": "true"}) : ico(palIco(c)), el("span", {className: "pal-t", textContent: c.t}), ...(SC[c.t] ? [el("kbd", {className: "kbd", textContent: SC[c.t]})] : [])); }));
     if (!vis.length) ul.replaceChildren(el("li", {className: "muted pal-0", role: "presentation", textContent: "Nada coincide. Prueba con otra palabra."}));
     q.setAttribute("aria-activedescendant", vis.length ? "pal-" + sel : ""); $("pal-" + sel)?.scrollIntoView({block: "nearest"});
   };
@@ -726,7 +782,8 @@ function paleta() {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); sel = (sel + (e.key === "ArrowDown" ? 1 : -1) + vis.length) % Math.max(vis.length, 1); pint(); }
     else if (e.key === "Enter") { e.preventDefault(); if (vis[sel]) run(vis[sel]); }
   };
-  d.append(q, ul, el("p", {className: "pal-n muted", textContent: "↑↓ elegir · Intro ejecutar · Esc cerrar · escribe para ver todo"})); d.onclose = () => d.remove(); document.body.append(d); d.showModal(); pint();
+  d.append(q, ul, el("p", {className: "pal-n muted"}, el("kbd", {className: "kbd", textContent: "↑↓"}), " elegir · ", el("kbd", {className: "kbd", textContent: "Intro"}), " ejecutar · ", el("kbd", {className: "kbd", textContent: "Esc"}), " cerrar · escribe para ver todo"));
+  d.onclose = () => d.remove(); document.body.append(d); d.showModal(); pint();
 }
 
 // ---------- Ajustes › General: carpetas vigiladas · Ajustes › Avanzado: MCP ----------
