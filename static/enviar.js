@@ -330,8 +330,8 @@ async function montar(raiz) {
       const sug = ["carpeta", "correo", "slack"].filter(t => ctx.cat.tipos[t]);
       raiz.replaceChildren(T("section", "env-sec env-vacio", T("h2", "", "Conecta un destino"),
         T("p", "muted", "Envía tareas, notas y archivos a donde ya trabajas. Elige uno para empezar; luego podrás crear presets y recetas automáticas."),
-        T("div", "env-grid", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("strong", "", ctx.cat.tipos[t].nombre), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
-        T("div", "env-row", btn("Ver todos los destinos", "pri", () => catalogo(ctx, refrescar)))));
+        T("div", "env-grid env-grid3", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("strong", "", ctx.cat.tipos[t].nombre), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
+        el("button", {type: "button", className: "env-otro", onclick: () => catalogo(ctx, refrescar)}, "+ Otro destino")));
       return;
     }
     const TABS = [["destinos", "Destinos", sDest, ctx.cat.destinos.length], ["presets", "Presets", sPre, ctx.presets.length], ["recetas", "Recetas", sRec, ctx.recetas.length], ["historial", "Historial", sHis, 0]];
@@ -463,30 +463,53 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
 }
 
 /* ---------- envío rápido (Enviar ▾) ---------- */
-async function enviar(sel) {
-  let ctx;
-  try { ctx = await datos(); } catch (e) { return fail(e); }
+function itemsEnvio(ctx) {
   const ult = ls("env.ultimo", null);
   const items = [...ctx.presets.map(p => ({k: "p:" + p.id, t: p.nombre, s: "→ " + (ctx.dest[p.destino]?.nombre || ""), body: {preset: p.id}})),
     ...ctx.cat.destinos.map(d => ({k: "d:" + d.id, t: d.nombre, s: "documento completo", body: {destino: d.id, que: ["documento"]}}))]
     .sort((a, b) => (b.k === ult) - (a.k === ult));
   const pin = new Set(ctx.presets.filter(p => p.fijado).map(p => "p:" + p.id));
   items.sort((a, b) => pin.has(b.k) - pin.has(a.k));
-  const lista = T("ul", "env-menu", ...items.map((it, i) => T("li", "", btn(it.t + " ", "sec env-menu-i", async e => {
-    const b = e.currentTarget; b.disabled = true; localStorage.setItem("env.ultimo", JSON.stringify(it.k));
-    if (sel.docs) {  // varios documentos: un envío por documento
-      try { let ok = 0, err = ""; for (const x of sel.docs) { const r = await send("POST", "/api/enviar", {...it.body, doc: x}); if (r.estado === "ok") ok++; else err ||= r.estado + (r.items?.find(y => y.error)?.error ? " — " + r.items.find(y => y.error).error : ""); }
-        salir(d); toast("Enviados " + ok + " de " + sel.docs.length + " a " + it.t + (sel.omitidos ? " · " + sel.omitidos + " solo buscable(s) sin enviar" : "") + (err ? " · " + err : ""), !!err); }
-      catch (x) { fail(x); b.disabled = false; }
-      return;
-    }
-    try { const r = await send("POST", "/api/enviar", {...it.body, ...sel}); salir(d); toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + (r.items?.find(x => x.error)?.error ? " — " + r.items.find(x => x.error).error : ""), r.estado !== "ok"); }
-    catch (x) { fail(x); b.disabled = false; }
-  }, {}), ...(it.s ? [] : []))));
+  return {items, pin, ult};
+}
+async function envia(it, sel) {
+  localStorage.setItem("env.ultimo", JSON.stringify(it.k));
+  if (sel.docs) {  // varios documentos: un envío por documento
+    let ok = 0, err = ""; for (const x of sel.docs) { const r = await send("POST", "/api/enviar", {...it.body, doc: x}); if (r.estado === "ok") ok++; else err ||= r.estado + (r.items?.find(y => y.error)?.error ? " — " + r.items.find(y => y.error).error : ""); }
+    toast("Enviados " + ok + " de " + sel.docs.length + " a " + it.t + (sel.omitidos ? " · " + sel.omitidos + " solo buscable(s) sin enviar" : "") + (err ? " · " + err : ""), !!err);
+    return;
+  }
+  const r = await send("POST", "/api/enviar", {...it.body, ...sel});
+  toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + (r.items?.find(x => x.error)?.error ? " — " + r.items.find(x => x.error).error : ""), r.estado !== "ok");
+}
+async function enviar(sel) {
+  let ctx;
+  try { ctx = await datos(); } catch (e) { return fail(e); }
+  const {items, pin, ult} = itemsEnvio(ctx);
+  const lista = T("ul", "env-menu", ...items.map(it => T("li", "", btn(it.t + " ", "sec env-menu-i", async e => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await envia(it, sel); salir(d); } catch (x) { fail(x); b.disabled = false; }
+  }, {}))));
   items.forEach((it, i) => lista.children[i].firstChild.append(T("small", "", (pin.has(it.k) ? "★ " : "") + it.s + (it.k === ult ? " · último usado" : ""))));
   const d = dialogo("Enviar a…", items.length ? lista : T("p", "muted", "No hay destinos configurados. Ve a Enviar para añadir uno."));
   lista.querySelector("button")?.focus();
 }
+/* Botón dividido: principal = primer ítem (fijado > último usado; sin ítems abre el diálogo), flecha = menú. sel = {c} | {doc}. */
+function split(host, sel, {label = "Enviar", cls = "pri"} = {}) {
+  const g = T("span", "env-split"), main = btn(label, cls + " env-sp-m", async () => {
+    main.disabled = true;
+    try { const {items} = itemsEnvio(await datos()); if (!items.length) return enviar(sel); await envia(items[0], sel); } catch (x) { fail(x); } finally { main.disabled = false; }
+  }), arrow = btn("▾", cls + " env-sp-a", async e => {
+    try {
+      const {items, pin} = itemsEnvio(await datos());
+      menu(e.currentTarget, [...items.map(it => [(pin.has(it.k) ? "★ " : "") + it.t + " " + it.s, () => envia(it, sel)]), ["Más opciones…", () => enviar(sel)]]);
+    } catch (x) { fail(x); }
+  }, {"aria-haspopup": "menu", "aria-label": "Elegir a dónde enviar", title: "Elegir a dónde enviar"});
+  main.title = "Enviar al destino fijado o al último usado";
+  datos().then(ctx => { const it = itemsEnvio(ctx).items[0]; if (it) main.title = "Enviar a " + it.t; }).catch(() => {});
+  g.append(main, arrow); (host || document.body).append(g);
+  return g;
+}
 
-window.Enviar = {montar, checklist, enviar, outlook, chip, menu, presetsObjetivo: true};
+window.Enviar = {montar, checklist, enviar, split, outlook, chip, menu, presetsObjetivo: true};
 })();

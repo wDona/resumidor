@@ -1,7 +1,7 @@
 // Ajustes (General · Modelos · Plantillas · Perfiles de uso), asistente de primer arranque y modo simple. Se carga tras app.js.
 let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Nuevo"},
   nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true, ...lsGet("apariencia", {})};
-let GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
+let ajTiposAb = false, GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
 const simple = () => AJ.modo !== "avanzado";
 const nm = k => AJ.nombres[k];
 const pl = w => /[aeiouáéíóú]$/i.test(w) ? w + "s" : w + "es";
@@ -146,7 +146,7 @@ function ruta_() {  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantil
 addEventListener("hashchange", () => { if (/^#\/(ajustes|modelos|plantillas)/.test(location.hash)) { const t = location.hash.match(/^#\/ajustes\/(\w+)/)?.[1]; if (vistaAct !== "ajustes" || (t && t !== tabAj) || !t) ruta_(); } });
 
 // ---- Ajustes › General ----
-const card = (t, ...k) => el("section", {className: "card"}, el("h2", {textContent: t}), ...k);
+const card = (t, ...k) => el("section", {className: "card"}, el("div", {className: "aj-ch"}, el("h2", {textContent: t})), ...k);
 // tarjeta con «Restablecer» (vuelve a los valores por defecto del ajuste)
 const cardR = (t, patch, ...k) => el("section", {className: "card"}, el("div", {className: "aj-ch"}, el("h2", {textContent: t}),
   el("button", {type: "button", className: "link", textContent: "Restablecer", "aria-label": "Restablecer " + t.toLowerCase(), onclick: fallo(() => guardarAj(patch))})), ...k);
@@ -160,10 +160,10 @@ function pintarAjustes() {
     card("Perfil de uso", el("p", {className: "muted", textContent: u.length ? u.map(x => x.t).join(", ") : "Sin elegir"}),
       el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Cambiar perfil de uso", onclick: () => abrirUso(false)}), el("button", {className: "link", textContent: "Gestionar perfiles de uso", onclick: () => abrirAjustes("perfiles")})),
       el("small", {textContent: "Vuelve a ejecutar el asistente. No toca tus carpetas ni documentos."}),
-      el("h4", {textContent: "Tipos de documento que se ofrecen al crear"}),
+      el("details", {className: "aj-tipos", open: ajTiposAb, ontoggle: e => ajTiposAb = e.target.open}, el("summary", {textContent: "Tipos de documento que se ofrecen al crear (" + AJ.perfil_uso.length + ")"}),
       ...(!PL.length ? [el("p", {className: "muted", textContent: "Cargando tipos de documento…"})] : []),
       el("div", {className: "perfiles"}, ...PL.map(t => chk2(t.nombre, AJ.perfil_uso.includes(t.id), async v => {
-        const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id); if (!l.length) { aviso("Debe quedar al menos un tipo"); return pintarAjustes(); } await guardarAj({perfil_uso: l}); })))),
+        const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id); if (!l.length) { aviso("Debe quedar al menos un tipo"); return pintarAjustes(); } await guardarAj({perfil_uso: l}); }))))),
     cardR("Privacidad", {anonimizar_defecto: u.some(x => x.sens || x.anon)}, ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
       chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")),
     cardR("Proyectos", {poblar_auto: true}, chk2("Poblar proyecto automáticamente", AJ.poblar_auto !== false, v => guardarAj({poblar_auto: v}),

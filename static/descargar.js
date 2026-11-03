@@ -8,7 +8,7 @@ const KEY = "desc.sel";
 const PK = "desc.presets", PU = "desc.ultimo";
 const SERIE = [
   {id: "s:acta", nombre: "Acta en PDF", que: ["documento"], fmt: ["pdf"]},
-  {id: "s:comite", nombre: "Pack comité: decisiones + riesgos en Word y PDF", que: ["decisiones", "riesgos"], fmt: ["docx", "pdf"]},
+  {id: "s:comite", nombre: "Pack comité", que: ["decisiones", "riesgos"], fmt: ["docx", "pdf"]},
   {id: "s:tareas", nombre: "Tareas a Excel", que: ["tareas"], fmt: ["xlsx"]},
   {id: "s:md", nombre: "Todo en Markdown", que: ["documento", "resumen", "tareas", "decisiones", "transcripcion"], fmt: ["md"]}];
 const ls = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -23,6 +23,8 @@ async function abrir({docs, c, ids} = {}) {
   const lq = [...ques, ...extra];
   const st = {que: new Set((mem.que || ["documento"]).filter(q => lq.includes(q))), fmt: new Set(mem.fmt || ["pdf"]), apr: !!mem.apr, mas: !!mem.mas, sel: null};
   if (!st.que.size && lq.length) st.que.add(lq[0]);
+  const ajustaFmt = () => { const v = Object.keys(BASICOS).filter(f => op.formatos.includes(f) && [...st.que].some(q => op.que[q]?.[alcance]?.includes(f))); if (v.length && !v.some(f => st.fmt.has(f))) st.fmt = new Set([v[0]]); };
+  ajustaFmt();
   {  // preselecciona el último preset usado si coincide con lo recordado
     const u = ls(PU, null), p = [...SERIE, ...ls(PK, [])].find(x => x.id === u), mismo = (A, B) => A.size === B.length && B.every(x => A.has(x));
     if (p && mismo(st.que, p.que) && mismo(st.fmt, p.fmt)) st.sel = p.id;
@@ -64,8 +66,9 @@ async function abrir({docs, c, ids} = {}) {
       T("div", "desc-p", T("div", "desc-l", "Preajustes"), filaPre()),
       T("div", "desc-cols",
         T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
-          ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
-        T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-seg", ...basicos.map(chip)), ...(st.mas && mas.length ? [T("div", "env-seg", ...mas.map(chip))] : []))),
+          ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); ajustaFmt(); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
+        T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-seg env-fmt", ...basicos.map(chip), ...(st.mas ? mas.map(chip) : [])),
+          ...(basicos.some(f => !valido(f)) ? [T("small", "muted desc-nota", "Los formatos en gris no están disponibles para lo elegido.")] : []))),
       el("details", {className: "env-pers desc-opc", open: st.opc || st.mas || st.apr, ontoggle: e => st.opc = e.target.open}, el("summary", {}, "Opciones"),
         T("div", "env-opc", ...(mas.length ? [el("button", {type: "button", className: "btn sec env-sm", "aria-expanded": st.mas, textContent: st.mas ? "Menos formatos" : "Más formatos", onclick: () => { st.mas = !st.mas; pintar(); }})] : []),
           T("label", "env-chk", el("input", {type: "checkbox", checked: st.apr, onchange: e => st.apr = e.target.checked}), " Solo aprobados"),
