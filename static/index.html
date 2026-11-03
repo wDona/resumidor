@@ -219,6 +219,7 @@
         <div class="dh-t"><a class="back" href="#" id="volver">&larr; <span id="cab-carpeta">Inicio</span></a>
           <h1 id="cab-titulo"></h1><div class="meta" id="cab-meta"></div></div>
         <div class="acc" id="doc-acc">
+          <button class="pri" id="d-resumir" hidden>Resumir y extraer</button>
           <button class="sec" id="d-preg">Preguntar</button>
           <span class="split" id="d-env-w"><button class="sec" id="d-env">Enviar</button><button class="sec ic" id="d-env-m" aria-label="Elegir a dónde enviar" title="Elegir destino">&#9662;</button></span>
           <!-- #acta-acciones: Exportar ▾ (o la barra de edición) — pintarAcciones -->
@@ -254,6 +255,7 @@
     </div></div>
     <div class="page">
       <div id="ed-res"></div>
+      <div id="solo-vacio" class="card" hidden><p>Este documento es <b>solo buscable</b>: se encuentra con Buscar y Preguntar, pero no tiene resumen ni elementos extraídos.</p><p><button type="button" class="pri" id="solo-resumir">Resumir y extraer</button></p></div>
       <div id="p-acta" role="tabpanel" aria-labelledby="t-acta">
         <div class="dbar"><div class="row wrap" id="vers" role="group" aria-label="Versiones"></div></div>
         <p class="muted" id="imp-info"></p>

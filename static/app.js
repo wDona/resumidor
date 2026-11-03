@@ -360,24 +360,31 @@ const defecto = a => [a.plantilla, a.idioma && "en " + (IDI[a.idioma] || a.idiom
 const etiqueta = a => cur.versiones[a.name] || defecto(a);
 async function abrir(id, acta, quedar) {
   cur = await api("/api/meeting/" + id);
-  if (!cur.actas.length) { aviso("Documento solo buscable (sin resumen): encuéntralo con Buscar o Preguntar"); return; }
+  cur.solo = !cur.actas.length;  // «solo buscable»: sin acta; se abre en Fuente
   cur.m = todas.find(m => m.id === id) || {id, label: cur.nombre || id, nombre: cur.nombre, carpeta: cur.carpeta};
-  if (simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
-  ver = (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
+  if (!cur.solo && simple()) { const u = cur.actas.reduce((x, y) => y.mtime > x.mtime ? y : x); if (!acta || !cur.actas.some(a => a.name === acta)) acta = u.name; }
+  ver = cur.solo ? "" : (cur.actas.find(a => a.name === acta) || cur.actas.find(a => a.name === ver && quedar) || cur.actas[0]).name;
   if (!quedar) { desde = fsel; if (vistaAct !== "res") docDesde = rutaHash(); }
   $("cab-carpeta").textContent = desdeTxt(docDesde); $("cab-titulo").textContent = cur.m.label;
   const au = cur.audio; $("t-video").hidden = false;
   $("cond-t").textContent = au ? "Audio condensado" : "Vídeo condensado"; $("condensar").textContent = au ? "Generar audio condensado" : "Generar vídeo condensado";
   if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
-  vista("res"); document.title = cur.m.label + " · Actas"; pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
+  vista("res"); document.title = cur.m.label + " · Actas"; soloUI(cur.solo);
+  if (cur.solo) { $("acta-acciones").replaceChildren(); $("vers").replaceChildren(); $("cab-meta").replaceChildren(...[KIND_T[cur.kind], cur.carpeta, "solo buscable"].filter(Boolean).map(t => el("span", {textContent: t}))); $("imp-info").hidden = true; pintarConds(); tab(quedar && tabAct !== "p-acta" && tabAct !== "p-ext" ? tabAct : "p-video"); return; }
+  pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
 }
+// documento «solo buscable»: oculta lo que necesita un acta y ofrece «Resumir y extraer» (otra versión con la misma fuente, sin buscable)
+const SOLO_OCULTOS = ["d-env-w", "d-editar", "d-correo", "d-anon", "d-otra", "d-vren", "d-dud", "d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"];
+function soloUI(on) { SOLO_OCULTOS.forEach(i => { if (on || !["d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"].includes(i)) $(i).hidden = on; }); $("d-resumir").hidden = !on; $("d-mas").open = false; }
+$("d-resumir").onclick = $("solo-resumir").onclick = () => formNuevo(cur.m, {asr: cur.asr, nivel: "normal", calidad: "rápida"});
 const tab = p => {
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
+  const vacio = cur.solo && (p === "p-acta" || p === "p-ext"); $("solo-vacio").hidden = !vacio; if (vacio) $(p).hidden = true;
   ubicar();
   if (p === "p-video" && typeof notasRes === "function") notasRes();
   docTab(p);  // Extraído y Fuente: shell.js
-  if (p === "p-preg") { $("p-preg-m").append($("qpanel")); $("qbox").hidden = !cur.video; const a = cur.actas.find(a => a.name === ver); setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; ubicar(); }
+  if (p === "p-preg") { $("p-preg-m").append($("qpanel")); $("qbox").hidden = !cur.video; const a = cur.actas.find(a => a.name === ver) || {asr: cur.asr}; setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = !!a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; ubicar(); }
 };
 document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
 function pintarVers() {
@@ -515,7 +522,9 @@ $("idioma").onchange = () => {  // aviso: fuera de es/en conviene un modelo mayo
 };
 
 // ---- arranque (lo llama el último script, cuando ya está todo definido) ----
-function arranque() { cargarLista().then(() => { sondear(); plantForm("acta"); }).catch(() => {}); setInterval(sondear, 2000); }
+function arranque() { cargarLista().then(() => { sondear(); plantForm("acta");
+  const m = cur && vistaAct === "res" && todas.find(x => x.id === cur.id); if (m) { cur.m = m; $("cab-titulo").textContent = m.label; document.title = m.label + " · Actas"; }  // abierto por enlace antes de cargar la lista
+  }).catch(() => {}); setInterval(sondear, 2000); }
 
 // ---- reproductor flotante (único <video>: no se recrea al cambiar de pestaña, así no se corta) ----
 const MP = () => $("mp"), VID = () => $("vvideo"), esAudio = u => /\.(mp3|m4a|wav|ogg|opus|flac|aac)$/i.test(u || "");

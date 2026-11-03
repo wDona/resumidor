@@ -31,7 +31,7 @@ const usos = () => [...USOS, ...UP.map(propioUso)];
 function aplicar() {
   const c = document.body.classList;
   c.toggle("simple", simple()); c.toggle("avanzado", !simple()); c.toggle("sin-nube", !AJ.nube_visible);
-  $("nueva").textContent = "+ Añadir";  // rediseño: siempre «Añadir» (archivos, enlaces, capturas); nm("nuevo_boton") sigue en los textos
+  $("nueva").textContent = nm("nuevo_boton");  // nombre del perfil de uso («+ Documento», «+ Caso»…)
   if (vistaAct === "home" && typeof todas !== "undefined") pintarHome();
   if (vistaAct === "ajustes" && tabAj === "general") pintarAjustes();
   if (vistaAct === "ajustes" && tabAj === "avanzado") pintarAvanzado();

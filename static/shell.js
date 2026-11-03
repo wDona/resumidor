@@ -50,6 +50,8 @@ async function rutaIr() {
   } finally { rutaRep = false; }
 }
 addEventListener("popstate", () => rutaIr());
+const cierraPal = () => document.querySelector("dialog.pal")?.close();
+addEventListener("hashchange", cierraPal); addEventListener("popstate", cierraPal);
 
 // ---------- raíl izquierdo (plegable: iconos + texto → solo iconos; en móvil, panel) ----------
 function pintarSide() {
@@ -157,12 +159,12 @@ $("d-env-m").onclick = () => window.Enviar ? Enviar.enviar(docSel()) : sinEnviar
 $("d-aproy").onclick = () => aProyecto([cur.id]);
 $("d-anon").onclick = () => abrirAnon(null);
 $("d-cond").onclick = () => { tab("p-video"); $("cond").scrollIntoView({block: "start"}); };
-$("d-desc").onclick = () => window.Descargar ? Descargar.abrir({docs: [cur.id + "/" + ver]}) : sinEnviar();
+$("d-desc").onclick = () => window.Descargar ? Descargar.abrir({docs: [cur.id + (ver ? "/" + ver : "")]}) : sinEnviar();
 $("d-dud").onclick = () => { if ($("dud-bar").hidden) return aviso("No hay frases dudosas en este documento"); tab("p-acta"); $("dud-sig").click(); };
 document.addEventListener("click", e => { const it = e.target.closest(".menu .pop [role=menuitem]"); if (it) it.closest("details").open = false; });
 function docTab(p) {  // lo llama tab() de app.js
-  $("d-cond").hidden = !cur.video; envLbl();
-  if (p === "p-ext") docExt();
+  $("d-cond").hidden = !cur.video || !!cur.solo; envLbl();
+  if (p === "p-ext" && !cur.solo) docExt();
   if (p === "p-video") docFuente();
 }
 async function docExt() {
@@ -187,7 +189,8 @@ async function docFuente() {
   w.replaceChildren(el("p", {className: "muted", textContent: "Cargando la fuente…"}));
   let f; try { f = await api("/api/fuente/" + id); } catch (x) { w.replaceChildren(el("p", {className: "muted", textContent: x.message})); return; }
   if (cur.id !== id) return;
-  FUENTE = {...f, id}; const media = f.kind === "video" || f.kind === "audio";
+  FUENTE = {...f, id}; if (cur.solo && cur.m.label === id && f.nombre) { cur.m.label = f.nombre; $("cab-titulo").textContent = f.nombre; document.title = f.nombre + " · Actas"; }  // la lista no incluye los solo buscables
+  const media = f.kind === "video" || f.kind === "audio";
   const sec = p => el("section", {className: "fu-s", "data-t": p.t ?? 0, "data-loc": p.loc || ""}, el("h3", {}, media ? el("a", {href: "#", className: "ts", textContent: mmss(p.t || 0), onclick: e => { e.preventDefault(); mpSeek(p.t || 0, cur.videourl, cur.m.label); }}) : p.loc || ""), el("p", {textContent: p.texto}));
   const ia = el("button", {type: "button", className: "sec sm", textContent: f.kind === "imagen" ? "Describir con IA" : "Describir capturas con IA",
     onclick: fallo(async () => { await post("/api/describir", {id, gpu: $("usar-gpu").checked}); aviso("Añadido a la cola"); sondear(); FUENTE = null; })});
@@ -401,11 +404,16 @@ function pintarBibL() {
   $("bib-all").onchange = () => { vis.forEach(m => $("bib-all").checked ? BIB.sel.add(m.id) : BIB.sel.delete(m.id)); pintarBibL(); };
   bibBulk();
 }
+function bibEnviar(ids) {  // un envío por documento; los solo buscables no tienen acta que enviar
+  const con = ids.filter(id => BIB.ms.find(m => m.id === id)?.actas);
+  if (!con.length) return aviso("Los documentos solo buscables no se envían: usa «Resumir y extraer» antes");
+  Enviar.enviar({docs: con, omitidos: ids.length - con.length});
+}
 function bibBulk() {
   const ids = [...BIB.sel], n = ids.length, cs = [...new Set(ids.map(id => BIB.ms.find(m => m.id === id)?.carpeta || ""))];
   $("bib-bulk").hidden = !n;
   $("bib-bulk").replaceChildren(el("b", {textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}),
-    el("button", {type: "button", className: "sec sm", textContent: "Enviar", onclick: () => !window.Enviar ? sinEnviar() : n === 1 ? Enviar.enviar({doc: ids[0]}) : cs.length === 1 && cs[0] ? Enviar.enviar({c: cs[0]}) : aviso("Para enviar varios a la vez, que sean del mismo " + nm("carpeta").toLowerCase() + " (se envía el " + nm("carpeta").toLowerCase() + ")")}),
+    el("button", {type: "button", className: "sec sm", textContent: "Enviar", onclick: () => !window.Enviar ? sinEnviar() : n === 1 ? Enviar.enviar({doc: ids[0]}) : bibEnviar(ids)}),
     el("button", {type: "button", className: "sec sm", textContent: "Añadir a " + nm("carpeta").toLowerCase() + "…", onclick: () => aProyecto(ids)}),
     el("button", {type: "button", className: "sec sm", textContent: "Exportar / descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: ids}) : sinEnviar()}),
     el("button", {type: "button", className: "link", textContent: "Quitar selección", onclick: () => { BIB.sel.clear(); pintarBibL(); }}));
@@ -541,7 +549,9 @@ $("f-env").onclick = () => window.Enviar ? Enviar.enviar({c: fuC}) : sinEnviar()
 function palCmds() {
   const C = (g, t, f) => ({g, t, f}), go = h => () => { location.hash = h; }, clk = id => () => $(id).click(), vis = id => !$(id).hidden;
   const L = [];
-  if (vistaAct === "res" && cur) {
+  if (vistaAct === "res" && cur?.solo) L.push(C("Documento", "Resumir y extraer", clk("d-resumir")), C("Documento", "Ver la fuente", () => tab("p-video")), C("Documento", "Preguntar", () => tab("p-preg")), C("Documento", "Descargar…", clk("d-desc")),
+    C("Documento", "Renombrar", clk("m-ren")), C("Documento", "Mover", clk("m-mover")), C("Documento", "Añadir a " + nm("carpeta").toLowerCase() + "…", clk("d-aproy")));
+  else if (vistaAct === "res" && cur) {
     const a = cur.actas.find(x => x.name === ver);
     L.push(C("Documento", "Preguntar", () => tab("p-preg")), C("Documento", "Ver resumen", () => tab("p-acta")), C("Documento", "Ver lo extraído", () => tab("p-ext")), C("Documento", "Ver la fuente", () => tab("p-video")),
       C("Documento", $("d-env").textContent, clk("d-env")), C("Documento", "Enviar a…", clk("d-env-m")), ...FMT.map(([f, t]) => C("Exportar", t, () => exportar(f))), C("Documento", "Descargar…", clk("d-desc")),

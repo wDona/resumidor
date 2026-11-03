@@ -368,6 +368,12 @@ async function enviar(sel) {
     .sort((a, b) => (b.k === ult) - (a.k === ult));
   const lista = T("ul", "env-menu", ...items.map((it, i) => T("li", "", btn(it.t + " ", "sec env-menu-i", async e => {
     const b = e.currentTarget; b.disabled = true; localStorage.setItem("env.ultimo", JSON.stringify(it.k));
+    if (sel.docs) {  // varios documentos: un envío por documento
+      try { let ok = 0, err = ""; for (const x of sel.docs) { const r = await send("POST", "/api/enviar", {...it.body, doc: x}); if (r.estado === "ok") ok++; else err ||= r.estado + (r.items?.find(y => y.error)?.error ? " — " + r.items.find(y => y.error).error : ""); }
+        d.close(); toast("Enviados " + ok + " de " + sel.docs.length + " a " + it.t + (sel.omitidos ? " · " + sel.omitidos + " solo buscable(s) sin enviar" : "") + (err ? " · " + err : ""), !!err); }
+      catch (x) { fail(x); b.disabled = false; }
+      return;
+    }
     try { const r = await send("POST", "/api/enviar", {...it.body, ...sel}); d.close(); toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + (r.items?.find(x => x.error)?.error ? " — " + r.items.find(x => x.error).error : ""), r.estado !== "ok"); }
     catch (x) { fail(x); b.disabled = false; }
   }, {}), ...(it.s ? [] : []))));
