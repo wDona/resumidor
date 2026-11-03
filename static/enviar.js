@@ -5,7 +5,7 @@ const send = (m, u, b) => api(u, {method: m, headers: jh, body: JSON.stringify(b
 const ls = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const T = (t, c, ...k) => el(t, c ? {className: c} : {}, ...k);
 const btn = (txt, cls, fn, extra = {}) => el("button", {type: "button", className: "btn " + cls, textContent: txt, onclick: fn, ...extra});
-const GRUPOS = [["Local", ["carpeta"]], ["Microsoft 365", ["teams", "power_automate", "azure"]],
+const GRUPOS = [["Local", ["carpeta"]], ["Microsoft 365", ["ms_onedrive", "ms_planner", "ms_todo", "ms_onenote", "ms_teams", "ms_outlook", "teams", "power_automate", "azure"]],
   ["Tareas", ["github", "gitea", "gitlab", "jira", "linear", "todoist", "trello"]], ["Notas / wiki", ["notion", "outline", "bookstack"]],
   ["Mensajería", ["slack", "webhook"]], ["Servidor propio / VPS", ["webdav", "s3", "sftp", "paperless"]], ["Correo", ["correo"]]];
 const QL = {documento: "Documento completo", resumen: "Resumen", tareas: "Tareas", decisiones: "Decisiones", riesgos: "Riesgos", requisitos: "Requisitos",
@@ -36,6 +36,51 @@ function dialogo(titulo, cuerpo, acciones = []) {
 async function datos() {
   const [cat, presets, recetas] = await Promise.all([api("/api/destinos"), api("/api/presets"), api("/api/recetas")]);
   return {cat, presets, recetas, dest: Object.fromEntries(cat.destinos.map(d => [d.id, d]))};
+}
+
+
+/* ---------- cuenta de Microsoft (Graph, código de dispositivo) ---------- */
+function msCard() {
+  const w = T("div", "env-card card env-ms"); let timer;
+  const parar = () => clearTimeout(timer);
+  const pintar = async () => {
+    if (!w.isConnected && w._v) return parar();
+    let s; try { s = await api("/api/ms/estado"); } catch (e) { w.replaceChildren(T("h3", "", "Cuenta de Microsoft"), T("p", "err", e.message)); return; }
+    w._v = 1;
+    const head = T("h3", "", "Cuenta de Microsoft");
+    if (s.conectado) return w.replaceChildren(head, T("p", "", "Conectado como ", T("strong", "", s.cuenta || "?")),
+      btn("Cerrar sesión", "sec env-sm", async () => { try { await send("POST", "/api/ms/logout"); } catch (e) { fail(e); } pintar(); }));
+    const cid = el("input", {id: "env-ms-c", value: s.client_id || "", autocomplete: "off"}), tn = el("input", {id: "env-ms-t", value: s.tenant || "", placeholder: "organizations"});
+    const msg = T("p", "env-msg", s.error || ""); msg.setAttribute("role", "status"); if (s.error) msg.className = "env-msg err";
+    const ir = btn("Iniciar sesión con Microsoft", "pri", async () => {
+      ir.disabled = true;
+      try {
+        const r = await send("POST", "/api/ms/login", {client_id: cid.value.trim(), tenant: tn.value.trim()});
+        const fin = Date.now() + (r.expires_in || 900) * 1000;
+        const cp = btn("Copiar", "sec env-sm", () => navigator.clipboard?.writeText(r.user_code).then(() => cp.textContent = "Copiado"));
+        w.replaceChildren(head, T("p", "", "Abre el enlace e introduce este código:"), T("div", "env-code", r.user_code), T("div", "env-row", cp,
+          el("a", {href: r.verification_uri, target: "_blank", rel: "noopener", className: "btn pri", textContent: "Abrir " + r.verification_uri.replace(/^https?:\/\//, "")})), msg);
+        msg.textContent = "Esperando confirmación…";
+        const sondeo = async () => {
+          if (!w.isConnected) return;
+          let e; try { e = await api("/api/ms/estado"); } catch {}
+          if (e?.conectado || e?.error || Date.now() > fin) return pintar();
+          timer = setTimeout(sondeo, 3000);
+        };
+        timer = setTimeout(sondeo, 3000);
+      } catch (e) { msg.textContent = e.message; msg.className = "env-msg err"; ir.disabled = false; }
+    });
+    w.replaceChildren(head, T("div", "env-campo", el("label", {htmlFor: "env-ms-c"}, "ID de aplicación (client ID)"), cid),
+      T("div", "env-campo", el("label", {htmlFor: "env-ms-t"}, "Inquilino (tenant, vacío = organizations)"), tn,
+        T("small", "", "Tu TI debe registrar una aplicación en Microsoft Entra (cliente público, flujo de código de dispositivo). Sin ella, usa la carpeta sincronizada de OneDrive/SharePoint, Teams por Workflows o Power Automate, que no necesitan permisos.")),
+      T("div", "env-row", ir), msg);
+  };
+  pintar(); return w;
+}
+const esMs = t => t.startsWith("ms_");
+async function outlook(mid, ver, n) {
+  try { const r = await send("POST", `/api/correo/${encodeURIComponent(mid)}/${encodeURIComponent(ver)}/outlook/${n}`); toast("Borrador abierto en Outlook"); return r; }
+  catch (e) { fail(e); }
 }
 
 /* ---------- formulario dinámico de destino ---------- */
@@ -76,7 +121,7 @@ async function formDestino(ctx, tipo, existente, alGuardar) {
   const def = ctx.cat.tipos[tipo];
   const nombre = el("input", {id: "env-nombre", value: existente?.nombre || "", placeholder: def.nombre});
   const campos = def.campos.map(f => campo(f, existente?.config?.[f.id], existente));
-  const cuerpo = T("form", "env-form", T("div", "env-campo", el("label", {htmlFor: "env-nombre"}, "Nombre"), nombre), ...campos.map(c => c.w));
+  const cuerpo = T("form", "env-form", ...(esMs(tipo) ? [msCard()] : []), T("div", "env-campo", el("label", {htmlFor: "env-nombre"}, "Nombre"), nombre), ...campos.map(c => c.w));
   if (tipo === "carpeta") {
     try {
       const sug = await api("/api/destinos/sugerencias"), ruta = campos.find(c => c.id === "ruta");
@@ -111,7 +156,7 @@ function catalogo(ctx, alGuardar) {
   const usados = new Set(); const cont = T("div", "env-cat");
   for (const [g, tipos] of GRUPOS) {
     const ts = tipos.filter(t => ctx.cat.tipos[t] && !ctx.cat.tipos[t].interno); ts.forEach(t => usados.add(t));
-    if (ts.length) cont.append(T("h3", "", g), T("div", "env-cat-g", ...ts.map(t => btn(ctx.cat.tipos[t].nombre, "sec env-tipo", () => { d.close(); formDestino(ctx, t, null, alGuardar); }))));
+    if (ts.length) cont.append(T("h3", "", g), ...(g === "Microsoft 365" ? [msCard()] : []), T("div", "env-cat-g", ...ts.map(t => btn(ctx.cat.tipos[t].nombre, "sec env-tipo", () => { d.close(); formDestino(ctx, t, null, alGuardar); }))));
   }
   const otros = Object.keys(ctx.cat.tipos).filter(t => !usados.has(t) && !ctx.cat.tipos[t].interno);
   if (otros.length) cont.append(T("h3", "", "Otros"), T("div", "env-cat-g", ...otros.map(t => btn(ctx.cat.tipos[t].nombre, "sec env-tipo", () => { d.close(); formDestino(ctx, t, null, alGuardar); }))));
@@ -331,5 +376,5 @@ async function enviar(sel) {
   lista.querySelector("button")?.focus();
 }
 
-window.Enviar = {montar, checklist, enviar};
+window.Enviar = {montar, checklist, enviar, outlook};
 })();

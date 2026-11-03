@@ -54,3 +54,4 @@
 .desc-omit{margin-top:var(--s2);color:var(--warn)}
 .desc-omit ul{margin:var(--s1) 0 0;padding-left:var(--s4)}
 @media(prefers-reduced-motion:no-preference){.env-chip{transition:background .12s,border-color .12s}}
+.env-ms{margin:var(--s2) 0}.env-code{font:700 32px/1.2 ui-monospace,monospace;letter-spacing:.15em;padding:var(--s3);background:var(--acc-s);border-radius:var(--r);text-align:center;user-select:all}
