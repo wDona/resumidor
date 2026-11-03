@@ -18,10 +18,31 @@ const FN = {pdf: "PDF", docx: "Word", md: "Markdown", xlsx: "Excel", csv: "CSV"}
 
 let live = null;
 function toast(msg, err, opts) {
+  if (typeof aviso === "function") return aviso(msg, opts);  // snackbar global (app.js); errores también
   if (!err && window.snackbar) return window.snackbar(msg, opts);
   live ||= document.body.appendChild(el("div", {className: "env-toast", role: "status", "aria-live": "polite"}));
   live.textContent = msg; live.classList.toggle("env-bad", !!err); live.hidden = false;
   clearTimeout(live._t); live._t = setTimeout(() => live.hidden = true, 5000);
+}
+/* Chip de preset compartido (Añadir, Descargar, Enviar): icono + nombre, ★ si fijado, ⋯ solo al pasar/enfocar. «De serie» = icono ✦ + tooltip. */
+function chip({nombre, icono, fijado, serie, activo, ultimo, titulo, onSelect, onMenu}) {
+  const tip = [titulo, serie ? "De serie" : "", ultimo ? "Último usado" : ""].filter(Boolean).join(" · ");
+  return T("span", "pchip" + (activo ? " on" : "") + (ultimo ? " ult" : ""),
+    el("button", {type: "button", className: "pchip-b", "aria-pressed": !!activo, title: tip || null, onclick: onSelect},
+      el("span", {className: "pchip-i", "aria-hidden": "true", textContent: icono || (serie ? "✦" : "◆")}), T("span", "pchip-n", nombre), ...(fijado ? [el("span", {className: "pchip-s", title: "Fijado", textContent: "★"})] : [])),
+    ...(onMenu ? [el("button", {type: "button", className: "pchip-m", "aria-label": "Opciones de " + nombre, "aria-haspopup": "menu", textContent: "⋯", onclick: e => { e.stopPropagation(); onMenu(e.currentTarget); }})] : []));
+}
+/* Menú emergente anclado al chip: items [[texto, fn]] */
+function menu(ancla, items) {
+  document.querySelector(".env-gm")?.remove();
+  const u = T("ul", "env-menu env-pmenu env-gm", ...items.map(([t, fn]) => T("li", "", btn(t, "sec env-sm env-mi", async () => { cierra(); try { await fn(); } catch (e) { fail(e); } }))));
+  u.setAttribute("role", "menu");
+  const cierra = () => { u.remove(); document.removeEventListener("pointerdown", fuera, true); document.removeEventListener("keydown", tecla, true); };
+  const fuera = e => { if (!u.contains(e.target) && !ancla.contains(e.target)) cierra(); };
+  const tecla = e => { if (e.key === "Escape") { e.stopPropagation(); cierra(); ancla.focus(); } };
+  (ancla.closest(".pchip") || ancla.parentNode).append(u);
+  document.addEventListener("pointerdown", fuera, true); document.addEventListener("keydown", tecla, true);
+  u.querySelector("button")?.focus();
 }
 const fail = e => toast(e.message || String(e), true);
 
@@ -250,6 +271,7 @@ function formReceta(ctx, r, alGuardar) {
 }
 
 /* ---------- centro Enviar ---------- */
+let tabEnv = "destinos";
 const estado = new Map();  // id destino -> {ok, mensaje, aviso}
 async function montar(raiz) {
   raiz.classList.add("env-root");
@@ -274,11 +296,10 @@ async function montar(raiz) {
     const sDest = T("section", "env-sec", T("div", "env-row", T("h2", "", "Destinos"), T("span", "grow"), btn("+ Destino", "pri", () => catalogo(ctx, refrescar))),
       dc.length ? T("div", "env-grid", ...esc(dc)) : T("p", "muted", "Aún no hay destinos. Añade uno para enviar tareas, notas o archivos."));
     const sPre = T("section", "env-sec", T("div", "env-row", T("h2", "", "Presets"), T("span", "grow"), btn("+ Preset", "sec", () => formPreset(ctx, null, refrescar))),
-      ctx.presets.length ? T("ul", "env-ul", ...esc(ctx.presets.map(p => T("li", "env-row", el("button", {type: "button", className: "env-star", "aria-pressed": !!p.fijado, "aria-label": (p.fijado ? "Quitar de fijados: " : "Fijar: ") + p.nombre, title: p.fijado ? "Fijado en Enviar ▾" : "Fijar en Enviar ▾", textContent: p.fijado ? "★" : "☆",
-          onclick: async () => { try { await send("PATCH", "/api/presets/" + p.id, {fijado: !p.fijado}); refrescar(); } catch (e) { fail(e); } }}),
-        T("span", "", T("strong", "", p.nombre), T("small", "env-sum", (p.que || []).map(q => QL[q] || q).join(", ") + " → " + (ctx.dest[p.destino]?.nombre || "?") + (p.solo_aprobados ? " · solo aprobados" : ""))), T("span", "grow"),
-        btn("Editar", "sec env-sm", () => formPreset(ctx, p, refrescar)),
-        btn("Eliminar", "sec dng env-sm", async () => { try { await send("DELETE", "/api/presets/" + p.id); refrescar(); } catch (e) { fail(e); } }))))) : T("p", "muted", "Un preset guarda destino + qué enviar + formatos."));
+      ctx.presets.length ? T("ul", "env-ul", ...esc(ctx.presets.map(p => T("li", "env-row", chip({nombre: p.nombre, fijado: p.fijado, titulo: p.fijado ? "Fijado en Enviar ▾" : "", onSelect: () => formPreset(ctx, p, refrescar),
+          onMenu: a => menu(a, [[p.fijado ? "Quitar fijado" : "Fijar en Enviar ▾", async () => { await send("PATCH", "/api/presets/" + p.id, {fijado: !p.fijado}); refrescar(); }], ["Editar", () => formPreset(ctx, p, refrescar)],
+            ["Eliminar", async () => { await send("DELETE", "/api/presets/" + p.id); refrescar(); }]])}),
+        T("small", "env-sum", (p.que || []).map(q => QL[q] || q).join(", ") + " → " + (ctx.dest[p.destino]?.nombre || "?") + (p.solo_aprobados ? " · solo aprobados" : ""))))))  : T("p", "muted", "Un preset guarda destino + qué enviar + formatos."));
     const grupos = {};
     ctx.recetas.forEach(r => (grupos[r.cuando?.carpeta || "(Sin proyecto)"] ||= []).push(r));
     const sRec = T("section", "env-sec", T("div", "env-row", T("h2", "", "Recetas automáticas"), T("span", "grow"), btn("+ Receta", "sec", () => formReceta(ctx, null, refrescar))),
@@ -291,8 +312,9 @@ async function montar(raiz) {
           T("p", "muted", describe(r.cuando) + (r.proximo_iso ? " · Próximo: " + r.proximo_iso.replace("T", " ") : "") + (r.atrasado ? " · atrasado" : "") + (r.solo_nuevo ? " · solo lo nuevo" : "")));
       }))), !ctx.recetas.length ? T("p", "muted", "Sin recetas. Una receta envía automáticamente al terminar un documento o en un horario.") : "");
     const sHis = T("section", "env-sec", T("h2", "", "Historial"));
+    let hay = false;
     try {
-      const h = await api("/api/envios?limit=30");
+      const h = await api("/api/envios?limit=30"); hay = h.length > 0;
       sHis.append(h.length ? T("ul", "env-ul", ...h.map(e => {
         const links = [...(e.enlaces || []), ...(e.items || []).map(i => i.url)].filter(u => /^https?:\/\//i.test(u || ""));
         const errs = (e.items || []).map(i => i.error).filter(Boolean);
@@ -303,7 +325,23 @@ async function montar(raiz) {
           ...errs.map(x => T("small", "env-bad", x)), e.error ? T("small", "env-bad", e.error) : "");
       })) : T("p", "muted", "Todavía no se ha enviado nada."));
     } catch (e) { sHis.append(T("p", "err", e.message)); }
-    raiz.replaceChildren(sDest, sPre, sRec, sHis);
+    const vacio = !ctx.cat.destinos.length && !ctx.presets.length && !ctx.recetas.length && !hay;
+    if (vacio) {  // estado vacío que enseña: tres destinos típicos + catálogo
+      const sug = ["carpeta", "correo", "slack"].filter(t => ctx.cat.tipos[t]);
+      raiz.replaceChildren(T("section", "env-sec env-vacio", T("h2", "", "Conecta un destino"),
+        T("p", "muted", "Envía tareas, notas y archivos a donde ya trabajas. Elige uno para empezar; luego podrás crear presets y recetas automáticas."),
+        T("div", "env-grid", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("strong", "", ctx.cat.tipos[t].nombre), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
+        T("div", "env-row", btn("Ver todos los destinos", "pri", () => catalogo(ctx, refrescar)))));
+      return;
+    }
+    const TABS = [["destinos", "Destinos", sDest, ctx.cat.destinos.length], ["presets", "Presets", sPre, ctx.presets.length], ["recetas", "Recetas", sRec, ctx.recetas.length], ["historial", "Historial", sHis, 0]];
+    if (!TABS.some(t => t[0] === tabEnv)) tabEnv = "destinos";
+    const tl = T("div", "env-tabs"); tl.setAttribute("role", "tablist"); tl.setAttribute("aria-label", "Enviar");
+    TABS.forEach(([k, t, , n]) => tl.append(el("button", {type: "button", role: "tab", id: "env-t-" + k, className: "env-tab", "aria-selected": k === tabEnv, tabIndex: k === tabEnv ? 0 : -1,
+      onclick: () => { tabEnv = k; pintar(); }, onkeydown: e => { const d = {ArrowRight: 1, ArrowLeft: -1}[e.key]; if (d) { tabEnv = TABS[(TABS.findIndex(x => x[0] === tabEnv) + d + 4) % 4][0]; pintar().then(() => document.getElementById("env-t-" + tabEnv)?.focus()); } }},
+      t, ...(n ? [T("span", "env-n", String(n))] : []))));
+    const sec = TABS.find(t => t[0] === tabEnv)[2]; sec.setAttribute("role", "tabpanel"); sec.setAttribute("aria-labelledby", "env-t-" + tabEnv);
+    raiz.replaceChildren(tl, sec);
   };
   await pintar();
 }
@@ -322,11 +360,11 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
   const jira = ctx.cat.destinos.find(d => ["jira", "ms_planner"].includes(d.tipo));
   if (jira) objs.splice(objs.findIndex(o => !o.serie) < 0 ? objs.length : objs.findIndex(o => !o.serie), 0,
     {id: "serie:jira", nombre: "Para " + jira.nombre + "…", serie: true, plan: {salidas: [{que: "tareas", como: "destino", destino: jira.id}]}});
-  const pre = {sel: null, abierto: true, menu: null, cambiados: new Set()};
+  const pre = {sel: null, abierto: false, cambiados: new Set()}, OU = "env.objUlt";
   const pinS = () => new Set(ls(FS, []));
   const fijado = o => o.serie ? pinS().has(o.id) : !!o.fijado;
   const aplicar = o => {
-    pre.sel = o.id; pre.abierto = false; pre.cambiados = new Set([...Object.keys(S).filter(q => S[q].on), ...o.plan.salidas.map(s => s.que)]);
+    pre.sel = o.id; pre.abierto = false; localStorage.setItem(OU, JSON.stringify(o.id)); pre.cambiados = new Set([...Object.keys(S).filter(q => S[q].on), ...o.plan.salidas.map(s => s.que)]);
     for (const q of Object.keys(S)) S[q].on = false;
     for (const s of o.plan.salidas) S[s.que] = desde(s);
     if (o.plan.solo_buscable) plan.solo_buscable = true; else delete plan.solo_buscable;
@@ -341,28 +379,25 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     const d = dialogo(titulo, T("div", "env-form", T("div", "env-campo", el("label", {htmlFor: "env-on"}, "Nombre"), n), m), [ok]);
     n.focus(); n.select();
   };
-  const menuDe = o => {
-    const it = (t, fn) => T("li", "", btn(t, "sec env-sm env-mi", async () => { pre.menu = null; try { await fn(); } catch (e) { fail(e); } pintar(); }));
-    const dup = () => nombrar("Duplicar para editar", o.nombre + " (copia)", n => send("POST", "/api/objetivos", {nombre: n, plan: planDe(o), plantilla: o.plantilla}));
-    return T("ul", "env-menu env-pmenu", ...(o.serie ? [it("Duplicar para editar", dup)] : [
-      it("Renombrar", () => nombrar("Renombrar preset", o.nombre, async n => send("PATCH", "/api/objetivos/" + o.id, {nombre: n}))), it("Duplicar", dup),
-      it("Eliminar", async () => { await send("DELETE", "/api/objetivos/" + o.id); if (pre.sel === o.id) pre.sel = null; objs = objs.filter(x => x.id !== o.id); })]));
-  };
   const planDe = o => ({...o.plan, salidas: o.plan.salidas.map(({configurar, ...r}) => r)});
+  const items = o => {
+    const dup = () => nombrar("Duplicar para editar", o.nombre + " (copia)", n => send("POST", "/api/objetivos", {nombre: n, plan: planDe(o), plantilla: o.plantilla}));
+    const fij = [fijado(o) ? "Quitar fijado" : "Fijar", async () => { if (o.serie) { const s = pinS(); s.has(o.id) ? s.delete(o.id) : s.add(o.id); localStorage.setItem(FS, JSON.stringify([...s])); } else { await send("PATCH", "/api/objetivos/" + o.id, {fijado: !o.fijado}); o.fijado = !o.fijado; } pintar(); }];
+    return o.serie ? [fij, ["Duplicar para editar", dup]] : [fij, ["Renombrar", () => nombrar("Renombrar preset", o.nombre, async n => send("PATCH", "/api/objetivos/" + o.id, {nombre: n}))], ["Duplicar", dup],
+      ["Eliminar", async () => { await send("DELETE", "/api/objetivos/" + o.id); if (pre.sel === o.id) pre.sel = null; objs = objs.filter(x => x.id !== o.id); pintar(); }]];
+  };
   const barra = () => {
-    const orden = [...objs].sort((a, b) => fijado(b) - fijado(a));
-    const chips = orden.map(o => {
-      const on = pre.sel === o.id;
-      const c = el("button", {type: "button", className: "env-chip env-pre" + (on ? " on" : ""), "aria-pressed": on, title: resumen(o.plan, ctx), onclick: () => aplicar(o)},
-        fijado(o) ? "★ " : "", o.nombre, T("span", "env-badge" + (o.serie ? "" : " own"), o.serie ? "de serie" : "propio"));
-      const mb = el("button", {type: "button", className: "env-chip env-mb", "aria-label": "Opciones de " + o.nombre, "aria-expanded": pre.menu === o.id, textContent: "⋯",
-        onclick: () => { pre.menu = pre.menu === o.id ? null : o.id; pintar(); }});
-      const fj = el("button", {type: "button", className: "env-chip env-mb", "aria-label": fijado(o) ? "Quitar fijado" : "Fijar", textContent: fijado(o) ? "★" : "☆", onclick: async () => {
-        try { if (o.serie) { const s = pinS(); s.has(o.id) ? s.delete(o.id) : s.add(o.id); localStorage.setItem(FS, JSON.stringify([...s])); } else { await send("PATCH", "/api/objetivos/" + o.id, {fijado: !o.fijado}); o.fijado = !o.fijado; } pintar(); } catch (e) { fail(e); } }});
-      return T("span", "env-pg", c, ...(on || pre.menu === o.id ? [fj, mb] : [mb]), ...(pre.menu === o.id ? [menuDe(o)] : []));
-    });
+    const orden = [...objs].sort((a, b) => fijado(b) - fijado(a)), ult = ls(OU, null);
+    const vis = ["serie:reunion", "serie:resumen", "serie:buscable"].map(id => orden.find(o => o.id === id)).filter(Boolean);
+    const extra = orden.find(o => o.id === pre.sel) || orden.find(o => o.id === ult) || orden.find(o => fijado(o));
+    for (const o of orden) if (vis.length < 3 && !vis.includes(o) && o !== extra) vis.push(o);
+    if (extra && !vis.includes(extra)) vis.push(extra); else { const o = orden.find(o => !vis.includes(o) && fijado(o)); if (o && vis.length < 4) vis.push(o); }
+    const mas = orden.filter(o => !vis.includes(o));
+    const ch = o => chip({nombre: o.nombre, fijado: fijado(o), serie: o.serie, activo: pre.sel === o.id, ultimo: o.id === ult, titulo: resumen(o.plan, ctx), onSelect: () => aplicar(o), onMenu: a => menu(a, items(o))});
     const sum = pre.sel ? resumen(planActual(), ctx) : "";
-    return T("div", "env-pres", T("div", "env-chips", ...esc(chips), btn("+ Guardar como preset", "sec env-sm", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla})))),
+    return T("div", "env-pres", T("div", "env-chips", ...esc(vis.map(ch)),
+      ...(mas.length ? [T("span", "pchip", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)])), {"aria-haspopup": "menu"}))] : []),
+      btn("Guardar como preset", "sec env-sm", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla})))),
       ...(sum ? [T("small", "env-sum", sum)] : []));
   };
   const rep = {on: !!plan.repetir, cada: "semana", dia_semana: 0, hora: "09:00", ...plan.repetir};
@@ -419,10 +454,12 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     });
     const flash = pre.cambiados; pre.cambiados = new Set();
     filas.forEach((f, i) => { if (flash.has(ORD2[i])) f.classList.add("env-flash"); });
-    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar"), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
+    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar", ...(plan.salidas.length ? [T("small", "env-sum", " · " + resumen(planActual(), ctx))] : [])), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
     raiz.replaceChildren(barra(), det);
   };
-  pintar();
+  // recuerda el último objetivo y lo preselecciona si el plan viene vacío (no con callbacks vacíos: ajustes por defecto de un proyecto)
+  const u = ls(OU, null), uo = u && objs.find(x => x.id === u);
+  if (uo && !plan.salidas.length && !plan.solo_buscable && onChange && onChange.length) aplicar(uo); else pintar();
 }
 
 /* ---------- envío rápido (Enviar ▾) ---------- */
@@ -451,5 +488,5 @@ async function enviar(sel) {
   lista.querySelector("button")?.focus();
 }
 
-window.Enviar = {montar, checklist, enviar, outlook, presetsObjetivo: true};
+window.Enviar = {montar, checklist, enviar, outlook, chip, menu, presetsObjetivo: true};
 })();

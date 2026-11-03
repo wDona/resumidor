@@ -23,6 +23,10 @@ async function abrir({docs, c, ids} = {}) {
   const lq = [...ques, ...extra];
   const st = {que: new Set((mem.que || ["documento"]).filter(q => lq.includes(q))), fmt: new Set(mem.fmt || ["pdf"]), apr: !!mem.apr, mas: !!mem.mas, sel: null};
   if (!st.que.size && lq.length) st.que.add(lq[0]);
+  {  // preselecciona el último preset usado si coincide con lo recordado
+    const u = ls(PU, null), p = [...SERIE, ...ls(PK, [])].find(x => x.id === u), mismo = (A, B) => A.size === B.length && B.every(x => A.has(x));
+    if (p && mismo(st.que, p.que) && mismo(st.fmt, p.fmt)) st.sel = p.id;
+  }
   const ok = (q, f) => !!op.que[q]?.[alcance]?.includes(f);
   const valido = f => [...st.que].some(q => ok(q, f));
   const d = el("dialog", {className: "env-dlg desc-dlg", "aria-label": "Descargar"});
@@ -40,31 +44,32 @@ async function abrir({docs, c, ids} = {}) {
   };
   const filaPre = () => {
     const ult = ls(PU, null);
-    const chip = (p, own) => el("button", {type: "button", className: "env-chip env-pre" + (p.id === ult ? " ult" : ""), "aria-pressed": st.sel === p.id, onclick: () => aplicar(p),
-      title: p.que.map(q => QL[q] || q).join(", ") + " · " + p.fmt.map(f => BASICOS[f] || f).join(", ") + (p.id === ult ? " · último usado" : "")},
-      p.nombre, T("span", "env-badge" + (own ? " own" : ""), own ? "propio" : "de serie"));
-    return T("div", "env-chips desc-pre", ...SERIE.map(p => chip(p)), ...propios.map(p => T("span", "env-pg", chip(p, true), el("button", {type: "button", className: "env-chip env-mb", "aria-label": "Eliminar " + p.nombre, textContent: "×",
-      onclick: () => { propios = propios.filter(x => x.id !== p.id); localStorage.setItem(PK, JSON.stringify(propios)); pintar(); }}))),
-      el("button", {type: "button", className: "btn sec env-sm", textContent: "Guardar esta selección", onclick: guardar}));
+    const chip = (p, own) => Enviar.chip({nombre: p.nombre, serie: !own, activo: st.sel === p.id, ultimo: p.id === ult, onSelect: () => aplicar(p),
+      titulo: p.que.map(q => QL[q] || q).join(", ") + " · " + p.fmt.map(f => BASICOS[f] || f).join(", "),
+      onMenu: own ? a => Enviar.menu(a, [["Eliminar", () => { const x = p; propios = propios.filter(y => y.id !== x.id); localStorage.setItem(PK, JSON.stringify(propios)); pintar();
+        aviso("Preset eliminado", {txt: "Deshacer", fn: () => { propios = [...propios, x]; localStorage.setItem(PK, JSON.stringify(propios)); pintar(); }}); }]]) : undefined});
+    return T("div", "env-chips desc-pre", ...[...SERIE.map(p => chip(p)), ...propios.map(p => chip(p, true))]);
   };
   const cuerpo = T("div", "desc-body"), msg = T("div", "desc-msg"); msg.setAttribute("role", "status");
   const go = el("button", {type: "button", className: "btn pri", onclick: bajar});
   const pintar = () => {
     const fm = op.formatos, basicos = Object.keys(BASICOS).filter(f => fm.includes(f)), mas = fm.filter(f => !BASICOS[f]);
     const chip = f => {
-      const v = valido(f), on = st.fmt.has(f) && v;
-      return el("button", {type: "button", className: "env-chip", "aria-pressed": on, disabled: !v, title: v ? "" : "No disponible para lo marcado",
-        textContent: BASICOS[f] || f, onclick: () => { st.fmt.has(f) ? st.fmt.delete(f) : st.fmt.add(f); st.sel = null; pintar(); }});
+      const v = valido(f), on = st.fmt.has(f) && v, no = [...st.que].filter(q => !ok(q, f)).map(q => QL[q] || q);
+      return el("button", {type: "button", className: "env-chip", "aria-pressed": on, "aria-disabled": !v, title: v ? "" : "No disponible para " + no.join(", "),
+        textContent: BASICOS[f] || f, onclick: () => { if (!v) return; st.fmt.has(f) ? st.fmt.delete(f) : st.fmt.add(f); st.sel = null; pintar(); }});
     };
     const mov = flash; flash = false;
     cuerpo.replaceChildren(
-      T("fieldset", "desc-p", T("legend", "", "Preajustes"), filaPre()),
-      T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
-        ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
-      T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-chips", ...basicos.map(chip)),
-        ...(mas.length ? [el("button", {type: "button", className: "btn sec env-sm", "aria-expanded": st.mas, textContent: st.mas ? "Menos formatos" : "Más formatos", onclick: () => { st.mas = !st.mas; pintar(); }}),
-          ...(st.mas ? [T("div", "env-chips", ...mas.map(chip))] : [])] : [])),
-      T("label", "env-chk", el("input", {type: "checkbox", checked: st.apr, onchange: e => st.apr = e.target.checked}), " Solo aprobados"));
+      T("div", "desc-p", T("div", "desc-l", "Preajustes"), filaPre()),
+      T("div", "desc-cols",
+        T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
+          ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
+        T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-seg", ...basicos.map(chip)), ...(st.mas && mas.length ? [T("div", "env-seg", ...mas.map(chip))] : []))),
+      el("details", {className: "env-pers desc-opc", open: st.opc || st.mas || st.apr, ontoggle: e => st.opc = e.target.open}, el("summary", {}, "Opciones"),
+        T("div", "env-opc", ...(mas.length ? [el("button", {type: "button", className: "btn sec env-sm", "aria-expanded": st.mas, textContent: st.mas ? "Menos formatos" : "Más formatos", onclick: () => { st.mas = !st.mas; pintar(); }})] : []),
+          T("label", "env-chk", el("input", {type: "checkbox", checked: st.apr, onchange: e => st.apr = e.target.checked}), " Solo aprobados"),
+          el("button", {type: "button", className: "btn sec env-sm", textContent: "Guardar esta selección", onclick: guardar}))));
     const n = [...st.fmt].filter(valido).length * st.que.size;
     go.disabled = !st.que.size || ![...st.fmt].some(valido);
     go.textContent = "Descargar" + (n > 1 ? " (.zip)" : "");
