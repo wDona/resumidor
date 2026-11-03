@@ -89,7 +89,10 @@ $("omni").onsubmit = e => { e.preventDefault(); const q = $("buscar").value.trim
 addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); paleta(); }
   else if (e.key === "/" && !editable(e.target) && !document.querySelector("dialog[open]")) { e.preventDefault(); $("buscar").focus(); $("buscar").select(); }
+  else if (e.key.toLowerCase() === "n" && !e.ctrlKey && !e.metaKey && !e.altKey && !editable(e.target) && !document.querySelector("dialog[open]")) { e.preventDefault(); formNuevo(); }
 });
+// «+ Añadir» se contrae a icono al bajar en vistas largas
+let scrT = 0; addEventListener("scroll", () => { if (!scrT) scrT = requestAnimationFrame(() => { scrT = 0; document.body.classList.toggle("scr", scrollY > 160); }); }, {passive: true});
 
 // ---------- Buscar (resultado del omnibox): respuesta con citas, fragmentos y elementos ----------
 const BQ = {q: "", tipo: ""};
@@ -102,7 +105,8 @@ async function buscarIr(q) {
   $("bus-f").replaceChildren(el("div", {className: "row wrap", role: "group", ariaLabel: "Tipo"}, chip("", "Todo"), ...Object.entries(KIND_T).map(([k, t]) => chip(k, t)),
     chip("tarea", "Tareas"), chip("decision", "Decisiones"), chip("requisito", "Requisitos"), chip("riesgo", "Riesgos")),
     el("small", {textContent: sc ? "En: " + $("omni-c").selectedOptions[0].text + " · cambia el alcance junto al buscador" : "En todo · elige un proyecto junto al buscador para acotar"}));
-  $("bus-fr").replaceChildren(el("li", {className: "muted", textContent: "Buscando…"})); $("bus-el").replaceChildren();
+  const skI = () => el("li", {className: "bus-i", "aria-hidden": "true"}, ...sk(3));
+  $("bus-fr").replaceChildren(skI(), skI(), skI()); $("bus-el").replaceChildren(skI()); $("bus-fr").setAttribute("aria-busy", "true");
   let r;
   try { r = await api("/api/buscar?" + new URLSearchParams({q, c, tipo: BQ.tipo, limit: 40})); }
   catch { r = {fragmentos: todas.filter(m => (!c || m.carpeta === c) && norm(m.label + " " + m.carpeta).includes(norm(q))).map(m => ({doc: m.id, titulo: m.label, c: m.carpeta, kind: m.kind, snippet: ""})), elementos: []}; }
@@ -113,7 +117,7 @@ async function buscarIr(q) {
     const p = el("p", {className: "bus-s"}); p.innerHTML = f.snippet || "";  // el servidor escapa el HTML y solo añade <mark>
     return el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, el("button", {type: "button", className: "doc-l", textContent: f.titulo || f.doc, onclick: go}),
       ...(loc ? [el("button", {type: "button", className: "cite", textContent: loc, onclick: go})] : []), el("span", {className: "muted", textContent: [KIND_T[f.kind] || f.tipo_fuente, f.c].filter(Boolean).join(" · ")})), p);
-  }) : [el("li", {className: "muted", textContent: "Sin fragmentos."})]));
+  }) : [el("li", {className: "muted", textContent: "Sin fragmentos."})])); $("bus-fr").removeAttribute("aria-busy"); escalona($("bus-fr"), true); escalona($("bus-el"), true);
   $("bus-el").replaceChildren(...(els.length ? els.map(x => el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, badgeT(TIPO_T[x.tipo] || x.tipo, "acc"), el("b", {textContent: (x.codigo ? x.codigo + " · " : "") + x.texto})),
     el("small", {}, [x.estado, x.c].filter(Boolean).join(" · ") + " · ", el("a", {href: "#", textContent: "Abrir en el proyecto", onclick: ev => { ev.preventDefault(); irElemento(x.c, x.tipo, x.id); }})))) : [el("li", {className: "muted", textContent: "Sin elementos."})]));
   // Respuesta: el mismo panel de Preguntar, en el proyecto o documento del alcance (o en el del mejor fragmento)
@@ -231,8 +235,16 @@ function anGoal(id, user) {
   if (id === "otro" && user) { const v = $("plantilla").value; $("plantilla").replaceChildren(...PL.map(t => new Option(t.nombre, t.id))); $("plantilla").value = v; $("plantilla").focus(); }
   anCheck(); anGoals(); anBoton();
 }
+const anChips = () => !!window.Enviar?.presetsObjetivo;  // los objetivos van como chips dentro del checklist (enviar.js): sin la fila de tarjetas
 function anCheck() {  // casillas «qué → dónde»: las del proyecto (sus recetas) + las del objetivo
   const g = GOALS.find(x => x.id === AN.goal), q = g?.q || [], c = $("n-carpeta").value === NUEVA_C ? "" : $("n-carpeta").value;
+  $("an-goals").hidden = anChips();
+  if (anChips()) {  // «Solo hacerlo buscable» llega como plan.solo_buscable → el trabajo va con buscable
+    AN.plan = {carpeta: c, salidas: [...AN.defecto]}; AN.buscable = false;
+    return Enviar.checklist($("an-check"), {plan: AN.plan, carpeta: c, onChange: p => { AN.plan = {...p, carpeta: c}; AN.buscable = !!p.solo_buscable;
+      if (p.plantilla && PL.some(t => t.id === p.plantilla)) { if (![...$("plantilla").options].some(o => o.value === p.plantilla)) $("plantilla").append(new Option(plantDe(p.plantilla).nombre, p.plantilla)); $("plantilla").value = p.plantilla; $("plantilla").onchange(); }
+      anBoton(); }});
+  }
   AN.plan = {carpeta: c, salidas: g?.b ? [] : [...AN.defecto, ...q.filter(k => !AN.defecto.some(s => s.que === k)).map(k => ({que: k, como: "documento"}))]};
   if (!window.Enviar) { $("an-check").replaceChildren(el("p", {className: "muted", textContent: "Se extraerá: " + (q.join(", ") || "solo el documento") + "."})); AN.plan = null; return; }
   $("an-check").replaceChildren(...(g?.b ? [el("p", {className: "muted", textContent: "Se lee y se indexa sin resumir: luego lo encuentras con Buscar y Preguntar."})] : []));
@@ -293,7 +305,7 @@ const formNuevo1 = formNuevo;
 formNuevo = function (m, a) {
   formNuevo1(m, a);
   $("an-obj").hidden = $("an-nombre").closest(".field").hidden = !!m; $("an-av").open = !!m; $("form-t").textContent = m ? $("form-t").textContent : "Añadir";
-  if (!m) { anGoals(); if (AN.goal) anGoal(AN.goal); anProyecto(); }
+  if (!m) { anGoals(); if (AN.goal && !anChips()) anGoal(AN.goal); anProyecto(); }
   anPintar();
 };
 $("n-carpeta").addEventListener("change", anProyecto);
@@ -347,15 +359,18 @@ function pintarInicio() {
     return el("button", {type: "button", className: "h-ci", onclick: fallo(() => abrir(m.id))}, el("span", {className: "n"}, el("b", {textContent: m.label}),
       el("small", {textContent: [m.carpeta || sinC(), fechaC(m.mtime), m.dur ? Math.round(m.dur / 60) + " min" : KIND_T[m.kind]].filter(Boolean).join(" · ")})),
       e ? badgeT(e.state === "marcha" ? "Procesando" : "En cola", "acc") : r.sug ? badgeT(r.sug + " por revisar", "w") : badgeT("Listo", "ok")); });
-  $("h-cont-l").replaceChildren(...nuevas, ...recientes);
+  $("h-cont-l").replaceChildren(...nuevas, ...recientes); escalona($("h-cont-l"));
   // tira del flujo (contadores clicables); los del registro y los envíos llegan después
-  const tile = (n, t, v, s, f) => el("button", {type: "button", className: "fl", onclick: f}, el("span", {className: "fl-t", textContent: n + " · " + t}), el("b", {textContent: v}), el("small", {textContent: s}));
+  const tile = (n, t, v, s, f) => el("button", {type: "button", className: "fl", onclick: f}, el("span", {className: "fl-t", textContent: n + " · " + t}), v == null ? el("b", {className: "sk sk-n", "aria-label": "Cargando"}) : el("b", {textContent: v}), el("small", {textContent: s}));
   const pinta = (rev, apr, hoy, ult) => $("h-flujo").replaceChildren(
     tile(1, "En cola", act.length, run ? "Procesando: " + nombreDe(run) : act.length ? "Esperando turno" : "Nada en marcha", () => { location.hash = "#/cola"; }),
-    tile(2, "Por revisar", rev ?? "…", "Elementos extraídos sin aprobar", () => $("rev").scrollIntoView({block: "start"})),
-    tile(3, "Listo para enviar", apr ?? "…", "Elementos aprobados", () => { location.hash = "#/enviar"; }),
-    tile(4, "Enviado hoy", hoy ?? "…", ult || "Historial en Enviar", () => { location.hash = "#/enviar"; }));
+    tile(2, "Por revisar", rev, "Elementos extraídos sin aprobar", () => $("rev").scrollIntoView({block: "start"})),
+    tile(3, "Listo para enviar", apr, "Elementos aprobados", () => { location.hash = "#/enviar"; }),
+    tile(4, "Enviado hoy", hoy, ult || "Historial en Enviar", () => { location.hash = "#/enviar"; }));
   pinta();
+  // sugerencias: lo listo de la cola ya; lo del registro cuando llega (mismo hueco: esqueleto si la última vez hubo)
+  const listo = cola.items.filter(e => e.kind === "acta" && e.state === "hecho" && e.mid && todas.some(m => m.id === e.mid)).pop();
+  sugerencias(listo ? [{k: "doc:" + listo.mid, t: "Documento listo: " + nombreDe(listo), s: "Revísalo antes de enviarlo", b: "Abrir", f: fallo(() => abrir(listo.mid))}] : [], true);
   iniDatos().then(({regs, env}) => {
     if (vistaAct !== "home" || fsel !== undefined) return;
     const rev = regs.flatMap(({c, r}) => r.items.filter(x => x.revision === "propuesto").map(x => ({...x, c}))), apr = regs.reduce((s, {r}) => s + (r.contadores?.por_revision?.aprobado || 0), 0);
@@ -371,12 +386,28 @@ function pintarInicio() {
       INI.p = null; aviso(rev.length + " aprobados", {txt: "Deshacer", fn: fallo(async () => { for (const c of cs) await post("/api/reg/deshacer", {c}); INI.p = null; pintarHome(); })}); pintarHome();
     })})] : []));
     if (rev.length) $("rev").hidden = false;
+    const n = rev.length + Object.values(RES).reduce((s, x) => s + (x?.sug || 0), 0), c0 = rev[0]?.c ?? Object.keys(RES).find(c => RES[c]?.sug);
+    sugerencias([...(n && c0 != null ? [{k: "rev:" + n, t: n + " por revisar", s: "Propuestos por la IA, sin aprobar", b: "Revisar", w: 1, f: () => { fsel = c0; vista("home"); fIr("revision"); }}] : []),
+      ...(apr ? [{k: "env:" + apr, t: apr + (apr === 1 ? " elemento listo" : " elementos listos") + " para enviar", s: "Aprobados y sin enviar", b: "Enviar", f: () => { location.hash = "#/enviar"; }}] : []),
+      ...(listo ? [{k: "doc:" + listo.mid, t: "Documento listo: " + nombreDe(listo), s: "Revísalo antes de enviarlo", b: "Abrir", f: fallo(() => abrir(listo.mid))}] : [])]);
   });
+}
+// Inicio › Sugerencias: tarjetas descartables (lo descartado vuelve si cambia: la clave lleva el número o el documento)
+function sugerencias(l, prov, anim = !prov) {  // prov: lista provisional (falta el registro): esqueleto si la última vez hubo sugerencias
+  const fuera = lsGet("ini.sug.x", []), vis = l.filter(x => !fuera.includes(x.k)), esperando = prov && INI.nSug > 0;
+  if (!prov) INI.nSug = vis.length;
+  $("h-sug").replaceChildren(...vis.map(x => el("div", {className: "sug-c" + (x.w ? " w" : "")}, el("span", {className: "n"}, el("b", {textContent: x.t}), el("small", {textContent: x.s})),
+    el("button", {type: "button", className: "sec sm", textContent: x.b, onclick: x.f}),
+    el("button", {type: "button", className: "qx", textContent: "✕", ariaLabel: "Descartar: " + x.t, title: "Descartar", onclick: () => { lsSet("ini.sug.x", [...fuera, x.k].slice(-40)); sugerencias(l, false, false); $("h-sug").querySelector(".qx")?.focus(); }}))),
+    ...(esperando && !vis.length ? [el("div", {className: "sk-c", "aria-hidden": "true"}, ...sk(2))] : []));
+  if (anim) escalona($("h-sug"));
 }
 
 // ---------- Biblioteca: una sola lista con chips de tipo, filtros, selección múltiple y vista previa ----------
 const BIB = {ms: [], sel: new Set(), tipo: "", c: "*", est: "", dias: 0, q: "", act: null};
-async function pintarBib() { BIB.ms = unicas(await api("/api/meetings").catch(() => todas)); BIB.sel = new Set([...BIB.sel].filter(id => BIB.ms.some(m => m.id === id))); pintarBibL(); }
+async function pintarBib() {
+  if (!BIB.ms.length) $("bib-tb").replaceChildren(...Array.from({length: 6}, () => el("tr", {className: "sk-r", "aria-hidden": "true"}, el("td", {colSpan: 6}, el("span", {className: "sk"})))));
+  BIB.ms = unicas(await api("/api/meetings").catch(() => todas)); BIB.sel = new Set([...BIB.sel].filter(id => BIB.ms.some(m => m.id === id))); pintarBibL(); }
 const bibEst = m => cola.items.some(e => ACT.includes(e.state) && e.mid === m.id) ? "cola" : m.actas ? "listo" : "buscable";
 function pintarBibL() {
   const ms = BIB.ms, ok = m => (!BIB.tipo || m.kind === BIB.tipo) && (BIB.c === "*" || (m.carpeta || "") === BIB.c) && (!BIB.est || bibEst(m) === BIB.est)
@@ -398,7 +429,7 @@ function pintarBibL() {
       el("td", {}, ck), el("td", {}, el("button", {type: "button", className: "doc-l", textContent: m.label, onclick: () => bibVer(m), ondblclick: fallo(() => abrir(m.id))})),
       el("td", {textContent: KIND_T[m.kind] || m.kind || ""}), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: fechaC(m.mtime)}), el("td", {}, badgeT(...ESTT[bibEst(m)])));
     return tr;
-  }));
+  })); escalona($("bib-tb"));
   $("bib-v").hidden = !!vis.length; $("bib-v").textContent = ms.length ? "Nada coincide con los filtros." : "Aún no hay nada. Pulsa «+ Añadir» o suelta archivos en cualquier parte.";
   $("bib-all").checked = vis.length > 0 && vis.every(m => BIB.sel.has(m.id));
   $("bib-all").onchange = () => { vis.forEach(m => $("bib-all").checked ? BIB.sel.add(m.id) : BIB.sel.delete(m.id)); pintarBibL(); };
@@ -411,13 +442,15 @@ function bibEnviar(ids) {  // un envío por documento; los solo buscables no tie
 }
 function bibBulk() {
   const ids = [...BIB.sel], n = ids.length, cs = [...new Set(ids.map(id => BIB.ms.find(m => m.id === id)?.carpeta || ""))];
-  $("bib-bulk").hidden = !n;
-  $("bib-bulk").replaceChildren(el("b", {textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}),
+  $("bib-bulk").hidden = !n; $("bib-h").classList.toggle("sel", !!n);  // la selección sustituye al título
+  $("bib-bulk").replaceChildren(el("button", {type: "button", className: "gh ic", textContent: "✕", ariaLabel: "Quitar selección", title: "Quitar selección (Esc)", onclick: () => { BIB.sel.clear(); pintarBibL(); $("bib-all").focus(); }}),
+    el("b", {textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}), el("span", {className: "grow"}),
     el("button", {type: "button", className: "sec sm", textContent: "Enviar", onclick: () => !window.Enviar ? sinEnviar() : n === 1 ? Enviar.enviar({doc: ids[0]}) : bibEnviar(ids)}),
     el("button", {type: "button", className: "sec sm", textContent: "Añadir a " + nm("carpeta").toLowerCase() + "…", onclick: () => aProyecto(ids)}),
     el("button", {type: "button", className: "sec sm", textContent: "Exportar / descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: ids}) : sinEnviar()}),
-    el("button", {type: "button", className: "link", textContent: "Quitar selección", onclick: () => { BIB.sel.clear(); pintarBibL(); }}));
+  );
 }
+$("v-bib").addEventListener("keydown", e => { if (e.key === "Escape" && BIB.sel.size && (e.target.type === "checkbox" || !editable(e.target))) { BIB.sel.clear(); pintarBibL(); $("bib-all").focus(); } });
 async function bibVer(m) {
   BIB.act = m.id; pintarBibL(); const p = $("bib-p");
   const acc = el("div", {className: "row wrap"}, ...(m.actas ? [el("button", {type: "button", className: "pri sm", textContent: "Abrir", onclick: fallo(() => abrir(m.id))})] : []),
@@ -426,7 +459,7 @@ async function bibVer(m) {
     el("button", {type: "button", className: "sec sm", textContent: "Descargar", onclick: () => window.Descargar ? Descargar.abrir({docs: [m.id]}) : sinEnviar()}),
     el("button", {type: "button", className: "sec sm", textContent: "Renombrar", onclick: () => renombrar(m, p)}), el("button", {type: "button", className: "sec sm", textContent: "Mover", onclick: () => mover(m, p)}));
   p.replaceChildren(el("h2", {textContent: m.label}), el("p", {className: "muted", textContent: [KIND_T[m.kind], m.carpeta || sinC(), fechaC(m.mtime), m.dur ? Math.round(m.dur / 60) + " min" : "", m.actas > 1 ? m.actas + " versiones" : ""].filter(Boolean).join(" · ")}), acc,
-    el("p", {className: "muted", textContent: m.actas ? "Cargando el resumen…" : "Solo buscable: se encuentra con Buscar y Preguntar."}));
+    m.actas ? el("div", {className: "bib-res", "aria-busy": "true"}, ...sk(4)) : el("p", {className: "muted", textContent: "Solo buscable: se encuentra con Buscar y Preguntar."}));
   if (!m.actas) return;
   try {
     const d = await api("/api/meeting/" + m.id), a = d.actas.reduce((x, y) => y.mtime > x.mtime ? y : x), doc = (await api(`/api/doc/${m.id}/${a.name}`)).datos;
@@ -437,15 +470,18 @@ async function bibVer(m) {
 }
 
 // ---------- Pendientes de todos los proyectos ----------
+// marcar hecho (o descartar) no pide confirmación: snackbar con «Deshacer» que lo reabre
+const hechoDeshacer = (c, p, luego, txt = "Hecho") => aviso(txt + ": «" + (p.texto.length > 48 ? p.texto.slice(0, 47) + "…" : p.texto) + "»", {txt: "Deshacer", fn: fallo(async () => {
+  await post("/api/exp/pendientes", {c, id: p.id, estado: "abierto"}); await cargarLista(); fsucio = true; await luego(); })});
 async function pintarPendPag() {
   const cs = Object.keys(RES).filter(c => RES[c]?.pend), w = $("pend-l");
-  w.replaceChildren(el("p", {className: "vacio", textContent: "Cargando…"}));
+  if (!w.querySelector("table")) w.replaceChildren(el("div", {"aria-busy": "true"}, ...sk(5)));
   const its = (await Promise.all(cs.map(c => api("/api/exp/pendientes?" + new URLSearchParams({c, estado: "abierto", orden: "plazo"})).then(r => r.items.filter(p => p.estado === "abierto").map(p => ({...p, c}))).catch(() => []))))
     .flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
   $("pend-f").textContent = its.length ? its.length + " abiertos" : "";
   if (!its.length) return w.replaceChildren(el("p", {className: "vacio", textContent: "No hay pendientes abiertos."}));
   w.replaceChildren(el("table", {}, el("thead", {}, el("tr", {}, ...["Hecho", "Pendiente", cap(nm("carpeta")), "Responsable", "Plazo"].map(t => el("th", {scope: "col", textContent: t})))),
-    el("tbody", {}, ...its.map(p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); pintarPendPag(); })});
+    el("tbody", {}, ...its.map(p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); pintarPendPag(); hechoDeshacer(p.c, p, pintarPendPag); })});
       return el("tr", {className: "f"}, el("td", {}, chk), el("td", {}, p.texto, " ", ...(p.mid ? [fLink(p)] : [])), el("td", {}, el("a", {href: "#/p/" + enc(p.c) + "/pendientes", textContent: p.c || sinC()})), el("td", {textContent: p.resp || ""}),
         el("td", {}, p.vencido ? el("b", {className: "err", textContent: "Vencido"}) : p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")));
     }))));
@@ -472,7 +508,8 @@ function fAuto(c) {  // Proyecto › Ajustes › Automático: sus recetas (al te
     lista.replaceChildren(...(l.length ? l.map(({r, txt}) => { const sw = el("input", {type: "checkbox", checked: !!r.activa, ariaLabel: "Activa: " + (r.nombre || txt), onchange: fallo(async () => { await api("/api/recetas/" + r.id, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({activa: sw.checked})}); fAutoLinea(c); })});
       return el("li", {}, el("label", {className: "check"}, sw, el("span", {}, el("b", {textContent: r.nombre || "Receta"}), el("small", {textContent: txt + (r.proximo_iso ? " · próximo: " + r.proximo_iso.replace("T", " ") : "") + (r.atrasado ? " · atrasado" : "")}))),
         el("span", {className: "grow"}), el("button", {className: "sec sm", textContent: "Enviar ahora", onclick: fallo(async () => { await post("/api/recetas/" + r.id + "/ahora"); aviso("Enviado"); })}),
-        el("button", {className: "sec sm dng", textContent: "Quitar", onclick: fallo(async () => { if (!confirm("¿Quitar la receta «" + (r.nombre || txt) + "»?")) return; await api("/api/recetas/" + r.id, {method: "DELETE"}); carga(); fAutoLinea(c); })}));
+        el("button", {className: "sec sm dng", textContent: "Quitar", onclick: fallo(async () => { await api("/api/recetas/" + r.id, {method: "DELETE"}); carga(); fAutoLinea(c);
+          aviso("Receta «" + (r.nombre || txt) + "» quitada", {txt: "Deshacer", fn: fallo(async () => { const {id, ...x} = r; await post("/api/recetas", x); carga(); fAutoLinea(c); })}); })}));
     }) : [el("li", {className: "muted", textContent: "Sin recetas: nada se envía solo desde este " + nm("carpeta").toLowerCase() + "."})]));
   };
   carga();
@@ -532,8 +569,12 @@ function aProyecto(mids) {
     el("fieldset", {}, el("legend", {textContent: "Cómo"}), el("label", {className: "check"}, mv, el("span", {textContent: "Mover"})), el("label", {className: "check"}, cp, el("span", {textContent: "Copiar (sigue también donde está)"}))),
     el("label", {className: "check"}, env, el("span", {textContent: "Enviar también según las recetas del " + nm("carpeta").toLowerCase()})));
   const ok = el("button", {type: "button", className: "pri", textContent: "Añadir", onclick: fallo(async () => {
+    const antes = mids.map(id => [id, (todas.find(m => m.id === id) || BIB.ms.find(m => m.id === id))?.carpeta || ""]);
     ok.disabled = true; let r; try { r = await post("/api/doc/a-proyecto", {mids, c: s.value, modo: cp.checked ? "copiar" : "mover", enviar: env.checked}); } catch (e) { ok.disabled = false; throw e; } d.close();
-    BIB.sel.clear(); await cargarLista(); sondear(); aviso("Añadido a " + s.value + (r.poblando?.length ? " · extrayendo sus elementos" : "")); if (vistaAct === "bib") pintarBib();
+    BIB.sel.clear(); await cargarLista(); sondear(); if (vistaAct === "bib") pintarBib();
+    const txt = "Añadido a " + s.value + (r.poblando?.length ? " · extrayendo sus elementos" : "");
+    // deshacer = devolver cada documento a su carpeta (lo ya incorporado al proyecto se revisa allí); las copias no se deshacen desde aquí
+    if (cp.checked) aviso(txt); else aviso(txt, {txt: "Deshacer", fn: fallo(async () => { for (const [id, c] of antes) await post("/api/meta", {id, carpeta: c}); await cargarLista(); if (vistaAct === "bib") pintarBib(); else if (vistaAct === "home") pintarHome(); })});
   })});
   f.append(el("span"), el("div", {className: "row"}, el("button", {type: "button", className: "sec", textContent: "Cancelar", onclick: () => d.close()}), ok));
 }
@@ -609,7 +650,8 @@ function ajVigiladas() {
       return el("li", {}, el("label", {className: "check"}, sw, el("span", {}, el("b", {textContent: v.ruta}), el("small", {className: e.error ? "err" : "", textContent: ["→ " + (v.carpeta || sinC()), v.recursivo && "con subcarpetas", v.mover && "mueve a Procesados/",
           e.error || (e.ultima ? "Última revisión " + hace(e.ultima) : "Sin revisar aún"), e.encoladas ? e.encoladas + " en cola" : ""].filter(Boolean).join(" · ")}))),
         el("span", {className: "grow"}), el("button", {className: "sec sm", textContent: "Revisar ahora", onclick: fallo(async () => { await post("/api/vigiladas/" + v.id + "/revisar"); carga(); sondear(); })}),
-        el("button", {className: "sec sm dng", textContent: "Quitar", onclick: fallo(async () => { if (!confirm("¿Dejar de vigilar " + v.ruta + "? No se borra nada.")) return; await api("/api/vigiladas/" + v.id, {method: "DELETE"}); carga(); })}));
+        el("button", {className: "sec sm dng", textContent: "Quitar", onclick: fallo(async () => { await api("/api/vigiladas/" + v.id, {method: "DELETE"}); carga();
+          aviso("Ya no se vigila " + v.ruta + " (no se borra nada)", {txt: "Deshacer", fn: fallo(async () => { await post("/api/vigiladas", {ruta: v.ruta, carpeta: v.carpeta || "", recursivo: !!v.recursivo, mover: !!v.mover, activa: !!v.activa, ...(v.plan ? {plan: v.plan} : {})}); carga(); })}); })}));
     }) : [el("li", {className: "muted", textContent: "Ninguna todavía."})]));
   };
   const rt = el("input", {id: "vg-r", required: true, placeholder: "C:\\Users\\…\\OneDrive\\Grabaciones"}), c = el("select", {id: "vg-c"}, new Option(sinC(), ""), ...carpetas.map(x => new Option(x, x)));

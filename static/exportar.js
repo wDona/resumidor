@@ -7,7 +7,7 @@ function dialogo(titulo, sub, cls = "") {
   const d = el("dialog", {className: "gr " + cls}), b = el("div", {className: "dg-b"}), f = el("div", {className: "dg-f"});
   d.append(el("div", {className: "dg-h"}, el("div", {}, el("h2", {textContent: titulo}), el("div", {className: "muted", textContent: sub})),
     el("button", {type: "button", className: "sec qi", ariaLabel: "Cerrar", textContent: "×", onclick: () => d.close()})), b, f);
-  d.onclose = () => d.remove(); document.body.append(d); d.showModal();
+  d.onclose = () => setTimeout(() => d.remove(), 250); document.body.append(d); d.showModal();  // tras la animación de salida
   return {d, b, f};
 }
 // espera con aviso: si el modelo local está ocupado con otro trabajo, lo dice (/api/aux) en vez de parecer colgado

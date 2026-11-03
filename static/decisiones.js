@@ -45,7 +45,7 @@
     const sustPor = id => S.rels.find(r => r.b === id)?.a, sustA = id => [...new Set(S.rels.filter(r => r.a === id).map(r => r.b))];
 
     async function deshacer() { try { const r = await post("/api/reg/deshacer", {c}); aviso(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); await refrescar(); } catch (x) { err(x); } }
-    async function revisar(ids, accion) { try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobada", restaurar: "Restaurada"}[accion] || "Descartada") + ". Ctrl+Z para deshacer"); await refrescar(); } catch (x) { err(x); } }
+    async function revisar(ids, accion) { try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobada", restaurar: "Restaurada"}[accion] || "Descartada"), {txt: "Deshacer", fn: deshacer}); await refrescar(); } catch (x) { err(x); } }
     async function patch(it, cambios) { try { await api("/api/reg/" + enc(it.id), {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({c, cambios})}); return true; } catch (x) { err(x); return false; } }
     function fusionar(destino, origen) { S.fusion = null; pintar(); regDialogoFusion(c, [porId(destino), porId(origen)], destino, refrescar); }
     async function nueva() {
@@ -59,7 +59,7 @@
       try {
         if (aceptar) {
           await post("/api/reg/relacion", {c, a: r.a, b: r.b, tipo: "sustituye", aplicar: true});
-          aviso("Aceptado: «" + r.b_titulo + "» queda sustituida. Ctrl+Z para deshacer");
+          aviso("Aceptado: «" + r.b_titulo + "» queda sustituida", {txt: "Deshacer", fn: deshacer});
         } else { await api("/api/reg/relacion?" + new URLSearchParams({c, a: r.a, b: r.b, tipo: r.tipo || "sustituye"}), {method: "DELETE"}); aviso("Propuesta rechazada"); }
         await refrescar();
       } catch (x) { err(x); }
@@ -91,7 +91,7 @@
       const es = el("select", {}, ...ESTADOS.map(x => new Option(x, x))); es.value = estado(it);
       const guardar = async () => {
         const cambios = {titulo: t.value.trim() || it.titulo, detalle: d.value, estado: es.value, ...(fe.value ? {fecha_alta: fe.value} : {}), dueno: de.value.trim(), campos: {alternativas: al.value, consecuencias: co.value, decisor: de.value.trim(), fecha: fe.value}};
-        if (await patch(it, cambios)) { S.edit = null; aviso("Guardado. Ctrl+Z para deshacer"); await refrescar(); }
+        if (await patch(it, cambios)) { S.edit = null; aviso("Guardado", {txt: "Deshacer", fn: deshacer}); await refrescar(); }
       };
       return el("form", {className: "dec-edit", onsubmit: ev => { ev.preventDefault(); guardar(); }, onkeydown: ev => { if (ev.key === "Escape") { S.edit = null; pintar(); } }},
         campo("Título", t), campo("Contexto / motivo", d), campo("Alternativas consideradas", al), campo("Consecuencias", co),

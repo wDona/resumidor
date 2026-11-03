@@ -1,6 +1,6 @@
 // Ajustes (General · Modelos · Plantillas · Perfiles de uso), asistente de primer arranque y modo simple. Se carga tras app.js.
 let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Nuevo"},
-  nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true};
+  nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true, ...lsGet("apariencia", {})};
 let GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
 const simple = () => AJ.modo !== "avanzado";
 const nm = k => AJ.nombres[k];
@@ -31,11 +31,25 @@ const usos = () => [...USOS, ...UP.map(propioUso)];
 function aplicar() {
   const c = document.body.classList;
   c.toggle("simple", simple()); c.toggle("avanzado", !simple()); c.toggle("sin-nube", !AJ.nube_visible);
-  $("nueva").textContent = nm("nuevo_boton");  // nombre del perfil de uso («+ Documento», «+ Caso»…)
+  $("nueva-t").textContent = nm("nuevo_boton").replace(/^\+\s*/, "");  // nombre del perfil de uso («+ Documento», «+ Caso»…); el «+» es el icono
+  apariencia();
   if (vistaAct === "home" && typeof todas !== "undefined") pintarHome();
   if (vistaAct === "ajustes" && tabAj === "general") pintarAjustes();
   if (vistaAct === "ajustes" && tabAj === "avanzado") pintarAvanzado();
 }
+
+// apariencia: tema (auto = sistema), densidad y animaciones; se copia en localStorage para aplicarla antes del primer pintado (index.html)
+function apariencia() {
+  const h = document.documentElement, a = {tema: AJ.tema || "auto", densidad: AJ.densidad || "comoda", animaciones: AJ.animaciones || "completas"};
+  if (a.tema === "auto") delete h.dataset.tema; else h.dataset.tema = a.tema;
+  h.dataset.densidad = a.densidad; h.dataset.anim = a.animaciones; lsSet("apariencia", a);
+}
+const APAR = [["tema", "Tema", [["auto", "Automático"], ["claro", "Claro"], ["oscuro", "Oscuro"]]], ["densidad", "Densidad", [["comoda", "Cómoda"], ["compacta", "Compacta"]]],
+  ["animaciones", "Animaciones", [["completas", "Completas"], ["reducidas", "Reducidas"], ["no", "No"]]]];
+const tarjetaApariencia = () => card("Apariencia", el("div", {className: "apar"}, ...APAR.map(([k, t, ops]) => el("div", {}, el("div", {className: "lbl", id: "ap-" + k, textContent: t}),
+  el("div", {className: "seg", role: "radiogroup", "aria-labelledby": "ap-" + k}, ...ops.map(([v, x]) => el("button", {type: "button", role: "radio", "aria-checked": (AJ[k] || ops[0][0]) === v, textContent: x,
+    onclick: fallo(async () => { AJ = {...AJ, [k]: v}; apariencia(); await guardarAj({[k]: v}); document.querySelector(`[aria-labelledby=ap-${k}] [aria-checked=true]`)?.focus(); })})))))),
+  el("small", {textContent: "Automático sigue al sistema. Si el sistema pide menos movimiento, «Completas» se queda en reducidas."}));
 
 // ---- nuevo documento en modo simple: «Tipo» + Rápido/Calidad; el resto es automático ----
 const calidadAuto = () => [...NIV].reverse().find(n => !n.pers && n.id !== "rápida" && n.estado === "ok" && n.instalado)
@@ -104,12 +118,14 @@ $("dc-crear").onclick = () => { $("d-crear").close(); abrirModelos(null, null, t
 const TABS = ["general", "modelos", "plantillas", "enviar", "avanzado"];  // «perfiles» (ruta antigua) -> Avanzado
 let tabAj = "general";
 function abrirAjustes(t = "general", sub) {
+  const antes = vistaAct === "ajustes" ? tabAj : null;
   tabAj = t === "perfiles" ? "avanzado" : TABS.includes(t) ? t : "general";
   const h = "#/ajustes/" + tabAj; if (location.hash !== h) history.pushState(null, "", h);
   vista("ajustes"); history.replaceState(null, "", h);
   document.querySelectorAll("#aj-tabs a").forEach(a => { const on = a.dataset.t === tabAj; a.setAttribute("aria-selected", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); });
   for (const x of TABS) $({general: "aj-general", modelos: "aj-modelos", plantillas: "aj-plant", enviar: "aj-enviar", avanzado: "aj-avanzado"}[x]).hidden = x !== tabAj;
   $("aj-perfiles").hidden = tabAj !== "avanzado";
+  if (antes && antes !== tabAj) ejeX(document.querySelector("#v-ajustes .page"), Math.sign(TABS.indexOf(tabAj) - TABS.indexOf(antes)));
   document.title = "Ajustes · Actas";
   if (tabAj === "general") pintarAjustes(); else if (tabAj === "modelos") pintarTabModelos(); else if (tabAj === "plantillas") pintarTabPlant(sub);
   else if (tabAj === "enviar") window.Enviar ? Enviar.montar($("aj-enviar")) : $("aj-enviar").replaceChildren(el("p", {className: "muted", textContent: "El módulo de envío no está disponible."}));
@@ -137,6 +153,7 @@ function pintarAjustes() {
       el("h4", {textContent: "Tipos de documento que se ofrecen al crear"}),
       el("div", {className: "perfiles"}, ...PL.map(t => chk2(t.nombre, AJ.perfil_uso.includes(t.id), async v => {
         const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id); if (!l.length) { aviso("Debe quedar al menos un tipo"); return pintarAjustes(); } await guardarAj({perfil_uso: l}); })))),
+    tarjetaApariencia(),
     card("Nombres", el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     card("Privacidad", ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
       chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")),
@@ -163,7 +180,7 @@ function pintarAvanzado() {
       el("div", {className: "row"}, el("button", {className: "sec", textContent: "Guardar modelo de visión", onclick: fallo(() => guardarAj({vision: {url: url.value.trim(), modelo: mod.value.trim()}}))}))),
     card("Enlaces", chk2("Permitir enlaces a la red local", !!AJ.enlaces_red_local, v => guardarAj({enlaces_red_local: v}), "Deja procesar enlaces a equipos de tu red (NAS, intranet, 192.168…). Apagado por seguridad.")));
   if (typeof ajMcp === "function") $("aj-av").append(ajMcp());  // shell.js
-  if (focoModo) { focoModo = false; document.querySelector("#modo-g input:checked")?.focus(); }
+  if (focoModo) { focoModo = false; vistaLista.then(() => document.querySelector("#modo-g input:checked")?.focus()); }
 }
 
 // ---- Ajustes › Perfiles de uso (CRUD sobre /api/perfiles-uso) ----

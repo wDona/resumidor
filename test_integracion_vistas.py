@@ -90,3 +90,12 @@ def test_urls_js_tienen_ruta(cl):
                 sin.add(u)
     print("JS->ruta sin coincidencia:", sorted(sin))
     assert sin <= SIN_RUTA_OK, sin
+
+
+def test_ajustes_apariencia(cl):
+    t, _ = cl
+    assert t.get("/api/ajustes").json()["tema"] == "auto"
+    a = t.post("/api/ajustes", json={"tema": "oscuro", "densidad": "compacta", "animaciones": "no"}).json()
+    assert (a["tema"], a["densidad"], a["animaciones"]) == ("oscuro", "compacta", "no")
+    a = t.post("/api/ajustes", json={"tema": "rosa", "densidad": 3, "animaciones": None}).json()  # valores no válidos: se ignoran
+    assert (a["tema"], a["densidad"], a["animaciones"]) == ("oscuro", "compacta", "no")

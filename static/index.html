@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Actas</title>
 <link rel="icon" href="data:,">
+<!-- apariencia antes del primer pintado (espejo local de /api/ajustes: tema, densidad, animaciones) -->
+<script>try{const a=JSON.parse(localStorage.getItem("apariencia"))||{},h=document.documentElement;if(a.tema&&a.tema!=="auto")h.dataset.tema=a.tema;h.dataset.densidad=a.densidad||"comoda";h.dataset.anim=a.animaciones||"completas"}catch(e){}</script>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="vistas-requisitos.css">
 <link rel="stylesheet" href="vistas-historias.css">
@@ -28,7 +30,7 @@
   <span class="grow"></span>
   <button class="pill" id="b-cola" aria-controls="v-cola"><span class="qring" aria-hidden="true"></span><span><strong>Cola</strong><span class="t2" id="cola-txt"></span></span></button>
   <button class="btn sec" id="b-importar" title="Abrir un documento exportado (.zip)" hidden>Importar</button>
-  <button class="btn pri" id="nueva">+ Añadir</button>
+  <button class="btn pri" id="nueva" aria-keyshortcuts="n" title="Añadir (N)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="fab-t" id="nueva-t">Añadir</span></button>
   <button class="btn sec ic" id="b-ajustes" aria-label="Ajustes" title="Ajustes">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </div></header>
@@ -49,6 +51,7 @@
           <div class="row wrap hd-acc"><button type="button" class="pri" id="h-elegir">Elegir archivos</button><button type="button" class="sec" id="h-pegar">Pegar captura</button><button type="button" class="sec" id="h-grabar">Grabar reunión</button></div>
           <p class="hd-rec" id="h-receta"></p>
         </section>
+        <section class="sug" id="h-sug" aria-label="Sugerencias"></section>
         <nav class="flujo" id="h-flujo" aria-label="Flujo: añadir, procesar, revisar, enviar"></nav>
         <div class="h-fila">
           <section class="box" id="h-cont" hidden aria-labelledby="h-cont-t"><div class="sec-h"><h2 id="h-cont-t">Continúa</h2><a href="#/biblioteca">Ver biblioteca</a></div><div class="h-cl" id="h-cont-l"></div></section>
@@ -83,9 +86,8 @@
 
   <!-- ===== Biblioteca ===== -->
   <section id="v-bib" class="page" hidden aria-labelledby="bib-t">
-    <div class="sec-h bib-h"><h1 id="bib-t">Biblioteca</h1><span class="muted" id="bib-n"></span></div>
+    <div class="sec-h bib-h" id="bib-h"><h1 id="bib-t">Biblioteca</h1><span class="muted" id="bib-n"></span><div class="bib-bulk" id="bib-bulk" hidden role="region" aria-label="Acciones con la selección"></div></div>
     <div class="bib-f" id="bib-f"></div>
-    <div class="bib-bulk" id="bib-bulk" hidden role="region" aria-label="Acciones con la selección"></div>
     <div class="bib-g"><div class="tabla bib-l"><table><thead><tr><th scope="col"><input type="checkbox" id="bib-all" aria-label="Seleccionar todo"></th><th scope="col">Documento</th><th scope="col">Tipo</th><th scope="col">Proyecto</th><th scope="col">Fecha</th><th scope="col">Estado</th></tr></thead><tbody id="bib-tb"></tbody></table><div class="vacio" id="bib-v" hidden></div></div>
       <aside class="bib-p box" id="bib-p" aria-label="Vista previa" aria-live="polite"><p class="muted">Elige un documento para ver su resumen y sus acciones.</p></aside></div>
   </section>

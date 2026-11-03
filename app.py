@@ -1064,7 +1064,10 @@ def anon_defecto(mid):
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
 AJ_DEF = {"modo": "simple", "uso": ["empresa"], "perfil_uso": ["acta", "onboarding", "comercial"], "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Nuevo"},
           "nube_visible": True, "anonimizar_defecto": False, "idioma_interfaz": "es", "poblar_auto": True,
-          "nube_imagenes": False, "describir_capturas": False, "enlaces_red_local": False, "vision": {}}  # vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
+          "nube_imagenes": False, "describir_capturas": False, "enlaces_red_local": False, "vision": {},
+          "tema": "auto", "densidad": "comoda", "animaciones": "completas"}  # apariencia (Ajustes › General); vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
+
+AJ_APARIENCIA = {"tema": ("auto", "claro", "oscuro"), "densidad": ("comoda", "compacta"), "animaciones": ("completas", "reducidas", "no")}
 
 
 def _ajustes():
@@ -1089,6 +1092,9 @@ def post_ajustes(d: dict):
         a["modo"] = d["modo"]
     for k in ("nube_visible", "anonimizar_defecto", "poblar_auto", "nube_imagenes", "describir_capturas", "enlaces_red_local"):
         if isinstance(d.get(k), bool):
+            a[k] = d[k]
+    for k, ok in AJ_APARIENCIA.items():
+        if d.get(k) in ok:
             a[k] = d[k]
     if isinstance(d.get("vision"), dict):  # servidor de visión (LM Studio, Ollama…): {} lo quita
         v = {k: str(d["vision"].get(k) or "").strip()[:300] for k in ("url", "modelo")}

@@ -81,8 +81,11 @@ formNuevo = function (m, a) {
   if (c) api("/api/exp?c=" + encodeURIComponent(c)).then(e => { if (e.ajustes.idioma && !m) { $("idioma").value = e.ajustes.idioma; $("idioma").onchange(); } }).catch(() => {});
 };
 
+const FORDEN = ["resumen", "documentos", "revision", ...FEXT.map(([k]) => k), "informe", "preguntar", ...Object.keys(FMAS)];
+let fPintado = {c: null, tab: null};  // lo último pintado: dirección del eje X entre pestañas
 async function fRender() {
   const c = fuC, n = ++fseq, p = $("f-panel");
+  if (fPintado.c !== c) p.replaceChildren(el("div", {className: "card", "aria-busy": "true"}, ...sk(3)), el("div", {className: "card", "aria-hidden": "true"}, ...sk(5)));
   if (p.contains($("qpanel"))) { $("qpanel").hidden = true; document.querySelector("main").append($("qpanel")); }  // el panel de preguntas se conserva al cambiar de pestaña
   try {
     const e = await api("/api/exp?c=" + encodeURIComponent(c)); fPend = e.pend || 0;
@@ -91,6 +94,8 @@ async function fRender() {
     const nodos = await ({documentos: async () => [], resumen: tResumen, revision: tRevision, requisitos: tVista, historias: tVista, interesados: tVista, decisiones: tVista, riesgos: tVista, preguntas: tVista, hitos: tVista, informe: tVista, pendientes: tPendientes, linea: tLinea, preguntar: tPreguntar, comparar: tComparar, ajustes: tAjustes})[ftab](c, e, ftab);
     if (n !== fseq) return;
     p.replaceChildren(...nodos);
+    const dir = fPintado.c === c && fPintado.tab !== ftab ? Math.sign(FORDEN.indexOf(ftab) - FORDEN.indexOf(fPintado.tab)) : 0; fPintado = {c, tab: ftab};
+    ejeX(ftab === "documentos" ? $("docs-w") : p, dir);
     const pl_ = PL.find(t => t.id === e.perfil);
     $("fsub").textContent = [e.tipo, pl_ && "Perfil: " + pl_.nombre, ...e.datos.slice(0, 2).map(d => d.v), plural(e.n_docs), e.pend ? e.pend + (e.pend === 1 ? " pendiente" : " pendientes") : ""].filter(Boolean).join(" · ");
     $("docs-w").hidden = ftab !== "documentos"; fAutoLinea(c);
@@ -110,7 +115,7 @@ async function homePend() {
   const its = rs.flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
   $("h-pend").hidden = !its.length; $("h-pend-n").textContent = its.length > 5 ? "Ver los " + its.length : "Ver todos";
   $("h-pend-l").replaceChildren(...its.slice(0, 5).map(p => {
-    const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); })});
+    const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); hechoDeshacer(p.c, p, () => vistaAct === "home" && pintarHome()); })});
     const f = p.vencido ? el("b", {className: "hp-f err", textContent: "Vencido"}) : el("span", {className: "hp-f" + (p.pronto ? " w" : ""), textContent: p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")});
     return el("li", {}, chk, el("div", {className: "hp-t"}, el("span", {textContent: p.texto}),
       el("small", {}, el("a", {href: "#", textContent: p.c, onclick: e => { e.preventDefault(); fsel = p.c; ftab = "pendientes"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}), p.resp ? " · " + p.resp : "")), f);
@@ -194,11 +199,11 @@ async function tPendientes(c, e) {
 }
 function filaPend(c, p) {
   const chk = el("input", {type: "checkbox", checked: p.estado !== "abierto", ariaLabel: p.estado === "abierto" ? "Marcar hecho: " + p.texto : "Reabrir: " + p.texto});
-  chk.onchange = fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: chk.checked ? "hecho" : "abierto"}); await fRe(); });
+  chk.onchange = fallo(async () => { const h = chk.checked; await post("/api/exp/pendientes", {c, id: p.id, estado: h ? "hecho" : "abierto"}); await fRe(); if (h) hechoDeshacer(c, p, fRe); });
   const sg = p.sugerido && p.estado === "abierto" ? p.sugerido : null;
   const plazo = p.vencido ? [el("b", {className: "err", textContent: "Vencido"}), " " + (p.plazo || fFecha(p.fecha))] : p.pronto ? [el("span", {className: "badge w", textContent: "Vence pronto"}), " " + (p.plazo || fFecha(p.fecha))] : [p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")];
   const acc = [];
-  if (p.estado === "abierto") acc.push(el("button", {className: "link", textContent: "Descartar", ariaLabel: "Descartar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: "descartado"}); await fRe(); })}));
+  if (p.estado === "abierto") acc.push(el("button", {className: "link", textContent: "Descartar", ariaLabel: "Descartar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, estado: "descartado"}); await fRe(); hechoDeshacer(c, p, fRe, "Descartado"); })}));
   if (p.manual) acc.push(el("button", {className: "link", textContent: "Quitar", ariaLabel: "Quitar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, borrar: true}); await fRe(); })}));
   return el("div", {className: "pr" + (sg ? " sug" : "") + (p.estado !== "abierto" ? " cerr" : ""), "data-id": p.eid || p.id}, el("span", {className: "pc"}, chk),
     el("span", {className: "pt"}, el("span", {className: p.estado === "abierto" ? "" : "tach", textContent: p.texto}), " ", el("small", {className: "tipo", textContent: p.tipo}),

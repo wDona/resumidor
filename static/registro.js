@@ -123,7 +123,7 @@ function registroTabla(host, o) {
   const trasRevisar = () => { S.sel.clear(); if (o.trasRevisar) return o.trasRevisar(); regContadores(c); cambio(); return cargar(); };
   const revisar = async (ids, accion, cambios) => {
     if (!ids.length) return;
-    try { await post("/api/reg/revisar", {c, ids, accion, ...(cambios ? {cambios} : {})}); aviso(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length + ". Ctrl+Z para deshacer"); await trasRevisar(); } catch (e) { regAviso(e); }
+    try { await post("/api/reg/revisar", {c, ids, accion, ...(cambios ? {cambios} : {})}); aviso(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length, {txt: "Deshacer", fn: deshacer}); await trasRevisar(); } catch (e) { regAviso(e); }
   };
   const porId = id => S.items.find(x => x.id === id);
   const fusionar = (destino, origenes) => { if (destino && origenes.length) regDialogoFusion(c, [destino, ...origenes].map(porId), destino, trasRevisar); };
@@ -242,7 +242,7 @@ async function registroBandeja(host, c, onChange) {
   try { b = await api("/api/reg/bandeja?c=" + encodeURIComponent(c)); } catch (e) { host.replaceChildren(raiz); raiz.append(el("p", {className: "err", textContent: e.message})); return; }
   const grupos = {};
   for (const p of b.propuestos || []) (grupos[p.tipo] ||= []).push(p);
-  const aprobar = async ids => { try { await post("/api/reg/revisar", {c, ids, accion: "aprobar"}); aviso("Aprobado · " + ids.length + ". Ctrl+Z para deshacer"); rec(); } catch (e) { regAviso(e); } };
+  const aprobar = async ids => { try { await post("/api/reg/revisar", {c, ids, accion: "aprobar"}); aviso("Aprobado · " + ids.length, {txt: "Deshacer", fn: deshacer}); rec(); } catch (e) { regAviso(e); } };
   const todos = (b.propuestos || []).map(p => p.id);
   let pasada = null;  // último lote de IA (poblar/derivar) más reciente
   try { const e = await Promise.all(["poblar", "derivar"].map(k => api("/api/reg/" + k + "/estado?c=" + encodeURIComponent(c)))); pasada = e.map(x => x.ultimo).filter(u => u && u.lote).sort((x, y) => y.t - x.t)[0] || null; } catch (e) { /* sin estado: sin botón */ }
@@ -264,7 +264,7 @@ async function registroBandeja(host, c, onChange) {
   if ((b.sugerencias || []).length) raiz.append(el("section", {className: "card"}, el("div", {className: "sec-h"}, el("h3", {textContent: "Sugerencias de seguimiento · " + b.sugerencias.length})),
     el("ul", {className: "f-lst"}, ...b.sugerencias.map(s => {
       const g = s.sugerencia || {}, ci = g.cita ? [" «" + g.cita + "» ", ...(g.mid ? [fLink({mid: g.mid, ver: g.ver, t: g.t}, "[" + mmss(g.t || 0) + "]"), " "] : [])] : [" "];
-      const res = accion => async () => { try { await post("/api/reg/" + encodeURIComponent(s.id) + "/sugerencia", {c, accion}); aviso((accion === "aceptar" ? "Aceptada" : "Rechazada") + ". Ctrl+Z para deshacer"); rec(); } catch (e) { regAviso(e); } };
+      const res = accion => async () => { try { await post("/api/reg/" + encodeURIComponent(s.id) + "/sugerencia", {c, accion}); aviso((accion === "aceptar" ? "Aceptada" : "Rechazada"), {txt: "Deshacer", fn: deshacer}); rec(); } catch (e) { regAviso(e); } };
       return el("li", {}, (s.titulo || "") + " ", el("span", {className: "badge w", textContent: g.tipo === "hecho" ? "Propone: hecho" : "Propone: actualizado (nota)"}), ...ci,
         el("button", {className: "sec sm", textContent: "Aceptar", onclick: res("aceptar")}), el("button", {className: "link", textContent: "Rechazar", onclick: res("rechazar")}));
     }))));

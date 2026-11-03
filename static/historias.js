@@ -68,7 +68,7 @@
       catch (x) { Object.assign(it, prev); err(x); return false; }
       finally { if (!opt.sinPintar) pintar(); }
     }
-    const revisar = async (ids, accion) => { try { await post("/api/reg/revisar", {c, ids, accion}); aviso((accion === "aprobar" ? "Aprobada" : "Descartada") + ". Ctrl+Z para deshacer"); panel.hidden = true; await cargar(); } catch (x) { err(x); } };
+    const revisar = async (ids, accion) => { try { await post("/api/reg/revisar", {c, ids, accion}); aviso((accion === "aprobar" ? "Aprobada" : "Descartada"), {txt: "Deshacer", fn: deshacer}); panel.hidden = true; await cargar(); } catch (x) { err(x); } };
     const deshacer = async () => { try { const r = await post("/api/reg/deshacer", {c}); aviso(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); await cargar(); } catch (x) { err(x); } };
     const aRequisito = () => { ftab = "requisitos"; lsSet("ftab", ftab); fsucio = true; pintarHome(); };
 
@@ -142,7 +142,7 @@
       const est = el("select", {ariaLabel: "Estado"}, ...ESTADOS.map(x => new Option(x, x))); est.value = ESTADOS.includes(it.estado) ? it.estado : "backlog"; est.onchange = () => d.estado = est.value;
       const guardar = async () => {
         const campos = {...cm(it), ...d.k, criterios: d.cr}, ok = await patch(it, {titulo: d.titulo, estado: d.estado, campos}, {sinPintar: true});
-        if (ok) { aviso("Guardado. Ctrl+Z para deshacer"); panel.hidden = true; pintar(); } else pintar();
+        if (ok) { aviso("Guardado", {txt: "Deshacer", fn: deshacer}); panel.hidden = true; pintar(); } else pintar();
       };
       panel.hidden = false;
       panel.replaceChildren(el("div", {className: "sec-h"}, el("h3", {textContent: (it.codigo || "") + " · historia"}), el("button", {className: "sec sm", textContent: "Cerrar", onclick: () => panel.hidden = true})),

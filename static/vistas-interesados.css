@@ -1,6 +1,5 @@
 /* Estilos de la vista «interesados» (cargada por static/interesados.js). Espaciado: escala --s1..--s6 de app.css. */
-.int{--q-gc:#e3edfb;--q-ms:#fbf1dc;--q-mi:#e2f2e8;--q-mon:#eef0f3;--q-ln:#8a96a3;position:relative;display:flex;flex-direction:column;gap:var(--s3)}
-@media(prefers-color-scheme:dark){.int{--q-gc:#1c2a3f;--q-ms:#2f2918;--q-mi:#19301f;--q-mon:#22262d;--q-ln:#6b7785}}
+.int{--q-gc:light-dark(#e3edfb,#1c2a3f);--q-ms:light-dark(#fbf1dc,#2f2918);--q-mi:light-dark(#e2f2e8,#19301f);--q-mon:light-dark(#eef0f3,#22262d);--q-ln:light-dark(#8a96a3,#6b7785);position:relative;display:flex;flex-direction:column;gap:var(--s3)}
 .int-head{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}.int-head .sec-h{margin-right:auto}.int-head input[type=text]{min-height:40px;flex:0 1 220px;min-width:140px}
 .int-sum{list-style:none;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;padding:0 var(--s4);border:1px solid var(--inp);border-radius:var(--r);background:var(--card)}.int-sum::-webkit-details-marker{display:none}
 .int-menu{position:relative}.int-pop{position:absolute;right:0;top:100%;z-index:20;margin-top:var(--s1);min-width:240px;padding:var(--s3);background:var(--card);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow)}

@@ -83,7 +83,7 @@
     }
     const revisar = async (ids, accion) => {
       if (!ids.length) return;
-      try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length + ". Ctrl+Z para deshacer"); S.sel.clear(); await cargar(); } catch (x) { err(x); }
+      try { await post("/api/reg/revisar", {c, ids, accion}); aviso(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length, {txt: "Deshacer", fn: deshacer}); S.sel.clear(); await cargar(); } catch (x) { err(x); }
     };
     const fusionar = (destino, origenes) => regDialogoFusion(c, [destino, ...origenes].map(id => S.all.find(x => x.id === id)), destino, async () => { S.sel.clear(); await cargar(); });
     const deshacer = async () => { try { const r = await post("/api/reg/deshacer", {c}); aviso(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); await cargar(); } catch (x) { err(x); } };

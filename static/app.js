@@ -98,12 +98,40 @@ let qBuscar = "";
 let vistaAct = "home";
 const VISTAS = ["home", "grabar", "cola", "res", "preg", "ajustes", "uso", "bib", "pend", "enviar", "buscar"];
 // «nuevo» es la hoja Añadir (<dialog>): se abre encima de la vista actual
+// movimiento (UI-RONDAS.md): animOk() según Ajustes › Apariencia; anima() reinicia una clase de animación CSS y la quita al acabar
+const animOk = () => document.documentElement.dataset.anim !== "no";
+const anima = (n, cls, ms = 450) => { if (!n || !animOk()) return; n.classList.remove(cls); void n.offsetWidth; n.classList.add(cls); clearTimeout(n["t_" + cls]); n["t_" + cls] = setTimeout(() => n.classList.remove(cls), ms); };
+const ejeX = (n, dir) => dir && anima(n, dir > 0 ? "ax-d" : "ax-i");  // pestañas: entra desde la derecha (dir > 0) o la izquierda
+let vistaT = 0;  // al entrar en una vista sus listas se escalonan (una vez, no en cada repintado)
+const escalona = (n, siempre) => (siempre || performance.now() - vistaT < 1200) && anima(n, "stg", 800);
+const sk = (n = 3) => Array.from({length: n}, (_, i) => el("span", {className: "sk" + (i % 3 === 2 ? " w6" : "")}));  // esqueleto: n líneas
+// rutas: fade-through con View Transitions (sin ellas, solo la entrada); el estado cambia ya y el pintado va en la transición:
+// lo que necesite la vista ya visible (foco, medidas) espera a vistaLista
+let vistaLista = Promise.resolve();
+function transicion(f) {
+  if (!animOk() || document.hidden) return f();
+  if (!document.startViewTransition) { f(); return anima(document.querySelector("main"), "m-ft", 260); }
+  const h = document.documentElement, t = document.startViewTransition(f); h.classList.add("vt");
+  vistaLista = t.updateCallbackDone.catch(() => {}); t.finished.finally(() => h.classList.remove("vt"));
+}
 const vista = v => { if (v === "nuevo") { if (!$("v-nuevo").open) $("v-nuevo").showModal(); return; } if ($("v-nuevo").open) $("v-nuevo").close();
-  vistaAct = v; VISTAS.forEach(n => $("v-" + n).hidden = n !== v); scrollTo(0, 0);
+  const cambia = v !== vistaAct; vistaAct = v;
+  const pinta = () => { VISTAS.forEach(n => $("v-" + n).hidden = n !== vistaAct); scrollTo(0, 0); typeof ubicar === "function" && ubicar(); };
+  if (cambia) { vistaT = performance.now(); transicion(pinta); } else pinta();
   document.title = "Actas"; if (v !== "res" && v !== "preg") mpCerrar(); typeof rutaSync === "function" && rutaSync(); };
-const ir = v => { if (v === "home") pintarHome(); vista(v); };
-// aviso(texto, {txt, fn}?): con acción (p. ej. «Deshacer») el toast lleva un botón y dura más
-const aviso = (t, acc) => { const n = $("toast") || document.body.appendChild(el("div", {id: "toast", role: "status"})); n.replaceChildren(t, ...(acc ? [" · ", el("button", {type: "button", className: "link", textContent: acc.txt, onclick: () => { n.hidden = true; acc.fn(); }})] : [])); n.hidden = false; clearTimeout(aviso.t); aviso.t = setTimeout(() => n.hidden = true, acc ? 8000 : 3500); };
+const ir = v => { if (v !== vistaAct) vistaT = performance.now(); if (v === "home") pintarHome(); vista(v); };
+// aviso(texto, {txt, fn}?): snackbar abajo (capa superior, también sobre diálogos). Con acción («Deshacer») dura 6 s; el ratón o el foco encima lo pausan
+const aviso = (t, acc) => {
+  let n = $("toast");
+  if (!n) { n = document.body.appendChild(el("div", {id: "toast", role: "status", "aria-live": "polite"})); if (n.showPopover) n.popover = "manual";
+    const pausa = () => clearTimeout(aviso.t), sigue = () => { if (!n.matches(":hover, :focus-within")) avisoT(n, 2500); };
+    n.addEventListener("mouseenter", pausa); n.addEventListener("focusin", pausa); n.addEventListener("mouseleave", sigue); n.addEventListener("focusout", () => setTimeout(sigue)); }
+  n.replaceChildren(el("span", {textContent: t}), ...(acc ? [el("button", {type: "button", className: "link", textContent: acc.txt, onclick: () => { avisoFuera(n); acc.fn(); }})] : []));
+  n.classList.remove("fuera"); n.hidden = false; if (n.popover) { if (n.matches(":popover-open")) n.hidePopover(); n.showPopover(); }
+  avisoT(n, acc ? 6000 : 3500);
+};
+const avisoT = (n, ms) => { clearTimeout(aviso.t); aviso.t = setTimeout(() => avisoFuera(n), ms); };
+const avisoFuera = n => { clearTimeout(aviso.t); n.classList.add("fuera"); aviso.t = setTimeout(() => { n.classList.remove("fuera"); n.popover && n.matches(":popover-open") ? n.hidePopover() : n.hidden = true; }, animOk() ? 200 : 0); };
 const irInicio = () => { fsel = undefined; ir("home"); };
 $("inicio").onclick = e => { e.preventDefault(); irInicio(); };
 $("cola-volver").onclick = e => { e.preventDefault(); ir("home"); };
@@ -269,7 +297,8 @@ function enLinea(donde, {valor, lista, texto, boton = "Guardar"}, hecho) {
 const renombrar = (m, donde) => enLinea(donde, {valor: m.nombre || m.label, texto: "Nombre (vacío = el original)"},
   async n => { await post("/api/meta", {id: m.id, nombre: n}); await refrescarTodo(); });
 const mover = (m, donde) => enLinea(donde, {valor: m.carpeta || "", lista: carpetas, texto: cap(nm("carpeta").toLowerCase()) + " (nueva o existente; vacío = " + sinC().toLowerCase() + ")", boton: "Mover"},
-  async c => { await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo(); });
+  async c => { const antes = m.carpeta || ""; if (c === antes) return; await post("/api/meta", {id: m.id, carpeta: c}); await refrescarTodo();
+    aviso("Movido a «" + (c || sinC()) + "»", {txt: "Deshacer", fn: fallo(async () => { await post("/api/meta", {id: m.id, carpeta: antes}); await refrescarTodo(); typeof BIB !== "undefined" && vistaAct === "bib" && pintarBib(); })}); });
 const carpetaOp = (nombre, borrar, donde) => enLinea(donde, borrar ? {texto: "Se quita «" + nombre + "»: los " + pl(nm("documento")) + " pasan a «" + sinC() + "» y no se borran.", boton: "Quitar"}
   : {valor: nombre, texto: "Nuevo nombre"}, async nuevo => {
     if (!borrar && (!nuevo || nuevo === nombre)) return;
@@ -377,16 +406,17 @@ async function abrir(id, acta, quedar) {
 const SOLO_OCULTOS = ["d-env-w", "d-editar", "d-correo", "d-anon", "d-otra", "d-vren", "d-dud", "d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"];
 function soloUI(on) { SOLO_OCULTOS.forEach(i => { if (on || !["d-rest", "fondo", "dl-zip", "dl-vid", "d-cond"].includes(i)) $(i).hidden = on; }); $("d-resumir").hidden = !on; $("d-mas").open = false; }
 $("d-resumir").onclick = $("solo-resumir").onclick = () => formNuevo(cur.m, {asr: cur.asr, nivel: "normal", calidad: "rápida"});
-const tab = p => {
+const tab = (p, dir = 0) => {  // dir: eje X al cambiar de pestaña a mano (−1 izquierda, 1 derecha)
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   const vacio = cur.solo && (p === "p-acta" || p === "p-ext"); $("solo-vacio").hidden = !vacio; if (vacio) $(p).hidden = true;
   ubicar();
   if (p === "p-video" && typeof notasRes === "function") notasRes();
   docTab(p);  // Extraído y Fuente: shell.js
+  ejeX($(p), dir);
   if (p === "p-preg") { $("p-preg-m").append($("qpanel")); $("qbox").hidden = !cur.video; const a = cur.actas.find(a => a.name === ver) || {asr: cur.asr}; setQ(cur.id + "|" + a.asr); $("preguntar-b").disabled = $("pregunta").disabled = !!a.sin; $("pregunta").placeholder = a.sin ? "Documento importado sin transcripción: no se puede preguntar" : "Escribe tu pregunta…"; ubicar(); }
 };
-document.querySelectorAll("#mtabs button").forEach(b => b.onclick = () => tab(b.dataset.p));
+document.querySelectorAll("#mtabs button").forEach((b, i, bs) => b.onclick = () => tab(b.dataset.p, Math.sign(i - [...bs].findIndex(x => x.dataset.p === tabAct))));
 function pintarVers() {
   const a = cur.actas.find(a => a.name === ver), ren = el("button", {className: "sec sm", textContent: "Renombrar versión", title: "Renombrar esta versión"}), otra = el("button", {className: "sec sm", textContent: "+ Otra versión"});
   ren.onclick = () => enLinea($("ed-res"), {valor: etiqueta(a), texto: "Nombre de la versión (vacío = el original)"}, async n => {

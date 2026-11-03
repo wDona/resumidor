@@ -56,7 +56,7 @@
     zMx.append(zMxH, el("p", {className: "muted int-leg", textContent: "Borde discontinuo = propuesto por la IA, pendiente de revisar"}), zMxB);
     raiz.append(zHead, zBan, zBar, zAcc, el("div", {className: "int-main"}, zMx, zTb), zFi);
     const cambio = () => { typeof fCargaReg === "function" && fCargaReg(c, e && e.tipo); };
-    const aviso_ = m => aviso(m);
+    const aviso_ = (m, a) => aviso(m, a);
     const err = x => aviso_(x.message || String(x));
     const PATCH = (id, cambios) => api("/api/reg/" + encodeURIComponent(id), {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({c, cambios})});
 
@@ -81,7 +81,7 @@
       const nuevo = {...cambios}; if (cambios.campos) nuevo.campos = {...(it.campos || {}), ...cambios.campos};
       const antes = {titulo: it.titulo, detalle: it.detalle, campos: {...(it.campos || {})}, editado: it.editado};
       Object.assign(it, nuevo); it.editado = true; refrescar(src);
-      try { Object.assign(it, await PATCH(it.id, cambios)); cambio(); if (msg) aviso_(msg + " Ctrl+Z para deshacer"); }
+      try { Object.assign(it, await PATCH(it.id, cambios)); cambio(); if (msg) aviso_(msg, {txt: "Deshacer", fn: deshacer}); }
       catch (x) { Object.assign(it, antes); err(x); }
       refrescar(src);
     }
@@ -93,7 +93,7 @@
     const mover = (id, p, i) => { const it = byId(id); if (it && (pw(it.campos?.poder) !== p || iw(it.campos?.interes) !== i)) { S.foco = id; return guardar(it, {campos: {poder: p ?? "", interes: i ?? ""}}, "", p == null ? "Sacado de la matriz." : "Movido a " + posTxt(p, i) + "."); } };
     const revisar = async (ids, accion) => {
       if (!ids.length) return;
-      try { await post("/api/reg/revisar", {c, ids, accion}); aviso_(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length + ". Ctrl+Z para deshacer"); S.sel.clear(); cambio(); await cargar(); } catch (x) { err(x); }
+      try { await post("/api/reg/revisar", {c, ids, accion}); aviso_(({aprobar: "Aprobado", restaurar: "Restaurado"}[accion] || "Descartado") + " · " + ids.length, {txt: "Deshacer", fn: deshacer}); S.sel.clear(); cambio(); await cargar(); } catch (x) { err(x); }
     };
     const fusionar = (destino, origenes) => { if (destino && origenes.length) regDialogoFusion(c, [destino, ...origenes].map(byId), destino, async () => { S.sel.clear(); cambio(); await cargar(); }); };
     const trasSeparar = async () => { cambio(); await cargar(); };
