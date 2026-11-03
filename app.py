@@ -666,7 +666,8 @@ def _poblar_fn(d):
         if r.get("req_nuevos"):  # F5: tras la pasada (automática o «Regenerar con IA»), historias de los requisitos nuevos (trabajo aparte en la cola)
             start("derivar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": c, "ids": r["req_nuevos"], **({"auto": True} if d.get("auto") else {})}, c)
         if d.get("mid"):
-            destinos.tras_poblar(c, d["mid"], d.get("plan"))
+            if not d.get("sin_recetas"):  # «Añadir a proyecto» sin «enviar también»
+                destinos.tras_poblar(c, d["mid"], d.get("plan"))
         return {"carpeta": c, **{k: r[k] for k in ("creadas", "citas", "llamadas")}}
     return fn
 
@@ -1791,6 +1792,8 @@ def reg_poblar_estado(c: str):
 
 
 # ---------- F5: derivar historias + Gherkin + preguntas de los requisitos (derivar.py, op «derivar») ----------
+import importar_registro  # noqa: E402
+importar_registro.montar(sys.modules[__name__], app)  # /api/reg/importar/* y /api/doc/a-proyecto
 import derivar  # noqa: E402
 
 
