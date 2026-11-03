@@ -38,6 +38,8 @@ import enlaces
 import export_registro
 import exportar
 import destinos
+import mcp_servidor
+import vigiladas
 import grabar
 import plantillas
 import poblar
@@ -2392,7 +2394,7 @@ def ping():
     return "actas"
 
 
-def _encolar(rutas, c="", recursivo=False):
+def _encolar(rutas, c="", recursivo=False, plan=None):
     """«Enviar a → Actas» / menú contextual: encola vídeos, audios y transcripciones (y el contenido de carpetas) con las opciones por defecto,
     por el mismo camino que /api/generar. -> {ids, omitidas}."""
     fs, om = [], []
@@ -2410,7 +2412,7 @@ def _encolar(rutas, c="", recursivo=False):
             om.append(f"{p.name}: formato no admitido") if p in map(Path, rutas) else None
             continue
         try:
-            r = generar({"video": str(p), **({"carpeta": c} if c else {})})  # generar decide: medio, transcripción, documento o lote .zip
+            r = generar({"video": str(p), **({"carpeta": c} if c else {}), **({"plan": plan} if plan else {})})  # generar decide: medio, transcripción, documento o lote .zip
             ids += r.get("ids") or [r["id"]]
         except HTTPException as e:
             om.append(f"{p.name}: {e.detail}")
@@ -2430,6 +2432,10 @@ def encolar(d: dict, request: Request):
     return r
 
 
+mcp_servidor.A = sys.modules[__name__]
+vigiladas.configurar(lambda r, c, p: _encolar(r, c, plan=p), (*MEDIA, *TR_EXT, *documentos.EXT, ".zip"))
+app.router.on_startup.append(vigiladas.iniciar)
+app.router.routes.extend(vigiladas.router.routes + mcp_servidor.router.routes)
 app.router.routes.extend(msgraph.router.routes)  # (include_router rompe test_urls_js_tienen_ruta: _IncludedRouter no tiene .path)
 app.mount("/", StaticFiles(directory=STATIC, html=True))
 
@@ -2444,6 +2450,10 @@ def vivo():
 
 
 if __name__ == "__main__":
+    if "--mcp-stdio" in sys.argv:  # puente stdio -> /mcp de la instancia en marcha (clientes MCP que no hablan HTTP)
+        if not (url := vivo()):
+            sys.exit("Actas no está en marcha: ábrela primero.")
+        sys.exit(mcp_servidor.stdio(url))
     pipeline.WORK.mkdir(exist_ok=True)
     if sys.stdout is None:  # pythonw (Windows, sin consola): uvicorn y print necesitan un destino
         sys.stdout = sys.stderr = open(pipeline.WORK / "app.log", "a", encoding="utf-8")
