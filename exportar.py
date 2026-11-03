@@ -16,6 +16,7 @@ import time
 import zipfile
 from pathlib import Path
 
+import documentos
 import pipeline as P
 import plantillas
 
@@ -197,6 +198,7 @@ def cabecera_estilo(est, base=None):
 
 def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
     """base: URL de la que cuelgan las imágenes (img/…). estilo: color y cabecera/logo del estilo de organización."""
+    fm = documentos.etiqueta(c["data"].get("locs"))  # documento: las marcas son su página o sección
     dud = c.get("dudas") or {}
     ed = lambda k, t: f'<mark data-p="{k}" title="{esc("; ".join(dud[k]))}">{esc(t)}</mark>' if k in dud else f'<span data-p="{k}"{" contenteditable" if editar else ""}>{esc(t)}</span>'
     ts = lambda t: f'<span class="ts" data-t="{int(t)}">[{fm(t)}]</span>'
@@ -223,7 +225,7 @@ def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
     cab = c["doc"].capitalize()
     return (f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{esc(cab)} — {esc(D["titulo"])}</title>'
             + (f'<base href="{esc(base)}">' if base else "") + f"<style>{CSS}{(':root{--acc:' + estilo['color'] + ';--acc-d:' + estilo['color'] + '}') if estilo and estilo.get('color') else ''}</style></head><body>{cabecera_estilo(estilo, base)}<h1>{esc(cab)}: {esc(D['titulo'])}</h1>"
-            f'<p class="meta">Duración {fm(D["duracion"])} · {c["fecha"]:%Y-%m-%d}' + (" · editado" if c["editado"] else "") + (" · " + esc(c["data"]["nube"]) if c["data"].get("nube") else "") + "</p>" + "".join(h)
+            f'<p class="meta">Duración {P.fmt(D["duracion"])} · {c["fecha"]:%Y-%m-%d}' + (" · editado" if c["editado"] else "") + (" · " + esc(c["data"]["nube"]) if c["data"].get("nube") else "") + "</p>" + "".join(h)
             + (f"<script>{JS_EDIT}</script>" if editar else "") + ("<script>onload=()=>print()</script>" if imprimir else "") + "</body></html>")
 
 
@@ -289,6 +291,7 @@ def _fila(pers, x):
 def md(c, img=None, links=False, plano=True):
     """img: carpeta relativa de las capturas (None = sin imágenes). links: [[Persona]] en responsables y hablantes."""
     pers = (lambda n: f"[[{n}]]" if links and n else n)
+    fm = documentos.etiqueta(c["data"].get("locs"))
     ts = lambda t: f"[{fm(t)}] "
     o = [f"# {c['doc'].capitalize()}: {c['data']['titulo']}\n"] + ([f"*{c['data']['nube']}*\n"] if c["data"].get("nube") else [])
     for cl, tit, its in bloques(c):
@@ -677,10 +680,11 @@ def docx_bytes(c, est=None):
     from docx.shared import Inches
     est = est or {}
     D = c["data"]
+    fm = documentos.etiqueta(D.get("locs"))
     B = doc_base(est, {"{fecha}": f"{c['fecha']:%d/%m/%Y}", "{título}": D["titulo"], "{titulo}": D["titulo"]})
     doc, sub, H, li, estilo = B.doc, B.sub, B.H, B.li, B.estilo
     H(f"{c['doc'].capitalize()}: {D['titulo']}", 0).alignment = 0
-    doc.add_paragraph(f"Duración {fm(D['duracion'])} · {c['fecha']:%d/%m/%Y}" + (f" · {D['nube']}" if D.get("nube") else ""))
+    doc.add_paragraph(f"Duración {P.fmt(D['duracion'])} · {c['fecha']:%d/%m/%Y}" + (f" · {D['nube']}" if D.get("nube") else ""))
     cf = [(n, est["campos"][k]) for k, n in CAMPOS if (est.get("campos") or {}).get(k)]
     if cf:
         t = doc.add_table(rows=0, cols=2)

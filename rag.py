@@ -141,13 +141,15 @@ def terms(text):
 def units(wd, quality="rápido"):
     """Tramos de voz de ~15 s (marcas del ASR) y, aparte, el texto de cada pantalla compartida en trozos de 60 palabras."""
     tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text())
-    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk")} for x in P.merge_segs(tr["segments"])]
+    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk"), "loc": x.get("loc")} for x in P.merge_segs(tr["segments"])]  # loc: página/sección de un documento
     kf = Path(wd) / "frames.json"
     for k in P.screens(json.loads(kf.read_text())) if kf.exists() else []:
         # sin URLs ni tokens kilométricos (barra de direcciones): solo meten ruido en BM25 y en el embedding
         w = [x for x in k["text"].replace(" | ", " · ").split() if len(x) < 25 and "/" not in x and "=" not in x] \
             if k["screen"] else []
         segs += [{"s": k["t"], "e": k["t"], "text": " ".join(w[i:i + 60]), "kind": "pantalla"} for i in range(0, len(w), 60)]
+    ci = Path(wd) / "capturas_ia.json"  # capturas descritas con IA (vision.py): también se puede preguntar por lo que se veía
+    segs += [{"s": x["t"], "e": x["t"], "text": x["texto"], "kind": "pantalla"} for x in (json.loads(ci.read_text()).values() if ci.exists() else [])]
     return segs
 
 
