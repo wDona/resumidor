@@ -32,6 +32,7 @@ import buscar
 import carpetas
 import correo
 import documentos
+import msgraph
 import dudas
 import export_registro
 import exportar
@@ -2298,6 +2299,45 @@ def ping():
     return "actas"
 
 
+def _encolar(rutas, c="", recursivo=False):
+    """«Enviar a → Actas» / menú contextual: encola vídeos, audios y transcripciones (y el contenido de carpetas) con las opciones por defecto,
+    por el mismo camino que /api/generar. -> {ids, omitidas}."""
+    fs, om = [], []
+    for r in rutas:
+        p = Path(str(r))
+        if p.is_dir():
+            fs += sorted(x for x in (p.rglob("*") if recursivo else p.iterdir()) if x.is_file())
+        elif p.is_file():
+            fs.append(p)
+        else:
+            om.append(f"{r}: no existe")
+    ids = []
+    for p in fs:
+        if p.suffix.lower() not in (*MEDIA, *TR_EXT, *documentos.EXT, ".zip"):  # lo mismo que admite soltar/elegir
+            om.append(f"{p.name}: formato no admitido") if p in map(Path, rutas) else None
+            continue
+        try:
+            r = generar({"video": str(p), **({"carpeta": c} if c else {})})  # generar decide: medio, transcripción, documento o lote .zip
+            ids += r.get("ids") or [r["id"]]
+        except HTTPException as e:
+            om.append(f"{p.name}: {e.detail}")
+    return {"ids": ids, "omitidas": om}
+
+
+@app.post("/api/encolar")
+def encolar(d: dict, request: Request):
+    if (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "testclient"):
+        raise HTTPException(403, "Solo desde este equipo")
+    rutas = d.get("rutas")
+    if not isinstance(rutas, list) or not rutas or not all(isinstance(r, str) for r in rutas):
+        raise HTTPException(400, "Indica rutas[]")
+    r = _encolar(rutas, str(d.get("c") or "").strip()[:120], bool(d.get("recursivo")))
+    if not r["ids"]:
+        raise HTTPException(400, "Nada que encolar: " + "; ".join(r["omitidas"][:3]))
+    return r
+
+
+app.router.routes.extend(msgraph.router.routes)  # (include_router rompe test_urls_js_tienen_ruta: _IncludedRouter no tiene .path)
 app.mount("/", StaticFiles(directory=STATIC, html=True))
 
 
@@ -2314,7 +2354,21 @@ if __name__ == "__main__":
     pipeline.WORK.mkdir(exist_ok=True)
     if sys.stdout is None:  # pythonw (Windows, sin consola): uvicorn y print necesitan un destino
         sys.stdout = sys.stderr = open(pipeline.WORK / "app.log", "a", encoding="utf-8")
+    enc = None
+    if "--encolar" in sys.argv:  # app.py --encolar <rutas…> [--carpeta X]: a la instancia en marcha, o arranca y encola
+        a = sys.argv[sys.argv.index("--encolar") + 1:]
+        carp = ""
+        if "--carpeta" in a:
+            i = a.index("--carpeta")
+            carp, a = " ".join(a[i + 1:i + 2]), a[:i] + a[i + 2:]
+        enc = ([str(Path(x).resolve()) for x in a], carp)
+        for _ in range(16 if LOCK.exists() else 1):  # arranque en curso (varias selecciones a la vez): esperar al puerto
+            if vivo() or not LOCK.exists():
+                break
+            time.sleep(0.5)
     if url := vivo():
+        if enc:
+            urllib.request.urlopen(urllib.request.Request(url + "/api/encolar", json.dumps({"rutas": enc[0], "c": enc[1]}).encode(), {"Content-Type": "application/json"}), timeout=30)
         os.environ.get("ACTAS_NO_BROWSER") or webbrowser.open(url)
         sys.exit()
     with socket.socket() as s:
@@ -2331,6 +2385,8 @@ if __name__ == "__main__":
         srv.should_exit = True
     threading.Thread(target=vigila, daemon=True).start()
     kick()  # retoma lo que quedó pendiente
+    if enc:
+        _encolar(*enc)
     if not os.environ.get("ACTAS_NO_BROWSER"):  # CI/pruebas sin navegador
         threading.Timer(1, webbrowser.open, [f"http://127.0.0.1:{port}"]).start()
     procs.on_signal(lambda: setattr(srv, "should_exit", True))

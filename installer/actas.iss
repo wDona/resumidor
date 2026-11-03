@@ -46,6 +46,8 @@ Source: "..\exportar.py"; DestDir: "{app}"
 Source: "..\privacidad.py"; DestDir: "{app}"
 Source: "..\dudas.py"; DestDir: "{app}"
 Source: "..\correo.py"; DestDir: "{app}"
+Source: "..\correo_entrada.py"; DestDir: "{app}"
+Source: "..\msgraph.py"; DestDir: "{app}"
 Source: "..\carpetas.py"; DestDir: "{app}"
 Source: "..\registro.py"; DestDir: "{app}"
 Source: "..\export_registro.py"; DestDir: "{app}"
@@ -69,6 +71,17 @@ Source: "..\bin\uv\uv.exe"; DestDir: "{app}\tools"
 [Icons]
 Name: "{autoprograms}\Actas"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-X utf8 app.py"; WorkingDir: "{app}"
 Name: "{autodesktop}\Actas"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-X utf8 app.py"; WorkingDir: "{app}"; Tasks: desktopicon
+; «Enviar a → Actas»: Windows añade las rutas seleccionadas al final de los parámetros
+Name: "{sendto}\Actas"; Filename: "{app}\.venv\Scripts\pythonw.exe"; Parameters: "-X utf8 app.py --encolar"; WorkingDir: "{app}"
+
+[Registry]
+; menú contextual «Procesar con Actas» (ficheros y carpetas), solo para el usuario; se borra al desinstalar
+Root: HKCU; Subkey: "Software\Classes\*\shell\ProcesarConActas"; ValueType: string; ValueName: ""; ValueData: "Procesar con Actas"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shell\ProcesarConActas"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\.venv\Scripts\pythonw.exe"
+Root: HKCU; Subkey: "Software\Classes\*\shell\ProcesarConActas\command"; ValueType: string; ValueName: ""; ValueData: """{app}\.venv\Scripts\pythonw.exe"" -X utf8 ""{app}\app.py"" --encolar ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\ProcesarConActas"; ValueType: string; ValueName: ""; ValueData: "Procesar con Actas"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\ProcesarConActas"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\.venv\Scripts\pythonw.exe"
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\ProcesarConActas\command"; ValueType: string; ValueName: ""; ValueData: """{app}\.venv\Scripts\pythonw.exe"" -X utf8 ""{app}\app.py"" --encolar ""%1"""
 
 [UninstallDelete]
 ; entorno y Python (regenerables); work\ y models\ solo si el usuario lo pide (ver abajo)

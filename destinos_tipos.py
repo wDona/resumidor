@@ -529,6 +529,9 @@ TIPOS = {
                "campos": [F("servidor", "Servidor SMTP", req=True), F("puerto", "Puerto", "numero"), F("seguridad", "Seguridad", "opcion", opciones=["starttls", "ssl", "ninguna"], defecto="starttls"), F("usuario", "Usuario"),
                           F("clave", "Contraseña", "secreto"), F("de", "Remitente", req=True), F("para", "Destinatarios (coma)", req=True, preset=True), FMT]},
 }
+
+import msgraph  # noqa: E402  Microsoft 365 por Graph (requiere «Iniciar sesión con Microsoft»)
+TIPOS.update(msgraph.TIPOS_GRAPH)
 for _t in TIPOS.values():
     if _t.pop("http", False):
         _t["campos"] = _t["campos"] + TLS

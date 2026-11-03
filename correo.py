@@ -146,6 +146,46 @@ def generar(mid, ver, modo="todos", tono="formal", idioma="es", adjuntar_pdf=Fal
     return {"correos": cs, "eml_url": cs[0]["eml_url"], "llm": por_llm, **({"aviso": aviso} if aviso else {})}
 
 
+# Outlook clásico (Windows): el borrador se abre en su ventana vía COM. Los datos viajan en un JSON temporal y el script es un texto fijo
+# (nada del usuario se interpola en PowerShell). Con el «nuevo Outlook» o sin Windows no hay COM -> RuntimeError claro.
+_PS = r"""param([string]$spec)
+$ErrorActionPreference = 'Stop'
+$d = Get-Content -LiteralPath $spec -Raw -Encoding UTF8 | ConvertFrom-Json
+try { $o = New-Object -ComObject Outlook.Application } catch { [Console]::Error.WriteLine('NO_COM'); exit 3 }
+$m = $o.CreateItem(0)
+$m.To = [string]$d.para
+$m.Subject = [string]$d.asunto
+$m.HTMLBody = [string]$d.html
+foreach ($a in $d.adjuntos) { [void]$m.Attachments.Add([string]$a) }
+$m.Display()
+"""
+
+
+def abrir_outlook(cor, pdf=None, nombre_pdf="documento.pdf"):
+    """Abre el borrador `cor` (como eml) en Outlook clásico, con el PDF opcional adjunto. RuntimeError si no está disponible."""
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+    if sys.platform != "win32":
+        raise RuntimeError("«Abrir en Outlook» solo está disponible en Windows con Outlook clásico; descarga el .eml")
+    with tempfile.TemporaryDirectory(prefix="actas_ol_") as t:
+        t = Path(t)
+        adj = []
+        if pdf:
+            (t / Path(nombre_pdf).name).write_bytes(pdf)
+            adj.append(str(t / Path(nombre_pdf).name))
+        para = cor["para"] if "@" in cor.get("para", "") else ""  # «para» suele ser un nombre, no una dirección
+        (t / "spec.json").write_text(json.dumps({"para": para, "asunto": cor["asunto"], "html": cor["html"], "adjuntos": adj}), encoding="utf-8")
+        (t / "borrador.ps1").write_text(_PS, encoding="utf-8-sig")
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(t / "borrador.ps1"), str(t / "spec.json")],
+                           capture_output=True, text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if r.returncode == 3:
+        raise RuntimeError("Outlook clásico no está disponible (¿usas el «nuevo Outlook»?). Descarga el .eml")
+    if r.returncode:
+        raise RuntimeError("No se pudo abrir Outlook: " + (r.stderr.strip()[:200] or f"código {r.returncode}"))
+
+
 def demo():
     import email
     from email import policy
