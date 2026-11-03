@@ -86,6 +86,8 @@ def test_formatos(tmp_path, monkeypatch):
     (tmp_path / "b.md").write_text("Intro.\n\n# Diseño\n\nTexto **clave** con [enlace](http://x).\n\n## API\n\n- uno\n\n```\n# no es título\n```\n")
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "b.md")["segments"]] == [
         ("§ Inicio", "Intro."), ("§ Diseño", "Diseño. Texto clave con enlace."), ("§ Diseño › API", "API. uno # no es título")]
+    (tmp_path / "t.md").write_text("# Comisión de obras\n\nAsisten tres.\n\n## Presupuesto\n\nSe aprueba.\n\n## Calendario\n\nEn enero.")
+    assert [s["loc"] for s in documentos.leer(tmp_path / "t.md")["segments"]] == ["§ Comisión de obras", "§ Presupuesto", "§ Calendario"]  # título raíz único: no se repite
     (tmp_path / "c.html").write_text("<html><head><title>T</title><script>x()</script></head><body><h1>Hola</h1><p>Uno &amp; dos</p></body></html>")
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "c.html")["segments"]] == [("§ Hola", "Hola. Uno & dos")]
     (tmp_path / "d.txt").write_text("Párrafo uno.\n\nPárrafo dos.")

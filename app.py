@@ -572,6 +572,12 @@ def generar(d: dict):
     """Encola un acta nueva (video/transcripcion) u otra versión de una reunión ya procesada (reuse = id, asr = su transcripción).
     Un documento o imagen en «video» (mismo flujo de soltar/elegir) entra como transcripción (documentos.py); un .zip, como lote.
     buscable: solo transcribir/leer e indexar, sin LLM. descripcion: texto del usuario sobre la imagen o el documento (también buscable)."""
+    if (d.get("plan") or {}).get("repetir"):  # «Repetir cada…» de Añadir: una receta programada de la carpeta (una vez, también para lotes)
+        try:
+            destinos.programar_desde_plan(d["plan"])
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        d = {**d, "plan": {k: x for k, x in d["plan"].items() if k != "repetir"}}
     v = Path(d.get("video") or "")
     if v.suffix.lower() == ".zip" and not d.get("reuse"):
         return lote(d, v)

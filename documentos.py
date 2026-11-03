@@ -75,12 +75,13 @@ def _md(t):
 
 
 def secciones(lineas):
-    """Líneas estilo Markdown -> [(«§ Título › Subtítulo», texto)]: cada encabezado abre sección (su texto entra en ella)."""
+    """Líneas estilo Markdown -> [(«§ Título › Subtítulo», texto)]: cada encabezado abre sección (su texto entra en ella). Un único
+    título raíz común a todo (el del documento) no se repite en cada marca."""
     ruta, out, buf = [], [], []
 
     def corta():
         if t := "\n".join(buf).strip():
-            out.append(("§ " + " › ".join(ruta) if ruta else "§ Inicio", t))
+            out.append((tuple(ruta), t))
         buf.clear()
     fence = False
     for l in lineas:
@@ -94,7 +95,8 @@ def secciones(lineas):
         else:
             buf.append(l if fence else _md(l))
     corta()
-    return out
+    k = int(len(out) > 1 and len({r[:1] for r, _ in out}) == 1 and bool(out[0][0]))
+    return [("§ " + " › ".join(r[k:] or r) if r else "§ Inicio", t) for r, t in out]
 
 
 class _Html(HTMLParser):

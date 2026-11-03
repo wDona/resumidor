@@ -424,3 +424,17 @@ def test_plan_defecto_carpeta_y_plan_del_trabajo_sustituye(E, mk, monkeypatch):
     n = len(mk.reqs)
     destinos.tras_documento("aaaa1111", "acta_normal_impaaaa", {"salidas": [{"que": "tareas", "como": "destino", "destino": i}]})  # plan propio: solo él
     assert len(mk.reqs) == n + 1 and json.loads(mk.reqs[-1]["b"])["items"][0]["tipo"] == "tarea"
+
+
+def test_plan_conserva_formatos_y_repetir_crea_receta(E):
+    t, _ = E
+    pl = destinos.normalizar_plan({"carpeta": C, "nombre": "Comité", "repetir": {"cada": "semana", "dia_semana": 0, "hora": "09:00"},
+                                   "salidas": [{"que": "decisiones", "como": "documento", "formatos": ["docx", "pdf"]}]})
+    assert pl["salidas"][0]["formatos"] == ["docx", "pdf"] and pl["repetir"]["cada"] == "semana"
+    with pytest.raises(ValueError):
+        destinos.normalizar_plan({"salidas": [{"que": "tareas", "como": "documento", "formatos": "pdf"}]})
+    i = destinos.programar_desde_plan(pl)
+    r = t.get(f"/api/recetas?c={C}").json()
+    rec = next(x for x in (r if isinstance(r, list) else r.get("recetas", [])) if x["id"] == i)
+    assert rec["cuando"]["tipo"] == "programado" and rec["cuando"]["cada"] == "semana" and rec["proximo_iso"] and "repetir" not in rec["plan"]
+    assert destinos.programar_desde_plan({"carpeta": C, "salidas": []}) is None

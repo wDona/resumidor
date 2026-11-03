@@ -518,13 +518,34 @@ def normalizar_plan(p):
         if s.get("que") and s["que"] not in QUE:
             raise ValueError(f"Elemento no válido: {s['que']}")
         z = {"que": s.get("que", ""), "como": como, **{k: s[k] for k in ("preset", "destino", "nombre") if s.get(k)}}
+        if s.get("formatos"):
+            if not isinstance(s["formatos"], list) or not all(isinstance(f, str) for f in s["formatos"]):
+                raise ValueError("formatos: lista de textos")
+            z["formatos"] = s["formatos"]
         if como == "destino":
             if not (z.get("preset") in cf["presets"] or z.get("destino") in cf["destinos"]):
                 z["configurar"] = True
             if not (z["que"] or z.get("preset") in cf["presets"]):
                 raise ValueError("Cada salida necesita `que` (o un preset)")
         out.append(z)
-    return {**{k: p[k] for k in ("carpeta", "nombre", "plantilla", "solo_buscable") if k in p}, "salidas": out}
+    return {**{k: p[k] for k in ("carpeta", "nombre", "plantilla", "solo_buscable", "repetir") if k in p}, "salidas": out}
+
+
+def programar_desde_plan(plan):
+    """Añadir con «Repetir cada…»: crea una receta programada de la carpeta con las mismas salidas. Devuelve su id o None."""
+    rp = (plan or {}).get("repetir")
+    if not rp or not plan.get("carpeta"):
+        return None
+    pl = normalizar_plan({k: v for k, v in plan.items() if k != "repetir"})
+    r = _val_receta({"nombre": f"{plan.get('nombre') or plan['carpeta']} · cada {rp.get('cada', 'semana')}", "activa": True,
+                     "cuando": {"tipo": "programado", "carpeta": plan["carpeta"], **{k: rp[k] for k in ("cada", "dia_semana", "dia_mes", "hora") if k in rp}},
+                     "plan": pl, "solo_nuevo": True})
+    i = uuid.uuid4().hex[:8]
+    with LOCK:
+        cf = cfg()
+        cf["recetas"][i] = r
+        _escribir(CFG(), cf)
+    return i
 
 
 def ejecutar_plan(plan, doc, desde=None, meta=None):
@@ -541,7 +562,7 @@ def ejecutar_plan(plan, doc, desde=None, meta=None):
                 carp = plan.get("carpeta") or doc.get("c") or (_meta(doc["doc"].split("/")[0]).get("carpeta", "") if doc.get("doc") else "")
                 d = {**doc, **ex, "destino": INTERNO, "que": [q], "nombre": s.get("nombre") or f"{nom0} – {q}".strip(" –"), "opciones": {"carpeta": carp}}
             else:
-                d = {**doc, **ex, "preset": s.get("preset"), "destino": s.get("destino"), "que": [s["que"]] if s.get("que") else None, "nombre": s.get("nombre")}
+                d = {**doc, **ex, "preset": s.get("preset"), "destino": s.get("destino"), "que": [s["que"]] if s.get("que") else None, "nombre": s.get("nombre"), "formatos": s.get("formatos")}
             e = _envio(_pedido(d))
             if e:
                 r.append(e)
@@ -551,8 +572,13 @@ def ejecutar_plan(plan, doc, desde=None, meta=None):
 
 
 def _tipo_fuente(mid):
-    v = next(iter((P.WORK / Path(mid).name).glob("video.*")), None)
-    return "texto" if not v else "audio" if v.suffix.lower() in AUDIO else "video"
+    wd = P.WORK / Path(mid).name
+    v = next(iter(wd.glob("video.*")), None)
+    if v:
+        return "audio" if v.suffix.lower() in AUDIO else "video"
+    f = next(iter(wd.glob("fuente.*")), None)
+    import documentos  # pdf | texto | imagen (mismo criterio que app._kind)
+    return documentos.tipo(f) if f else "texto"
 
 
 def _coincide(cu, mid, ver):
@@ -572,6 +598,11 @@ def _auto(mid, ver, plan):
         if r.get("activa") and cu.get("tipo", "al_terminar") == "al_terminar" and _coincide(cu, mid, ver) and not (plan is not None and cu.get("carpeta") and cu["carpeta"].casefold() == carp):
             ejecutar_plan(_plan_de(r), {"doc": f"{mid}/{ver}"}, meta={"receta": i})
     if plan and plan.get("salidas"):
+        try:
+            plan = normalizar_plan(plan)
+        except Exception as ex:
+            _log_error({"que": "plan"}, ex, {"plan": "trabajo"})
+            return
         ejecutar_plan(plan, {"doc": f"{mid}/{ver}"}, meta={"plan": "trabajo"})
 
 
