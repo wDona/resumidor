@@ -146,11 +146,19 @@ def t_encolar(a):
 FN = {"buscar": t_buscar, "preguntar": t_preguntar, "documento": t_documento, "pendientes": t_pendientes, "proyectos": t_proyectos, "encolar": t_encolar}
 
 
+def _carpeta_anon(a):
+    """True si la carpeta consultada (proyecto, o la del documento) tiene «anonimizar» propio activado."""
+    c = a.get("proyecto")
+    if c is None and (a.get("documento") or a.get("id")):
+        c = A.meta(P.WORK / Path(str(a.get("documento") or a.get("id"))).name).get("carpeta", "")
+    return bool(c) and bool(carpetas.leer(str(c))["ajustes"].get("anon"))
+
+
 def _llamar(p):
     f = FN.get(p.get("name"))
     if not f:
         raise KeyError(p.get("name"))
-    if p.get("name") != "encolar" and (A._ajustes() or {}).get("anonimizar_defecto"):  # lo que sale hacia otra herramienta (que puede usar la nube) también es «exportar»
+    if p.get("name") != "encolar" and ((A._ajustes() or {}).get("anonimizar_defecto") or _carpeta_anon(p.get("arguments") or {})):  # lo que sale hacia otra herramienta (que puede usar la nube) también es «exportar»
         return {"content": [{"type": "text", "text": "«Anonimizar por defecto» está activo en Actas: no se entrega contenido a herramientas externas. Desactívalo en Ajustes si quieres usarlas."}], "isError": True}
     try:
         return {"content": [{"type": "text", "text": f(p.get("arguments") or {})}]}
@@ -191,7 +199,7 @@ async def mcp(r: Request):
     c = cfg()
     if not c["activo"]:
         raise HTTPException(403, "El servidor MCP está desactivado (Ajustes)")
-    if c["token_requerido"] and c["token"] and not hmac.compare_digest(r.headers.get("authorization", ""), "Bearer " + c["token"]):
+    if c["token_requerido"] and not (c["token"] and hmac.compare_digest(r.headers.get("authorization", "").encode(), ("Bearer " + c["token"]).encode())):  # sin token guardado: cerrado, no abierto
         return JSONResponse({"error": "Token no válido"}, 401, {"WWW-Authenticate": "Bearer"})
     try:
         m = json.loads(await r.body())

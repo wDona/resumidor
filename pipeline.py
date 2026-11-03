@@ -2266,7 +2266,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
         tr = import_transcript(transcript, video, threads, dur, pa, descripcion, vision) if transcript else \
             grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario) if pistas else transcribe(video, quality, threads, dur, pa, hot=glosario)
-        tf.write_text(json.dumps(tr, ensure_ascii=False))
+        tf.write_text(json.dumps(tr))  # ASCII: un documento trae «✉», emojis… que cp1252 (Windows) no escribe
         stage("documento" if (tr.get("importada") or {}).get("tipo") else "transcripción" if transcript else "asr", t0)  # documento: sin ritmo (OCR por página)
     tr = json.loads(tf.read_text())
     if not tr["segments"]:

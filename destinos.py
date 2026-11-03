@@ -351,7 +351,7 @@ def _pagina(que, sel, a, o, titulo, an, aprob, base):
     if "md" in fmts or not ficheros:
         fr = exportar.frontmatter(c) if vault and "documento" in que and c else _front(titulo)
         ficheros.insert(0, (f"{exportar._nombre_arch(titulo)}.md", (fr + (cuerpo if cuerpo.startswith("#") else f"# {titulo}\n\n{cuerpo}")).encode()))
-    js = {"carpeta": a["c"] or "", "documento": {"mid": a["dm"], "ver": a["dv"], "titulo": c["data"]["titulo"]} if c else None, "resumen": c["data"].get("resumen") if c and "resumen" in que else None,
+    js = {"carpeta": "" if an else a["c"] or "", "documento": {"mid": a["dm"], "ver": a["dv"], "titulo": c["data"]["titulo"]} if c else None, "resumen": c["data"].get("resumen") if c and "resumen" in que else None,
           "enlace": f"{base}/api/vista/{a['dm']}/{a['dv']}" if a["dm"] and not an else "", "texto": cuerpo,
           "items": [{k: v for k, v in x.items() if k != "k"} for _, its in sel["secs"] for x in its]}
     return {"k": f"pag|{a['mid'] or a['c']}|{'+'.join(sorted(que))}", "titulo": titulo, "md": cuerpo or f"# {titulo}", "ficheros": ficheros, "json": js, "omitidos": omit,
@@ -455,7 +455,7 @@ def _envio(req):
                 pend.append(_pseudo(f"i:{a['c']}", "informe", "Informe de estado " + a["c"], inf))
             pend = [{**x, "h": _hash(x)} for x in pend]
         else:
-            tit = req.get("nombre") or (c["data"]["titulo"] if c else f"{a['c']} – " + ", ".join(que))
+            tit = req.get("nombre") or (c["data"]["titulo"] if c else f"{'proyecto' if an else a['c']} – " + ", ".join(que))  # anonimizado: ni el nombre del proyecto
             pg = _pagina(que, sel, a, o, tit, an, aprob, base)
             pend = [pg | ({"k": pg["k"] + f"|{o.get('carpeta')}|{tit}"} if interno else {})]
             e["omitidos"] = pg["omitidos"]
@@ -669,7 +669,7 @@ def correr_receta(i, ahora=None, atrasado=False, manual=False):
     cu = r.get("cuando") or {}
     desde = (r.get("ultimo_envio") or 0.0) if r.get("solo_nuevo", True) else None
     es = ejecutar_plan(_plan_de(r), {"c": cu.get("carpeta", "")}, desde, {"receta": i, "atrasado": bool(atrasado), "manual": bool(manual)})
-    ok = bool(es) and all(e["estado"] != "error" for e in es)
+    ok = bool(es) and all(e["estado"] == "ok" for e in es)  # «parcial»: no avanza ultimo_envio (los fallidos se reintentan; los ya enviados se omiten por hash)
     _poner_receta(i, ultimo_intento=ahora.timestamp(), atrasado=bool(atrasado), ultimo_resultado="sin novedades" if not es else "ok" if ok else "error",
                   **({"ultimo_envio": ahora.timestamp()} if ok else {}), **({} if manual else {"proximo": proximo_tras(cu, ahora).timestamp()}))
     return es

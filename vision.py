@@ -110,7 +110,7 @@ def capturas(out, cfg, cb=lambda f, m: None):
             for i, k in enumerate(falta):
                 cb(i / len(falta), f"Describiendo capturas con IA… {i + 1}/{len(falta)}")
                 ya[k["img"]] = {"t": k["t"], "texto": desc(Path(out) / "img" / k["img"])}
-                cache.write_text(json.dumps(ya, ensure_ascii=False))
+                cache.write_text(json.dumps(ya))  # ASCII: cp1252 (Windows) no escribe todo Unicode
     for k in acta.get("capturas", []):
         if k["img"] in ya:
             k["descripcion_ia"] = ya[k["img"]]["texto"]

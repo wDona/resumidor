@@ -341,13 +341,15 @@ def _p_teams(o, s):
 # ---------- servidores propios: SFTP (OpenSSH del sistema), S3 (SigV4) ----------
 def _ssh(o, puerto="-p"):
     kh = P.WORK / "known_hosts"
+    if str(o.get("host", "")).startswith("-") or str(o.get("usuario", "")).startswith("-"):  # no es un servidor: sería una opción de ssh
+        raise RuntimeError("Servidor o usuario no válido")
     return ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={kh}", "-o", "ConnectTimeout=15", puerto, str(o.get("puerto") or 22)] + (["-i", str(Path(o["clave"]).expanduser())] if o.get("clave") else [])
 
 
 def _run(cmd, inp=None):
     if not shutil.which(cmd[0]):
         raise RuntimeError(f"Falta «{cmd[0]}» (cliente OpenSSH del sistema)")
-    r = subprocess.run(cmd, input=inp, capture_output=True, text=True, timeout=180)
+    r = subprocess.run(cmd, input=inp, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
     if r.returncode:
         raise RuntimeError((r.stderr or r.stdout).strip()[-300:] or f"{cmd[0]} falló")
     return r.stdout
@@ -362,7 +364,7 @@ def _sftp(c, s, o, x, n=None):
         cmds = [f'-mkdir "{d}"']
         for i, (nom, b) in enumerate(x["ficheros"]):
             (Path(t) / str(i)).write_bytes(b)
-            cmds.append(f'put "{Path(t) / str(i)}" "{d}/{nom}"')
+            cmds.append(f'put "{(Path(t) / str(i)).as_posix()}" "{d}/{nom}"')  # sftp trata «\\» como escape (Windows)
         _run(["sftp", "-b", "-", *_ssh(o, "-P"), dest], "\n".join(cmds) + "\n")
     if o.get("comando"):  # solo si el usuario lo escribió (desactivado por defecto)
         _run(["ssh", *_ssh(o), dest, o["comando"]])

@@ -175,7 +175,8 @@ def validar(tipo, dest, v, c, antes):
     if dest == "campos.puntos":
         try:
             f = float(s.replace(",", ".")) if s else None
-        except ValueError:
+            f is not None and int(f)  # «inf»/«nan»: no son puntos
+        except (ValueError, OverflowError):
             raise ValueError(f"Puntos no numérico: «{s}»")
         return "" if f is None else int(f) if f == int(f) else f
     if len(s) > 20000:
@@ -341,8 +342,13 @@ def aplicar(d: dict):
 
 
 # ---------- documentos ya procesados -> proyecto ----------
+LIGABLES = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac", ".pdf", ".png", ".jpg", ".jpeg", ".webp")
+
+
 def _copia(src, dst):
     try:
+        if Path(src).suffix.lower() not in LIGABLES:  # un enlace duro comparte el contenido: meta.json, actas, transcripciones se reescriben en sitio
+            raise OSError
         os.link(src, dst)  # los medios pesados no se duplican
     except OSError:
         shutil.copy2(src, dst)
@@ -370,7 +376,9 @@ def a_proyecto(d: dict):
         else:
             nid = uuid.uuid4().hex[:16]
             shutil.copytree(wd, W / nid, copy_function=_copia)
-            A.set_meta({"id": nid, "carpeta": c, "nombre": f"{A.meta(W / nid).get('nombre') or wd.name} (copia)"[:120]})
+            base, usados = A.meta(W / nid).get("nombre") or wd.name, {e["label"].casefold() for e in A.meetings()}
+            nom = next(n for n in (f"{base[:100]} (copia{'' if k == 1 else f' {k}'})" for k in range(1, 1000)) if n.casefold() not in usados)  # set_meta rechaza nombres repetidos
+            A.set_meta({"id": nid, "carpeta": c, "nombre": nom})
             nuevos.append(nid)
     pob, enviar = [], bool(d.get("enviar"))  # «enviar también»: las recetas «al terminar» de la carpeta (tras poblar si lo hay)
     if (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(c).casefold() == "proyecto":  # misma regla que tras generar un acta; las sensibles nunca

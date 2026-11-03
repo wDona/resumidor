@@ -173,10 +173,14 @@ def _partes_imagen(imp):
     return [("descripción", imp["descripcion"]), ("descripción IA", imp["descripcion_ia"]), ("imagen", imp["ocr_texto"])]
 
 
-@functools.cache
-def correo(path):
+@functools.lru_cache(maxsize=4)
+def _correo(path, mtime):
     import correo_entrada
     return correo_entrada.leer(path)
+
+
+def correo(path):
+    return _correo(str(path), Path(path).stat().st_mtime_ns)  # la misma ruta con otro contenido no sirve el correo viejo
 
 
 def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
@@ -240,7 +244,7 @@ def reescribir(tf, **campos):
     if not segs:
         raise ValueError("La imagen se quedaría sin texto: escribe una descripción")
     tr["segments"], imp["segmentos"] = segs, len(segs)
-    Path(tf).write_text(json.dumps(tr, ensure_ascii=False))
+    Path(tf).write_text(json.dumps(tr))  # ASCII: cp1252 (Windows) no escribe todo Unicode
     return imp
 
 
