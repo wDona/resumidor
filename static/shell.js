@@ -437,7 +437,7 @@ async function pintarPendPag() {
   $("pend-f").textContent = its.length ? its.length + " abiertos" : "";
   if (!its.length) return w.replaceChildren(el("p", {className: "vacio", textContent: "No hay pendientes abiertos."}));
   w.replaceChildren(el("table", {}, el("thead", {}, el("tr", {}, ...["Hecho", "Pendiente", cap(nm("carpeta")), "Responsable", "Plazo"].map(t => el("th", {scope: "col", textContent: t})))),
-    el("tbody", {}, ...its.map(p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); await cargarLista(); pintarPendPag(); })});
+    el("tbody", {}, ...its.map(p => { const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); pintarPendPag(); })});
       return el("tr", {className: "f"}, el("td", {}, chk), el("td", {}, p.texto, " ", ...(p.mid ? [fLink(p)] : [])), el("td", {}, el("a", {href: "#/p/" + enc(p.c) + "/pendientes", textContent: p.c || sinC()})), el("td", {textContent: p.resp || ""}),
         el("td", {}, p.vencido ? el("b", {className: "err", textContent: "Vencido"}) : p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")));
     }))));
@@ -506,7 +506,7 @@ function importarPrevia(c, r) {
     ...(r.desconocidas.length ? [el("h3", {textContent: "Filas que no se importan · " + r.desconocidas.length}), el("ul", {className: "imp-l"}, ...r.desconocidas.map(x => el("li", {textContent: "Fila " + x.fila + ": " + x.motivo})))] : []),
     ...(!r.nuevos.length && !r.modificados.length ? [el("p", {className: "aviso", textContent: "No hay nada nuevo ni cambiado que importar."})] : []));
   const ap = el("button", {type: "button", className: "pri", textContent: "Aplicar", disabled: !r.nuevos.length && !r.modificados.length, onclick: fallo(async () => {
-    ap.disabled = true; const x = await post("/api/reg/importar/aplicar", {token: r.token, seleccion: [...sel]}); d.close();
+    ap.disabled = true; let x; try { x = await post("/api/reg/importar/aplicar", {token: r.token, seleccion: [...sel]}); } catch (e) { ap.disabled = false; throw e; } d.close();
     aviso(x.creadas + " nuevos · " + x.modificadas + " modificados", {txt: "Deshacer", fn: fallo(async () => { await post("/api/reg/deshacer", {c}); fsucio = true; pintarHome(); })});
     fsucio = true; pintarHome(); })});
   f.append(el("span"), el("div", {className: "row"}, el("button", {type: "button", className: "sec", textContent: "Cancelar", onclick: () => d.close()}), ap));
@@ -524,7 +524,7 @@ function aProyecto(mids) {
     el("fieldset", {}, el("legend", {textContent: "Cómo"}), el("label", {className: "check"}, mv, el("span", {textContent: "Mover"})), el("label", {className: "check"}, cp, el("span", {textContent: "Copiar (sigue también donde está)"}))),
     el("label", {className: "check"}, env, el("span", {textContent: "Enviar también según las recetas del " + nm("carpeta").toLowerCase()})));
   const ok = el("button", {type: "button", className: "pri", textContent: "Añadir", onclick: fallo(async () => {
-    ok.disabled = true; const r = await post("/api/doc/a-proyecto", {mids, c: s.value, modo: cp.checked ? "copiar" : "mover", enviar: env.checked}); d.close();
+    ok.disabled = true; let r; try { r = await post("/api/doc/a-proyecto", {mids, c: s.value, modo: cp.checked ? "copiar" : "mover", enviar: env.checked}); } catch (e) { ok.disabled = false; throw e; } d.close();
     BIB.sel.clear(); await cargarLista(); sondear(); aviso("Añadido a " + s.value + (r.poblando?.length ? " · extrayendo sus elementos" : "")); if (vistaAct === "bib") pintarBib();
   })});
   f.append(el("span"), el("div", {className: "row"}, el("button", {type: "button", className: "sec", textContent: "Cancelar", onclick: () => d.close()}), ok));

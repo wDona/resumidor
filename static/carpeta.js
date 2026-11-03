@@ -110,7 +110,7 @@ async function homePend() {
   const its = rs.flat().sort((a, b) => (!!b.vencido - !!a.vencido) || (!!b.pronto - !!a.pronto) || (a.fecha || "9").localeCompare(b.fecha || "9"));
   $("h-pend").hidden = !its.length; $("h-pend-n").textContent = its.length > 5 ? "Ver los " + its.length : "Ver todos";
   $("h-pend-l").replaceChildren(...its.slice(0, 5).map(p => {
-    const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); await cargarLista(); })});
+    const chk = el("input", {type: "checkbox", ariaLabel: "Marcar hecho: " + p.texto, onchange: fallo(async () => { chk.disabled = true; try { await post("/api/exp/pendientes", {c: p.c, id: p.id, estado: "hecho"}); } catch (e) { chk.disabled = chk.checked = false; throw e; } await cargarLista(); })});
     const f = p.vencido ? el("b", {className: "hp-f err", textContent: "Vencido"}) : el("span", {className: "hp-f" + (p.pronto ? " w" : ""), textContent: p.plazo || (p.fecha ? fFecha(p.fecha) : "Sin fecha")});
     return el("li", {}, chk, el("div", {className: "hp-t"}, el("span", {textContent: p.texto}),
       el("small", {}, el("a", {href: "#", textContent: p.c, onclick: e => { e.preventDefault(); fsel = p.c; ftab = "pendientes"; lsSet("ftab", ftab); fsucio = true; pintarHome(); }}), p.resp ? " · " + p.resp : "")), f);

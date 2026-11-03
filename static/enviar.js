@@ -279,7 +279,7 @@ async function montar(raiz) {
     try {
       const h = await api("/api/envios?limit=30");
       sHis.append(h.length ? T("ul", "env-ul", ...h.map(e => {
-        const links = [...(e.enlaces || []), ...(e.items || []).map(i => i.url).filter(Boolean)];
+        const links = [...(e.enlaces || []), ...(e.items || []).map(i => i.url)].filter(u => /^https?:\/\//i.test(u || ""));
         const errs = (e.items || []).map(i => i.error).filter(Boolean);
         return T("li", "env-hist", T("div", "env-row", T("span", "pill " + (e.estado === "ok" ? "env-ok" : "env-bad"), e.estado), T("strong", "", e.nombre || ctx.dest[e.destino]?.nombre || e.destino || "Envío"),
           T("span", "muted", e.fecha || e.ts ? new Date((e.ts || Date.parse(e.fecha) / 1000) * (e.ts ? 1000 : 1000)).toLocaleString("es") : ""), T("span", "grow"),
@@ -367,9 +367,9 @@ async function enviar(sel) {
     ...ctx.cat.destinos.map(d => ({k: "d:" + d.id, t: d.nombre, s: "documento completo", body: {destino: d.id, que: ["documento"]}}))]
     .sort((a, b) => (b.k === ult) - (a.k === ult));
   const lista = T("ul", "env-menu", ...items.map((it, i) => T("li", "", btn(it.t + " ", "sec env-menu-i", async e => {
-    e.currentTarget.disabled = true; localStorage.setItem("env.ultimo", JSON.stringify(it.k));
+    const b = e.currentTarget; b.disabled = true; localStorage.setItem("env.ultimo", JSON.stringify(it.k));
     try { const r = await send("POST", "/api/enviar", {...it.body, ...sel}); d.close(); toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + (r.items?.find(x => x.error)?.error ? " — " + r.items.find(x => x.error).error : ""), r.estado !== "ok"); }
-    catch (x) { fail(x); e.currentTarget && (e.currentTarget.disabled = false); }
+    catch (x) { fail(x); b.disabled = false; }
   }, {}), ...(it.s ? [] : []))));
   items.forEach((it, i) => lista.children[i].firstChild.append(T("small", "", it.s + (it.k === ult ? " · último usado" : ""))));
   const d = dialogo("Enviar a…", items.length ? lista : T("p", "muted", "No hay destinos configurados. Ve a Enviar para añadir uno."));
