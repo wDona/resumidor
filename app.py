@@ -33,6 +33,7 @@ import correo
 import dudas
 import export_registro
 import exportar
+import destinos
 import grabar
 import plantillas
 import poblar
@@ -50,6 +51,8 @@ TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
 IDLE_JOB = 180  # ídem con un trabajo en marcha (recarga o vuelta de la pestaña)
 app = FastAPI()
+app.include_router(destinos.router)
+app.router.on_startup.append(destinos.iniciar)  # planificador de envíos programados (un hilo)
 beat = [time.time()]
 job = {"state": "idle"}  # trabajo actual (compatibilidad con /api/job); state: idle | running | done | error; kind: acta | fondo | condensar
 jlock = threading.Lock()
@@ -497,8 +500,10 @@ def _acta_fn(d):
                 raise
             except Exception as ex:  # el documento ya está hecho: un fallo del seguimiento no lo estropea (se puede repetir desde Pendientes)
                 print("seguimiento:", ex, flush=True)
-        if carp0 and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto"                 and not (d.get("nube") and not nube.permitida(_tpl_de(out.parent.name), _ajustes())[0]):  # F3b: solo carpetas «Proyecto» (nunca sensibles): la IA puebla las vistas del proyecto (trabajo aparte en la cola, tras este)
-            start("poblar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": carp0, "mid": out.parent.name, "auto": True}, carp0, out.parent.name)
+        pob = bool(carp0 and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto"                 and not (d.get("nube") and not nube.permitida(_tpl_de(out.parent.name), _ajustes())[0]))  # F3b: solo carpetas «Proyecto»
+        if pob:
+            start("poblar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": carp0, "mid": out.parent.name, "auto": True, **({"plan": d["plan"]} if d.get("plan") is not None else {})}, carp0, out.parent.name)
+        destinos.tras_documento(out.parent.name, out.name, d.get("plan"), pob)  # envíos/recetas: hilo aparte, nunca rompe el trabajo
         if d.get("grabacion"):  # grabación: ya hay transcripción y medio en la reunión; fuera las pistas
             grabar.limpiar(pipeline.WORK / "grabaciones" / Path(d["grabacion"]).name)
         return {"id": out.parent.name, "acta": out.name}
@@ -628,6 +633,8 @@ def _poblar_fn(d):
                           carpetas.terminos_prompt(c), cb, local=not d.get("nube"))
         if r.get("req_nuevos"):  # F5: tras la pasada (automática o «Regenerar con IA»), historias de los requisitos nuevos (trabajo aparte en la cola)
             start("derivar", {**{k: d[k] for k in ("nube", "calidad", "alta", "gpu") if d.get(k)}, "c": c, "ids": r["req_nuevos"], **({"auto": True} if d.get("auto") else {})}, c)
+        if d.get("mid"):
+            destinos.tras_poblar(c, d["mid"], d.get("plan"))
         return {"carpeta": c, **{k: r[k] for k in ("creadas", "citas", "llamadas")}}
     return fn
 

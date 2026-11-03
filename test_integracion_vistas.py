@@ -78,7 +78,7 @@ def test_flujo_completo(cl):
 
 def test_urls_js_tienen_ruta(cl):
     _, app = cl
-    rutas = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.path) + "$") for r in app.app.routes if r.path.startswith("/api/reg")]
+    rutas = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.path) + "$") for r in app.app.routes if getattr(r, "path", "").startswith("/api/reg")]  # getattr: include_router mete routers sin path
     sin = set()
     for f in ("registro", "requisitos", "historias", "interesados", "decisiones", "carpeta"):
         for u in re.findall(r"""["'`](/api/reg[^"'`?\s]*)""", (STATIC / f"{f}.js").read_text(encoding="utf8")):
