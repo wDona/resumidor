@@ -10,23 +10,6 @@
   const derivada = it => it.origen === "derivado";
   const PUNTOS = it => Number(cm(it).puntos) || 0;
 
-  function menuExportar(c, vista, fmts) {  // contrato: GET /api/reg/exportar?c&vista&fmt&borrador
-    const solo = el("input", {type: "checkbox"}), nota = el("small", {className: "muted", textContent: "Lo no revisado sale marcado BORRADOR"}), det = el("details", {className: "menu rq-exp"});
-    solo.onchange = () => nota.textContent = solo.checked ? "" : "Lo no revisado sale marcado BORRADOR";
-    const ir = async fmt => {
-      det.open = false;
-      try {
-        const r = await fetch("/api/reg/exportar?" + new URLSearchParams({c, vista, fmt, borrador: solo.checked ? 0 : 1}));
-        if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(r.status === 404 ? "Exportación no disponible todavía (" + fmt + ")" : j.detail || r.statusText); }
-        const nombre = decodeURIComponent((/filename\*=UTF-8''(.+)/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || vista + "." + (fmt.startsWith("csv") ? "csv" : fmt));
-        const a = el("a", {href: URL.createObjectURL(await r.blob()), download: nombre}); document.body.append(a); a.click(); a.remove(); aviso("Descargado: " + nombre);
-      } catch (x) { err(x); }
-    };
-    det.append(el("summary", {className: "sec sm", textContent: "Exportar ▾"}), el("div", {className: "rq-exp-p"}, el("label", {className: "rq-chk"}, solo, " Solo aprobados"), nota,
-      ...fmts.map(([f, t]) => el("button", {className: "link", textContent: t, onclick: () => ir(f)}))));
-    return det;
-  }
-
   // texto .feature en español (la 2.ª línea y siguientes de Dado/Cuando/Entonces salen como «Y»)
   function feature(titulo, k, cr) {
     const L = ["# language: es", "Característica: " + (titulo || ""), ...(k.como ? ["  Como " + k.como] : []), ...(k.quiero ? ["  Quiero " + k.quiero] : []), ...(k.para ? ["  Para " + k.para] : [])];
@@ -39,10 +22,10 @@
 
   function vista(c) {
     const fo = typeof fTomaFoco === "function" ? fTomaFoco("historias") : null;  // foco desde el informe
-    const S = {all: [], f: {epica: "", req: globalThis.histFiltroReq || "", rev: fo ? "" : lsGet("hu-rev", "")}, modo: lsGet("hu-modo", "tablero"), ed: null, tabla: null, ids: fo?.ids || null, resaltar: !!fo};
+    const S = {all: [], f: {q: "", epica: "", req: globalThis.histFiltroReq || "", rev: fo ? "" : lsGet("hu-rev", "")}, modo: lsGet("hu-modo", "tablero"), ed: null, tabla: null, ids: fo?.ids || null, resaltar: !!fo};
     globalThis.histFiltroReq = "";
     let seq = 0;
-    const raiz = el("div", {className: "hu"}), cab = el("div", {className: "reg-bar"}), filtros = el("div", {className: "reg-bar"}), cuerpo = el("div", {className: "hu-body"}), panel = el("aside", {className: "reg-hist hu-ed", hidden: true});
+    const raiz = el("div", {className: "hu"}), cab = el("div"), filtros = el("div", {className: "reg-chips"}), cuerpo = el("div", {className: "hu-body"}), panel = el("aside", {className: "reg-hist hu-ed", hidden: true});
     raiz.append(cab, filtros, cuerpo, panel);
 
     async function cargar() {
@@ -56,7 +39,8 @@
     }
     const hus = () => S.all.filter(x => x.tipo === "historia");
     const reqDe = it => { for (const r of it.relaciones || []) if (r.tipo === "deriva_de") { const o = S.byId[r.a === it.id ? r.b : r.a]; if (o?.tipo === "requisito") return o; } return null; };
-    const visibles = () => hus().filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.f.rev || x.revision === S.f.rev) && (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req));
+    const busca = x => { const q = S.f.q.toLowerCase(); return !q || [x.codigo, x.titulo, cm(x).como, cm(x).quiero, cm(x).para, cm(x).epica].some(v => String(v || "").toLowerCase().includes(q)); };
+    const visibles = () => hus().filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.f.rev || x.revision === S.f.rev) && (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req) && busca(x));
 
     // solo claves de campos que cambian: el servidor fusiona sobre los vigentes
     const dif = (prev, cambios) => cambios.campos ? {...cambios, campos: Object.fromEntries(Object.entries(cambios.campos).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(prev.campos[k])))} : cambios;
@@ -82,7 +66,8 @@
         el("div", {className: "hu-pie"}, ...regInsignias(it),
           ...(rq ? [el("button", {className: "link", textContent: "↖ " + rq.codigo, title: rq.titulo + " · filtrar por este requisito", onclick: ev => { ev.stopPropagation(); S.f.req = rq.id; pintar(); }})] : []),
           ...(cr.length ? [el("small", {className: "muted", textContent: cr.length + (cr.length === 1 ? " criterio" : " criterios") + (pend ? " (" + pend + " por revisar)" : "")})] : [])));
-      const mv = el("select", {className: "hu-mv", ariaLabel: "Mover " + it.codigo + " a", onclick: ev => ev.stopPropagation(), onchange: () => patch(it, {estado: mv.value})}, ...ESTADOS.map(x => new Option(x, x))); mv.value = it.estado;
+      // «Mover a» (alternativa al arrastre): marca la columna donde está (un estado fuera del tablero cuenta como backlog)
+      const mv = el("select", {className: "hu-mv", ariaLabel: "Mover " + (it.codigo || "") + " a", title: "Mover a otra columna", onclick: ev => ev.stopPropagation(), onchange: () => patch(it, {estado: mv.value})}, ...ESTADOS.map(x => new Option(x, x))); mv.value = ESTADOS.includes(it.estado) ? it.estado : "backlog";
       card.append(mv);
       card.ondragstart = ev => { ev.dataTransfer.setData("text/plain", it.id); ev.dataTransfer.effectAllowed = "move"; card.classList.add("arr"); };
       card.ondragend = () => card.classList.remove("arr");
@@ -94,7 +79,7 @@
       return el("div", {className: "hu-tab"}, ...ESTADOS.map(est => {
         const l = xs.filter(x => (ESTADOS.includes(x.estado) ? x.estado : "backlog") === est), pts = l.reduce((a, x) => a + PUNTOS(x), 0);
         const col = el("section", {className: "hu-col", "data-estado": est, ariaLabel: est},
-          el("h3", {}, est, el("span", {className: "badge", textContent: l.length, title: "WIP: historias en esta columna"}), ...(pts ? [el("small", {className: "muted", textContent: pts + " pt"})] : [])),
+          el("h3", {}, cap(est), el("span", {className: "badge", textContent: l.length, title: "WIP: historias en esta columna"}), ...(pts ? [el("small", {className: "muted", textContent: pts + " pt"})] : [])),
           el("div", {className: "hu-lst"}, ...(l.length ? l.map(tarjeta) : [el("p", {className: "muted hu-vacio", textContent: "Arrastra aquí"})])));
         col.ondragover = ev => { ev.preventDefault(); col.classList.add("over"); };
         col.ondragleave = ev => { if (!col.contains(ev.relatedTarget)) col.classList.remove("over"); };
@@ -106,22 +91,29 @@
     function pintar() {
       const todas = hus(), xs = visibles(), epicas = [...new Set(todas.map(x => cm(x).epica).filter(Boolean))].sort();
       const reqs = [...new Map(todas.map(reqDe).filter(Boolean).map(r => [r.id, r])).values()].sort((a, b) => a.codigo.localeCompare(b.codigo, "es", {numeric: true}));
-      const sel = (lab, v, ops, set) => { const s = el("select", {ariaLabel: lab, onchange: () => { set(s.value); pintar(); }}, new Option(lab, ""), ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return s; };
-      cab.replaceChildren(el("div", {className: "row", role: "group", ariaLabel: "Modo"}, ...[["tablero", "Tablero"], ["tabla", "Tabla"]].map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.modo === k, textContent: t, onclick: () => { S.modo = k; lsSet("hu-modo", k); pintar(); }}))),
-        el("span", {className: "grow"}), el("button", {className: "sec", textContent: "Deshacer", title: "Ctrl+Z", onclick: deshacer}),
-        el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => { try { await post("/api/reg", {c, tipo: "historia", titulo: "Nueva historia", estado: "backlog"}); await cargar(); } catch (x) { err(x); } }}), menuExportar(c, "historias", FMT));
-      filtros.replaceChildren(sel("Todas las épicas", S.f.epica, epicas.map(e => [e, e]), v => S.f.epica = v), sel("Todos los requisitos", S.f.req, reqs.map(r => [r.id, r.codigo + " · " + r.titulo.slice(0, 40)]), v => S.f.req = v),
-        ...(S.modo === "tablero" ? [...REVS.map(([k, t]) => el("button", {className: "f-pill", "aria-pressed": S.f.rev === k, textContent: t + " · " + (k ? todas.filter(x => x.revision === k).length : todas.length), onclick: () => { S.f.rev = k; lsSet("hu-rev", k); pintar(); }})),
-        el("span", {className: "grow"}), el("small", {className: "muted", textContent: xs.length + " de " + todas.length + " historias · " + xs.reduce((a, x) => a + PUNTOS(x), 0) + " pt"})] : []),
-        ...(S.ids && S.modo === "tablero" ? [fChipFoco(xs.length, () => { S.ids = null; pintar(); }, fo?.etiqueta)] : []));
-      if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
+      // barra única (regBarra, registro.js). Tablero: la barra es de la vista y búsqueda/filtros solo repintan el tablero; Tabla: la pinta registroTabla con Vista, «+ Historia», ⋯ y estos filtros
+      const nf = () => +!!S.f.epica + +!!S.f.req, cambia = () => { if (S.modo === "tabla") pintar(); else { mf.activos(nf()); pintaTablero(); } };
+      const sel = (lab, todo, v, ops, set) => { const s = el("select", {onchange: () => { set(s.value); cambia(); }}, new Option(todo, ""), ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return regCampo(lab, s); };
+      const fs = [sel("Épica", "Todas", S.f.epica, epicas.map(e => [e, e]), v => S.f.epica = v), sel("Requisito", "Todos", S.f.req, reqs.map(r => [r.id, r.codigo + " · " + r.titulo.slice(0, 40)]), v => S.f.req = v)];
+      const x = {vista: {act: S.modo, ops: [["tablero", "Tablero"], ["tabla", "Tabla"]], fn: k => { S.modo = k; lsSet("hu-modo", k); pintar(); }}, mas: [regImportarAcc(c, "historias"), regExportar(c, "historias", FMT)],
+        add: {t: "+ Historia", fn: async () => { try { await post("/api/reg", {c, tipo: "historia", titulo: "Nueva historia", estado: "backlog"}); await cargar(); } catch (x) { err(x); } }}};
       if (S.modo === "tabla") {
+        cab.replaceChildren(); filtros.replaceChildren();
         const w = el("div"); cuerpo.replaceChildren(w);
-        registroTabla(w, {c, tipo: "historia", onChange: cargar, ...(S.ids ? {foco: {ids: S.ids, etiqueta: fo?.etiqueta}} : {}), filtro: its => its.filter(x => (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req)), columnas: [{k: "codigo", label: "Código", w: 90}, {k: "titulo", label: "Historia", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS},
+        registroTabla(w, {c, tipo: "historia", onChange: cargar, barra: {...x, filtros: fs, nf: nf()}, ...(S.ids ? {foco: {ids: S.ids, etiqueta: fo?.etiqueta}} : {}), filtro: its => its.filter(x => (!S.f.epica || cm(x).epica === S.f.epica) && (!S.f.req || reqDe(x)?.id === S.f.req)), columnas: [REG_COD, {k: "titulo", label: "Historia", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS},
           {k: "campos.epica", label: "Épica"}, {k: "req", label: "Requisito", render: it => reqDe(it)?.codigo || ""}, {k: "campos.puntos", label: "Puntos", tipo: "num", w: 70}], vacio: "Aún no hay historias. Se derivan de los requisitos (F5) o puedes añadirlas a mano."});
         return;
       }
-      cuerpo.replaceChildren(todas.length ? tablero(xs) : el("div", {className: "vacio", textContent: "Aún no hay historias. Se derivan de los requisitos o puedes añadirlas con «+ Añadir»."}));
+      const mf = masFiltros(fs, nf());
+      cab.replaceChildren(regBarra({buscar: {valor: S.f.q, fn: t => { S.f.q = t; pintaTablero(); }}, chips: regChips(REVS, S.f.rev, regCuenta(todas), k => { S.f.rev = k; lsSet("hu-rev", k); pintar(); }), filtros: mf, ...x}));
+      pintaTablero();
+    }
+    function pintaTablero() {
+      const todas = hus(), xs = visibles();
+      filtros.replaceChildren(...(todas.length ? [el("small", {className: "muted", textContent: xs.length + " de " + todas.length + " historias · " + xs.reduce((a, x) => a + PUNTOS(x), 0) + " pt"})] : []),
+        ...(S.ids ? [fChipFoco(xs.length, () => { S.ids = null; pintaTablero(); }, fo?.etiqueta)] : []));
+      cuerpo.replaceChildren(todas.length ? tablero(xs) : el("div", {className: "vacio", textContent: "Aún no hay historias. Se derivan de los requisitos o puedes añadirlas con «+ Historia»."}));
+      if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
     }
 
     // ---- editor: como/quiero/para + épica + puntos + criterios Gherkin con vista previa ----

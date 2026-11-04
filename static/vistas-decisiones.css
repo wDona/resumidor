@@ -3,7 +3,7 @@
 .dec-linea{list-style:none;margin:12px 0;padding:0 0 0 22px;border-left:3px solid var(--line)}
 .dec-grupo{position:relative;margin:0 0 22px}
 .dec-grupo::before{content:"";position:absolute;left:-30px;top:6px;width:13px;height:13px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 4px var(--bg)}
-.dec-fecha{margin:0 0 8px;font-size:var(--fs-m);text-transform:capitalize;color:var(--ink2)}
+.dec-fecha{margin:0 0 8px;font-size:var(--fs-m);color:var(--ink2)}.dec-fecha::first-letter{text-transform:uppercase}  /* «Miércoles, 4 de noviembre…», no «4 De Noviembre» */
 .dec-card{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:12px 16px;margin:0 0 10px;outline:none}
 .dec-card:focus-visible,.dec-card.flash{outline:2px solid var(--focus);outline-offset:2px;background:var(--acc-s)}
 .dec-card.prop{box-shadow:inset 4px 0 0 var(--acc)}.dec-card.desc{color:var(--txt-3)}
@@ -21,14 +21,10 @@
 .dec-f{display:flex;flex-direction:column;gap:3px;font-size:var(--fs-s);color:var(--mut);flex:1 1 160px;min-width:0}
 .dec-f input,.dec-f textarea,.dec-f select{font:inherit;color:var(--ink);width:100%}
 .dec-fila{display:flex;flex-wrap:wrap;gap:10px}
-.dec-chk{display:inline-flex;align-items:center;gap:6px;min-height:36px}
-.dec-exp{position:relative}.dec-exp summary{display:inline-flex;align-items:center;min-height:36px;padding:0 14px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;list-style:none}
-.dec-exp summary::-webkit-details-marker{display:none}
-.dec-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:15;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:200px;padding:10px 14px;background:var(--card);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow)}
 .dec-ban{border-color:var(--warn-ln);background:var(--warn-s)}
 .dec-draw{position:fixed;right:0;top:0;bottom:0;width:min(440px,100vw);overflow:auto;background:var(--card);border-left:1px solid var(--line);box-shadow:var(--shadow);padding:16px;z-index:20}
 .dec-draw h4{margin:14px 0 2px;font-size:var(--fs-xs);font-weight:var(--fw-sb);text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}.dec-draw p{margin:2px 0;overflow-wrap:anywhere}
 .dec-adr-t{font-size:var(--fs-xl);margin:12px 0 6px;overflow-wrap:anywhere}
 @media(max-width:700px){.dec-linea{padding-left:14px}.dec-grupo::before{left:-22px}.dec-card{padding:10px 12px}}
-.dec{display:flex;flex-direction:column;gap:var(--s3)}.dec-bar{display:flex;flex-direction:column;gap:var(--s2)}.dec-bar .reg-acc .row,.dec-bar .reg-bar .row{gap:var(--s2)}.dec-ban{margin:0}
+.dec{display:flex;flex-direction:column;gap:var(--s3)}.dec-ban{margin:0}
 .dec>div:empty{display:none}

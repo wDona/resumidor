@@ -16,31 +16,14 @@
   const num = it => parseInt(String(it.codigo || "").replace(/\D/g, "")) || 0;
   const err = x => aviso(x.message || String(x));
 
-  // Exportar ▾ (contrato: GET /api/reg/exportar?c&vista&fmt&borrador)
-  function menuExportar(c, vista, fmts) {
-    const solo = el("input", {type: "checkbox", id: "ex-solo-" + vista}), det = el("details", {className: "menu rq-exp"});
-    const ir = async fmt => {
-      det.open = false;
-      try {
-        const r = await fetch("/api/reg/exportar?" + new URLSearchParams({c, vista, fmt, borrador: solo.checked ? 0 : 1}));
-        if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(r.status === 404 ? "Exportación no disponible todavía (" + fmt + ")" : j.detail || r.statusText); }
-        const nombre = decodeURIComponent((/filename\*=UTF-8''(.+)/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || vista + "." + fmt.replace(/^csv_.*/, "csv").replace("feature", "feature"));
-        const a = el("a", {href: URL.createObjectURL(await r.blob()), download: nombre}); document.body.append(a); a.click(); a.remove(); aviso("Descargado: " + nombre);
-      } catch (x) { err(x); }
-    };
-    det.append(el("summary", {className: "sec sm", textContent: "Exportar ▾"}), el("div", {className: "rq-exp-p"},
-      el("label", {className: "rq-chk"}, solo, " Solo aprobados"), el("small", {className: "muted", textContent: solo.checked ? "" : "Lo no revisado sale marcado BORRADOR"}),
-      ...fmts.map(([f, t]) => el("button", {className: "link", textContent: t, onclick: () => ir(f)}))));
-    solo.onchange = () => det.querySelector("small").textContent = solo.checked ? "" : "Lo no revisado sale marcado BORRADOR";
-    return det;
-  }
+  // formatos del submenú «Exportar» del ⋯ (regExportar, registro.js)
   const FMT = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["xlsx", "Excel (.xlsx)"], ["csv", "CSV"], ["md", "Markdown"], ["json", "JSON"], ["csv_jira", "Jira (.csv)"], ["csv_azure", "Azure DevOps (.csv)"]];
 
   function vista(c) {
     const fo = typeof fTomaFoco === "function" ? fTomaFoco("requisitos") : null;  // foco desde el informe
     const S = {all: [], f: {q: "", estado: "", prio: "", rev: fo ? "" : lsGet("rq-rev", "")}, grupo: lsGet("rq-grupo", ""), cerrados: new Set(), sel: new Set(), hu: {}, pr: {}, drawer: null, ids: fo?.ids || null, resaltar: !!fo};
     let seq = 0;
-    const raiz = el("div", {className: "reg rq", tabIndex: -1}), cab = el("div", {className: "reg-bar"}), resumen = el("div", {className: "rq-sum"}), chips = el("div", {className: "reg-chips"}),
+    const raiz = el("div", {className: "reg rq", tabIndex: -1}), cab = el("div"), resumen = el("div", {className: "rq-sum"}), chips = el("div", {className: "reg-chips"}),
       acc = el("div", {className: "reg-acc"}), cuerpo = el("div", {className: "reg-wrap"}), dr = el("aside", {className: "reg-hist rq-dr", hidden: true}),
       dl = el("datalist", {id: "rq-dl-sol"});
     raiz.append(cab, resumen, chips, acc, cuerpo, dr, dl);
@@ -129,16 +112,15 @@
       const n = S.sel.size, ids = [...S.sel];
       const dest = el("select", {ariaLabel: "Fusionar con", hidden: true}, new Option("Fusionar con…", ""), ...reqs().filter(x => !S.sel.has(x.id)).map(x => new Option(x.codigo + " · " + x.titulo.slice(0, 60), x.id)));
       dest.onchange = () => dest.value && fusionar(dest.value, ids);
-      acc.replaceChildren(el("button", {className: "sec", textContent: "Deshacer", title: "Ctrl+Z", onclick: deshacer}), el("span", {className: "grow"}),
-        ...(n ? [el("span", {className: "muted", textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}), el("button", {className: "pri sm", textContent: "Aprobar", onclick: () => revisar(ids, "aprobar")}),
+      acc.replaceChildren(...(n ? [el("span", {className: "muted", textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}), el("button", {className: "pri sm", textContent: "Aprobar", onclick: () => revisar(ids, "aprobar")}),
           el("button", {className: "sec sm", textContent: "Descartar", onclick: () => revisar(ids, "descartar")}), el("button", {className: "sec sm", textContent: "Fusionar con…", onclick: () => { dest.hidden = false; dest.focus(); }}), dest] : []));
     }
-    function barra(base) {  // resumen MoSCoW apilado; clic = filtrar
+    function barra(base) {  // resumen MoSCoW apilado; clic = filtrar. Solo si algún requisito tiene prioridad (si no, sería una franja «N sin prioridad»)
       const cnt = Object.fromEntries(PRIO.map(p => [p, 0])); let sin = 0;
       for (const x of base) x.prioridad in cnt ? cnt[x.prioridad]++ : sin++;
-      const tot = base.length || 1, seg = (p, n) => el("button", {className: "rq-seg " + px(p), style: "flex:" + n + " 1 0", "aria-pressed": S.f.prio === p, textContent: n + " " + p, title: "Filtrar por " + p, onclick: () => { S.f.prio = S.f.prio === p ? "" : p; pintar(); }});
-      return [el("div", {className: "rq-bar", role: "group", "aria-label": "Resumen MoSCoW"}, ...PRIO.filter(p => cnt[p]).map(p => seg(p, cnt[p])), ...(sin ? [el("span", {className: "rq-seg " + px(""), style: "flex:" + sin + " 1 0", textContent: sin + " sin prioridad"})] : []),
-        ...(base.length ? [] : [el("span", {className: "muted", textContent: "Sin requisitos"})])), el("small", {className: "muted", textContent: base.length + " requisitos" + (S.f.prio ? " · filtrando " + S.f.prio : "")})];
+      if (sin === base.length) return [];
+      const seg = (p, n) => el("button", {className: "rq-seg " + px(p), style: "flex:" + n + " 1 0", "aria-pressed": S.f.prio === p, textContent: n + " " + p, title: "Filtrar por " + p, onclick: () => { S.f.prio = S.f.prio === p ? "" : p; pintar(); }});
+      return [el("div", {className: "rq-bar", role: "group", "aria-label": "Resumen MoSCoW"}, ...PRIO.filter(p => cnt[p]).map(p => seg(p, cnt[p])), ...(sin ? [el("span", {className: "rq-seg " + px(""), style: "flex:" + sin + " 1 0", textContent: sin + " sin prioridad"})] : []))];
     }
     // «Derivar historias» (F5): encola /api/reg/derivar con los seleccionados o, sin selección, los que aún no tienen historias; al terminar,
     // carpetaTrasCola recarga la pestaña (mismo patrón que «Regenerar con IA» de carpeta.js)
@@ -147,36 +129,37 @@
       const u = r.ultimo, cr = u?.creadas || {};
       dinfo.textContent = r.en_cola ? "Derivando… (en cola)" : u ? "Última derivación: " + (cr.historia || 0) + " historias · " + (cr.pregunta || 0) + " preguntas · " + u.llamadas + " llamadas" + (u.coste ? " · US$" + u.coste.toFixed(3) : "") : "";
     }).catch(() => {});
-    function derivarBtn() {
+    function derivarBtn() {  // acción del ⋯ (regAccion) con el estado de la última derivación debajo
       const vivos = () => S.all.filter(x => x.tipo === "requisito" && !["descartado", "fusionado"].includes(x.revision)), nb = () => { try { return nubeParams("q") || nubeParams("f"); } catch { return null; } };
-      const b = el("button", {className: "sec sm", textContent: "Derivar historias", disabled: !vivos().length,
-        title: vivos().length ? "La IA propone historias, criterios Gherkin y preguntas abiertas de los requisitos seleccionados o, sin selección, de los que aún no tienen historias" : "No hay requisitos",
-        onclick: async () => {
-          const ids = [...S.sel].filter(id => vivos().some(x => x.id === id));
-          if (!ids.length && !vivos().some(x => !(S.hu[x.id] || []).length)) return aviso("Todos los requisitos tienen historias: selecciona los que quieras volver a derivar");
-          b.disabled = true;
-          try { await fEnCola("/api/reg/derivar", {c, ...(ids.length ? {ids} : {}), ...(nb() ? {nube: nb()} : {})}); dEstado(); } catch (x) { err(x); } finally { b.disabled = false; }
-        }});
-      return b;
+      return regAccion("Derivar historias", async () => {
+        const ids = [...S.sel].filter(id => vivos().some(x => x.id === id));
+        if (!ids.length && !vivos().some(x => !(S.hu[x.id] || []).length)) return aviso("Todos los requisitos tienen historias: selecciona los que quieras volver a derivar");
+        try { await fEnCola("/api/reg/derivar", {c, ...(ids.length ? {ids} : {}), ...(nb() ? {nube: nb()} : {})}); dEstado(); } catch (x) { err(x); }
+      }, {disabled: !vivos().length, title: vivos().length ? "La IA propone historias, criterios Gherkin y preguntas abiertas de los requisitos seleccionados o, sin selección, de los que aún no tienen historias" : "No hay requisitos"});
     }
     dEstado();
+    // barra única (regBarra, registro.js); la búsqueda y los filtros solo repintan la lista
     function pintar() {
-      const base = reqs(), xs = visibles(), co = S.cont?.por_revision || {};
-      cab.replaceChildren(el("input", {type: "search", value: S.f.q, placeholder: "Buscar…", ariaLabel: "Buscar", oninput: ev => { S.f.q = ev.target.value; clearTimeout(pintar.t); pintar.t = setTimeout(() => { const p = ev.target.selectionStart; pintar(); const i = cab.querySelector("input"); i.focus(); i.setSelectionRange(p, p); }, 250); }}),
-        masFiltros([
-        (() => { const s = el("select", {ariaLabel: "Estado", onchange: ev => { S.f.estado = ev.target.value; pintar(); }}, new Option("Todos los estados", ""), ...ESTADOS.map(x => new Option(x, x))); s.value = S.f.estado; return s; })(),
-        (() => { const s = el("select", {ariaLabel: "Agrupar por", onchange: ev => { S.grupo = ev.target.value; lsSet("rq-grupo", S.grupo); pintar(); }}, ...GRUPOS.map(([k, t]) => new Option(k ? "Agrupar: " + t : t, k))); s.value = S.grupo; return s; })()], +!!S.f.estado),
-        el("span", {className: "grow"}),
-        derivarBtn(), dinfo,
-        el("button", {className: "sec", textContent: "+ Añadir", onclick: async () => { try { await post("/api/reg", {c, tipo: "requisito", titulo: "Nuevo requisito", estado: "borrador"}); await cargar(); } catch (x) { err(x); } }}),
-        menuExportar(c, "requisitos", FMT));
+      const vivos = S.all.filter(x => x.tipo === "requisito"), ap = ["descartado", "fusionado"].includes(S.f.rev);
+      const nf = () => +!!S.f.estado + +!!S.f.prio + +!!S.grupo, cambia = () => { mf.activos(nf()); pintarLista(); };
+      const sel = (v, ops, fn) => { const s = el("select", {onchange: () => { fn(s.value); cambia(); }}, ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return s; };
+      const mf = masFiltros([regCampo("Estado", sel(S.f.estado, [["", "Todos"], ...ESTADOS.map(x => [x, x])], v => S.f.estado = v)),
+        regCampo("Prioridad", sel(S.f.prio, [["", "Todas"], ...PRIO.map(x => [x, x])], v => S.f.prio = v)),
+        regCampo("Agrupar por", sel(S.grupo, GRUPOS, v => { S.grupo = v; lsSet("rq-grupo", v); }))], nf());
+      cab.replaceChildren(regBarra({buscar: {valor: S.f.q, fn: t => { S.f.q = t; pintarLista(); }}, filtros: mf,
+        chips: regChips(REVS, S.f.rev, regCuenta(vivos, {fusionado: regNumFusionadas(vivos), ...(ap ? {[S.f.rev]: S.desc.length} : {})}), k => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }),
+        add: {t: "+ Requisito", fn: async () => { try { await post("/api/reg", {c, tipo: "requisito", titulo: "Nuevo requisito", estado: "borrador"}); await cargar(); } catch (x) { err(x); } }},
+        mas: [derivarBtn(), dinfo, regImportarAcc(c, "requisitos"), regExportar(c, "requisitos", FMT)]}));
+      pintarLista();
+    }
+    function pintarLista() {
+      const base = reqs(), xs = visibles();
       resumen.replaceChildren(...barra(base));
-      chips.replaceChildren(...REVS.map(([k, t]) => el("button", {className: "fchip", "aria-pressed": S.f.rev === k, onclick: () => { S.f.rev = k; lsSet("rq-rev", k); cargar(); }}, t, el("span", {className: "n", textContent: k === "fusionado" ? regNumFusionadas(S.all.filter(x => x.tipo === "requisito")) : k ? co[k] ?? 0 : (co.propuesto ?? 0) + (co.aprobado ?? 0)}))),
-        ...(S.ids ? [fChipFoco(xs.length, () => { S.ids = null; pintar(); }, fo?.etiqueta)] : []));
+      chips.replaceChildren(...(S.ids ? [fChipFoco(xs.length, () => { S.ids = null; pintarLista(); }, fo?.etiqueta)] : []));
       pintarAcc();
       if (S.resaltar) { S.resaltar = false; fResaltaIds(cuerpo, S.ids); }
-      const todos = el("input", {type: "checkbox", ariaLabel: "Seleccionar todo", checked: xs.length > 0 && xs.every(x => S.sel.has(x.id)), onchange: ev => { S.sel = ev.target.checked ? new Set(xs.map(i => i.id)) : new Set(); pintar(); }});
-      if (!xs.length) { cuerpo.replaceChildren(el("div", {className: "vacio", textContent: "No hay requisitos con estos filtros. La IA los propone al poblar el proyecto; también puedes usar «+ Añadir»."})); return; }
+      const todos = el("input", {type: "checkbox", ariaLabel: "Seleccionar todo", checked: xs.length > 0 && xs.every(x => S.sel.has(x.id)), onchange: ev => { S.sel = ev.target.checked ? new Set(xs.map(i => i.id)) : new Set(); pintarLista(); }});
+      if (!xs.length) { cuerpo.replaceChildren(el("div", {className: "vacio", textContent: "No hay requisitos con estos filtros. La IA los propone al poblar el proyecto; también puedes usar «+ Requisito»."})); return; }
       const tb = [];
       if (!S.grupo) tb.push(el("tbody", {}, ...xs.map(fila)));
       else {
@@ -185,7 +168,7 @@
         const ord = S.grupo === "prioridad" ? k => PRIO.indexOf(k) < 0 ? 9 : PRIO.indexOf(k) : S.grupo === "estado" ? k => ESTADOS.indexOf(k) < 0 ? 9 : ESTADOS.indexOf(k) : () => 0;
         for (const [k, l] of [...g].sort((a, b) => ord(a[0]) - ord(b[0]) || a[0].localeCompare(b[0], "es"))) {
           const cerr = S.cerrados.has(k);
-          tb.push(el("tbody", {className: "rq-g"}, el("tr", {className: "rq-gh"}, el("td", {colSpan: COLS.length + 5}, el("button", {className: "link", "aria-expanded": !cerr, textContent: (cerr ? "▸ " : "▾ ") + k + " · " + l.length, onclick: () => { cerr ? S.cerrados.delete(k) : S.cerrados.add(k); pintar(); }}))),
+          tb.push(el("tbody", {className: "rq-g"}, el("tr", {className: "rq-gh"}, el("td", {colSpan: COLS.length + 5}, el("button", {className: "link", "aria-expanded": !cerr, textContent: (cerr ? "▸ " : "▾ ") + k + " · " + l.length, onclick: () => { cerr ? S.cerrados.delete(k) : S.cerrados.add(k); pintarLista(); }}))),
             ...(cerr ? [] : l.map(fila))));
         }
       }

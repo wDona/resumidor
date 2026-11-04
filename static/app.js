@@ -363,18 +363,20 @@ function pintarHome() {
   carpetaVista(!ini && fsel ? fsel : null);
   const bus = qBuscar.trim().toLowerCase(), ms = todas.filter(m => (ini || fsel === null || (m.carpeta || "") === fsel) && (!bus || (m.label + " " + (m.carpeta || "")).toLowerCase().includes(bus))).slice(0, ini && !bus ? 8 : 1e9);
   $("docs-t").textContent = bus ? "Resultados" : ini ? "Documentos recientes" : fsel === null ? "Todos" : "Documentos"; $("docs-todos").hidden = !ini || !!bus;
+  const enP = !ini && fsel !== null;  // dentro de un proyecto (o «Sin proyecto»): la columna «Proyecto» sobra y, en la pestaña Documentos, el título repite el nombre de la pestaña
+  $("docs-t").parentElement.hidden = !!fsel && !bus;
   const nuevas = bus ? [] : ini || fsel === null || fsel === "" ? act.filter(e => e.kind === "acta" && !e.mid) : [];
   const fila = m => {
     const e = act.find(e => e.mid === m.id), f = fechaC(m.mtime);
-    const tr = el("tr", {className: "f", draggable: true, ondragstart: ev => { arrastrando = m; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", m.id); }, ondragend: () => { arrastrando = null; }}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: f}),
-      el("td", {}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : []), ...(m.actas > 1 && !e ? [el("span", {className: "badge", textContent: m.actas + " versiones"})] : []),
-        el("button", {className: "sec sm fila-mv", textContent: "Mover", ariaLabel: "Mover " + m.label, onclick: () => mover(m, tr.lastChild)})));
+    const tr = el("tr", {className: "f", draggable: true, ondragstart: ev => { arrastrando = m; ev.dataTransfer.effectAllowed = "move"; ev.dataTransfer.setData("text/plain", m.id); }, ondragend: () => { arrastrando = null; }}, el("td", {}, el("button", {className: "doc-l", textContent: m.label, onclick: fallo(() => abrir(m.id))})), el("td", {textContent: m.carpeta || "", hidden: enP}), el("td", {textContent: f}),
+      el("td", {}, el("div", {className: "est-c"}, ...(e ? [el("span", {className: "badge acc", textContent: est(e)})] : []), ...(m.actas > 1 && !e ? [el("span", {className: "badge", textContent: m.actas + " versiones"})] : []),  // «Mover» a la derecha de la celda (misma x en todas las filas); con ratón, al pasar o enfocar la fila
+        el("button", {className: "sec sm fila-mv", textContent: "Mover", ariaLabel: "Mover " + m.label, onclick: () => mover(m, tr.lastChild)}))));
     return tr;
   };
-  $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td"), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
+  $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td", {hidden: enP}), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
   $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
   $("vacio").textContent = "Aún no hay " + pl(nm("documento")) + (fsel ? " en «" + fsel + "»" : "") + ".";
-  document.querySelectorAll("#tabla th")[1].hidden = false;
+  document.querySelectorAll("#tabla th")[1].hidden = enP;
   if (ini) $("docs-w").hidden = true;  // Inicio: «Continúa» en vez de la tabla (shell.js)
   if (typeof rutaSync === "function") { if (ini) pintarInicio(); if (vistaAct === "home") rutaSync(); }
 }
@@ -402,7 +404,7 @@ async function abrir(id, acta, quedar) {
   if (cur.video) mpCargar(cur.videourl, cur.m.label, !!au); else mpCerrar();
   vista("res"); document.title = cur.m.label + " · Actas"; soloUI(cur.solo);
   if (cur.solo) { $("acta-acciones").replaceChildren(); $("vers").replaceChildren(); $("cab-meta").replaceChildren(...[KIND_T[cur.kind], cur.carpeta, "solo buscable"].filter(Boolean).map(t => el("span", {textContent: t}))); $("imp-info").hidden = true; pintarConds(); tab(quedar && tabAct !== "p-acta" && tabAct !== "p-ext" ? tabAct : "p-video"); return; }
-  pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : "p-acta");
+  pintarVers(); cambiarActa(); pintarConds(); tab(quedar && !(tabAct === "p-video" && !cur.video) ? tabAct : cur.kind === "imagen" ? "p-video" : "p-acta");  // una imagen se abre en Fuente: ahí está la imagen (en Resumen no se vería)
 }
 // documento «solo buscable»: oculta lo que necesita un acta y ofrece «Resumir y extraer» (otra versión con la misma fuente, sin buscable)
 const SOLO_OCULTOS = ["d-env-w", "d-editar", "d-correo", "d-anon", "d-otra", "d-vren", "d-dud", "d-rest", "fondo", "dl-zip", "dl-vid", "d-cond", "d-exp", "d-det"];
@@ -412,7 +414,7 @@ const tab = (p, dir = 0) => {  // dir: eje X al cambiar de pestaña a mano (−1
   tabAct = p;
   document.querySelectorAll("#mtabs button").forEach(b => { b.setAttribute("aria-selected", b.dataset.p === p); $(b.dataset.p).hidden = b.dataset.p !== p; });
   const vacio = cur.solo && (p === "p-acta" || p === "p-ext"); $("solo-vacio").hidden = !vacio; if (vacio) $(p).hidden = true;
-  ubicar();
+  ubicar(); docAlto();
   if (p === "p-video" && typeof notasRes === "function") notasRes();
   docTab(p);  // Extraído y Fuente: shell.js
   ejeX($(p), dir);
@@ -585,6 +587,7 @@ addEventListener("resize", ubicar);
 let fuT; $("p-fuente").addEventListener("input", e => {
   const w = e.target.closest(".fu-img"); if (!w || e.target.tagName !== "TEXTAREA") return;
   const id = cur.id, [du, dia] = w.querySelectorAll("textarea"), ok = w.querySelector(".fu-ok") || w.querySelector(".pri").after(el("span", {className: "fu-ok muted", role: "status"})) || w.querySelector(".fu-ok");
+  const ver = w.querySelector(".fu-ver"); if (ver && e.target === dia && !dia.classList.contains("abierta")) ver.hidden = dia.scrollHeight <= dia.clientHeight + 2;  // «Ver más» solo si la descripción de la IA desborda las 5 líneas
   ok.textContent = "Guardando…"; clearTimeout(fuT);
   fuT = setTimeout(() => post("/api/imagen/" + id, {descripcion: du.value, descripcion_ia: dia.value}).then(() => ok.textContent = "Guardado ✓", x => ok.textContent = "No se pudo guardar: " + x.message), 800);
 }); new ResizeObserver(() => !MP().hidden && ubicar()).observe(MP());  // el vídeo cambia de alto al cargar: el hueco lo sigue
@@ -632,8 +635,17 @@ function citasCortas(d) {
   const a = cur?.actas.find(x => x.name === ver), me = d.querySelector(".meta");
   if (me?.firstChild && cur.importadas[a?.asr]?.tipo) me.firstChild.textContent = me.firstChild.textContent.replace(/^Duración [\d:]+ · /, "");
 }
+// el documento mide lo que queda de ventana bajo la cabecera, las pestañas y los avisos: un solo scroll (el del documento), sin barra doble. offsetTop y no
+// getBoundingClientRect: la animación de entrada de la vista aplica transform y falsearía la medida. En móvil (≤700 px) manda el CSS (70vh).
+function docAlto() {
+  const f = $("acta-frame"); if (!f.offsetParent) return;
+  let top = 0; for (let n = f; n; n = n.offsetParent) top += n.offsetTop;
+  f.style.height = matchMedia("(max-width:700px)").matches ? "" : Math.max(0, innerHeight - top - 16) + "px";
+}
+addEventListener("resize", docAlto); new ResizeObserver(() => requestAnimationFrame(docAlto)).observe(document.body);  // lo que hay encima crece o se encoge (aviso de dudosos, versiones…); en el siguiente cuadro para no encadenar avisos del observador
 // el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
 $("acta-frame").onload = () => {
+  docAlto();
   let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
   d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d); citasCortas(d);
   d.addEventListener("click", e => {

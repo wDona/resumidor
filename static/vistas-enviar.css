@@ -92,9 +92,11 @@
 .pchip-b{padding:0 var(--s3)}.pchip.on .pchip-b{color:var(--acc-d);font-weight:600}
 .pchip-i{font-size:var(--fs-xs,12px);color:var(--mut)}.pchip.on .pchip-i{color:var(--acc-d)}
 .pchip-s{color:var(--acc)}
-.pchip-m{width:0;min-width:0;padding:0;opacity:0;overflow:hidden;color:var(--mut)}
-.pchip:hover .pchip-m,.pchip:focus-within .pchip-m{width:30px;opacity:1}
-@media(hover:none){.pchip.on .pchip-m{width:30px;opacity:1}}
+/* R5: ⋯ superpuesto en un hueco reservado a la derecha; pasar el ratón, enfocar o marcar nunca cambia el ancho del chip */
+.pchip:has(.pchip-m) .pchip-b{padding-right:28px}
+.pchip-m{position:absolute;top:0;right:0;width:28px;height:100%;min-height:0;padding:0;justify-content:center;opacity:0;pointer-events:none;color:var(--mut)}
+.pchip:hover .pchip-m,.pchip.on .pchip-m,.pchip:has(:focus-visible) .pchip-m{opacity:1;pointer-events:auto}
+.pchip-m:hover{background:var(--acc-s2,var(--acc-s));color:var(--ink)}
 .pchip :is(button):focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .pchip>.env-pmenu{left:0}
 .env-pmenu{z-index:20}
@@ -182,12 +184,28 @@
 /* R4 */
 .env-mas{position:relative;display:inline-flex}
 .env-mas>.btn{border-radius:var(--r-pill,999px);min-height:var(--h-m,36px)}
-.pchip:not(.on):not(:hover):not(:focus-within) .pchip-i{display:none}
+.pchip:not(.on):not(:hover):not(:has(:focus-visible)) .pchip-i{opacity:0}  /* R5: el hueco del icono se reserva (opacity, no display) */
 .desc-nota{display:none}
 .desc-cols{margin-bottom:0}.desc-dlg fieldset{margin-bottom:var(--s2)}.desc-opc{margin-top:0}
 .env-dlg .env-acc{position:sticky;bottom:0;background:var(--surf-2,var(--card));padding-top:var(--s3);margin-top:var(--s3)}
 @media(max-width:700px){.env-dlg .env-acc{box-shadow:0 -8px 12px -8px color-mix(in srgb,var(--ink) 25%,transparent)}.env-dlg .env-acc .btn.pri{flex:1;min-height:var(--h-l,44px)}}
-.env-ic{font-size:var(--fs-l,20px);line-height:1;margin-right:var(--s2)}
+.env-ic{display:inline-flex;flex:none;color:var(--acc);margin-right:var(--s2)}  /* SVG de 24 px, no emoji */
 .env-estado{font-size:var(--fs-xs,12px);color:var(--mut)}
 .env-ej{display:flex;flex-direction:column;gap:var(--s2);margin-top:var(--s4)}
-.env-ej .env-card{opacity:.85;flex-direction:row;align-items:center;gap:var(--s3)}
+.env-ej .env-card{border-style:dashed;flex-direction:row;align-items:center;gap:var(--s3)}
+.env-etq{font-size:var(--fs-xs,12px);color:var(--mut);white-space:nowrap}  /* «Ejemplo»: etiqueta plana, no parece un botón */
+
+/* R4-B: menú de chips y «Más» dentro de la hoja: hacia arriba si abajo no cabe, a la derecha si se sale, con scroll propio si no cabe entero */
+.env-pmenu{overflow-y:auto;overscroll-behavior:contain}
+.env-pmenu.arriba{top:auto;bottom:100%;margin:0 0 var(--s1)}
+.env-pmenu.der,.pchip>.env-pmenu.der{left:auto;right:0}
+.env-pers>summary .env-sum{display:inline;font-weight:400;color:var(--mut)}
+
+/* R5: cabecera común de los diálogos (igual que la hoja Añadir: título grande + «×»; pie secundario · primario) */
+.env-dh{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s3);margin-bottom:var(--s3)}
+.env-dh h2{margin:0;font-size:var(--fs-2xl);line-height:1.25}
+.env-dh .qi{margin:calc(var(--s1)*-1) calc(var(--s2)*-1) 0 0}
+@media(max-width:860px){.env-dh h2{font-size:var(--fs-xl)}}
+@media(prefers-reduced-motion:no-preference){.pchip-m,.pchip-i{transition:opacity var(--dur-s4,.2s) var(--ease-standard,ease)}}
+/* táctil / móvil: filas de casillas de 44 px (Descargar, Enviar) */
+@media(pointer:coarse),(max-width:700px){.env-dlg .env-chk{min-height:var(--h-l,44px)}}

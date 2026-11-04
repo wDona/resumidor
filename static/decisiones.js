@@ -20,7 +20,7 @@
   });
 
   function vista(c, e) {
-    const S = {items: [], rels: [], prop: [], vista: lsGet("dec-vista", "linea"), asc: lsGet("dec-asc", false), vig: lsGet("dec-vig", false), soloAprob: lsGet("dec-aprob", false),
+    const S = {items: [], rels: [], prop: [], vista: lsGet("dec-vista", "linea"), asc: lsGet("dec-asc", false), vig: lsGet("dec-vig", false), vivos: [],
       f: {estado: "", dueno: "", revision: "", q: ""}, ctx: new Set(), edit: null, drawer: null, fusion: null};
     const fo = typeof fTomaFoco === "function" ? fTomaFoco("decisiones") : null;  // foco desde el informe
     if (fo) { S.ids = fo.ids; S.resaltar = true; S.vig = false; S.vista = "linea"; }
@@ -31,16 +31,18 @@
     async function cargar() {
       const n = ++seq;
       try {
-        const [r, b] = await Promise.all([api("/api/reg?" + new URLSearchParams({c, tipo: "decision", ...(S.f.revision ? {revision: S.f.revision} : {})})), api("/api/reg/bandeja?c=" + enc(c))]);
+        // vivos = propuestas + aprobadas del tipo (filtradas aquí, para que los chips cuenten solo decisiones); descartadas/fusionadas, lista aparte
+        const rv = S.f.revision, ap = rv === "descartado" || rv === "fusionado";
+        const [r, b, d] = await Promise.all([api("/api/reg?" + new URLSearchParams({c, tipo: "decision"})), api("/api/reg/bandeja?c=" + enc(c)), ap ? api("/api/reg?" + new URLSearchParams({c, tipo: "decision", revision: rv})) : null]);
         if (n !== seq) return;
-        S.items = r.items; S.prop = b.relaciones_propuestas || []; S.nFus = r.contadores?.fusionadas ?? 0;
+        S.vivos = r.items; S.aparte = !!d; S.items = d ? d.items : r.items; S.prop = b.relaciones_propuestas || []; S.nFus = r.contadores?.fusionadas ?? 0;
         S.rels = S.items.flatMap(x => x.relaciones || []).filter(r => r.tipo === "sustituye" && !r.propuesta);
         if (S.edit && !S.items.some(x => x.id === S.edit)) S.edit = null;
         pintar();
       } catch (x) { if (n === seq) cuerpo.replaceChildren(el("p", {className: "err", textContent: x.message})); }
     }
     const refrescar = async () => { await cargar(); if (S.drawer) abrirCajon(S.drawer); };
-    const porId = id => S.items.find(x => x.id === id);
+    const porId = id => S.items.find(x => x.id === id) || S.vivos?.find(x => x.id === id);
     // sustPor(b) = a (a es la más nueva); sustA(a) = [b...]
     const sustPor = id => S.rels.find(r => r.b === id)?.a, sustA = id => [...new Set(S.rels.filter(r => r.a === id).map(r => r.b))];
 
@@ -68,15 +70,6 @@
       const n = document.getElementById("dec-" + id);
       if (!n) { aviso("Esa decisión no está visible con los filtros actuales"); return; }
       n.scrollIntoView({behavior: "smooth", block: "center"}); n.classList.add("flash"); n.focus({preventScroll: true}); setTimeout(() => n.classList.remove("flash"), 1800);
-    }
-    async function exportar(fmt) {
-      try {
-        const r = await fetch("/api/reg/exportar?" + new URLSearchParams({c, vista: "decisiones", fmt, borrador: S.soloAprob ? "0" : "1"}));
-        if (!r.ok) { let m = r.statusText; try { const j = await r.json(); m = j.detail || j.error || m; } catch {} aviso(r.status === 404 ? "Exportación no disponible: " + m : "No se pudo exportar: " + m); return; }
-        const b = await r.blob(), cd = r.headers.get("content-disposition") || "", nombre = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(cd)?.[1];
-        const a = el("a", {href: URL.createObjectURL(b), download: nombre ? decodeURIComponent(nombre) : "decisiones." + fmt}); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-        aviso("Exportado · " + fmt.toUpperCase() + (S.soloAprob ? " (solo aprobados)" : " (borradores marcados)"));
-      } catch (x) { err(x); }
     }
 
     // ---- tarjeta ----
@@ -150,26 +143,23 @@
     // ---- pintado ----
     function filtradas() {
       const q = S.f.q.toLowerCase();
-      return S.items.filter(x => (!S.ids || S.ids.includes(x.id)) && (!S.vig || estado(x) === "vigente") && (!S.f.estado || estado(x) === S.f.estado) && (!S.f.dueno || (cam(x, "decisor") || x.dueno) === S.f.dueno)
+      return S.items.filter(x => (!S.ids || S.ids.includes(x.id)) && (S.aparte || !S.f.revision || x.revision === S.f.revision) && (!S.vig || estado(x) === "vigente") && (!S.f.estado || estado(x) === S.f.estado) && (!S.f.dueno || (cam(x, "decisor") || x.dueno) === S.f.dueno)
         && (!q || [x.titulo, x.detalle, x.codigo, cam(x, "alternativas"), cam(x, "consecuencias"), cam(x, "decisor")].some(v => String(v || "").toLowerCase().includes(q))));
     }
+    // barra única (regBarra, registro.js): en Línea la pinta esta vista; en Tabla, registroTabla con la misma Vista, «+ Decisión» y ⋯
+    const extras = () => ({vista: {act: S.vista, ops: [["linea", "Línea"], ["tabla", "Tabla"]], fn: k => { S.vista = k; lsSet("dec-vista", k); pintar(); }},
+      add: {t: "+ Decisión", fn: nueva}, mas: [regImportarAcc(c, "decisiones"), regExportar(c, "decisiones", FORMATOS)]});
     function pintarBarra() {
-      const dec = [...new Set(S.items.map(x => cam(x, "decisor") || x.dueno).filter(Boolean))].sort();
-      const q = el("input", {type: "search", value: S.f.q, placeholder: "Buscar decisión…", ariaLabel: "Buscar", oninput: ev => { S.f.q = ev.target.value; pintarCuerpo(); }});
-      const se = el("select", {ariaLabel: "Estado", onchange: ev => { S.f.estado = ev.target.value; pintarCuerpo(); }}, new Option("Todos los estados", ""), ...ESTADOS.map(x => new Option(x, x))); se.value = S.f.estado;
-      const sd = el("select", {ariaLabel: "Decisor", onchange: ev => { S.f.dueno = ev.target.value; pintarCuerpo(); }}, new Option("Todos los decisores", ""), ...dec.map(x => new Option(x, x))); sd.value = S.f.dueno;
-      const sr = el("select", {ariaLabel: "Revisión", onchange: ev => { S.f.revision = ev.target.value; cargar(); }}, ...REVS.map(([k, t]) => new Option(t, k))); sr.value = S.f.revision;
-      const fusP = el("button", {className: "f-pill", type: "button", "aria-pressed": S.f.revision === "fusionado", textContent: "Fusionadas (" + (S.nFus ?? 0) + ")", title: "Ver las decisiones fusionadas en otras",
-        onclick: () => { S.f.revision = S.f.revision === "fusionado" ? "" : "fusionado"; cargar(); }});
-      const vig = el("label", {className: "dec-chk"}, el("input", {type: "checkbox", checked: S.vig, onchange: ev => { S.vig = ev.target.checked; lsSet("dec-vig", S.vig); pintarCuerpo(); }}), " Solo vigentes");
-      const seg = (k, t) => el("button", {className: "f-pill", type: "button", "aria-pressed": S.vista === k, textContent: t, onclick: () => { S.vista = k; lsSet("dec-vista", k); pintar(); }});
-      const ord = el("button", {className: "sec sm", type: "button", textContent: S.asc ? "Más antiguas primero ↑" : "Más recientes primero ↓", onclick: () => { S.asc = !S.asc; lsSet("dec-asc", S.asc); pintar(); }});
-      const apr = el("label", {className: "dec-chk", title: "Desmarcado: se incluyen las no revisadas marcadas como BORRADOR"}, el("input", {type: "checkbox", checked: S.soloAprob, onchange: ev => { S.soloAprob = ev.target.checked; lsSet("dec-aprob", S.soloAprob); }}), " Solo aprobados");
-      const exp = el("details", {className: "dec-exp"}, el("summary", {textContent: "Exportar ▾", className: "sec"}),
-        el("div", {className: "dec-menu"}, apr, ...FORMATOS.map(([f, t]) => el("button", {className: "link", type: "button", textContent: t, onclick: () => { exp.open = false; exportar(f); }}))));
-      barra.replaceChildren(el("div", {className: "reg-bar"}, ...(S.vista === "linea" ? [q, se, sd, sr, fusP, vig] : []), el("span", {className: "grow"}), el("div", {className: "row", role: "group", "aria-label": "Vista"}, seg("linea", "Línea"), seg("tabla", "Tabla"))),
-        el("div", {className: "reg-acc"}, el("button", {className: "pri sm", type: "button", textContent: "+ Decisión", onclick: nueva}), el("button", {className: "sec sm", type: "button", textContent: "Deshacer", title: "Ctrl+Z", onclick: deshacer}),
-          ...(S.vista === "linea" ? [ord] : []), el("span", {className: "grow"}), exp));
+      if (S.vista === "tabla") return barra.replaceChildren();
+      const dec = [...new Set([...(S.vivos || []), ...S.items].map(x => cam(x, "decisor") || x.dueno).filter(Boolean))].sort();
+      const nf = () => +!!S.f.estado + +!!S.f.dueno + +!!S.vig + +!!S.asc, cambia = () => { mf.activos(nf()); pintarCuerpo(); };
+      const sel = (v, ops, fn) => { const s = el("select", {onchange: () => { fn(s.value); cambia(); }}, ...ops.map(([k, t]) => new Option(t, k))); s.value = v; return s; };
+      const vig = el("label", {className: "check"}, el("input", {type: "checkbox", checked: S.vig, onchange: ev => { S.vig = ev.target.checked; lsSet("dec-vig", S.vig); cambia(); }}), "Solo vigentes");
+      const mf = masFiltros([regCampo("Estado", sel(S.f.estado, [["", "Todos"], ...ESTADOS.map(x => [x, x])], v => S.f.estado = v)), regCampo("Decisor", sel(S.f.dueno, [["", "Todos"], ...dec.map(x => [x, x])], v => S.f.dueno = v)),
+        regCampo("Orden", sel(S.asc ? "asc" : "desc", [["desc", "Más recientes primero"], ["asc", "Más antiguas primero"]], v => { S.asc = v === "asc"; lsSet("dec-asc", S.asc); })), vig], nf());
+      const cuenta = regCuenta(S.vivos || [], {fusionado: S.nFus ?? 0, ...(S.aparte ? {[S.f.revision]: S.items.length} : {})});
+      barra.replaceChildren(regBarra({buscar: {valor: S.f.q, ph: "Buscar decisión…", fn: t => { S.f.q = t; pintarCuerpo(); }}, filtros: mf, ...extras(),
+        chips: regChips(REVS, S.f.revision, cuenta, k => { S.f.revision = k; cargar(); })}));
     }
     function pintarBanner() {
       banner.replaceChildren(...(S.prop.length ? [el("section", {className: "card dec-ban"}, el("div", {className: "sec-h"}, el("h3", {textContent: "Sustituciones propuestas · " + S.prop.length})),
@@ -180,8 +170,8 @@
     function pintarCuerpo() {
       if (S.vista === "tabla") {
         const w = el("div"); cuerpo.replaceChildren(w);
-        registroTabla(w, {c, tipo: "decision", onChange: () => { cargar(); }, vacio: "Sin decisiones todavía. Usa «+ Añadir» o espera a que la IA las proponga.",
-          columnas: [{k: "codigo", label: "Código", w: 80, editable: false}, {k: "titulo", label: "Decisión", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS}, {k: "campos.decisor", label: "Decisor"}, {k: "fecha_alta", label: "Fecha", editable: false}]});
+        registroTabla(w, {c, tipo: "decision", onChange: () => { cargar(); }, barra: extras(), vacio: "Sin decisiones todavía. Usa «+ Decisión» o espera a que la IA las proponga.",
+          columnas: [REG_COD, {k: "titulo", label: "Decisión", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: ESTADOS}, {k: "campos.decisor", label: "Decisor"}, {k: "fecha_alta", label: "Fecha", editable: false}]});
         return;
       }
       const xs = filtradas();

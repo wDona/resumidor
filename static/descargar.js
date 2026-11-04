@@ -97,7 +97,7 @@ async function abrir({docs, c, ids} = {}) {
     } catch (e) { msg.className = "desc-msg env-bad"; msg.textContent = e.message; }
     go.disabled = false;
   }
-  d.append(T("h2", "", "Descargar"), cuerpo, msg, T("div", "row env-acc", go, el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: salir})));
+  d.append(Enviar.cabecera("Descargar", salir), cuerpo, msg, T("div", "row env-acc", el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: salir}), go));  // cabecera común (título + «×») y secundario · primario, como Añadir
   d.addEventListener("close", () => d.remove());
   document.body.append(d); pintar(); d.showModal(); go.focus();
 }

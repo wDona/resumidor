@@ -66,7 +66,7 @@ dialog.sheet[open]{animation:sh-in var(--dur-s4,200ms) var(--ease-emph-decel,eas
 dialog.sheet[open]::backdrop{animation:fadein0 var(--dur-s4,200ms) linear both}
 @keyframes sh-in{from{opacity:0;transform:scale(.96)}}@keyframes fadein0{from{opacity:0}}
 @media(max-width:560px){
- dialog.sheet{height:auto;max-height:92dvh;margin:auto 0 0;max-width:100vw;width:100%;border-radius:var(--r-m,12px) var(--r-m,12px) 0 0}
+ dialog.sheet{height:fit-content;max-height:92dvh;margin:auto 0 0;max-width:100vw;width:100%;border-radius:var(--r-m,12px) var(--r-m,12px) 0 0}
  dialog.sheet[open]{animation-name:sh-up}@keyframes sh-up{from{opacity:0;transform:translateY(32px)}}
  #form{max-height:92dvh}.sh-h{position:relative;padding-top:24px}.sh-h::before{content:"";position:absolute;top:8px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--line)}
  .sh-h p{display:none}.sh-b{padding:12px 16px}.sh-f{padding:10px 16px;position:sticky;bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}.sh-f #generar{flex:1;min-height:var(--h-l,44px)}
@@ -174,22 +174,23 @@ dialog.pal[open]{animation:sh-in var(--dur-s4,200ms) var(--ease-emph-decel,ease)
 .pend-t thead th:first-child{font-size:0}
 
 /* ---- Ronda 4 (R4-B) ---- */
-/* raíl: «Ajustes» solo abajo en el raíl; el engranaje de arriba queda cuando el raíl va plegado en panel (≤860 px) */
-@media(min-width:861px){#b-ajustes{display:none}}
+/* raíl: «Ajustes» solo abajo en el raíl (en móvil, dentro del panel del menú); sin engranaje duplicado en la barra superior */
+#b-ajustes{display:none}
 /* móvil en un proyecto: su FAB sustituye a «+ Añadir» de arriba y nunca tapa el final del contenido */
-@media(max-width:700px){body.en-proy #nueva{display:none}body.en-proy #main{padding-bottom:calc(88px + env(safe-area-inset-bottom))}}
+body.en-proy #nueva{display:none}  /* en un proyecto, su «+ Añadir» (en móvil, el FAB) sustituye al de la barra (la tecla N sigue abriéndolo) */
+@media(max-width:700px){body.en-proy #main{padding-bottom:calc(80px + env(safe-area-inset-bottom))}body.en-proy #f-panel{padding-bottom:0}}  /* el aire de 80 px va una sola vez, en #main (cubre también la pestaña Documentos) */
 /* Añadir: «Procesar» fijo con sombra; «Proyecto y ajustes» como línea de texto, no píldora */
 #v-nuevo .sh-f{position:relative;z-index:1;box-shadow:0 -10px 24px -14px light-dark(rgba(15,23,42,.3),rgba(0,0,0,.75))}
 #v-nuevo .an-av{border:0;background:none;border-radius:0}
 #v-nuevo .an-av>summary{min-height:var(--h-m);padding:0;gap:6px;font-size:var(--fs-s);font-weight:var(--fw-m);color:var(--txt-2)}
 #v-nuevo .an-av>summary::before{content:"▸";color:var(--txt-3);transition:transform var(--dur-s4) var(--ease-standard)}#v-nuevo .an-av[open]>summary::before{transform:rotate(90deg)}
 #v-nuevo .an-av>summary .muted{font-weight:var(--fw-r)}#v-nuevo .an-avb{padding:8px 0 0}
-/* Biblioteca: una fila (buscar | Tipo | Proyecto | Estado | Fecha | Vistas) y la barra contextual al seleccionar */
+/* Biblioteca: una fila (buscar | Tipo | Proyecto | Estado | Fecha | Rápidos) y la barra contextual (Descargar · Enviar · Mover) al seleccionar */
 .fpop-h{padding:8px 12px 2px}.fpop-l .fchip-x{display:flex}.fpop-l .fchip-x .fpop-o{flex:1}
 .fpop-g{margin-top:4px;border-top:1px solid var(--line2);border-radius:0 0 var(--r-s) var(--r-s);color:var(--acc-t,var(--acc))}.fpop-g:disabled{color:var(--txt-3);cursor:default}
 .fp-x{font-size:var(--fs-s);margin-left:4px}
-.bib-h.sel .bib-bulk{animation:bulk-in var(--dur-m2) var(--ease-emph-decel) both}@keyframes bulk-in{from{opacity:0;transform:translateY(-12px)}}
-@media(max-width:700px){.bib-bulk .grow{display:none}.bib-bulk>b{flex:1}}
+.bib-h.sel .bib-bulk{animation:bulk-in var(--dur-m2) var(--ease-emph-decel) both;box-shadow:var(--shadow-2)}@keyframes bulk-in{from{opacity:0;transform:translateY(-12px)}}
+@media(max-width:700px){.bib-bulk{gap:8px}.bib-bulk .grow{display:none}.bib-bulk>b{flex:1 1 calc(100% - 60px)}.bib-bulk>.sec{flex:1;min-width:0;padding:0 8px}}  /* móvil: ✕ + «n seleccionados» arriba, las tres acciones en una fila debajo */
 /* Documento › Fuente (imagen): acciones como iconos sobre la imagen; imagen fija al bajar; IA plegada con «Ver más» */
 .fu-fig{position:relative;margin:0}.fu-fig img{position:static}
 @media(min-width:861px){.fu-fig{position:sticky;top:var(--s3)}}
@@ -209,8 +210,11 @@ body.tactil .hd-acc{display:none}body.tactil #h-drop{cursor:pointer}
 /* Buscar: aire bajo el título; «Preguntar a … →» en una línea hasta que hay respuesta */
 #v-buscar>.sec-h{margin-bottom:16px}
 #bus-resp.sin-r{padding:12px 16px}#bus-resp.sin-r>.sec-h{display:none}.bus-ask-r{align-items:center;gap:8px 16px}.bus-ask-r select{width:auto;min-height:var(--h-m)}
-/* paleta: campo sin doble borde, «Ver más» discreto, atajos a la derecha */
-dialog.pal input:focus-visible{outline:0;border-bottom-color:var(--acc)}
+/* paleta: campo con un solo borde (el id gana a la regla genérica de input de app.css, que ponía caja + borde dentro del diálogo); foco = línea de acento;
+   lista con fundido abajo (se ve que hay más, sin fila cortada a secas), «Ver más» discreto, atajos a la derecha */
+#pal-q{border:0;border-bottom:1px solid var(--line);border-radius:0;min-height:56px;padding:0 18px;font-size:var(--fs-l);background:transparent}
+#pal-q:focus-visible{outline:0;border-bottom-color:var(--acc);box-shadow:0 1px 0 var(--acc)}
+#pal-l{padding-bottom:14px;scroll-padding-block:6px;-webkit-mask-image:linear-gradient(#000 calc(100% - 14px),transparent);mask-image:linear-gradient(#000 calc(100% - 14px),transparent)}
 #pal-l li[role=option]{align-items:center}#pal-l .kbd{margin-left:auto;flex:none}#pal-l .pal-mas{min-height:var(--h-m);color:var(--acc-t,var(--acc));font-size:var(--fs-s)}
 #pal-l li[aria-selected=true] .ri{color:var(--acc-d)}.pal-n .kbd{font-size:var(--fs-xs)}
 /* Pendientes en el móvil: una fila meta «Proyecto · Responsable · Plazo» a la izquierda */
@@ -221,3 +225,17 @@ dialog.pal input:focus-visible{outline:0;border-bottom-color:var(--acc)}
  .pend-t td.pr:empty{display:none}.pend-t td.pr::before,.pend-t td.pp::before{content:"· "}
 }
 @media(prefers-reduced-motion:reduce){.bib-h.sel .bib-bulk{animation:none}}
+
+/* ---- Ronda 5 (R5-B) ---- */
+/* Añadir (hoja): «N salidas: …» en una línea con «…» (el título lleva el texto entero); en móvil, en su propia fila sobre los botones */
+#an-res{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#an-res:empty{display:none}
+@media(max-width:560px){#an-res{flex-basis:100%}}
+/* primer arranque: el asistente va solo, sin raíl, buscador, «+ Añadir», cola ni ajustes detrás (shell.js pone body.sin-cromo) */
+body.sin-cromo :is(#side,#omni,#omni-b,#nueva,#b-cola,#b-importar,#b-ajustes,#rail-t){display:none}
+body.sin-cromo .shell{grid-template-columns:minmax(0,1fr)}
+/* proyecto: el menú es solo «⋯» (sin texto «Más» ni flecha) */
+#f-mas>summary{min-width:var(--ctl);justify-content:center;padding:0 12px;font-size:var(--fs-l);line-height:1}#f-mas>summary::after{display:none}
+/* Pendientes: la columna de casillas no lleva rótulo visible (el id gana al font-size de #pend-l th; el texto «Hecho» sigue para lectores de pantalla) */
+#pend-l .pend-t thead th:first-child{font-size:0}
+/* táctil o pantalla estrecha: sin pistas de teclado en la paleta */
+@media(pointer:coarse),(max-width:560px){#pal-l .kbd,.pal-n,.reg-atajos{display:none}}

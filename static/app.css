@@ -198,7 +198,7 @@ body.simple #sp-cal .chip b{font-weight:inherit}body.simple #sp-hint{margin:0}
 .dbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .dbar .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .dbar .acc .btn,.dbar .acc button{font-size:var(--fs-s);padding:0 14px}
-iframe#acta-frame{display:block;width:100%;height:calc(100vh - 150px);min-height:520px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card)}
+iframe#acta-frame{display:block;width:100%;height:calc(100dvh - 360px);min-height:420px;  /* el alto real lo mide docAlto() (app.js); esto es el valor inicial */border:1px solid var(--line);border-radius:var(--r-m);background:var(--card)}
 #cvideo{width:100%;max-height:60vh;background:#000;border-radius:var(--r2)}
 #vslot{width:100%;min-height:96px}
 #mp{position:fixed;right:16px;bottom:16px;width:min(380px,calc(100vw - 32px));z-index:20;background:var(--card);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow);overflow:hidden}
@@ -445,7 +445,6 @@ body.avanzado .gen .otros{margin:0;align-items:center}.gen-res{flex:1 1 280px;mi
 
 .drop{outline:2px solid var(--acc);outline-offset:-2px;background:var(--acc-s)}
 tr.f[draggable=true]{cursor:grab}tr.f[draggable=true]:active{cursor:grabbing}
-.fila-mv{margin-left:8px}
 
 /* ---- registro.js: tabla editable y bandeja ---- */
 .reg{display:flex;flex-direction:column;gap:var(--s3)}
@@ -564,8 +563,8 @@ dialog.pal{max-width:min(640px,94vw);padding:0;margin-top:12vh;border-radius:var
 .imp-l{list-style:none;padding:0;margin:0 0 10px;display:flex;flex-direction:column;gap:6px}.imp-l small{display:block}.vg-add{border-top:1px solid var(--line2);padding-top:12px;margin-top:12px}
 @media(max-width:1100px){.bib-g{grid-template-columns:minmax(0,1fr)}.bib-p{position:static}.bus-g{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:860px){
- .rail{position:fixed;left:0;top:61px;z-index:20;transform:translateX(-100%);transition:transform .15s;box-shadow:var(--shadow);width:260px}
- body.rail-open .rail{transform:none}body.rail-min .rail{width:260px}body.rail-min .rail .rt,body.rail-min .rail .c,body.rail-min .rail .t{display:revert}body.rail-min .rail .nav{justify-content:flex-start;padding:0 12px}
+ .rail{position:fixed;left:0;top:61px;z-index:20;transform:translateX(-100%);visibility:hidden;transition:transform var(--dur-s4) var(--ease-standard),visibility 0s var(--dur-s4);width:260px}  /* cerrado: sin sombra (asomaba por el borde) y fuera del orden de tabulación */
+ body.rail-open .rail{transform:none;visibility:visible;box-shadow:var(--shadow);transition:transform var(--dur-s4) var(--ease-standard),visibility 0s}body.rail-min .rail{width:260px}body.rail-min .rail .rt,body.rail-min .rail .c,body.rail-min .rail .t{display:revert}body.rail-min .rail .nav{justify-content:flex-start;padding:0 12px}
  .shell{grid-template-columns:minmax(0,1fr)}#v-home{padding:16px}.flujo{grid-template-columns:repeat(2,minmax(0,1fr))}.srch .kbd,.srch select{display:none}
  .top-in #nueva{padding:0 12px}.fu-img{grid-template-columns:minmax(0,1fr)}
 }
@@ -709,12 +708,6 @@ summary.fchip{list-style:none}summary.fchip::-webkit-details-marker{display:none
 /* overline único */
 .ovl,.tabla th,.plant aside .t,.menu .pop .t,.tbl th,.tbl tr.gh td,.pr.h,.doc-i .t,.rail .t,#pend-l th{font-size:var(--fs-xs);font-weight:var(--fw-sb);letter-spacing:.05em;text-transform:uppercase;color:var(--txt-3)}
 .ovl{margin:0}
-/* «Más filtros»: en ancho, en línea y sin botón; en estrecho, plegado tras un chip */
-.mf>summary::after{content:"";border:4px solid transparent;border-top-color:currentColor;margin:4px 0 0 2px}
-.mf-p{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.mf-p select{width:auto;max-width:100%;min-height:var(--h-m);font-size:var(--fs-s);padding:0 8px}
-@media(min-width:701px){.mf>summary{display:none}}
-@media(max-width:700px){.mf[open]{flex:1 1 100%}.mf[open]>.mf-p{margin-top:8px}.mf-p>select{flex:1 1 140px}}
 /* pestañas y chips con scroll: borde difuminado solo del lado con más contenido (carpeta.js fBordes) */
 .fb{--fade:28px;mask-image:none;padding-right:0}
 .fb.fr{mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade)),transparent)}
@@ -730,7 +723,7 @@ summary.fchip{list-style:none}summary.fchip::-webkit-details-marker{display:none
 .pr .po{min-width:0}.pr .po .ts{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--txt-3);margin-right:6px;vertical-align:.08em}
 .dot.w{background:light-dark(#c26a00,#f0c36a)}.dot.err{background:var(--err)}.pf .err{margin-right:0}
-@media(hover:hover){.f-tabla .pr .ac{opacity:0;transition:opacity var(--dur-s4) var(--ease-standard)}.f-tabla .pr:is(:hover,:focus-within) .ac{opacity:1}}
+@media(hover:hover){:is(.f-tabla .pr .ac,.reg-r .reg-ops .gh){opacity:0;transition:opacity var(--dur-s4) var(--ease-standard)}.f-tabla .pr:is(:hover,:focus-within) .ac,.reg-r:is(:hover,:focus-within,.foco) .reg-ops .gh{opacity:1}}
 /* completar: el trazo cruza el texto y el check hace pop antes de repintar */
 .pr .pt>span:first-child{background:linear-gradient(currentColor,currentColor) no-repeat 0 58%/0 1.5px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .pr.tachando .pt>span:first-child{background-size:100% 1.5px;color:var(--txt-3);transition:background-size calc(var(--dur-m4)*var(--mv)) var(--ease-standard),color var(--dur-m4) linear}
@@ -753,7 +746,6 @@ summary.fchip{list-style:none}summary.fchip::-webkit-details-marker{display:none
 @media(max-width:700px){
  .f-head{flex-wrap:nowrap;align-items:center;gap:8px}.f-head .acc{flex:none;flex-wrap:nowrap}
  #f-env-s,.f-head #f-env{display:none}
- #f-mas>summary{font-size:0;min-width:var(--h-l);min-height:var(--h-l);padding:0;justify-content:center}#f-mas>summary::before{content:"⋯" / "";font-size:22px;line-height:1}#f-mas>summary::after{display:none}
  #ftit{font-size:var(--fs-xl)}#fsub .fs-x{display:none}
  #f-nuevo{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:6;width:56px;height:56px;padding:0;border-radius:16px;font-size:0;box-shadow:var(--shadow-2)}
  #f-nuevo::before{content:"+" / "";font-size:30px;font-weight:var(--fw-r);line-height:1}
@@ -779,10 +771,74 @@ summary.fchip{list-style:none}summary.fchip::-webkit-details-marker{display:none
 html :is(.qcurso .k,.dec-draw h4,.inf-sem h4,.inf-top th,.int-ql,.sug-c .eb,.pal-h){font-size:var(--fs-xs);font-weight:var(--fw-sb);letter-spacing:.05em;text-transform:uppercase;color:var(--txt-3)}
 .f-camb{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}.f-camb .n-nuevo{color:var(--ok)}
 .sec-h .link{margin-right:auto;margin-left:var(--s3)}
-.f-add{flex-wrap:nowrap}.f-add input{min-width:0}
-@media(max-width:700px){.f-add{flex-wrap:wrap}}
-@media(hover:none){.f-tabla .pr .ac{opacity:.9}}
-/* imagen: sticky; columna IA acotada a ~5 líneas (con scroll) */
-.fu-img img{position:sticky;top:var(--s3)}.fu-img textarea{max-height:8lh;overflow:auto}.fu-img .field+.field textarea{max-height:5lh}
+/* Extraído › Tareas: alta manual en una línea (texto | responsable | plazo | Añadir); ≤700 px el texto ocupa su fila y el resto se reparte debajo */
+.f-add{flex-wrap:nowrap}.f-add input{min-width:0}.f-add #pm-t{flex:2 1 220px}.f-add #pm-r{flex:1 1 130px}.f-add #pm-p{flex:1 1 170px}.f-add .sec{flex:none}
+@media(max-width:700px){.f-add{flex-wrap:wrap}.f-add #pm-t{flex-basis:100%}.f-add #pm-r,.f-add #pm-p{flex:1 1 110px}}
+/* «Descartar» / «Quitar»: botón fantasma sin subrayar; con ratón aparecen al pasar o enfocar la fila (arriba), en táctil o ≤700 px siempre visibles, bajo el texto y a 36 px */
+.f-tabla .pr .ac{margin-left:4px}.pr .ac .gh{min-height:var(--h-s);padding:0 8px;margin:-4px 0;vertical-align:middle}
+@media(hover:none),(max-width:700px){.f-tabla .pr .ac{opacity:1;display:block;margin:4px 0 0 -8px}.pr .ac .gh{min-height:var(--h-m);margin:0}.reg-r .reg-ops .gh{opacity:1}}
+/* «Filtros» (Responsable, Ordenar por) = menú; la insignia cuenta los que se apartan del valor por defecto */
+.f-filtros>summary{min-height:var(--h-m);padding:0 12px;border-radius:var(--r-pill);background:var(--surf-1);color:var(--txt-2);font-weight:var(--fw-m);white-space:nowrap}
+.f-filtros>summary::after{content:"";border:4px solid transparent;border-top-color:currentColor;margin:4px 0 0 2px}
+.f-filtros[open]>summary,.f-filtros>summary:hover{background:var(--acc-s);color:var(--txt-1)}
+.f-filtros.on>summary{background:var(--acc-s2);border-color:var(--acc-ln);color:var(--acc);font-weight:var(--fw-sb)}
+.f-filtros .n{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--acc);color:var(--on-acc);font-size:var(--fs-xs);font-weight:var(--fw-sb);display:inline-flex;align-items:center;justify-content:center}
+.f-filtros .pop{top:calc(100% + 4px);min-width:240px}.f-filtros .pop label{margin:0}.f-filtros .pop .t{display:block}.f-filtros .pop select{width:calc(100% - 16px)}
+@media(max-width:700px){.f-barra{position:relative}.f-filtros{position:static}.f-filtros .pop{left:0;right:0;max-width:none}}
+/* imagen (Fuente): la figura fija (.fu-fig, vistas-shell.css) baja la altura de la barra superior; textareas acotadas contando el relleno (6px×2) y el borde (1px×2); la IA, a 5 líneas hasta «Ver más» */
+.fu-img .fu-fig{top:calc(61px + var(--s3))}.fu-img textarea{max-height:calc(8lh + 14px);overflow:auto}.fu-img .field+.field textarea{min-height:calc(5lh + 14px);max-height:calc(5lh + 14px)}
 @media(prefers-reduced-motion:no-preference){:root:not([data-anim=no]):not([data-anim=reducidas]) .f-tabla>.pr:not(.h){animation:m-fade var(--dur-s3,120ms) var(--ease-standard) both}}
 @keyframes m-fade{from{opacity:0}}
+
+/* ===== R5-B (docs/ui/critica-ronda5.md: P1-5, P2-15, P2-21, P2-22, P3-26, P3-32): documento, tabla de documentos, asistente, plantillas de serie, aviso de dudosos y casillas ===== */
+/* P1-5: el ancho no cambia con la barra de scroll de una ruta a otra («+ Añadir» saltaba 15 px); el alto del documento lo fija docAlto() (app.js) */
+html{scrollbar-gutter:stable}
+/* P2-15: en la tabla de documentos, «Mover» queda a la derecha de la celda (misma x en todas las filas); con ratón aparece al pasar o enfocar la fila, en táctil o ≤700 px siempre */
+.est-c{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);min-height:var(--h-m)}
+.fila-mv{margin-left:auto;opacity:0;transition:opacity var(--dur-s4) var(--ease-standard)}
+tr.f:hover .fila-mv,tr.f:focus-within .fila-mv{opacity:1}
+@media(hover:none),(max-width:700px){.fila-mv{opacity:1}}
+@media(max-width:700px){#lista td:last-child{flex:1 1 auto}}
+/* P2-22: plantilla de serie = solo lectura: campos atenuados con borde discontinuo; «Duplicar para editar» va junto al título (plantillas.js) */
+#plant-ed .pl-h{margin-bottom:var(--s3)}#plant-ed .pl-h h2{margin:0}
+#plant-ed fieldset:disabled :is(input:not([type=checkbox]),select,textarea){background:var(--bg2);color:var(--txt-3);border:1px dashed var(--line);cursor:default}
+/* P3-26: aviso de dudosos en una fila: icono ⚠ en vez de la muestra amarilla, «‹ ›» y el tip a una línea; ≤700 px solo «N dudosos» (exportar.js) */
+.dud .sw{width:20px;height:20px;border:0;border-radius:0;background:var(--warn);-webkit-mask:var(--ico-alerta) center/contain no-repeat;mask:var(--ico-alerta) center/contain no-repeat}
+.dud{--ico-alerta:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01'/%3E%3C/svg%3E")}
+.dud-t{min-width:0}.dud-r{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dud-b .qi{font-size:var(--fs-xl);line-height:1}
+@media(max-width:700px){.dud-x{display:none}}
+/* P3-32: casillas con fondo transparente y borde legible (la nativa en oscuro sale gris rellena); marcada = acento + check; en modo de alto contraste, la nativa */
+input[type=checkbox]{appearance:none;-webkit-appearance:none;display:inline-grid;place-content:center;vertical-align:middle;background:transparent;border:2px solid var(--mut);border-radius:5px;cursor:pointer}
+input[type=checkbox]::after{content:"";width:5px;height:10px;border:solid var(--on-acc);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg) scale(0);transition:transform var(--dur-s2) var(--ease-standard)}
+input[type=checkbox]:checked,input[type=checkbox]:indeterminate{background:var(--acc);border-color:var(--acc)}
+input[type=checkbox]:checked::after{transform:translateY(-1px) rotate(45deg) scale(1)}
+input[type=checkbox]:indeterminate::after{width:10px;height:0;border-width:0 0 2px;transform:none}
+input[type=checkbox]:disabled{opacity:.5;cursor:default}
+@media(forced-colors:active){input[type=checkbox]{appearance:auto;-webkit-appearance:auto}}
+
+/* ===== R5 · Extraído y Proyecto (registro.js, carpeta.js y vistas por tipo) ===== */
+/* barra única de Extraído (regBarra): [Buscar] [chips de revisión] [Filtros ▾] ··· [Vista] [+ Tipo] [⋯]; ≤700 px en 3 filas: buscar·Filtros | chips con scroll | vista ··· añadir·⋯ */
+.xb{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;margin:0}
+.xb>input[type=search]{flex:0 1 200px;min-width:140px;min-height:var(--h-m)}
+.xb-chips,.xb-vista,.xb-der{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.xb-der{gap:var(--s2);flex-wrap:nowrap;margin-left:auto}.xb-der>.sec{min-height:var(--h-m)}
+.xb .menu .pop{top:calc(100% + 4px)}
+.xb-mas>summary{min-width:var(--h-m);min-height:var(--h-m);padding:0;justify-content:center;font-size:var(--fs-l);line-height:1}.xb-mas>summary::after{display:none}
+.xb-mas .pop>small{display:block;padding:0 12px 6px}
+.xb-mas details.sub>button,.xb-mas details.sub>label{padding-inline-start:28px}
+.reg>div:empty,.hu>div:empty{display:none}.reg>*{min-width:0}  /* .reg es flex en fila: sin esto, la fila de chips (nowrap a 390) ensancha la barra */
+@media(max-width:700px){
+ .xb{position:relative}.xb .menu{position:static}.xb .menu .pop{left:0;right:0;max-width:none}
+ .xb>input[type=search]{flex:1 1 140px}
+ .xb>.xb-chips{order:1;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;mask-image:linear-gradient(90deg,#000 calc(100% - 24px),transparent);padding-right:24px}
+ .xb>.xb-der{order:2;flex:1 1 100%}.xb-der>.xb-vista{margin-right:auto}.xb-der>.sec{margin-left:auto}
+}
+/* Resumen: «Estado actual» en 2 filas por debajo de 700 px (título | + Añadir datos · Generar resumen) */
+@media(max-width:700px){.f-est-h{flex-wrap:wrap}.f-est-h h2{flex:1 1 100%}.f-est-h .link{margin-left:0}}
+/* proyecto vacío: zona de soltar viva (la ventana entera acepta archivos) */
+.f-drop{border:2px dashed var(--inp);border-radius:var(--r2)}body.soltando .f-drop{border-color:var(--acc);background:var(--acc-s)}
+/* Comparar: etiqueta encima y select al ancho de su columna; a 390 px se apilan */
+.f-cmp{display:flex;flex-direction:column;gap:4px;flex:1 1 240px;min-width:0;margin:0}.f-cmp select{width:100%;max-width:100%}
+/* Preguntar: preguntas de ejemplo (pueden partirse en 2 líneas a 390 px) */
+.f-ej{gap:8px;align-items:center;margin-bottom:var(--s3)}.f-ej .fchip{white-space:normal;flex:0 1 auto;text-align:left;padding-block:6px}

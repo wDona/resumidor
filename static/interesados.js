@@ -44,17 +44,17 @@
   const val = (it, k) => k.startsWith("campos.") ? (it.campos || {})[k.slice(7)] ?? "" : it[k] ?? "";
 
   async function vista(c, e) {
-    const S = {all: [], ints: [], sel: new Set(), f: {cuad: "", rev: ""}, sort: {k: "", d: 1}, open: null, hist: null, soloAprob: false, foco: null, ign: new Set(lsGet("int-ign-" + c, [])), cfg: {...MXDEF, ...lsGet("int-mx-" + c, {})}};
+    const S = {all: [], ints: [], sel: new Set(), f: {q: "", cuad: "", rev: ""}, sort: {k: "", d: 1}, open: null, hist: null, foco: null, ign: new Set(lsGet("int-ign-" + c, [])), cfg: {...MXDEF, ...lsGet("int-mx-" + c, {})}};
     const okN = n => Math.min(NMAX, Math.max(3, Number(n) || NDEF));
     const leeN = async () => { try { const r = await api("/api/reg/matriz?c=" + encodeURIComponent(c)); NP = okN(r.niveles_poder ?? r.niveles); NI = okN(r.niveles_interes ?? r.niveles); } catch { NP = NI = NDEF; } };
     await leeN();
     let seq = 0;
     const raiz = el("div", {className: "int"});
-    const zHead = el("div", {className: "int-head"}), zBan = el("div"), zBar = el("div", {className: "int-bar"}), zAcc = el("div", {className: "reg-acc"});
+    const zHead = el("div"), zBan = el("div"), zAcc = el("div", {className: "reg-acc"});  // zHead = barra única (regBarra, registro.js)
     const zMx = el("section", {className: "int-col int-mx-w"}), zTb = el("section", {className: "int-col int-tb-w"}), zFi = el("aside", {className: "int-ficha", hidden: true});
     const zMxH = el("div", {className: "sec-h"}), zMxB = el("div");
     zMx.append(zMxH, el("p", {className: "muted int-leg", textContent: "Borde discontinuo = propuesto por la IA, pendiente de revisar"}), zMxB);
-    raiz.append(zHead, zBan, zBar, zAcc, el("div", {className: "int-main"}, zMx, zTb), zFi);
+    raiz.append(zHead, zBan, zAcc, el("div", {className: "int-main"}, zMx, zTb), zFi);
     const cambio = () => { typeof fCargaReg === "function" && fCargaReg(c, e && e.tipo); };
     const aviso_ = (m, a) => aviso(m, a);
     const err = x => aviso_(x.message || String(x));
@@ -74,7 +74,7 @@
       } catch (x) { if (n === seq) raiz.replaceChildren(el("p", {className: "err", textContent: x.message})); }
     }
     const byId = id => S.ints.find(i => i.id === id) || S.all.find(i => i.id === id);
-    const visibles = () => S.ints;
+    const visibles = () => { const q = S.f.q.toLowerCase(); return q ? S.ints.filter(i => [i.titulo, i.campos?.rol, i.campos?.organizacion].some(v => String(v || "").toLowerCase().includes(q))) : S.ints; };
 
     // ---- guardar (optimista, deshacible con Ctrl+Z) ----
     async function guardar(it, cambios, src, msg) {
@@ -99,18 +99,6 @@
     const trasSeparar = async () => { cambio(); await cargar(); };
     async function deshacer() { try { const r = await post("/api/reg/deshacer", {c}); aviso_(r.revertidas ? "Deshecho (" + r.revertidas + ")" : "Nada que deshacer"); cambio(); await leeN(); pintaAjustes(); await cargar(); } catch (x) { err(x); } }
 
-    // ---- exportación ----
-    async function exportar(fmt) {
-      const u = "/api/reg/exportar?" + new URLSearchParams({c, vista: "interesados", fmt, borrador: S.soloAprob ? "0" : "1"});
-      try {
-        const r = await fetch(u);
-        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(typeof det === "function" ? det(d, r.statusText) : d.detail || r.statusText); }
-        const b = await r.blob(), m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(r.headers.get("Content-Disposition") || "");
-        const a = el("a", {href: URL.createObjectURL(b), download: m ? decodeURIComponent(m[1]) : "interesados." + fmt}); document.body.append(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-      } catch (x) { aviso_("No se pudo exportar: " + (x.message || x)); }
-    }
-
     // ---- controles de campo (compartidos por tabla y ficha) ----
     function ctl(it, k, tipo, label, src) {
       const v = val(it, k), f = {"aria-label": label + " de " + it.titulo}, ed = it.revision !== "fusionado";
@@ -129,20 +117,20 @@
       return x;
     }
 
-    // ---- cabecera: exportar + añadir ----
+    // ---- barra única (regBarra, registro.js): buscar · revisión · Filtros (cuadrante) · «+ Interesado» · ⋯ ----
+    // la búsqueda filtra matriz y tabla; el cuadrante, solo la tabla (la matriz ya los separa)
+    const FMT = [["docx", "Word (.docx)"], ["pdf", "PDF"], ["xlsx", "Excel (.xlsx)"], ["csv", "CSV"], ["md", "Markdown"], ["json", "JSON"]];
+    const REVS = [["", "Todos"], ["propuesto", "Propuestos"], ["aprobado", "Aprobados"], ["descartado", "Descartados"], ["fusionado", "Fusionados"]];
     function pintaHead() {
-      const nom = el("input", {type: "text", placeholder: "Nombre del interesado", "aria-label": "Nombre del nuevo interesado"});
       const add = async () => {
-        const t = nom.value.trim(); if (!t) return nom.focus();
-        try { const n = await post("/api/reg", {c, tipo: "interesado", titulo: t}); nom.value = ""; cambio(); S.open = n.id; await cargar(); } catch (x) { err(x); }
+        try { const n = await post("/api/reg", {c, tipo: "interesado", titulo: "Nuevo interesado"}); cambio(); S.open = n.id; await cargar(); zFi.querySelector("input")?.select(); } catch (x) { err(x); }
       };
-      nom.onkeydown = ev => { if (ev.key === "Enter") add(); };
-      const menu = el("details", {className: "int-menu"}, el("summary", {className: "int-sum", textContent: "Exportar ▾"}),
-        el("div", {className: "int-pop"},
-          el("label", {className: "check"}, el("input", {type: "checkbox", checked: S.soloAprob, onchange: ev => { S.soloAprob = ev.target.checked; }}), "Solo aprobados"),
-          el("small", {textContent: "Sin marcar, incluye lo no revisado marcado BORRADOR."}),
-          el("div", {className: "int-fmts"}, ...["docx", "pdf", "xlsx", "csv", "md", "json"].map(f => el("button", {className: "sec sm", textContent: f.toUpperCase(), onclick: () => { menu.open = false; exportar(f); }})))));
-      zHead.replaceChildren(H("Interesados · " + S.ints.length), el("span", {className: "grow"}), nom, el("button", {className: "sec", textContent: "+ Añadir", onclick: add}), menu);
+      const vs = visibles(), cnt = q => vs.filter(i => qOf(i) === q).length, vivos = S.all.filter(i => i.tipo === "interesado"), ap = S.f.rev === "descartado" || S.f.rev === "fusionado";
+      const sc = el("select", {onchange: () => { S.f.cuad = sc.value; mf.activos(+!!S.f.cuad); pintaTabla(); }}, new Option("Todos", ""), ...["gc", "ms", "mi", "mon", "lim", "sin"].map(k => new Option(QS[k].t + " · " + cnt(k), k))); sc.value = S.f.cuad;
+      const mf = masFiltros([regCampo("Cuadrante", sc)], +!!S.f.cuad);
+      zHead.replaceChildren(regBarra({buscar: {valor: S.f.q, ph: "Buscar interesado…", fn: t => { S.f.q = t; pintaMatriz(); pintaTabla(); }}, filtros: mf,
+        chips: regChips(REVS, S.f.rev, regCuenta(vivos, {fusionado: regNumFusionadas(vivos), ...(ap ? {[S.f.rev]: S.ints.length} : {})}), k => { S.f.rev = k; cargar(); }),
+        add: {t: "+ Interesado", fn: add}, mas: [regImportarAcc(c, "interesados"), regExportar(c, "interesados", FMT)]}));
     }
 
     // ---- aviso de posibles duplicados ----
@@ -160,20 +148,11 @@
       }), ...(ps.length > 3 ? [el("p", {className: "muted", textContent: "…y " + (ps.length - 3) + " posibles duplicados más."})] : []));
     }
 
-    // ---- filtros y recuentos por cuadrante ----
-    function pintaBar() {
-      const vs = visibles(), cnt = {gc: 0, ms: 0, mi: 0, mon: 0, lim: 0, sin: 0}; vs.forEach(i => cnt[qOf(i)]++);
-      const pill = (k, t, n) => el("button", {className: "f-pill", "aria-pressed": S.f.cuad === k, textContent: t + " · " + n, title: k && QS[k].s, onclick: () => { S.f.cuad = k; pintaBar(); pintaTabla(); }});
-      const sr = el("select", {"aria-label": "Revisión", onchange: ev => { S.f.rev = ev.target.value; cargar(); }}, new Option("Revisión: visibles", ""), new Option("Propuestos (IA)", "propuesto"), new Option("Aprobados", "aprobado"), new Option("Descartados", "descartado"), new Option("Fusionados (" + regNumFusionadas(S.all.filter(i => i.tipo === "interesado")) + ")", "fusionado")); sr.value = S.f.rev;
-      zBar.replaceChildren(pill("", "Todos", vs.length), ...["gc", "ms", "mi", "mon", "lim", "sin"].map(k => pill(k, QS[k].t, cnt[k])), el("span", {className: "grow"}), sr);
-    }
-
     function pintaAcc() {
       const ids = [...S.sel], n = ids.length, prop = S.ints.filter(i => i.revision === "propuesto");
       const dest = el("select", {"aria-label": "Fusionar en"}, ...ids.map(id => new Option(byId(id)?.titulo || id, id)));
       {
-        zAcc.replaceChildren(el("button", {className: "sec", textContent: "Deshacer", title: "Ctrl+Z", onclick: deshacer}), el("span", {className: "grow"}),
-          ...(prop.length && !n ? [el("button", {className: "pri sm", textContent: "Aprobar propuestos (" + prop.length + ")", onclick: () => revisar(prop.map(i => i.id), "aprobar")})] : []),
+        zAcc.replaceChildren(...(prop.length && !n ? [el("button", {className: "pri sm", textContent: "Aprobar propuestos (" + prop.length + ")", onclick: () => revisar(prop.map(i => i.id), "aprobar")})] : []),
           ...(n ? [el("span", {className: "muted", textContent: n + (n === 1 ? " seleccionado" : " seleccionados")}),
             el("button", {className: "pri sm", textContent: "Aprobar", onclick: () => revisar(ids, "aprobar")}), el("button", {className: "sec sm", textContent: "Descartar", onclick: () => revisar(ids, "descartar")}),
             ...(n >= 2 ? [el("span", {className: "muted", textContent: "Fusionar en:"}), dest, el("button", {className: "sec sm", textContent: "Fusionar", onclick: () => fusionar(dest.value, ids.filter(i => i !== dest.value))})] : [])] : []));
@@ -333,9 +312,9 @@
         el("h4", {textContent: "Historial"}), el("button", {className: "link", textContent: "Ver historial", onclick: ev => { hh.hidden = false; ev.target.hidden = true; historial(it, hh); }}), hh);
     }
 
-    function pintar() { pintaHead(); pintaBan(); pintaBar(); pintaAcc(); pintaMatriz(); pintaTabla(); pintaFicha(); restauraFoco(); }
+    function pintar() { pintaHead(); pintaBan(); pintaAcc(); pintaMatriz(); pintaTabla(); pintaFicha(); restauraFoco(); }
     function restauraFoco() { if (!S.foco) return; const id = S.foco; S.foco = null; [...raiz.querySelectorAll(".int-chip")].find(x => x.getAttribute("data-id") === id)?.focus(); }
-    function refrescar(src) { pintaHead(); pintaBan(); pintaBar(); pintaMatriz(); if (src !== "tabla") pintaTabla(); if (src !== "ficha") pintaFicha(); restauraFoco(); }
+    function refrescar(src) { pintaHead(); pintaBan(); pintaMatriz(); if (src !== "tabla") pintaTabla(); if (src !== "ficha") pintaFicha(); restauraFoco(); }
 
     document.addEventListener("keydown", ev => { if (ev.key === "Escape" && S.open && raiz.isConnected && !ev.defaultPrevented) { S.open = null; pintaFicha(); } });
     // Ctrl+Z global (registro.js) también deshace aquí

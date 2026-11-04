@@ -134,9 +134,15 @@ function abrirAjustes(t = "general", sub) {
   if (antes && antes !== tabAj) ejeX(document.querySelector("#v-ajustes .page"), Math.sign(TABS.indexOf(tabAj) - TABS.indexOf(antes)));
   document.title = "Ajustes · Actas";
   if (tabAj === "general") pintarAjustes(); else if (tabAj === "modelos") pintarTabModelos(); else if (tabAj === "plantillas") pintarTabPlant(sub);
-  else if (tabAj === "enviar") window.Enviar ? Enviar.montar($("aj-enviar")) : $("aj-enviar").replaceChildren(el("p", {className: "muted", textContent: "El módulo de envío no está disponible."}));
+  else if (tabAj === "enviar") conEnviar(montarEnviar);
   else { pintarAvanzado(); pintarTabPerfiles(sub); }
 }
+// enviar.js carga después de ajustes.js: con un enlace directo (#/ajustes/enviar) se espera a que termine la carga en vez de mirar una sola vez
+const conEnviar = f => document.readyState === "loading" && !window.Enviar ? addEventListener("DOMContentLoaded", f, {once: true}) : f();
+const montarEnviar = () => {
+  if (tabAj !== "enviar" || vistaAct !== "ajustes") return;  // el usuario ya cambió de sección
+  window.Enviar ? Enviar.montar($("aj-enviar")) : $("aj-enviar").replaceChildren(el("p", {className: "muted", textContent: "El módulo de envío no está disponible."}));
+};
 $("aj-volver").onclick = e => { e.preventDefault(); irInicio(); };
 function ruta_() {  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantillas redirigen
   const h = location.hash, m = h.match(/^#\/(ajustes|modelos|plantillas)(?:\/(\w+))?/);
@@ -151,12 +157,15 @@ const card = (t, ...k) => el("section", {className: "card"}, el("div", {classNam
 const cardR = (t, patch, ...k) => el("section", {className: "card"}, el("div", {className: "aj-ch"}, el("h2", {textContent: t}),
   el("button", {type: "button", className: "link", textContent: "Restablecer", "aria-label": "Restablecer " + t.toLowerCase(), onclick: fallo(() => guardarAj(patch))})), ...k);
 const chk2 = (lab, v, f, nota) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: v, onchange: fallo(async e => f(e.target.checked))}), el("span", {}, lab, ...(nota ? [el("small", {textContent: nota})] : [])));
-const nom = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: nm(k), onchange: fallo(async e => { if (e.target.value.trim()) await guardarAj({nombres: {[k]: e.target.value}}); })}));
+const nom = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: nm(k), ariaLabel: lab, onchange: fallo(async e => { if (e.target.value.trim()) await guardarAj({nombres: {[k]: e.target.value}}); })}));
+// «Nombres» (cómo llama la app a carpeta, documento y al botón de crear) va con la apariencia, no en Avanzado
+const cardNombres = () => cardR("Nombres", (u => ({nombres: {carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Añadir"}}))(usos().find(x => AJ.uso.includes(x.id))),
+  el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear"));
 function pintarAjustes() {
   const U = usos(), u = U.filter(x => AJ.uso.includes(x.id));
   if (!PL.length) cargarPlant().then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes()).catch(() => {});
   $("aj-general").replaceChildren(
-    tarjetaApariencia(),
+    tarjetaApariencia(), cardNombres(),
     card("Perfil de uso", el("p", {className: "muted", textContent: u.length ? u.map(x => x.t).join(", ") : "Sin elegir"}),
       el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Cambiar perfil de uso", onclick: () => abrirUso(false)}), el("button", {className: "link", textContent: "Gestionar perfiles de uso", onclick: () => abrirAjustes("perfiles")})),
       el("small", {textContent: "Vuelve a ejecutar el asistente. No toca tus carpetas ni documentos."}),
@@ -179,8 +188,6 @@ function pintarAvanzado() {
     mod = el("input", {value: vis.modelo || "", placeholder: "qwen2.5vl, llava…", ariaLabel: "Modelo con visión"});
   const fld = (t, c) => el("div", {className: "field"}, el("label", {}, t, c));
   $("aj-av").replaceChildren(
-    cardR("Nombres", (u => ({nombres: {carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Añadir"}}))(usos().find(x => AJ.uso.includes(x.id))),
-      el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear")),
     cardR("Nube", {nube_visible: true}, chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
       el("small", {}, "Los niveles de calidad y los modelos están en ", el("a", {href: "#/ajustes/modelos", textContent: "Modelos"}), ".")),
     cardR("Imágenes y capturas", {describir_capturas: false, nube_imagenes: false, vision: {url: "", modelo: ""}}, el("p", {className: "muted", textContent: "La IA describe las imágenes para que se puedan buscar y preguntar. Usa un modelo local con visión (el mismo modelo si es multimodal, Ollama o LM Studio)."}),
@@ -271,7 +278,7 @@ const INDICE = [["Modo Simple / Avanzado", "modo simple avanzado opciones", "gen
   ["Densidad", "densidad comoda compacta", "general", "Apariencia"], ["Animaciones", "animaciones movimiento reducidas", "general", "Apariencia"],
   ["Perfil de uso y tipos de documento", "perfil uso asistente tipos documento crear", "general", "Perfil de uso"], ["Anonimizar por defecto", "privacidad anonimizar rgpd", "general", "Privacidad"],
   ["Poblar proyecto automáticamente", "proyectos poblar ia requisitos decisiones", "general", "Proyectos"], ["Estilos de organización", "estilos cabecera pie logo firmas color docx", "general", "Estilos"],
-  ["Carpetas vigiladas", "vigilar vigiladas carpeta automatico", "general", "vigilad"], ["Nombres (carpeta, documento, botón)", "nombres carpeta documento boton crear", "avanzado", "Nombres"],
+  ["Carpetas vigiladas", "vigilar vigiladas carpeta automatico", "general", "vigilad"], ["Nombres (carpeta, documento, botón)", "nombres carpeta documento boton crear", "general", "Nombres"],
   ["Nube", "nube procesar", "avanzado", "Nube"], ["Imágenes y capturas con IA", "imagenes capturas vision describir ollama lm studio", "avanzado", "Imágenes"],
   ["Enlaces a la red local", "enlaces red local nas intranet", "avanzado", "Enlaces"], ["Servidor MCP", "mcp agentes servidor", "avanzado", "MCP"], ["Perfiles de uso propios", "perfiles uso propios crear", "avanzado", "Perfiles de uso"],
   ["Modelos y niveles de calidad", "modelos catalogo instalar calidad niveles locales", "modelos", "Modelos"], ["Plantillas", "plantillas tipos documento editar", "plantillas", ""],

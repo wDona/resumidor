@@ -121,12 +121,12 @@ async function pintarDudas() {
   let d; try { d = fr.contentDocument; } catch { return; } if (!d?.body || editando || !cur || d.location.href === "about:blank") return;
   const mid = cur.id, v = ver, r = await api(`/api/dudas/${mid}/${v}`).catch(() => null);
   if (!r || mid !== cur.id || v !== ver || fr.contentDocument !== d) return;
-  if (!d.getElementById("dd-css")) d.head.append(Object.assign(d.createElement("style"), {id: "dd-css", textContent: ".dd{background:#fde68a;color:inherit;border-radius:3px;cursor:help;padding:0 2px;position:relative}.dd.on{outline:2px solid #d4a514}" +
+  if (!d.getElementById("dd-css")) d.head.append(Object.assign(d.createElement("style"), {id: "dd-css", textContent: ".dd{background:light-dark(#fde68a,#4a3b12);color:light-dark(#1f2933,#f6d98a);border-radius:3px;cursor:help;padding:0 2px;position:relative}.dd.on{outline:2px solid light-dark(#b8860b,#f0c36a)}" +  // par fondo/texto por tema (11:1 claro, 8:1 oscuro); el documento lleva color-scheme:light dark
     ".dd:hover::after,.dd.on::after{content:attr(data-tip);position:absolute;left:0;top:calc(100% + 6px);z-index:5;width:max-content;max-width:min(360px,80vw);background:#1f2933;color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 12px;border-radius:8px;white-space:normal;pointer-events:none}" +
-    ".dd-off .dd{background:none;padding:0;cursor:auto}.dd-off .dd::after{display:none}"}));
+    ".dd-off .dd{background:none;color:inherit;padding:0;cursor:auto}.dd-off .dd::after{display:none}"}));
   for (const e of d.querySelectorAll("[data-p]")) { const m = r.dudas[e.dataset.p]; if (m?.length) { e.classList.add("dd"); e.dataset.tip = m.join(". "); } }
   const n = dudMarcas().length; if (!n) return;
-  bar.hidden = false; $("dud-n").textContent = `${n} ${n === 1 ? "fragmento dudoso" : "fragmentos dudosos"}`; $("dud-r").textContent = ""; aplicarDudas();
+  bar.hidden = false; $("dud-n").replaceChildren(`${n} `, el("span", {className: "dud-x", textContent: n === 1 ? "fragmento " : "fragmentos "}), n === 1 ? "dudoso" : "dudosos"); $("dud-r").textContent = ""; $("dud-r").title = ""; aplicarDudas();  // .dud-x se oculta ≤700 px: «3 dudosos»
 }
 function aplicarDudas() {
   const on = $("dud-ver").checked; lsSet("dudas", on);
@@ -136,7 +136,10 @@ function aplicarDudas() {
 function saltaDuda(k) {
   const m = dudMarcas(); if (!m.length) return; m.forEach(e => e.classList.remove("on"));
   dudIx = (dudIx + k + m.length) % m.length; const e = m[dudIx]; e.classList.add("on"); e.scrollIntoView({block: "center", behavior: "smooth"});
-  $("dud-r").textContent = `${dudIx + 1} de ${m.length}: ${e.dataset.tip}`;
+  $("dud-r").textContent = $("dud-r").title = `${dudIx + 1} de ${m.length}: ${e.dataset.tip}`;  // una línea con puntos suspensivos; el título la lleva entera
 }
+// aviso de dudosos en una sola fila: icono ⚠ (CSS), «‹ ›» en vez de «←» y «Siguiente dudoso», y el «revisa antes de enviar» se oculta en móvil
+$("dud-ant").textContent = "‹"; Object.assign($("dud-sig"), {textContent: "›", title: "Siguiente"}); $("dud-sig").className = "sec qi"; $("dud-sig").setAttribute("aria-label", "Siguiente dudoso");
+{ const t = $("dud-n").nextSibling; if (t?.nodeType === 3) t.replaceWith(el("span", {className: "dud-x", textContent: t.textContent})); }
 $("dud-ver").checked = lsGet("dudas", true); $("dud-ver").onchange = aplicarDudas; $("dud-ant").onclick = () => saltaDuda(-1); $("dud-sig").onclick = () => saltaDuda(1);
 { const prev = $("acta-frame").onload; $("acta-frame").onload = function (e) { prev?.call(this, e); pintarDudas(); }; }

@@ -50,13 +50,15 @@ function pintarEd(t = plantDe(pSel)) {
       ...["5", "4", "3", "2", "1"].map(k => el("div", {className: "row"}, el("label", {textContent: k}), txt(pe.escala, k, false, {placeholder: DEF[k]}))),
       boton("Restablecer valores por defecto", () => { pe.escala = {...DEF}; re(); })] : []));
   const probar = el("select", {ariaLabel: "Reunión"}, ...todas.filter(m => !m.sin).map(m => new Option(m.label, m.id + "|" + m.asr)));
+  const dup = async () => { const c = await post("/api/plantillas", {plantilla: {...pe, id: "", nombre: pe.nombre + " (copia)", base: pe.base || (t.serie ? t.id : undefined)}}); await abrirPlant(c.id); aviso("Duplicada: ya puedes editarla"); };
   const acciones = [
-    ...(ed ? [boton("Guardar", guardarPlant, "pri")] : []),
-    boton("Duplicar", async () => { const c = await post("/api/plantillas", {plantilla: {...pe, id: "", nombre: pe.nombre + " (copia)", base: pe.base || (t.serie ? t.id : undefined)}}); await abrirPlant(c.id); aviso("Duplicada: ya puedes editarla"); }),
+    ...(ed ? [boton("Guardar", guardarPlant, "pri"), boton("Duplicar", dup)] : []),  // sin permiso de edición, «Duplicar para editar» va junto al título
     boton("Exportar", () => { const a = el("a", {href: URL.createObjectURL(new Blob([JSON.stringify(pe, null, 1)], {type: "application/json"})), download: pe.id + ".json"}); a.click(); }),
     ...(ed ? [boton(t.serie ? "Restablecer" : "Eliminar", async () => { if (!confirm(t.serie ? "¿Volver a la plantilla de serie?" : "¿Eliminar la plantilla «" + t.nombre + "»?")) return; await post("/api/plantillas/borrar", {id: t.id}); if (!t.serie) pSel = "acta"; await abrirPlant(); })] : [])];
-  $("plant-ed").replaceChildren(el("fieldset", {disabled: !ed},
-    el("h2", {textContent: t.nombre}), ...(ed ? [] : [el("p", {className: "muted", textContent: "Plantilla de serie: no se edita. Duplícala para cambiarla."})]),
+  $("plant-ed").replaceChildren(
+    el("div", {className: "row wrap entre pl-h"}, el("h2", {textContent: t.nombre}), ...(ed ? [] : [boton("Duplicar para editar", dup, "pri")])),  // fuera del fieldset deshabilitado
+    ...(ed ? [] : [el("p", {className: "muted", textContent: "Plantilla de serie: solo lectura. Duplícala para cambiarla."})]),
+    el("fieldset", {disabled: !ed},
     campo("Nombre", txt(pe, "nombre")), campo("Descripción", txt(pe, "descripcion")),
     el("div", {className: "row"}, el("label", {textContent: "Documento"}), txt(pe.documento, "singular", false, {ariaLabel: "Singular", placeholder: "acta, informe, apuntes…"}),
       txt(pe.documento, "plural", false, {ariaLabel: "Plural"}), chk(pe.documento, "femenino", "femenino")),

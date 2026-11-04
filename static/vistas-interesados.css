@@ -1,15 +1,12 @@
 /* Estilos de la vista «interesados» (cargada por static/interesados.js). Espaciado: escala --s1..--s6 de app.css. */
 .int{--q-gc:light-dark(#e3edfb,#1c2a3f);--q-ms:light-dark(#fbf1dc,#2f2918);--q-mi:light-dark(#e2f2e8,#19301f);--q-mon:light-dark(#eef0f3,#22262d);--q-ln:light-dark(#8a96a3,#6b7785);position:relative;display:flex;flex-direction:column;gap:var(--s3)}
-.int-head{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}.int-head .sec-h{margin-right:auto}.int-head input[type=text]{min-height:40px;flex:0 1 220px;min-width:140px}
 .int-sum{list-style:none;cursor:pointer;min-height:40px;display:inline-flex;align-items:center;padding:0 var(--s4);border:1px solid var(--inp);border-radius:var(--r);background:var(--card)}.int-sum::-webkit-details-marker{display:none}
 .int-menu{position:relative}.int-pop{position:absolute;right:0;top:100%;z-index:20;margin-top:var(--s1);min-width:240px;padding:var(--s3);background:var(--card);border:1px solid var(--line);border-radius:var(--r2);box-shadow:var(--shadow)}
-.int-fmts{display:flex;flex-wrap:wrap;gap:var(--s2);margin-top:var(--s2)}
 .int-aj{width:min(320px,calc(100vw - 32px));display:flex;flex-direction:column;gap:var(--s3)}
 .int-aj-f{display:grid;grid-template-columns:1fr auto;gap:var(--s1) var(--s2);align-items:center;margin:0;font-size:var(--fs-s);color:var(--ink2)}.int-aj-f>span{grid-column:1/-1}
 .int-aj-f input[type=range]{width:100%;min-height:0}.int-aj-f output{font-size:var(--fs-xs);color:var(--mut);min-width:4em;text-align:right}.int-aj-f small{grid-column:1/-1}
 .int-aj-f select,.int-aj-f input[type=number]{grid-column:1/-1;min-height:36px}.int-aj .check{margin:0;font-size:var(--fs-s)}.int-aj-h{margin-top:calc(-1 * var(--s2));font-size:var(--fs-xs);line-height:1.4}.int-aj>button{align-self:flex-start}
 .int-dup{display:flex;align-items:center;gap:var(--s2) var(--s3);flex-wrap:wrap;margin:0 0 var(--s2)}
-.int-bar{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center}.int-bar select{min-height:40px;width:auto;max-width:100%}
 .int-t td:nth-child(2) input{min-width:150px}
 .int .reg-acc{margin:0}
 /* matriz a todo el ancho; la tabla debajo */

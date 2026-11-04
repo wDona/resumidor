@@ -41,6 +41,12 @@ function menu(ancla, items) {
   const fuera = e => { if (!u.contains(e.target) && !ancla.contains(e.target)) cierra(); };
   const tecla = e => { if (e.key === "Escape") { e.stopPropagation(); cierra(); ancla.focus(); } };
   (ancla.closest(".pchip") || ancla.parentNode).append(u);
+  {  // dentro de la hoja o la ventana: hacia arriba si abajo no cabe, alineado a la derecha si se sale, y con scroll propio si aún no cabe
+    const hoja = ancla.closest(".sh-b, dialog")?.getBoundingClientRect(), top = Math.max(0, hoja?.top ?? 0), bot = Math.min(innerHeight, hoja?.bottom ?? innerHeight);
+    const r = u.getBoundingClientRect(), abajo = bot - r.top, arriba = ancla.getBoundingClientRect().top - top, sube = r.height > abajo && arriba > abajo;
+    u.classList.toggle("arriba", sube); u.style.maxHeight = Math.max(120, (sube ? arriba : abajo) - 12) + "px";
+    u.classList.toggle("der", r.right > document.documentElement.clientWidth - 8);
+  }
   document.addEventListener("pointerdown", fuera, true); document.addEventListener("keydown", tecla, true);
   u.querySelector("button")?.focus();
 }
@@ -56,13 +62,23 @@ const resumen = (p, ctx) => {
   return q + (dn ? " → " + dn : "");
 };
 const FS = "env.fijadosSerie";
+/* iconos SVG de 24 px (estado vacío); trazos como el resto de iconos de la app */
+const SVG = {carpeta: '<path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>', correo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  slack: '<path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/>', receta: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>'};
+const ico = k => { const s = T("span", "env-ic"); s.setAttribute("aria-hidden", "true"); s.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SVG[k]}</svg>`; return s; };
 
+/* Cabecera común de los diálogos (Enviar, Descargar): título + «×», como la hoja Añadir */
+function cabecera(titulo, cerrar) {
+  const x = btn("×", "sec qi", cerrar, {"aria-label": "Cerrar"});
+  return T("div", "env-dh", T("h2", "", titulo), x);
+}
 function dialogo(titulo, cuerpo, acciones = []) {
   const d = el("dialog", {className: "env-dlg", "aria-label": titulo});
-  const cerrar = btn("Cerrar", "sec", () => salir(d));
-  d.append(T("h2", "", titulo), cuerpo, T("div", "row env-acc", ...acciones, cerrar));
+  const cerrar = btn(acciones.length ? "Cancelar" : "Cerrar", "sec", () => salir(d));
+  d.append(cabecera(titulo, () => salir(d)), cuerpo, T("div", "row env-acc", cerrar, ...acciones));  // secundario · primario
   d.addEventListener("close", () => d.remove());
   document.body.append(d); d.showModal();
+  (cuerpo.querySelector?.("input:not([type=hidden]),select,textarea,button") || d.querySelector(".env-acc .pri") || cerrar).focus();  // el foco no cae en el «×»
   return d;
 }
 
@@ -330,10 +346,10 @@ async function montar(raiz) {
       const sug = ["carpeta", "correo", "slack"].filter(t => ctx.cat.tipos[t]);
       raiz.replaceChildren(T("section", "env-sec env-vacio", T("h2", "", "Conecta un destino"),
         T("p", "muted", "Envía tareas, notas y archivos a donde ya trabajas. Elige uno para empezar; luego podrás crear presets y recetas automáticas."),
-        T("div", "env-grid env-grid3", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, T("span", "env-ic", {carpeta: "📁", correo: "✉️", slack: "💬"}[t]), T("strong", "", ctx.cat.tipos[t].nombre), T("small", "env-estado", "Sin conectar"), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
+        T("div", "env-grid env-grid3", ...esc(sug.map(t => el("button", {type: "button", className: "env-card card env-tipo-c", onclick: () => formDestino(ctx, t, null, refrescar)}, ico(t), T("strong", "", ctx.cat.tipos[t].nombre), T("small", "env-estado", "Sin conectar"), T("small", "muted", {carpeta: "Archivos en una carpeta de este equipo", correo: "Documentos adjuntos por correo", slack: "Mensajes a un canal"}[t]))))),
         el("button", {type: "button", className: "env-otro", onclick: () => catalogo(ctx, refrescar)}, "+ Otro destino"),
         T("div", "env-ej", T("h3", "", "Recetas de ejemplo"), ...[["Resumen semanal al equipo", "Cada lunes a las 09:00 · Resumen → Correo"], ["Tareas nuevas a tu gestor", "Al terminar un documento · Tareas → Jira / Planner"]].map(([n, d]) =>
-          T("div", "env-card card", T("span", "env-ic", "↻"), T("div", "", T("strong", "", n), T("small", "muted", d)), T("span", "grow"), T("span", "pill", "Ejemplo"))))));
+          T("div", "env-card card", ico("receta"), T("div", "", T("strong", "", n), T("small", "muted", d)), T("span", "grow"), T("span", "env-etq", "Ejemplo"))))));
       return;
     }
     const TABS = [["destinos", "Destinos", sDest, ctx.cat.destinos.length], ["presets", "Presets", sPre, ctx.presets.length], ["recetas", "Recetas", sRec, ctx.recetas.length], ["historial", "Historial", sHis, 0]];
@@ -456,12 +472,18 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     });
     const flash = pre.cambiados; pre.cambiados = new Set();
     filas.forEach((f, i) => { if (flash.has(ORD2[i])) f.classList.add("env-flash"); });
-    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar", ...(plan.salidas.length ? [T("small", "env-sum", " · " + resumen(planActual(), ctx))] : [])), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
+    // con preset elegido el resumen ya va bajo los chips: en «Personalizar» solo si el plan es a medida
+    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar", ...(plan.salidas.length && !pre.sel ? [T("small", "env-sum", " · " + resumen(planActual(), ctx))] : [])), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
     raiz.replaceChildren(barra(), det);
   };
   // recuerda el último objetivo y lo preselecciona si el plan viene vacío (no con callbacks vacíos: ajustes por defecto de un proyecto)
-  const u = ls(OU, null), uo = u && objs.find(x => x.id === u);
-  if (uo && !plan.salidas.length && !plan.solo_buscable && onChange && onChange.length) aplicar(uo); else pintar();
+  // preset marcado al abrir: el último usado → si el proyecto trae plan, el preset que coincide → «Acta de reunión» (el tipo por defecto)
+  const u = ls(OU, null), uo = u && objs.find(x => x.id === u), clave = ss => JSON.stringify(ss.map(s => s.que + "|" + s.como).sort());
+  if (onChange && onChange.length && !plan.solo_buscable) {
+    if (!plan.salidas.length) { const o = uo || objs.find(x => x.id === "serie:reunion"); if (o) return aplicar(o); }
+    else pre.sel = objs.find(x => !x.plan.solo_buscable && clave(x.plan.salidas) === clave(plan.salidas))?.id ?? null;
+  }
+  pintar();
 }
 
 /* ---------- envío rápido (Enviar ▾) ---------- */
@@ -513,5 +535,5 @@ function split(host, sel, {label = "Enviar", cls = "pri"} = {}) {
   return g;
 }
 
-window.Enviar = {montar, checklist, enviar, split, outlook, chip, menu, presetsObjetivo: true};
+window.Enviar = {montar, checklist, enviar, split, outlook, chip, menu, cabecera, presetsObjetivo: true};
 })();

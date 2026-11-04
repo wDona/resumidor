@@ -31,7 +31,7 @@
         const d = el("input", {type: "date", value: S.def?.[0] || "", ariaLabel: "Desde"}), h = el("input", {type: "date", value: S.def?.[1] || "", ariaLabel: "Hasta"});
         // plazo rápido: chips que rellenan Desde/Hasta (las fechas siguen editables)
         const iso = x => new Date(x - x.getTimezoneOffset() * 6e4).toISOString().slice(0, 10), hoy = new Date(), y = hoy.getFullYear(), m = hoy.getMonth();
-        const rangos = [["Este mes", new Date(y, m, 1), hoy], ["Mes pasado", new Date(y, m - 1, 1), new Date(y, m, 0)], ["Trimestre", new Date(y, m - m % 3, 1), hoy], ["Últimos 30 días", new Date(y, m, hoy.getDate() - 29), hoy]];
+        const rangos = [["Este mes", new Date(y, m, 1), hoy], ["Mes pasado", new Date(y, m - 1, 1), new Date(y, m, 0)], ["Trimestre", new Date(y, m - m % 3, 1), hoy], ["Últimos 30 días", new Date(y, m, hoy.getDate() - 30), hoy]];  // = periodo por defecto del servidor (informe.periodo_defecto): sale marcado
         const chips = el("div", {className: "row wrap inf-rap", role: "group", ariaLabel: "Plazo rápido"}, ...rangos.map(([t, a, b]) => el("button", {type: "button", className: "fchip", "aria-pressed": d.value === iso(a) && h.value === iso(b),
           onclick: ev => { d.value = iso(a); h.value = iso(b); chips.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === ev.currentTarget)); }}, t)));
         d.oninput = h.oninput = () => chips.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", false));
