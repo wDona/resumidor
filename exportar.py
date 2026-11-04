@@ -295,6 +295,8 @@ def md(c, img=None, links=False, plano=True):
     ts = lambda t: f"[{fm(t)}] "
     o = [f"# {c['doc'].capitalize()}: {c['data']['titulo']}\n"] + ([f"*{c['data']['nube']}*\n"] if c["data"].get("nube") else [])
     for cl, tit, its in bloques(c):
+        if cl == "trans" or (cl == "capturas" and (img is None or not its)):
+            continue  # la transcripción solo en los formatos maquetados (html, docx, pdf) o aparte (srt/vtt); sin imágenes, ni «## Capturas» vacío
         o.append(f"\n## {tit}\n")
         if cl == "texto":
             o.append(its[0]["texto"])

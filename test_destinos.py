@@ -151,6 +151,21 @@ def test_webhook_firma_hmac_y_json(E, mk):
     j = json.loads(q["b"])
     assert j["origen"] == "actas" and j["resumen"] and j["items"][0]["tipo"] == "decision" and "Junta" in j["items"][0]["origen"] and j["items"][0]["enlaces"][0].startswith("/api/vista/")
     assert enviar(t, i, ["decisiones", "resumen"], doc="aaaa1111")["items"][0]["accion"] == "omitido"
+    # la transcripción solo va en lo maquetado (html, docx, pdf) o aparte (srt/vtt): nunca en texto (JSON, Discord, Teams, .md)
+    assert enviar(t, i, ["documento"], doc="aaaa1111")["estado"] == "ok"
+    j = json.loads(mk.reqs[-1]["b"])
+    assert "Junta de enero" in j["texto"] and "Buenos días a todos" not in j["texto"] and "Capturas" not in j["texto"]
+    d = dest(t, "webhook", url=mk.url + "/discord", mensaje="discord")
+    assert enviar(t, d, ["documento"], doc="aaaa1111")["estado"] == "ok" and "Buenos días a todos" not in json.loads(mk.reqs[-1]["b"])["content"]
+    tt = dest(t, "teams", webhook=mk.url + "/teams-doc")
+    assert enviar(t, tt, ["documento"], doc="aaaa1111")["estado"] == "ok"
+    card = json.dumps(json.loads(mk.reqs[-1]["b"]), ensure_ascii=False)
+    assert "Junta de enero" in card and "Hoy hablamos del ascensor" not in card
+    import exportar
+    ver = next(p.name for p in (TC.pipeline.WORK / "aaaa1111").glob("acta_*"))
+    c = exportar.carga("aaaa1111", ver, False)
+    assert "Buenos días a todos" not in exportar.md(c) and "Buenos días a todos" in exportar.html_doc(c)
+    assert "Buenos días a todos" in exportar.exportar("aaaa1111", ver, "vtt")[0].decode()  # aparte, como documento propio
 
 
 def test_jira_linear_todoist_notion(E, mk):
