@@ -604,7 +604,7 @@ $("mp-bar").onpointerdown = e => {  // arrastrar (opcional) desde la barra
 // dentro de la app el documento se lee como en design/DocResumen.dc.html (solo la vista: exportar no cambia)
 const DOC_CSS = "#side{display:none!important}main{padding-bottom:32px!important;display:block!important;max-width:960px!important}" +
   ":root{--bg2:#f8f9fb}@media(prefers-color-scheme:dark){:root{--bg2:#1a1f26}}body{max-width:none;padding:28px 36px}@media(max-width:700px){body{padding:20px 16px}}" +
-  "h2{scroll-margin-top:16px}h1{font-size:26px;line-height:1.25}h2{font-size:20px}h3{font-size:17px}h1,h2,h3,h4,b,strong,th{font-weight:600}.meta+h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:17px;line-height:1.6}" +
+  "h2{scroll-margin-top:var(--sm,16px)}h1{font-size:26px;line-height:1.25}h2{font-size:20px}h3{font-size:17px}h1,h2,h3,h4,b,strong,th{font-weight:600}.meta+h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin-top:28px}.meta+h2+p{font-size:17px;line-height:1.6}" +
   "h2+ul{list-style:none;padding:0;display:flex;flex-direction:column;gap:10px}h2+ul>li{background:var(--bg2);border-radius:10px;padding:12px 16px}" +
   "table{border:1px solid var(--line2);border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden}th{background:var(--bg2);padding:10px}td{padding:12px 10px}" +
   "details{border:1px solid var(--line2);border-radius:10px;padding:12px 16px;margin:8px 0}summary{cursor:pointer;font-weight:600;min-height:28px}" +
@@ -621,8 +621,9 @@ function docIndice(d) {
   // bajo 1100 px el índice es un desplegable encima del documento
   const sel = $("doc-isel") || document.querySelector("#p-acta .dbar").appendChild(el("select", {id: "doc-isel", className: "doc-isel", ariaLabel: "Ir a un apartado"}));
   sel.hidden = hs.length < 3; sel.replaceChildren(...hs.map((h, i) => new Option(h.textContent, i))); sel.onchange = () => hs[sel.value]?.scrollIntoView({behavior: "smooth", block: "start"});
-  const spy = () => { let k = 0; hs.forEach((h, i) => { if (h.getBoundingClientRect().top < 90) k = i; }); its.forEach((a, i) => a.setAttribute("aria-current", i === k ? "true" : "false")); sel.value = k; };
-  d.defaultView.addEventListener("scroll", spy, {passive: true}); spy();
+  const f = $("acta-frame");  // con data-pag el iframe no scrollea (lo hace la página): la posición de cada apartado es la del iframe + la suya, bajo la cabecera fija
+  const spy = () => { const o = f.hasAttribute("data-pag") ? f.getBoundingClientRect().top - document.querySelector(".top").offsetHeight : 0; let k = 0; hs.forEach((h, i) => { if (h.getBoundingClientRect().top + o < 90) k = i; }); its.forEach((a, i) => a.setAttribute("aria-current", i === k ? "true" : "false")); sel.value = k; };
+  d.defaultView.addEventListener("scroll", spy, {passive: true}); docSpy = spy; spy();
 }
 // citas de documentos: «[§ Comité · Proyecto · 28 de octubre]» → chip «§1» (cada apartado, su número; la etiqueta entera en el title); «[p. 12]» → «p. 12».
 // En documentos de texto la «Duración» de la cabecera no significa nada: fuera
@@ -636,21 +637,29 @@ function citasCortas(d) {
   const a = cur?.actas.find(x => x.name === ver), me = d.querySelector(".meta");
   if (me?.firstChild && cur.importadas[a?.asr]?.tipo) me.firstChild.textContent = me.firstChild.textContent.replace(/^Duración [\d:]+ · /, "");
 }
-// el documento mide lo que queda de ventana bajo la cabecera, las pestañas y los avisos: un solo scroll (el del documento), sin barra doble. offsetTop y no
-// getBoundingClientRect: la animación de entrada de la vista aplica transform y falsearía la medida. En móvil (≤700 px) manda el CSS (70vh).
+// un solo scroll, nunca doble barra. Si bajo la cabecera, las pestañas y los avisos quedan ≥ DOC_MIN px, el documento mide lo que queda de ventana y scrollea él;
+// si no (ventana baja o móvil ≤700 px) el iframe crece hasta su contenido (data-pag) y scrollea la página. offsetTop y no getBoundingClientRect: la animación
+// de entrada de la vista aplica transform y falsearía la medida.
+const DOC_MIN = 420;
 function docAlto() {
   const f = $("acta-frame"); if (!f.offsetParent) return;
-  if (matchMedia("(max-width:700px)").matches) { f.style.height = ""; return; }
-  const pos = n => { let t = 0; for (; n; n = n.offsetParent) t += n.offsetTop; return t; }, pg = f.closest(".page");
+  const pos = n => { let t = 0; for (; n; n = n.offsetParent) t += n.offsetTop; return t; }, pg = f.closest(".page"), movil = matchMedia("(max-width:700px)").matches;
   const debajo = pg ? pos(pg) + pg.offsetHeight - pos(f) - f.offsetHeight : 16;  // lo que queda bajo el iframe (relleno de la página), medido: no se supone
-  f.style.height = Math.max(0, innerHeight - pos(f) - debajo) + "px";  // ponytail: por debajo de ≈820 px de alto manda min-height (app.css) y vuelven las dos barras
+  const hay = innerHeight - pos(f) - debajo; let d; try { d = f.contentDocument; } catch {}
+  const pag = (movil || hay < DOC_MIN) && d?.body && d.location.href !== "about:blank";  // sin documento cargado aún, vale el alto de ventana / el CSS
+  f.toggleAttribute("data-pag", !!pag);
+  if (d?.body) d.documentElement.style.setProperty("--sm", (pag ? document.querySelector(".top").offsetHeight + 16 : 16) + "px");  // el apartado al que se salta queda bajo la cabecera fija
+  f.style.height = pag ? Math.ceil(d.documentElement.getBoundingClientRect().height) + f.offsetHeight - f.clientHeight + "px" : movil ? "" : Math.max(0, hay) + "px";
 }
+const docRO = new ResizeObserver(() => requestAnimationFrame(docAlto));  // el contenido del documento (imágenes, <details>, ancho) cambia su alto
 addEventListener("resize", docAlto); new ResizeObserver(() => requestAnimationFrame(docAlto)).observe(document.body);  // lo que hay encima crece o se encoge (aviso de dudosos, versiones…); en el siguiente cuadro para no encadenar avisos del observador
+let docSpy; addEventListener("scroll", () => docSpy?.(), {passive: true});  // con data-pag scrollea la página, no el iframe
 // el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
 $("acta-frame").onload = () => {
   docAlto();
   let d; try { d = $("acta-frame").contentDocument; } catch { return; } if (!d || !d.body || d.location.href === "about:blank") return;
   d.head.append(Object.assign(d.createElement("style"), {textContent: DOC_CSS})); docIndice(d); citasCortas(d);
+  docRO.disconnect(); docRO.observe(d.documentElement);  // avisa al observar: mide con el CSS ya puesto
   d.addEventListener("click", e => {
     const a = e.target.closest("[data-t]"); if (!a) return;
     if (!cur?.video) { e.preventDefault(); e.stopImmediatePropagation(); citaIr(+a.dataset.t, (a.dataset.full || a.textContent).trim()); return; }  // PDF, texto: a la pestaña Fuente

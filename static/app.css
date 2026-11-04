@@ -654,7 +654,7 @@ body.scr #nueva{gap:0;padding:0 12px}body.scr #nueva .fab-t{max-width:0;opacity:
 .sub-l{margin:2px 0 6px 14px;padding-left:6px;border-left:2px solid var(--line2);display:flex;flex-direction:column;gap:2px}
 .sub-l>[role=group]{display:flex;flex-direction:column;gap:2px}
 /* citas e índice */
-.doc-i{top:16px}
+.doc-i{top:77px}  /* con la página scrolleando (ventana baja) el índice se queda bajo la cabecera fija (61 px) */
 /* Fuente: sin hueco de vídeo vacío; imagen en su proporción sobre fondo neutro y descripciones con autoguardado */
 #p-notas:empty{display:none}
 .fu-img{grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:24px}@media(max-width:860px){.fu-img{grid-template-columns:minmax(0,1fr)}}
