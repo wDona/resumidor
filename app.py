@@ -1952,7 +1952,10 @@ def reg_historial(eid: str, c: str):
 def reg_editar(eid: str, d: dict):
     c = _c(d)
     with registro.LOCK:
-        cm = _reg_cambios(d.get("cambios"), _ok(registro.de, c, eid)["tipo"], c)
+        x = _ok(registro.de, c, eid)
+        cm = _reg_cambios(d.get("cambios"), x["tipo"], c)
+        if x["tipo"] == "pregunta" and (cm.get("campos") or {}).get("respuesta") and "estado" not in cm and x["estado"] in ("", "abierto", "en curso"):
+            cm["estado"] = "hecho"  # responderla la cierra (se reabre a mano)
         _ok(registro.editar, eid, cm, uuid.uuid4().hex[:10])
         return registro.completas([registro.de(c, eid)])[0]
 
@@ -2071,15 +2074,36 @@ def carpetas_resumen():
 who = lambda s: (s["spk"] + ": " if s.get("spk") else "") + s["text"]  # con nombres (transcripción importada) las citas dicen quién habla
 
 
+def _tramos_registro(c, es):
+    """Lo generado del proyecto como tramos para Preguntar: cada entidad del registro (preguntas con su respuesta, decisiones, tareas…)
+    y el resumen de cada reunión. Enlazan a donde se respondió o se dijo; lo que no viene de una reunión, al «Registro del proyecto»."""
+    mi, out = {e["id"]: k for k, e in enumerate(es)}, []
+    for x in registro.completas([x for x in registro.listar(c) if x["revision"] not in (*registro.OCULTA, "descartado")]):
+        r, rd = x["campos"].get("respuesta"), x["campos"].get("respuesta_de") or {}
+        ci = next((ci for ci in x["citas"] if ci["mid"] in mi), None)
+        m, t = (mi[rd["mid"]], rd.get("t") or 0) if rd.get("mid") in mi else (mi[ci["mid"]], ci["t"] or 0) if ci else (None, 0)
+        tipo = {"decision": "Decisión"}.get(x["tipo"], x["tipo"].capitalize())
+        out.append({"s": t, "m": m, "text": " ".join(filter(None, [f"{tipo} {x['codigo']}:" if x["codigo"] else f"{tipo}:", x["titulo"].rstrip(".") + ".", x["detalle"],
+                                                                   x["dueno"] and f"Responsable: {x['dueno']}.", x["estado"] and f"Estado: {x['estado']}.", r and f"Respuesta: {r}"]))})
+    for k, e in enumerate(es):
+        if (res := indice(e["sel"]).acta()[0]):
+            out.append({"s": 0, "m": k, "text": f"Resumen de «{e['label']}»: {res}"})
+    return out
+
+
 def indice(sel):
-    """Índice RAG de una reunión ("id|asr") o de una carpeta ("c:nombre": la última transcripción de cada reunión de la carpeta)."""
+    """Índice RAG de una reunión ("id|asr") o de una carpeta ("c:nombre": la última transcripción de cada reunión de la carpeta + lo
+    generado del proyecto, ver _tramos_registro; un cambio en el registro rehace solo el índice de la carpeta)."""
     if sel.startswith("c:"):
         es = list({e["id"]: e for e in reversed(meetings()) if e["carpeta"] == sel[2:] and not e["sin"]}.values())
         if not es:
             raise HTTPException(400, "Carpeta vacía")
-        key = "c:" + repr([(e["sel"], e["label"]) for e in es])
+        ex = _tramos_registro(sel[2:], es)
+        key = "c:" + repr([(e["sel"], e["label"]) for e in es]) + hashlib.sha1(repr(ex).encode()).hexdigest()[:10]
         if key not in _idx:
-            _idx[key] = rag.Multi([(e["label"], e["video"], indice(e["sel"])) for e in es])
+            for k in [k for k in _idx if k.startswith("c:" + repr([(e["sel"], e["label"]) for e in es]))]:
+                del _idx[k]  # la versión anterior del registro
+            _idx[key] = rag.Multi([(e["label"], e["video"], indice(e["sel"])) for e in es], ex)
         return _idx[key]
     if sel not in _idx:
         wd, asr = sel.split("|")

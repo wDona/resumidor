@@ -225,6 +225,11 @@ def resolver_sugerencia(c, ms, pid, aceptar, hoy=None):
     s = leer(c)["sugeridos"].get(pid)
     if not s:
         raise KeyError("No hay sugerencia para ese pendiente")
+    if s["tipo"] == "respondida":  # pregunta respondida en otra reunión (responder_preguntas): aceptar guarda la respuesta con su origen y la cierra
+        x = next(x for x in registro.listar(c, tipo="pregunta") if registro.ref(x) == pid)
+        cm = {"estado": "hecho", "fecha_cierre": (hoy or dt.date.today()).isoformat(),
+              "campos": {"respuesta": s["respuesta"], "respuesta_de": {k: s.get(k) for k in ("mid", "ver", "t", "doc", "fecha", "cita")}}} if aceptar else {}
+        return registro.editar(x["id"], {**cm, "sugerencia": None}, uuid.uuid4().hex[:10])
     if aceptar and s["tipo"] == "hecho":
         return set_estado(c, ms, pid, "hecho", hoy)
     if aceptar:  # actualizado: sigue abierto, con la nota
@@ -513,6 +518,47 @@ def verificar_seguimiento(idx, ids, cita):
     return None
 
 
+# ---------- respuestas: ¿el documento nuevo responde alguna pregunta abierta del proyecto? ----------
+SYS_RESP = """Revisas si lo dicho en una reunión NUEVA responde preguntas que quedaron abiertas antes. Recibes preguntas numeradas y, de cada \
+una, fragmentos de la reunión nueva con su minuto. Por cada pregunta responde:
+respondida = «si» solo si un fragmento da la respuesta; hablar del tema sin responderla es «no».
+respuesta = la respuesta en una frase corta, con las palabras del fragmento; vacía si es «no».
+cita = copia LITERAL (de 5 a 25 palabras) del fragmento que la da; vacía si es «no». No inventes."""
+
+
+def preguntas_abiertas(c, ms, mid, hasta):
+    """Preguntas del registro sin responder ni sugerencia, de documentos anteriores a `mid` (o sin documento), en la forma de candidatos_seguimiento."""
+    mt = {d["mid"]: d["mtime"] for d in docs(ms)}
+    return [{"texto": x["titulo"], "resp": x["campos"].get("dirigida_a") or "", "eid": x["id"]} for x in registro.listar(c, tipo="pregunta")
+            if x["revision"] not in (*registro.OCULTA, "descartado") and x["estado"] in ("", "abierto", "en curso") and not x["sugerencia"]
+            and not x["campos"].get("respuesta") and x["mid"] != mid and mt.get(x["mid"], 0) <= hasta]
+
+
+def responder_preguntas(cand, idx, nuevo, chat, lote=5):
+    """Deja en cada pregunta que el documento nuevo responde una sugerencia «respondida»: la respuesta (si no se verifica contra el tramo,
+    la cita), la cita literal verificada y su minuto. Nunca la da por respondida: el usuario acepta o rechaza (/api/reg/{eid}/sugerencia)."""
+    n = 0
+    for b in range(0, len(cand), lote):
+        lot = cand[b:b + lote]
+        user = "\n\n".join(f"Pregunta {k}: «{p['texto']}»\n" + "\n".join(f"  ({P.fmt(idx.segs[i]['s'])}) {idx.segs[i]['text']}" for i in ids)
+                           for k, (p, ids) in enumerate(lot, 1))
+        sch = P.obj(r=P.arr(P.obj(n={"enum": list(range(1, len(lot) + 1))}, respondida={"enum": ["si", "no"]}, respuesta=P.S(300), cita=P.S(220)), len(lot), 1))
+        for x in chat(SYS_RESP, user, sch, 160 * len(lot) + 40, temperature=0.0)["r"]:
+            if x["respondida"] != "si" or not 1 <= x["n"] <= len(lot):
+                continue
+            p, ids = lot[x["n"] - 1]
+            j = verificar_seguimiento(idx, ids, x["cita"])
+            if j is None:
+                continue  # la cita no es literal del documento nuevo: se descarta
+            r = x["respuesta"].strip()
+            if not r or rag.verify(r, " ".join(idx.segs[k]["text"] for k in idx.window(j))):
+                r = x["cita"].strip()
+            registro.editar(p["eid"], {"sugerencia": {"tipo": "respondida", "respuesta": r, "cita": x["cita"].strip(), "t": idx.segs[j]["s"], "mid": nuevo["mid"],
+                                                      "ver": nuevo["ver"], "doc": nuevo["nombre"], "fecha": nuevo["fecha"]}}, False)  # sin historial: Ctrl+Z es del usuario
+            n += 1
+    return n
+
+
 def seguimiento(c, ms, mid, chat_ctx, threads=2, hoy=None, lote=5, idx=None):
     """Una pasada del LLM (chat_ctx() da el `chat` de pipeline.llama) sobre los pendientes abiertos de documentos anteriores y el documento
     `mid`. Guarda sugerencias «hecho»/«actualizado» con cita literal verificada y minuto; no cierra nada. -> nº de sugerencias."""
@@ -520,15 +566,18 @@ def seguimiento(c, ms, mid, chat_ctx, threads=2, hoy=None, lote=5, idx=None):
     if not nuevo or nuevo["sin"] or not (P.WORK / mid / f"transcript_{nuevo['asr']}.json").is_file():
         return 0
     editar(c, lambda e: [e["sugeridos"].pop(k) for k, v in list(e["sugeridos"].items()) if v.get("mid") == mid])
-    ab = [p for p in pendientes(c, ms, hoy) if p["estado"] == "abierto" and p["mid"] != mid and p["mtime"] <= nuevo["mtime"] and not p["sugerido"]]
-    if not ab:
+    ab = [p for p in pendientes(c, ms, hoy) if p["estado"] == "abierto" and p["mid"] != mid and p["mtime"] <= nuevo["mtime"] and not p["sugerido"]
+          and p["tipo_ent"] != "pregunta"]  # las preguntas van por responder_preguntas (sugieren la respuesta, no «hecho»)
+    pq = preguntas_abiertas(c, ms, mid, nuevo["mtime"])
+    if not ab and not pq:
         return 0
     idx = idx or rag.Index(str(P.WORK / mid), nuevo["asr"], threads)
-    cand = candidatos_seguimiento(idx, ab)
+    cand, cq = candidatos_seguimiento(idx, ab), candidatos_seguimiento(idx, pq)
     n = 0
-    if not cand:
+    if not cand and not cq:
         return 0
     with chat_ctx() as chat:
+        n += responder_preguntas(cq, idx, nuevo, chat, lote)
         for b in range(0, len(cand), lote):
             lot = cand[b:b + lote]
             user = "\n\n".join(f"Pendiente {k}: «{p['texto']}»" + (f" (responsable: {p['resp']})" if p["resp"] else "") + (f" (plazo: {p['plazo']})" if p["plazo"] else "") + "\n" +

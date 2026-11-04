@@ -260,10 +260,10 @@ function filaPend(c, p) {
   if (p.manual) acc.push(el("button", {className: "gh", textContent: "Quitar", ariaLabel: "Quitar: " + p.texto, onclick: fallo(async () => { await post("/api/exp/pendientes", {c, id: p.id, borrar: true}); await fRe(); })}));
   return el("div", {className: "pr" + (sg ? " sug" : "") + (p.estado !== "abierto" ? " cerr" : ""), "data-id": p.eid || p.id}, el("span", {className: "pc"}, chk),
     el("span", {className: "pt"}, el("span", {className: p.estado === "abierto" ? "" : "tach", textContent: p.texto}), " ", ...(/^tareas?$/i.test(p.tipo || "") ? [] : [el("small", {className: "tipo", textContent: p.tipo})]),
-      ...(p.estado === "descartado" ? [el("span", {className: "badge", textContent: "descartado"})] : []), ...(sg ? [el("b", {className: "q", textContent: sg.tipo === "hecho" ? " ¿cerrado?" : " ¿actualizado?"})] : []),
+      ...(p.estado === "descartado" ? [el("span", {className: "badge", textContent: "descartado"})] : []), ...(sg ? [el("b", {className: "q", textContent: {hecho: " ¿cerrado?", respondida: " ¿respondida?"}[sg.tipo] || " ¿actualizado?"})] : []),
       ...(p.nota ? [el("small", {textContent: p.nota})] : []),
-      ...(sg ? [el("div", {className: "ev"}, "«" + sg.cita + "» ", fLink({mid: sg.mid, ver: sg.ver, t: sg.t}, sg.doc + " · " + mmss(sg.t)), " ",
-        el("button", {className: "sec sm", textContent: sg.tipo === "hecho" ? "Sí, cerrar" : "Sí, anotar", onclick: fallo(async () => { await post("/api/exp/sugerencia", {c, id: p.id, aceptar: true}); await fRe(); })}),
+      ...(sg ? [el("div", {className: "ev"}, sg.respuesta && sg.respuesta !== sg.cita ? "Respuesta: " + sg.respuesta + " · " : "", "«" + sg.cita + "» ", fLink({mid: sg.mid, ver: sg.ver, t: sg.t}, sg.doc + " · " + mmss(sg.t)), " ",
+        el("button", {className: "sec sm", textContent: {hecho: "Sí, cerrar", respondida: "Sí, guardar respuesta"}[sg.tipo] || "Sí, anotar", onclick: fallo(async () => { await post("/api/exp/sugerencia", {c, id: p.id, aceptar: true}); await fRe(); })}),
         el("button", {className: "link", textContent: "No", onclick: fallo(async () => { await post("/api/exp/sugerencia", {c, id: p.id, aceptar: false}); await fRe(); })}))] : []), ...(acc.length ? [el("div", {className: "ac"}, ...acc)] : [])),
     el("span", {className: "pw", textContent: p.resp || "—"}), el("span", {className: "pf" + (p.pronto && !p.vencido ? " w" : ""), title: p.pronto && !p.vencido ? "Vence pronto" : ""}, ...plazo), el("span", {className: "po"}, p.manual ? "Manual" : fLink(p)));
 }
@@ -280,7 +280,7 @@ async function tLinea(c) {
     if (x.tipo === "doc") { tag = ""; cuerpo = [el("b", {}, fLink({mid: x.mid, ver: x.ver, t: 0}, x.titulo)), el("div", {className: "muted", textContent: (x.resumen || "") + (x.n_pend ? " · " + x.n_pend + " pendientes" : "")})]; }  // el documento ya se ve por su enlace: sin chip «Documento» en cada fila
     else if (x.tipo === "nota") { tag = "Nota"; cuerpo = [x.texto + " ", el("button", {className: "link", textContent: "Quitar", ariaLabel: "Quitar nota", onclick: fallo(async () => { await post("/api/exp/notas", {c, id: x.id, borrar: true}); await fRe(); })})]; }
     else if (x.tipo === "pendiente") { tag = "Pendiente"; cuerpo = [(T.estado[x.a] || x.a) + " «" + x.texto + "»" + (x.cita ? " · «" + x.cita + "»" : "")]; }
-    else if (x.tipo === "sugerido") { tag = "Seguimiento"; cuerpo = ["Parece " + (x.a === "hecho" ? "hecho" : "actualizado") + ": «" + x.texto + "» · «" + x.cita + "» ", fLink({mid: x.mid, ver: "", t: x.t_doc}, x.doc + " · " + mmss(x.t_doc))]; }
+    else if (x.tipo === "sugerido") { tag = "Seguimiento"; cuerpo = ["Parece " + ({hecho: "hecho", respondida: "respondida"}[x.a] || "actualizado") + ": «" + x.texto + "» · «" + x.cita + "» ", fLink({mid: x.mid, ver: "", t: x.t_doc}, x.doc + " · " + mmss(x.t_doc))]; }
     else { tag = "Pendiente"; cuerpo = ["Añadido a mano: «" + x.texto + "»"]; }
     return el("li", {}, el("span", {className: "d", textContent: fFecha(x.fecha)}), el("span", {className: "n tl-c"}, ...(tag ? [el("span", {className: "badge", textContent: tag}), " "] : []), ...cuerpo));
   };

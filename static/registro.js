@@ -10,7 +10,7 @@ const REG_COLS = {  // columnas por defecto por tipo; cada vista de F4 puede pas
   historia: [REG_COD, {k: "titulo", label: "Historia", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS}],
   interesado: [{k: "titulo", label: "Nombre"}, {k: "detalle", label: "Rol", tipo: "area"}, {k: "campos.organizacion", label: "Organización"}],
   riesgo: [REG_COD, {k: "titulo", label: "Riesgo", tipo: "area"}, {k: "campos.probabilidad", label: "Probabilidad"}, {k: "campos.impacto", label: "Impacto"}, {k: "dueno", label: "Responsable"}],
-  pregunta: [REG_COD, {k: "titulo", label: "Pregunta", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS}, {k: "campos.dirigida_a", label: "Dirigida a"}],
+  pregunta: [REG_COD, {k: "titulo", label: "Pregunta", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS}, {k: "campos.dirigida_a", label: "Dirigida a"}, {k: "campos.respuesta", label: "Respuesta", tipo: "area"}],
   decision: [REG_COD, {k: "titulo", label: "Decisión", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS}, {k: "fecha_alta", label: "Fecha", tipo: "fecha"}],
 };
 const REG_DEF = [REG_COD, {k: "titulo", label: "Título", tipo: "area"}, {k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS}, {k: "dueno", label: "Responsable"}];
@@ -328,7 +328,7 @@ async function registroBandeja(host, c, onChange) {
     el("ul", {className: "f-lst"}, ...b.sugerencias.map(s => {
       const g = s.sugerencia || {}, ci = g.cita ? [" «" + g.cita + "» ", ...(g.mid ? [fLink({mid: g.mid, ver: g.ver, t: g.t}, "[" + mmss(g.t || 0) + "]"), " "] : [])] : [" "];
       const res = accion => async () => { try { await post("/api/reg/" + encodeURIComponent(s.id) + "/sugerencia", {c, accion}); aviso((accion === "aceptar" ? "Aceptada" : "Rechazada"), {txt: "Deshacer", fn: deshacer}); rec(); } catch (e) { regAviso(e); } };
-      return el("li", {}, (s.titulo || "") + " ", el("span", {className: "badge w", textContent: g.tipo === "hecho" ? "Propone: hecho" : "Propone: actualizado (nota)"}), ...ci,
+      return el("li", {}, (s.titulo || "") + " ", el("span", {className: "badge w", textContent: {hecho: "Propone: hecho", respondida: "Propone respuesta"}[g.tipo] || "Propone: actualizado (nota)"}), g.respuesta && g.respuesta !== g.cita ? " " + g.respuesta : "", ...ci,
         el("button", {className: "sec sm", textContent: "Aceptar", onclick: res("aceptar")}), el("button", {className: "link", textContent: "Rechazar", onclick: res("rechazar")}));
     }))));
   if ((b.relaciones_propuestas || []).length) raiz.append(el("section", {className: "card"}, el("div", {className: "sec-h"}, el("h3", {textContent: "Relaciones propuestas · " + b.relaciones_propuestas.length})),

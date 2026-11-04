@@ -13,7 +13,7 @@ TIPOS = {
     "decision": (r"decisi[oó]n(?:es)?|decidimos|decidido|decidieron|acordamos|acordado", "Decisiones"),
     "requisito": (r"requisitos?|requerimientos?", "Requisitos"),
     "historia": (r"historias?(?: de usuario)?", "Historias de usuario"),
-    "pregunta": (r"preguntas? (?:abiertas?|pendientes?|sin (?:responder|resolver))|dudas?|cuestiones (?:abiertas|pendientes)", "Preguntas abiertas"),
+    "pregunta": (r"preguntas? (?:abiertas?|pendientes?|sin (?:responder|resolver)|respondidas?|resueltas?|con respuesta)|dudas?|cuestiones (?:abiertas|pendientes)", "Preguntas"),
     "interesado": (r"interesados?|stakeholders?|qui[eé]n(?:es)? (?:es|son|era|eran)\b", "Interesados"),
     "hito": (r"hitos?", "Hitos"),
     "incidencia": (r"incidencias?", "Incidencias"),
@@ -21,7 +21,7 @@ TIPOS = {
 CERRADO = {"hecho", "cerrado", "cerrada", "resuelto", "resuelta", "mitigado", "mitigada", "sustituida", "completado", "completada", "descartado"}
 CUENTA = re.compile(r"\bcu[aá]nt[oa]s\b|\bn[uú]mero de\b|\bhow many\b", re.I)
 ABIERTO = re.compile(r"\b(?:abiert[oa]s?|vigentes?|activ[oa]s?|vivos?|pendientes?)\b", re.I)
-CERRADA = re.compile(r"\b(?:cerrad[oa]s?|resuelt[oa]s?|mitigad[oa]s?|hech[oa]s?|completad[oa]s?)\b", re.I)
+CERRADA = re.compile(r"\b(?:cerrad[oa]s?|resuelt[oa]s?|mitigad[oa]s?|hech[oa]s?|completad[oa]s?|respondid[oa]s?)\b|con respuesta", re.I)
 PRIO = re.compile(r"\b(must|should|could)\b|prioridad (alta|media|baja)|\b(alta|media|baja) prioridad", re.I)
 TEMA = re.compile(r"\b(?:sobre|acerca de|respecto a|en relaci[oó]n (?:a|con)|de|del|para|con|qui[eé]n(?:es)? (?:es|son|era|eran))\s+(.+)", re.I)
 IGN = set(P.words("abiertos abiertas vigentes cerrados cerradas pendientes tenemos hay todos todas proyecto cuantos cuantas cuales que quienes quien son es los las del de la el y en"
@@ -31,7 +31,7 @@ MAX = 40
 
 
 def _cerrada(x):
-    return x["estado"].casefold() in CERRADO
+    return x["estado"].casefold() in CERRADO or bool(x["campos"].get("respuesta"))  # pregunta con respuesta: ya no está abierta
 
 
 def pregunta(c, q, ms=()):
@@ -59,7 +59,7 @@ def pregunta(c, q, ms=()):
     if m := TEMA.search(q):  # «sobre X», «de Y»: lo que quede sin palabras de filtro ni nombre del responsable
         tema = " ".join(w for w in P.words(m.group(1)) if w not in IGN and w not in nom)
     if ts := set(rag.terms(tema)):
-        xs = [x for x in xs if ts & set(rag.terms(x["titulo"] + " " + x["detalle"] + " " + x["codigo"]))]
+        xs = [x for x in xs if ts & set(rag.terms(x["titulo"] + " " + x["detalle"] + " " + x["codigo"] + " " + (x["campos"].get("respuesta") or "")))]
         if not xs:
             return None  # el tema no está en el registro: quizá sí en las transcripciones
         sc = carpetas.sim([tema], [x["titulo"] + " " + x["detalle"] for x in xs])[0]
@@ -69,9 +69,9 @@ def pregunta(c, q, ms=()):
     xs = [xs[i] for i in orden]
     cs = {x["id"]: x["citas"] for x in registro.completas(xs)}
     nm = {m["id"]: m for m in ms}
-    items = [{"codigo": x["codigo"], "texto": x["titulo"], "resp": x["dueno"], "estado": x["estado"], "sin_revisar": x["revision"] == "propuesto",
+    items = [{"codigo": x["codigo"], "texto": x["titulo"], "resp": x["dueno"], "estado": x["estado"], "sin_revisar": x["revision"] == "propuesto", "respuesta": x["campos"].get("respuesta") or "",
               "citas": [{"mid": ci["mid"], "ver": ci["ver"], "t": ci["t"] or 0, "doc": (nm.get(ci["mid"]) or {}).get("label", ""), "v": (nm.get(ci["mid"]) or {}).get("video")}
                         for ci in cs[x["id"]][:3] if ci["mid"]]} for x in xs]
     tit = " y ".join(TIPOS[t][1] for t in tipos if any(x["tipo"] == t for x in todas))
-    f = [resp and "de " + resp, tema and "sobre «" + tema + "»", PRIO.search(q) and PRIO.search(q).group(0), CERRADA.search(q) and "cerrados" or ABIERTO.search(q) and "abiertos"]
+    f = [resp and "de " + resp, tema and "sobre «" + tema + "»", PRIO.search(q) and PRIO.search(q).group(0), CERRADA.search(q) and ("respondidas" if tipos == ["pregunta"] else "cerrados") or ABIERTO.search(q) and ("abiertas" if tipos == ["pregunta"] else "abiertos")]
     return {"titulo": tit + (" (" + ", ".join(filter(None, f)) + ")" if any(f) else ""), "n": len(items), "cuenta": bool(CUENTA.search(q)), "items": items[:MAX]}

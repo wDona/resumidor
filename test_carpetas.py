@@ -311,3 +311,54 @@ def test_pendientes_eid_coincide_con_kpis(cl):
     ab = {p["eid"] for p in ps if p["estado"] == "abierto" and p["tipo_ent"] == "tarea"}
     k = informe.kpis(C, "2000-01-01", "2100-01-01")
     assert ab and ab == set(k["ids"]["tareas_abiertas"])
+
+
+def test_preguntas_respondidas_en_otra_reunion_y_en_preguntar(cl, monkeypatch):
+    """Una pregunta abierta recibe de una reunión posterior una sugerencia «respondida» (cita literal verificada); al aceptarla queda la
+    respuesta con su origen, y Preguntar la encuentra: en la lista del registro y como tramo del índice de la carpeta."""
+    import preguntar_reg
+    import registro
+    monkeypatch.setenv("ACTAS_NO_EMBED", "1")
+    t, app = cl
+    carpetas.pendientes(C, ms(), HOY)  # sincroniza el registro
+    q = registro.crear(C, "pregunta", titulo="¿Quién arregla la puerta del garaje?", origen="manual", revision="aprobado")
+    pq = carpetas.preguntas_abiertas(C, ms(), "cccc3333", time.time())
+    assert [p["eid"] for p in pq] == [q["id"]]
+
+    class Ix:
+        segs = [{"s": 0, "text": "Buenos días. Revisamos pendientes.", "kind": "voz"}, {"s": 90, "text": "Javier: ya arreglamos la puerta del garaje esta semana, quedó perfecta.", "kind": "voz"}]
+        window = lambda self, i: [j for j in (i - 1, i, i + 1) if 0 <= j < 2]
+    nuevo = next(d for d in carpetas.docs(ms()) if d["mid"] == "cccc3333")
+    llm = lambda r: lambda sys, user, sch, n, temperature=0: {"r": [r]}
+    # cita inventada: nada
+    assert carpetas.responder_preguntas([(pq[0], [1])], Ix(), nuevo, llm({"n": 1, "respondida": "si", "respuesta": "x", "cita": "la arregla el fontanero el lunes"})) == 0
+    # respuesta con datos que el tramo no dice: se queda la cita literal
+    assert carpetas.responder_preguntas([(pq[0], [1])], Ix(), nuevo, llm({"n": 1, "respondida": "si", "respuesta": "La arregló el fontanero Pedro",
+                                                                            "cita": "ya arreglamos la puerta del garaje esta semana"})) == 1
+    s = registro.de(C, q["id"])["sugerencia"]
+    assert s["tipo"] == "respondida" and s["respuesta"] == "ya arreglamos la puerta del garaje esta semana" and (s["t"], s["mid"]) == (90, "cccc3333")
+    assert carpetas.preguntas_abiertas(C, ms(), "cccc3333", time.time()) == []  # ya tiene sugerencia
+    assert registro.de(C, q["id"])["estado"] != "hecho"  # nunca se cierra sola
+    r = t.post(f"/api/reg/{q['id']}/sugerencia", json={"c": C, "accion": "aceptar"})
+    assert r.status_code == 200, r.text
+    x = r.json()
+    assert x["estado"] == "hecho" and x["sugerencia"] is None and x["campos"]["respuesta"] == s["respuesta"] and x["campos"]["respuesta_de"]["mid"] == "cccc3333"
+    # Preguntar, lista del registro (sin LLM)
+    rq = preguntar_reg.pregunta(C, "¿Qué preguntas respondidas hay?", ms())
+    assert [i["respuesta"] for i in rq["items"]] == [s["respuesta"]]
+    assert preguntar_reg.pregunta(C, "¿Qué preguntas abiertas hay?", ms())["n"] == 0
+    # Preguntar, RAG de la carpeta: la pregunta con su respuesta es un tramo que enlaza al minuto donde se respondió
+    idx = app.indice("c:" + C)
+    i = next(i for i, g in enumerate(idx.segs) if g["kind"] == "registro" and "Respuesta:" in g["text"])
+    assert idx.names[idx.segs[i]["m"]] == next(m["label"] for m in app.meetings() if m["id"] == "cccc3333") and idx.segs[i]["s"] == 90
+    assert any(g["kind"] == "registro" and g["text"].startswith("Resumen de") for g in idx.segs)  # y el resumen de cada reunión
+    assert i in idx.search("¿quién arregla la puerta del garaje?")[0]
+    # editar el registro rehace el índice de la carpeta (y no acumula versiones)
+    registro.editar(q["id"], {"campos": {"respuesta": "Javier, en marzo"}})
+    idx2 = app.indice("c:" + C)
+    assert idx2 is not idx and any("Javier, en marzo" in g["text"] for g in idx2.segs) and sum(k.startswith("c:") for k in app._idx) == 1
+    # responder a mano (PATCH) también la cierra
+    b = registro.crear(C, "pregunta", titulo="¿Cuánto cuesta pintar el portal?", origen="manual", revision="aprobado")
+    x = t.patch(f"/api/reg/{b['id']}", json={"c": C, "cambios": {"campos": {"respuesta": "Unos 3000 euros"}}}).json()
+    assert x["estado"] == "hecho" and x["campos"]["respuesta"] == "Unos 3000 euros"
+    assert preguntar_reg.pregunta(C, "¿Qué preguntas respondidas hay?", ms())["titulo"] == "Preguntas (respondidas)"

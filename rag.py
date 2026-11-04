@@ -328,16 +328,16 @@ class Index:
         scr = [i for i in ranked if self.segs[i]["kind"] == "pantalla"][:MAX_SCREEN]
         # el texto de pantalla (OCR) es secundario: solo si se pregunta por lo que se ve o si ninguna voz se parece
         if SCREEN_Q.search(q0) or not self.voz or dense[self.voz].max() < MIN_COS:
-            out = [i for i in ranked if self.segs[i]["kind"] == "voz" or i in scr]
+            out = [i for i in ranked if self.segs[i]["kind"] != "pantalla" or i in scr]
         else:
-            out = [i for i in ranked if self.segs[i]["kind"] == "voz"]
+            out = [i for i in ranked if self.segs[i]["kind"] != "pantalla"]  # voz y registro del proyecto (Multi)
         return out[:k], float(dense.max())
 
     def cita(self, i, q):
         """Texto literal que se enseña si la frase no se verifica: el tramo de voz entero; de una pantalla, solo el
         pasaje (~25 palabras) donde está lo preguntado, no el volcado de OCR."""
         t = self.segs[i]["text"]
-        if self.segs[i]["kind"] == "voz":
+        if self.segs[i]["kind"] != "pantalla":  # voz y registro: enteros
             return t
         w, qs = t.split(), {stem(x) for x in P.words(q) if x not in STOP}
         c = next((k for k, x in enumerate(w) if qs & {stem(y) for y in P.words(x)}), 0)
@@ -355,14 +355,24 @@ class Multi(Index):
     """Varias reuniones (una carpeta) como un solo índice: mismo search/MMR sobre todos los tramos; cada tramo lleva su reunión (m)."""
     multi, topk = True, 12
 
-    def __init__(self, parts):  # parts: [(nombre, url del vídeo, Index)]
+    def __init__(self, parts, extra=()):  # parts: [(nombre, url del vídeo, Index)]; extra: tramos «registro» {s, text, m: reunión o None}
         ix = [p[2] for p in parts]
         self.names, self.vids = [p[0] for p in parts], [p[1] for p in parts]
         self.segs = [dict(s, m=m) for m, x in enumerate(ix) for s in x.segs]
         self.emb, self.threads = np.vstack([x.emb for x in ix]), ix[0].threads
         self.docs = [d for x in ix for d in x.docs]
-        self.df = Counter(w for d in self.docs for w in d)
         self.len = np.concatenate([x.len for x in ix])
+        if extra:  # lo generado (respuestas, decisiones, resúmenes…): sin reunión propia va a una ficticia sin vídeo
+            k, ex = len(self.names), [dict(s, e=s["s"], kind="registro") for s in extra]
+            self.names.append("Registro del proyecto")
+            self.vids.append(None)
+            ex = [dict(s, m=k if s.get("m") is None else s["m"]) for s in ex]
+            self.segs += ex
+            self.emb = np.vstack([self.emb, embed([s["text"] for s in ex], False, self.threads)])
+            dx = [Counter(terms(s["text"])) for s in ex]
+            self.docs += dx
+            self.len = np.concatenate([self.len, [float(sum(d.values())) for d in dx]])
+        self.df = Counter(w for d in self.docs for w in d)
         self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
         self.lang = next((x.lang for x in ix if not x.lang.startswith("es")), "es")  # ponytail: una reunión en otro idioma obliga a citar literal en todas
 
@@ -512,7 +522,7 @@ def prompt(idx, ids, q):
         b = [j for j in w if j > i]
         return " ‖ " + " ".join(([" ".join(idx.segs[a[0]]["text"].split()[-CTX_WORDS:])] if a else [])
                                + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else []))
-    rows = [f"[{n}] ({idx.names[idx.segs[i]['m']] + ', ' if idx.multi else ''}{P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ''}) "
+    rows = [f"[{n}] ({idx.names[idx.segs[i]['m']] + ', ' if idx.multi else ''}{P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ', registro del proyecto' if idx.segs[i]['kind'] == 'registro' else ''}) "
             f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
     nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if needs_ctx(q) else ""
     if WHY.search(q):
@@ -563,6 +573,9 @@ def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):
     yield timings
 
 
+DE = {"pantalla": "En pantalla se mostró que", "registro": "Según lo registrado en el proyecto,"}  # «Se dijo que» de lo que no es voz
+
+
 def answer(idx, q, url):
     """Eventos: ("candidatos", [i...]) al instante; luego ("frase", dict) por cada línea del LLM o ("nada", motivo);
     al final ("fin", tiempos). Una pregunta = una llamada sin historial."""
@@ -604,8 +617,8 @@ def answer(idx, q, url):
                 if idx.segs[i]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
                     continue  # un volcado de OCR nunca es la cita de una pregunta que no es sobre lo que se ve
                 seen.add(i)
-                if idx.segs[i]["kind"] == "pantalla":
-                    frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
+                if idx.segs[i]["kind"] in DE:
+                    frase = re.sub(r"^Se dijo que", DE[idx.segs[i]["kind"]], frase)
                 n_out += 1
                 yield "frase", {"i": i, "frase": frase, "ok": not miss, "faltan": miss, "cita": idx.cita(i, q)}
     if not n_out:
@@ -756,8 +769,8 @@ def answer_i(idx, q, url):
                     continue  # cifra que no está entera en lo citado: se descarta la frase
                 if idx.segs[refs[0]]["kind"] == "pantalla" and miss and not SCREEN_Q.search(q):
                     continue
-                if idx.segs[refs[0]]["kind"] == "pantalla" and ql == "es":
-                    frase = re.sub(r"^Se dijo que", "En pantalla se mostró que", frase)
+                if idx.segs[refs[0]]["kind"] in DE and ql == "es":
+                    frase = re.sub(r"^Se dijo que", DE[idx.segs[refs[0]]["kind"]], frase)
                 seen.add(refs[0])
                 dijo.update(refs)
             else:  # deducción / resumen: sin cifras inventadas

@@ -519,7 +519,7 @@ function evento(ev, cuerpo, frag, estado) {
   }
   else if (ev.k === "lista") {  // pregunta de lista sobre el registro del proyecto: entidades con código, responsable y citas al minuto
     cuerpo.insertBefore(el("div", {}, el("p", {}, el("b", {textContent: ev.titulo + " · " + ev.n})),
-      el("ul", {className: "f-lst"}, ...ev.items.map(p => el("li", {}, (p.codigo ? p.codigo + " · " : "") + p.texto + (p.resp ? " — " + p.resp : "") + (p.estado ? " · " + p.estado : "") + (p.sin_revisar ? " · sin revisar" : "") + " ", ...p.citas.flatMap(r => [fLink(r), " "])))),
+      el("ul", {className: "f-lst"}, ...ev.items.map(p => el("li", {}, (p.codigo ? p.codigo + " · " : "") + p.texto + (p.respuesta ? " → " + p.respuesta : "") + (p.resp ? " — " + p.resp : "") + (p.estado ? " · " + p.estado : "") + (p.sin_revisar ? " · sin revisar" : "") + " ", ...p.citas.flatMap(r => [fLink(r), " "])))),
       ...(ev.n > ev.items.length ? [el("small", {textContent: "Se muestran " + ev.items.length + " de " + ev.n})] : [])), estado);
   }
   else if (ev.k === "aviso") cuerpo.insertBefore(el("p", {}, el("small", {textContent: ev.text})), estado);
