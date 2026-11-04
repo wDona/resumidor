@@ -164,8 +164,10 @@ async function buscarIr(q) {
   $("bus-el").replaceChildren(...(els.length ? els.map(x => el("li", {className: "bus-i"}, el("div", {className: "row wrap"}, badgeT(TIPO_T[x.tipo] || x.tipo, "acc"), el("b", {textContent: (x.codigo ? x.codigo + " · " : "") + x.texto})),
     el("small", {}, [x.estado, x.c].filter(Boolean).join(" · ") + " · ", el("a", {href: "#", textContent: "Abrir en el proyecto", onclick: ev => { ev.preventDefault(); irElemento(x.c, x.tipo, x.id); }})))) : [el("li", {className: "muted", textContent: "Sin elementos."})]));
   // Respuesta: el mismo panel de Preguntar, en el proyecto o documento del alcance (o en el del mejor fragmento)
-  const docs = d ? [] : carpetas, s = el("select", {ariaLabel: "Preguntar en"}, ...(d ? [new Option("Este documento", "d")] : []), ...docs.map(x => new Option(x, "c:" + x)), ...(!d && todas.some(m => !m.carpeta) ? [new Option(sinC(), "c:")] : []));
-  s.value = d ? "d" : "c:" + (c || fr[0]?.c || carpetas[0] || "");
+  const cs = carpetas.length ? carpetas : await api("/api/carpetas").catch(() => []);  // carga directa de #/buscar/…: la lista del arranque aún puede no haber llegado y sin proyectos no habría «Preguntar a … →» (R4-12)
+  if (BQ.q !== q) return;
+  const docs = d ? [] : cs, s = el("select", {ariaLabel: "Preguntar en"}, ...(d ? [new Option("Este documento", "d")] : []), ...docs.map(x => new Option(x, "c:" + x)), ...(!d && todas.some(m => !m.carpeta) ? [new Option(sinC(), "c:")] : []));
+  s.value = d ? "d" : "c:" + (c || fr[0]?.c || cs[0] || "");
   const preguntar = () => { if (s.value === "d") { const a = cur.actas.find(x => x.name === ver) || cur.actas[0]; setQ(cur.id + "|" + (a?.asr || cur.asr)); } else setQ(s.value); $("pregunta").value = q; $("qform").requestSubmit(); };
   // sin respuesta todavía: una línea «Preguntar a <proyecto> →» (+ dónde, si hay varios); el título «Respuesta» sale con la respuesta
   const ask = el("button", {type: "button", className: "sec bus-ask", onclick: () => { $("qpanel").hidden = false; $("bus-resp").classList.remove("sin-r"); preguntar(); }});
@@ -262,7 +264,7 @@ async function docFuente() {
         el("button", {type: "button", className: "pri sm", textContent: "Guardar descripciones", onclick: fallo(async () => { await post("/api/imagen/" + id, {descripcion: du.value, descripcion_ia: dia.value}); aviso("Guardado: ya se puede buscar"); })}))),
       ...(f.ocr_texto ? [el("details", {open: false}, el("summary", {textContent: "Texto reconocido (OCR)"}), el("pre", {className: "fu-ocr", textContent: f.ocr_texto}))] : []));
   }
-  if (f.partes?.length) nodos.push(el("details", {open: !media && f.kind !== "imagen"}, el("summary", {textContent: (media ? "Transcripción · " : "Texto · ") + f.partes.length + (media ? " tramos" : " partes")}), el("div", {className: "fu-p"}, ...f.partes.map(sec))));
+  if (f.partes?.length) nodos.push(el("details", {open: !media && f.kind !== "imagen"}, el("summary", {textContent: (media ? "Transcripción · " : "Texto · ") + f.partes.length + (media ? (f.partes.length === 1 ? " tramo" : " tramos") : (f.partes.length === 1 ? " parte" : " partes"))}), el("div", {className: "fu-p"}, ...f.partes.map(sec))));
   w.replaceChildren(...nodos);
   const t = $("fu-dia"); if (t) requestAnimationFrame(() => { w.querySelector(".fu-ver").hidden = t.scrollHeight <= t.clientHeight + 2; });
 }
@@ -403,10 +405,11 @@ addEventListener("paste", e => {
 });
 
 // ---------- Inicio: tira del flujo, Continúa, Por revisar ----------
-const INI = {p: null, t: 0};
+const INI = {p: null, t: 0, k: ""};
 function iniDatos() {
-  if (INI.p && Date.now() - INI.t < 30000) return INI.p;
-  INI.t = Date.now();
+  const k = carpetas.slice(0, 12).join("|");  // la clave lleva los proyectos: la lista vacía del arranque no se queda cacheada 30 s como «sin registro» (P2-9)
+  if (INI.p && INI.k === k && Date.now() - INI.t < 30000) return INI.p;
+  INI.t = Date.now(); INI.k = k;
   return INI.p = Promise.all([Promise.all(carpetas.slice(0, 12).map(c => api("/api/reg?" + new URLSearchParams({c})).then(r => ({c, r})).catch(() => null))),
     api("/api/envios?limit=200").catch(() => [])]).then(([regs, env]) => ({regs: regs.filter(Boolean), env}));
 }
@@ -448,22 +451,22 @@ function pintarInicio() {
   sugerencias(listo ? [{k: "doc:" + listo.mid, t: "Documento listo: " + nombreDe(listo), s: "Revísalo antes de enviarlo", b: "Abrir", f: fallo(() => abrir(listo.mid))}] : [], true);
   iniDatos().then(({regs, env}) => {
     if (vistaAct !== "home" || fsel !== undefined) return;
-    const rev = regs.flatMap(({c, r}) => r.items.filter(x => x.revision === "propuesto").map(x => ({...x, c}))), apr = regs.reduce((s, {r}) => s + (r.contadores?.por_revision?.aprobado || 0), 0);
+    const rev = regs.flatMap(({c, r}) => r.items.filter(x => x.revision === "propuesto").map(x => ({...x, c}))), cont = k => regs.reduce((s, {r}) => s + (r.contadores?.por_revision?.[k] || 0), 0), nRev = cont("propuesto"), apr = cont("aprobado");  // los números son los contadores del backend (los mismos que el proyecto); las filas, los ítems
     const hoy = env.filter(e => e.estado === "ok" && e.t * 1000 >= new Date().setHours(0, 0, 0, 0)), u = hoy[0];
-    pinta(rev.length + Object.values(RES).reduce((s, x) => s + (x?.sug || 0), 0), apr, hoy.length, u ? "Última: " + (u.destino || "") + " · " + new Date(u.t * 1000).toLocaleTimeString("es", {hour: "2-digit", minute: "2-digit"}) : "");
+    pinta(nRev + Object.values(RES).reduce((s, x) => s + (x?.sug || 0), 0), apr, hoy.length, u ? "Última: " + (u.destino || "") + " · " + new Date(u.t * 1000).toLocaleTimeString("es", {hour: "2-digit", minute: "2-digit"}) : "");
     const porDoc = {}; rev.forEach(x => new Set((x.citas || []).map(ci => ci.mid)).forEach(id => { porDoc[id] = (porDoc[id] || 0) + 1; }));  // propuestas del registro por documento (RES.sug solo cuenta pendientes)
     $("h-cont-l").querySelectorAll(".h-ci[data-mid]").forEach(f => { const n = porDoc[f.dataset.mid]; if (n && !f.querySelector(".st")) f.append(stT(n + " por revisar", "w")); });
     $("rev-reg").replaceChildren(...rev.slice(0, 6).map(x => { const ci = x.citas?.[0], d = ci && todas.find(m => m.id === ci.mid);
       return el("div", {className: "rv-i"}, badgeT(TIPO_T[x.tipo] || x.tipo, "acc"), el("span", {className: "n", textContent: x.titulo}),
         el("small", {textContent: [x.c, d && d.label + (ci.t != null ? " · " + mmss(ci.t) : "")].filter(Boolean).join(" · ")}),
         el("button", {type: "button", className: "sec sm", textContent: "Revisar", onclick: () => { fsel = x.c; vista("home"); fIr("revision", {ids: [x.id]}); }})); }));
-    $("rev-acc").replaceChildren(...(rev.length ? [el("button", {type: "button", className: "sec sm", textContent: "Aprobar todo (" + rev.length + ")", onclick: fallo(async () => {
+    $("rev-acc").replaceChildren(...(nRev ? [el("button", {type: "button", className: "sec sm", textContent: "Aprobar todo (" + nRev + ")", onclick: fallo(async () => {
       const cs = [...new Set(rev.map(x => x.c))];
       for (const c of cs) await post("/api/reg/revisar", {c, ids: rev.filter(x => x.c === c).map(x => x.id), accion: "aprobar"});
       INI.p = null; aviso(rev.length + " aprobados", {txt: "Deshacer", fn: fallo(async () => { for (const c of cs) await post("/api/reg/deshacer", {c}); INI.p = null; pintarHome(); })}); pintarHome();
     })})] : []));
-    if (rev.length) $("rev").hidden = false;
-    const n = rev.length + Object.values(RES).reduce((s, x) => s + (x?.sug || 0), 0), c0 = rev[0]?.c ?? Object.keys(RES).find(c => RES[c]?.sug);
+    if (nRev) $("rev").hidden = false;
+    const n = nRev + Object.values(RES).reduce((s, x) => s + (x?.sug || 0), 0), c0 = rev[0]?.c ?? Object.keys(RES).find(c => RES[c]?.sug);
     sugerencias([...(n && c0 != null ? [{k: "rev:" + n, t: n + " por revisar", s: "Propuestos por la IA, sin aprobar", b: "Revisar", w: 1, f: () => { fsel = c0; vista("home"); fIr("revision"); }}] : []),
       ...(apr ? [{k: "env:" + apr, t: apr + (apr === 1 ? " elemento listo" : " elementos listos") + " para enviar", s: "Aprobados y sin enviar", b: "Enviar", f: () => { location.hash = "#/enviar"; }}] : []),
       ...(listo ? [{k: "doc:" + listo.mid, t: "Documento listo: " + nombreDe(listo), s: "Revísalo antes de enviarlo", b: "Abrir", f: fallo(() => abrir(listo.mid))}] : [])]);
@@ -534,6 +537,7 @@ function pintarBibL() {
       el("td", {textContent: KIND_T[m.kind] || m.kind || ""}), el("td", {textContent: m.carpeta || ""}), el("td", {textContent: fechaC(m.mtime)}), el("td", {}, ...(bibEst(m) === "listo" ? [] : [badgeT(...ESTT[bibEst(m)])])));  // «Listo» es lo normal: solo se marca lo que no lo está
     return tr;
   })); escalona($("bib-tb"));
+  $("bib-tb").closest(".bib-l").classList.toggle("sin-est", !vis.some(m => bibEst(m) !== "listo"));  // sin columna ESTADO cuando ninguna fila tiene estado (N3)
   $("bib-v").hidden = !!vis.length; $("v-bib").classList.toggle("sin-docs", !ms.length);
   $("bib-v").replaceChildren(...(ms.length ? [el("p", {textContent: "Nada coincide con los filtros."}), el("button", {type: "button", className: "sec sm", textContent: "Quitar filtros", onclick: () => bibVista({})})]
     : [el("span", {className: "vi", "aria-hidden": "true"}, "▤"), el("b", {textContent: "Tu biblioteca está vacía"}), el("p", {className: "muted", textContent: "Suelta archivos en cualquier parte de la ventana, pega un enlace o una captura."}),
@@ -788,6 +792,8 @@ function paleta() {
       return el("li", {role: "option", id: "pal-" + n, className: c.mas ? "pal-mas" : "", "aria-selected": n === sel, onclick: () => run(c), onmousemove: () => { if (sel !== n) { sel = n; pint(); } }},
         c.mas ? el("span", {className: "ri", "aria-hidden": "true"}) : ico(palIco(c)), el("span", {className: "pal-t", textContent: c.t}), ...(SC[c.t] ? [el("kbd", {className: "kbd", textContent: SC[c.t]})] : [])); }));
     if (!vis.length) ul.replaceChildren(el("li", {className: "muted pal-0", role: "presentation", textContent: "Nada coincide. Prueba con otra palabra."}));
+    ul.style.maxHeight = "";  // la lista acaba en el borde de una fila (+14 px de fundido): nunca una fila a medias bajo la barra de atajos
+    if (ul.scrollHeight > ul.clientHeight) { const y = li => li.offsetTop - ul.offsetTop + li.offsetHeight, f = [...ul.children].filter(li => y(li) <= ul.clientHeight - 14 && !li.matches(".pal-h")).pop(); if (f) ul.style.maxHeight = y(f) + 14 + "px"; }  // offset* y no getBoundingClientRect (la animación de entrada del diálogo lo escala); sin cabecera de grupo huérfana al final
     q.setAttribute("aria-activedescendant", vis.length ? "pal-" + sel : ""); if (sc) $("pal-" + sel)?.scrollIntoView({block: "nearest"});
   };
   q.oninput = () => { sel = 0; pint(true); };

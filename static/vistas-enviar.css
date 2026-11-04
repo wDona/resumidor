@@ -17,7 +17,7 @@
 .env-hist{display:flex;flex-direction:column;gap:var(--s1)}
 .env-link{font-size:var(--fs-s,13px);word-break:break-all}
 .env-chk{display:flex;align-items:center;gap:var(--s2);font-weight:500;margin:0;cursor:pointer}
-.env-dlg{max-width:min(640px,94vw);max-height:90vh;overflow:auto}
+.env-dlg{max-width:min(640px,94vw);max-height:90vh;max-height:90dvh;overflow:hidden}  /* R5-N2: el scroll lo lleva el cuerpo (ver abajo), no la caja */
 .env-acc{display:flex;justify-content:flex-end;gap:var(--s2)}
 .env-form{display:flex;flex-direction:column;gap:var(--s3)}
 .env-campo>small{display:block}
@@ -89,11 +89,11 @@
 .pchip.on{background:var(--acc-s);border-color:var(--acc)}
 .pchip.ult:not(.on){border-style:dashed}
 .pchip-b,.pchip-m{background:none;border:0;color:var(--ink);font:inherit;cursor:pointer;min-height:calc(var(--h-m,36px) - 2px);border-radius:var(--r-pill,999px);display:inline-flex;align-items:center;gap:var(--s2)}
-.pchip-b{padding:0 var(--s3)}.pchip.on .pchip-b{color:var(--acc-d);font-weight:600}
-.pchip-i{font-size:var(--fs-xs,12px);color:var(--mut)}.pchip.on .pchip-i{color:var(--acc-d)}
+.pchip:has(.pchip-b){padding:0;gap:0;justify-content:flex-start}  /* R5-N4: anula el padding 10/2 del .pchip de app.css (chip «Procesado») */
+.pchip-b{padding:0 28px;min-width:0}  /* min-width:0: un nombre largo se recorta con «…» en vez de desbordar el diálogo */.pchip.on .pchip-b{color:var(--acc-d);font-weight:600}
+.pchip-i{position:absolute;left:0;top:0;width:28px;height:100%;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:var(--fs-xs,12px);color:var(--mut)}.pchip.on .pchip-i{color:var(--acc-d)}
 .pchip-s{color:var(--acc)}
-/* R5: ⋯ superpuesto en un hueco reservado a la derecha; pasar el ratón, enfocar o marcar nunca cambia el ancho del chip */
-.pchip:has(.pchip-m) .pchip-b{padding-right:28px}
+/* R5: ✦/◆ (izq.) y ⋯ (der.) superpuestos en dos huecos iguales de 28 px = padding simétrico: el texto queda centrado y pasar el ratón, enfocar o marcar nunca cambia el ancho del chip */
 .pchip-m{position:absolute;top:0;right:0;width:28px;height:100%;min-height:0;padding:0;justify-content:center;opacity:0;pointer-events:none;color:var(--mut)}
 .pchip:hover .pchip-m,.pchip.on .pchip-m,.pchip:has(:focus-visible) .pchip-m{opacity:1;pointer-events:auto}
 .pchip-m:hover{background:var(--acc-s2,var(--acc-s));color:var(--ink)}
@@ -184,10 +184,14 @@
 /* R4 */
 .env-mas{position:relative;display:inline-flex}
 .env-mas>.btn{border-radius:var(--r-pill,999px);min-height:var(--h-m,36px)}
-.pchip:not(.on):not(:hover):not(:has(:focus-visible)) .pchip-i{opacity:0}  /* R5: el hueco del icono se reserva (opacity, no display) */
+.pchip:not(.on):not(:hover):not(:has(:focus-visible)) .pchip-i{opacity:0}  /* R5: el icono no ocupa flujo (opacity, no display) */
 .desc-nota{display:none}
 .desc-cols{margin-bottom:0}.desc-dlg fieldset{margin-bottom:var(--s2)}.desc-opc{margin-top:0}
-.env-dlg .env-acc{position:sticky;bottom:0;background:var(--surf-2,var(--card));padding-top:var(--s3);margin-top:var(--s3)}
+.env-dlg .env-acc{background:var(--surf-2,var(--card));padding-top:var(--s3);margin-top:var(--s3)}
+/* R5-N2: diálogo en columna: cabecera y pie fijos, el cuerpo (2.º hijo) hace scroll dentro; nada se pinta fuera de la caja. padding/margen de 4 px dejan sitio al aro de foco */
+.env-dlg[open]{display:flex;flex-direction:column}
+.env-dlg>.env-dh,.env-dlg>.desc-msg,.env-dlg>.env-acc{flex:none}
+.env-dlg>:not(.env-dh):not(.desc-msg):not(.env-acc){flex:1 1 auto;min-height:0;overflow:auto;padding:var(--s1);margin:calc(var(--s1)*-1)}
 @media(max-width:700px){.env-dlg .env-acc{box-shadow:0 -8px 12px -8px color-mix(in srgb,var(--ink) 25%,transparent)}.env-dlg .env-acc .btn.pri{flex:1;min-height:var(--h-l,44px)}}
 .env-ic{display:inline-flex;flex:none;color:var(--acc);margin-right:var(--s2)}  /* SVG de 24 px, no emoji */
 .env-estado{font-size:var(--fs-xs,12px);color:var(--mut)}

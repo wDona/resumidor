@@ -52,7 +52,7 @@ async function abrir({docs, c, ids} = {}) {
         aviso("Preset eliminado", {txt: "Deshacer", fn: () => { propios = [...propios, x]; localStorage.setItem(PK, JSON.stringify(propios)); pintar(); }}); }]]) : undefined});
     return T("div", "env-chips desc-pre", ...[...SERIE.map(p => chip(p)), ...propios.map(p => chip(p, true))]);
   };
-  const cuerpo = T("div", "desc-body"), msg = T("div", "desc-msg"); msg.setAttribute("role", "status");
+  const movil = matchMedia("(max-width:560px)"), cuerpo = T("div", "desc-body"), msg = T("div", "desc-msg"); msg.setAttribute("role", "status");
   const go = el("button", {type: "button", className: "btn pri", onclick: bajar});
   const pintar = () => {
     const fm = op.formatos, basicos = Object.keys(BASICOS).filter(f => fm.includes(f)), mas = fm.filter(f => !BASICOS[f]);
@@ -62,13 +62,13 @@ async function abrir({docs, c, ids} = {}) {
         textContent: BASICOS[f] || f, onclick: () => { if (!v) return; st.fmt.has(f) ? st.fmt.delete(f) : st.fmt.add(f); st.sel = null; pintar(); }});
     };
     const mov = flash; flash = false;
+    const fQue = T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
+      ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); ajustaFmt(); st.sel = null; pintar(); }}), " " + (QL[q] || q))));
+    const fFmt = T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-seg env-fmt", ...basicos.map(chip), ...(st.mas ? mas.map(chip) : [])),
+      ...(basicos.some(f => !valido(f)) ? [T("small", "muted desc-nota", "Los formatos en gris no están disponibles para lo elegido.")] : []));
     cuerpo.replaceChildren(
       T("div", "desc-p", T("div", "desc-l", "Preajustes"), filaPre()),
-      T("div", "desc-cols",
-        T("fieldset", "desc-q", T("legend", "", "Qué descargar"),
-          ...lq.map(q => T("label", "env-chk", el("input", {type: "checkbox", checked: st.que.has(q), onchange: e => { e.target.checked ? st.que.add(q) : st.que.delete(q); ajustaFmt(); st.sel = null; pintar(); }}), " " + (QL[q] || q)))),
-        T("fieldset", "desc-f", T("legend", "", "Formato"), T("div", "env-seg env-fmt", ...basicos.map(chip), ...(st.mas ? mas.map(chip) : [])),
-          ...(basicos.some(f => !valido(f)) ? [T("small", "muted desc-nota", "Los formatos en gris no están disponibles para lo elegido.")] : []))),
+      T("div", "desc-cols", ...(movil.matches ? [fFmt, fQue] : [fQue, fFmt])),  // una columna: Formato (corto) antes de la lista larga; el orden del DOM = el visual
       el("details", {className: "env-pers desc-opc", open: st.opc || st.mas || st.apr, ontoggle: e => st.opc = e.target.open}, el("summary", {}, "Opciones"),
         T("div", "env-opc", ...(mas.length ? [el("button", {type: "button", className: "btn sec env-sm", "aria-expanded": st.mas, textContent: st.mas ? "Menos formatos" : "Más formatos", onclick: () => { st.mas = !st.mas; pintar(); }})] : []),
           T("label", "env-chk", el("input", {type: "checkbox", checked: st.apr, onchange: e => st.apr = e.target.checked}), " Solo aprobados"),
@@ -98,8 +98,8 @@ async function abrir({docs, c, ids} = {}) {
     go.disabled = false;
   }
   d.append(Enviar.cabecera("Descargar", salir), cuerpo, msg, T("div", "row env-acc", el("button", {type: "button", className: "btn sec", textContent: "Cerrar", onclick: salir}), go));  // cabecera común (título + «×») y secundario · primario, como Añadir
-  d.addEventListener("close", () => d.remove());
-  document.body.append(d); pintar(); d.showModal(); go.focus();
+  d.addEventListener("close", () => { movil.onchange = null; d.remove(); });
+  movil.onchange = () => pintar(); document.body.append(d); pintar(); d.showModal(); go.focus();
 }
 window.Descargar = {abrir};
 })();

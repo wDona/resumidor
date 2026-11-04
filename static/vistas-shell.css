@@ -113,7 +113,7 @@ details.fpop>summary::after{content:"▾";font-size:var(--fs-xs,12px);color:var(
 .bus-g.uno{grid-template-columns:minmax(0,1fr)}
 .bus-s mark{background:color-mix(in srgb,var(--wb) 55%,transparent);color:inherit;box-shadow:none}
 .bus-i{border-radius:var(--r-m,12px)}
-@media(max-width:700px){.bus-chips .fdiv{display:none}.bus-chips{flex-direction:column;align-items:stretch}}
+@media(max-width:700px){.bus-chips .fdiv{display:none}}  /* sin separador los dos grupos de chips fluyen en la misma fila si caben (N7) */
 
 /* ---- paleta ---- */
 .pal-h{padding:10px 16px 4px;font-size:var(--fs-xs,12px);font-weight:var(--fw-semi,600);color:var(--ink2);text-transform:uppercase;letter-spacing:.05em;list-style:none}
@@ -214,7 +214,7 @@ body.tactil .hd-acc{display:none}body.tactil #h-drop{cursor:pointer}
    lista con fundido abajo (se ve que hay más, sin fila cortada a secas), «Ver más» discreto, atajos a la derecha */
 #pal-q{border:0;border-bottom:1px solid var(--line);border-radius:0;min-height:56px;padding:0 18px;font-size:var(--fs-l);background:transparent}
 #pal-q:focus-visible{outline:0;border-bottom-color:var(--acc);box-shadow:0 1px 0 var(--acc)}
-#pal-l{padding-bottom:14px;scroll-padding-block:6px;-webkit-mask-image:linear-gradient(#000 calc(100% - 14px),transparent);mask-image:linear-gradient(#000 calc(100% - 14px),transparent)}
+#pal-l{box-sizing:border-box;padding-bottom:14px;scroll-padding-block:6px 14px;-webkit-mask-image:linear-gradient(#000 calc(100% - 14px),transparent);mask-image:linear-gradient(#000 calc(100% - 14px),transparent)}
 #pal-l li[role=option]{align-items:center}#pal-l .kbd{margin-left:auto;flex:none}#pal-l .pal-mas{min-height:var(--h-m);color:var(--acc-t,var(--acc));font-size:var(--fs-s)}
 #pal-l li[aria-selected=true] .ri{color:var(--acc-d)}.pal-n .kbd{font-size:var(--fs-xs)}
 /* Pendientes en el móvil: una fila meta «Proyecto · Responsable · Plazo» a la izquierda */
@@ -239,3 +239,8 @@ body.sin-cromo .shell{grid-template-columns:minmax(0,1fr)}
 #pend-l .pend-t thead th:first-child{font-size:0}
 /* táctil o pantalla estrecha: sin pistas de teclado en la paleta */
 @media(pointer:coarse),(max-width:560px){#pal-l .kbd,.pal-n,.reg-atajos{display:none}}
+/* Ronda 6 (R4-7, N3) */
+/* paleta: la barra de atajos queda fuera del scroll, con filo; shell.js recorta la lista en el borde de una fila (nunca una fila a medias bajo la barra) */
+.pal-n{border-top:1px solid var(--line2,var(--line))}
+/* Biblioteca: sin columna ESTADO cuando ninguna fila tiene estado (shell.js pone .sin-est) */
+.bib-l.sin-est :is(th,td):nth-child(6){display:none}

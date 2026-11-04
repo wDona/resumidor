@@ -230,10 +230,11 @@ function registroTabla(host, o) {
       el("td", {"data-l": "Origen"}, origen(it)), el("td", {className: "reg-ins"}, ...regInsignias(it)),
       el("td", {className: "reg-ops"},
         ...(it.revision === "descartado" ? [el("button", {className: "sec sm", textContent: "Restaurar", onclick: () => revisar([it.id], "restaurar")})] : []),
-        ...(it.revision === "propuesto" ? [el("button", {className: "sec sm", textContent: "Aprobar", onclick: () => revisar([it.id], "aprobar")}), el("button", {className: "gh sm", textContent: "Descartar", ariaLabel: "Descartar " + (it.codigo || it.titulo), onclick: () => revisar([it.id], "descartar")})] : []),
+        ...(it.revision === "propuesto" ? [el("button", {className: "sec sm", textContent: "Aprobar", onclick: () => revisar([it.id], "aprobar")})] : []),
         ...regBotonSeparar(it, c, trasRevisar),
         el("button", {className: "link", textContent: "Historial", onclick: () => historial(it)}),
-        ...(it.origen === "manual" ? [el("button", {className: "link", textContent: "Quitar", onclick: async () => { try { await api("/api/reg/" + encodeURIComponent(it.id) + "?c=" + encodeURIComponent(c), {method: "DELETE"}); await trasRevisar(); } catch (e) { regAviso(e); } }})] : [])));
+        ...(it.origen === "manual" ? [el("button", {className: "link", textContent: "Quitar", onclick: async () => { try { await api("/api/reg/" + encodeURIComponent(it.id) + "?c=" + encodeURIComponent(c), {method: "DELETE"}); await trasRevisar(); } catch (e) { regAviso(e); } }})] : []),
+        ...(it.revision === "propuesto" ? [el("button", {className: "gh sm", textContent: "Descartar", ariaLabel: "Descartar " + (it.codigo || it.titulo), onclick: () => revisar([it.id], "descartar")})] : [])));  // al final: oculto (opacity 0 sin hover) no deja un hueco entre «Aprobar» e «Historial»
     tr.onfocus = () => { S.foco = i; };
     const out = [tr];
     if (S.abiertas.has(it.id)) out.push(el("tr", {className: "reg-cita"}, el("td", {colSpan: cols.length + 4}, ...(it.citas || []).map(ci => el("blockquote", {}, "«" + (ci.texto || "") + "» ", ci.mid ? fLink({mid: ci.mid, ver: ci.ver, t: ci.t}, "[" + mmss(ci.t || 0) + "]") : "", ci.verificada === false ? el("span", {className: "badge w", textContent: "cita sin verificar"}) : "")))));

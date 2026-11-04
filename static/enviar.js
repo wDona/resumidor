@@ -412,7 +412,7 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     if (extra && !vis.includes(extra)) vis.splice(2, 1, extra);  // 3 chips máx.: el elegido/último ocupa el 3.º hueco
     const mas = orden.filter(o => !vis.includes(o));
     const ch = o => chip({nombre: o.nombre, fijado: fijado(o), serie: o.serie, activo: pre.sel === o.id, ultimo: o.id === ult, titulo: resumen(o.plan, ctx), onSelect: () => aplicar(o), onMenu: a => menu(a, items(o))});
-    const sum = pre.sel ? resumen(planActual(), ctx) : "";
+    const sum = pre.sel && !raiz.closest("dialog")?.querySelector("#an-res") ? resumen(planActual(), ctx) : "";  // en Añadir el pie (#an-res) ya dice lo mismo: un solo resumen
     return T("div", "env-pres", T("div", "env-chips", ...esc(vis.map(ch)),
       T("span", "env-mas", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, [...mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)]),
         ["Guardar lo actual como preset…", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla}))]]), {"aria-haspopup": "menu"}))),

@@ -376,7 +376,8 @@ function pintarHome() {
   $("lista").replaceChildren(...nuevas.map(e => el("tr", {}, el("td", {textContent: e.video}), el("td", {hidden: enP}), el("td"), el("td", {}, el("span", {className: "badge acc", textContent: est(e)})))), ...ms.map(fila));
   $("vacio").hidden = !!(ms.length || nuevas.length); $("tabla").firstChild.hidden = !$("vacio").hidden;
   $("vacio").textContent = "Aún no hay " + pl(nm("documento")) + (fsel ? " en «" + fsel + "»" : "") + ".";
-  document.querySelectorAll("#tabla th")[1].hidden = enP;
+  const ths = document.querySelectorAll("#tabla th"); ths[1].hidden = enP;
+  ths[3].replaceChildren(nuevas.length || ms.some(m => m.actas > 1 || act.some(e => e.mid === m.id)) ? "Estado" : el("span", {className: "sr", textContent: "Acciones"}));  // sin estado en ninguna fila, la columna solo lleva «Mover»: cabecera solo para lectores de pantalla
   if (ini) $("docs-w").hidden = true;  // Inicio: «Continúa» en vez de la tabla (shell.js)
   if (typeof rutaSync === "function") { if (ini) pintarInicio(); if (vistaAct === "home") rutaSync(); }
 }
@@ -639,8 +640,10 @@ function citasCortas(d) {
 // getBoundingClientRect: la animación de entrada de la vista aplica transform y falsearía la medida. En móvil (≤700 px) manda el CSS (70vh).
 function docAlto() {
   const f = $("acta-frame"); if (!f.offsetParent) return;
-  let top = 0; for (let n = f; n; n = n.offsetParent) top += n.offsetTop;
-  f.style.height = matchMedia("(max-width:700px)").matches ? "" : Math.max(0, innerHeight - top - 16) + "px";
+  if (matchMedia("(max-width:700px)").matches) { f.style.height = ""; return; }
+  const pos = n => { let t = 0; for (; n; n = n.offsetParent) t += n.offsetTop; return t; }, pg = f.closest(".page");
+  const debajo = pg ? pos(pg) + pg.offsetHeight - pos(f) - f.offsetHeight : 16;  // lo que queda bajo el iframe (relleno de la página), medido: no se supone
+  f.style.height = Math.max(0, innerHeight - pos(f) - debajo) + "px";  // ponytail: por debajo de ≈820 px de alto manda min-height (app.css) y vuelven las dos barras
 }
 addEventListener("resize", docAlto); new ResizeObserver(() => requestAnimationFrame(docAlto)).observe(document.body);  // lo que hay encima crece o se encoge (aviso de dudosos, versiones…); en el siguiente cuadro para no encadenar avisos del observador
 // el documento (iframe, mismo origen): su propio reproductor se oculta y sus marcas [mm:ss] mueven el de la app
