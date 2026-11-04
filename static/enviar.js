@@ -397,6 +397,49 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     const d = dialogo(titulo, T("div", "env-form", T("div", "env-campo", el("label", {htmlFor: "env-on"}, "Nombre"), n), m), [ok]);
     n.focus(); n.select();
   };
+  // «Otro…»: cualquier tipo (plantilla), no solo los de los chips; con columnas propias o algo más que sacar se guarda como plantilla a medida
+  const otro = async () => {
+    const pl = (await api("/api/plantillas")).plantillas, m = T("p", "env-msg", ""), caja = T("div", "env-checklist"), nom = el("input", {id: "env-otn"});
+    const slug = s => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 30);
+    const lista = v => v.split(",").map(slug).filter(Boolean);
+    const tp = el("select", {id: "env-ot", onchange: () => cargar()}, ...pl.map(t => new Option(t.nombre, t.id)));
+    tp.value = [plan.plantilla, $("plantilla")?.value].find(i => pl.some(t => t.id === i)) || "acta";
+    let base, secs, nuevas;
+    const inp = (s, k, ph, conv = x => x) => el("input", {value: Array.isArray(s[k]) ? s[k].map(c => c.replace(/_/g, " ")).join(", ") : s[k], placeholder: ph, "aria-label": ph, oninput: e => { s[k] = conv(e.target.value); }});
+    const filas = () => caja.replaceChildren(
+      ...secs.map(s => T("div", "env-cl-fila", T("span", "env-cl-q", s.nombre), ["tareas", "decisiones"].includes(s.id)
+        ? T("small", "muted", s.id === "tareas" ? "Columnas fijas: responsable y plazo" : "Sin columnas") : inp(s, "campos", "Columnas: responsable, fecha…", lista), T("span", "", ""))),
+      ...nuevas.map(s => T("div", "env-cl-fila", inp(s, "nombre", "Qué sacar (p. ej. Incidencias)"), inp(s, "campos", "Columnas: ubicación, gravedad…", lista), inp(s, "descripcion", "Qué es, para el modelo (opcional)"))),
+      T("div", "env-row", btn("+ Otra cosa que sacar", "sec env-sm", () => { nuevas.push({nombre: "", campos: [], descripcion: ""}); filas(); [...caja.querySelectorAll(".env-cl-fila")].at(-1).querySelector("input").focus(); })));
+    const cargar = () => {
+      base = pl.find(t => t.id === tp.value); secs = base.secciones.map(s => ({...s, campos: [...s.campos]})); nuevas = [];
+      nom.value = base.serie ? base.nombre + " (a medida)" : base.nombre; filas();
+    };
+    cargar();
+    const ok = btn("Usar", "pri", async () => {
+      try {
+        let id = base.id, n = base.nombre;
+        const add = nuevas.filter(s => s.nombre.trim());
+        if (add.length || JSON.stringify(secs.map(s => s.campos)) !== JSON.stringify(base.secciones.map(s => s.campos))) {
+          const usados = new Set(["tema", "puntos", "relato", "resumen", "desarrollo", "detalle", "transcripcion", "tareas", "decisiones", ...secs.map(s => s.id)]), orden = [...base.orden];
+          for (const s of add) {
+            let sid = slug(s.nombre) || "seccion", i = 1;
+            while (usados.has(sid)) sid = (slug(s.nombre) || "seccion").slice(0, 27) + "_" + ++i;
+            usados.add(sid); orden.splice(orden.includes("desarrollo") ? orden.indexOf("desarrollo") : orden.length, 0, sid);
+            secs.push({id: sid, nombre: s.nombre.trim(), campos: s.campos, descripcion: s.descripcion.trim() || `todo lo que se diga sobre «${s.nombre.trim()}».`, nunca_recortar: false});
+          }
+          // de serie: copia nueva; propia: se actualiza
+          const t = await send("POST", "/api/plantillas", {plantilla: {...base, id: base.serie ? "" : base.id, nombre: nom.value.trim() || base.nombre, base: base.serie ? base.id : base.base, secciones: secs, orden}});
+          id = t.id; n = t.nombre; if (typeof cargarPlant === "function") await cargarPlant();
+        }
+        plan.plantilla = id; delete plan.solo_buscable; pre.sel = null; pre.abierto = true;
+        salir(d); emitir(); pintar(); toast("Tipo: " + n);
+      } catch (e) { secs = secs.slice(0, base.secciones.length); m.textContent = e.message; m.className = "env-msg err"; }
+    });
+    const d = dialogo("Otro tipo", T("div", "env-form", T("div", "env-campo", el("label", {htmlFor: "env-ot"}, "Tipo"), tp),
+      T("small", "muted", "Qué se saca y en qué columnas. Si cambias algo, se guarda como un tipo nuevo que luego puedes volver a elegir."), caja,
+      T("div", "env-campo", el("label", {htmlFor: "env-otn"}, "Nombre si cambias algo"), nom), m), [ok]);
+  };
   const planDe = o => ({...o.plan, salidas: o.plan.salidas.map(({configurar, ...r}) => r)});
   const items = o => {
     const dup = () => nombrar("Duplicar para editar", o.nombre + " (copia)", n => send("POST", "/api/objetivos", {nombre: n, plan: planDe(o), plantilla: o.plantilla}));
@@ -414,7 +457,7 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     const ch = o => chip({nombre: o.nombre, fijado: fijado(o), serie: o.serie, activo: pre.sel === o.id, ultimo: o.id === ult, titulo: resumen(o.plan, ctx), onSelect: () => aplicar(o), onMenu: a => menu(a, items(o))});
     const sum = pre.sel && !raiz.closest("dialog")?.querySelector("#an-res") ? resumen(planActual(), ctx) : "";  // en Añadir el pie (#an-res) ya dice lo mismo: un solo resumen
     return T("div", "env-pres", T("div", "env-chips", ...esc(vis.map(ch)),
-      T("span", "env-mas", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, [...mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)]),
+      T("span", "env-mas", btn("Más ▾", "sec env-sm", e => menu(e.currentTarget, [...mas.map(o => [o.nombre + (fijado(o) ? " ★" : ""), () => aplicar(o)]), ["Otro…", otro],
         ["Guardar lo actual como preset…", () => nombrar("Guardar como preset", "", n => send("POST", "/api/objetivos", {nombre: n, plan: planActual(), plantilla: plan.plantilla}))]]), {"aria-haspopup": "menu"}))),
       ...(sum ? [T("small", "env-sum", sum)] : []));
   };
@@ -473,7 +516,8 @@ async function checklist(raiz, {plan, carpeta, onChange} = {}) {
     const flash = pre.cambiados; pre.cambiados = new Set();
     filas.forEach((f, i) => { if (flash.has(ORD2[i])) f.classList.add("env-flash"); });
     // con preset elegido el resumen ya va bajo los chips: en «Personalizar» solo si el plan es a medida
-    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar", ...(plan.salidas.length && !pre.sel ? [T("small", "env-sum", " · " + resumen(planActual(), ctx))] : [])), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
+    const tipo = plan.plantilla && typeof PL !== "undefined" ? PL.find(t => t.id === plan.plantilla)?.nombre : "";  // elegido con «Otro…»
+    const det = el("details", {className: "env-pers", open: pre.abierto, ontoggle: () => { pre.abierto = det.open; }}, el("summary", {}, "Personalizar", ...(!pre.sel && (plan.salidas.length || tipo) ? [T("small", "env-sum", " · " + [tipo && "Tipo: " + tipo, plan.salidas.length && resumen(planActual(), ctx)].filter(Boolean).join(" · "))] : [])), T("div", "env-checklist", ...filas, fr, T("div", "env-row", gr)));
     raiz.replaceChildren(barra(), det);
   };
   // recuerda el último objetivo y lo preselecciona si el plan viene vacío (no con callbacks vacíos: ajustes por defecto de un proyecto)

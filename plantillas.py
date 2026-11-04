@@ -290,7 +290,7 @@ def get(pid):
 
 
 def nuevo_id(nombre):
-    s = re.sub(r"[^a-z0-9]+", "-", nombre.lower().translate(str.maketrans("áéíóúüñç", "aeiouunc"))).strip("-")[:30] or "plantilla"
+    s = re.sub(r"[^a-z0-9]+", "-", nombre.lower().translate(str.maketrans("áéíóúüñç", "aeiouunc")))[:30].strip("-") or "plantilla"
     ids, i, out = {t["id"] for t in todas()}, 1, s
     while out in ids:
         i += 1

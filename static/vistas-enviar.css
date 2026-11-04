@@ -76,8 +76,9 @@
 @media(prefers-reduced-motion:no-preference){
 .env-chip{transition:background var(--dur-s4,.15s) var(--ease-standard,ease),border-color var(--dur-s4,.15s) var(--ease-standard,ease),transform var(--dur-s4,.15s) var(--ease-standard,ease)}
 .env-chip:active:not(:disabled):not([aria-disabled=true]){transform:scale(.96)}
-.env-grid>*,.env-ul>li{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) both;animation-delay:calc(var(--i,0)*30ms)}
-.env-pres .env-chips>*{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) both;animation-delay:calc(var(--i,0)*30ms)}
+/* backwards, no both: con «both» el transform final se queda y crea un contexto de apilamiento que deja los menús emergentes (z-index) debajo de lo que viene después */
+.env-grid>*,.env-ul>li{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) backwards;animation-delay:calc(var(--i,0)*30ms)}
+.env-pres .env-chips>*{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) backwards;animation-delay:calc(var(--i,0)*30ms)}
 .env-flash{animation:env-fl var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}
 .env-dlg[open]{animation:env-dlg-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}
 .env-dlg.saliendo{animation:env-dlg-out .16s var(--ease-standard,ease) forwards}
@@ -172,7 +173,7 @@
 @media(prefers-reduced-motion:no-preference){
 .env-chip[aria-pressed=true],.pchip.on{animation:env-pop var(--dur-m2,.3s) var(--spring-fast,ease-out)}
 .aj-tipos[open] .perfiles{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out)}
-.env-sec{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) both}
+.env-sec{animation:env-in var(--dur-m2,.3s) var(--ease-emph-decel,ease-out) backwards}
 .env-split .env-pmenu{animation:env-in var(--dur-s4,.2s) var(--ease-emph-decel,ease-out)}}
 @keyframes env-pop{0%{transform:scale(.94)}60%{transform:scale(1.04)}100%{transform:scale(1)}}
 @media(max-width:560px){.desc-cols{gap:var(--s3)}.env-fmt{grid-template-columns:repeat(3,1fr)}}
