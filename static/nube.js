@@ -23,7 +23,13 @@ function nubePanel(host, clave, pedirEstimacion) {
     const redet = el("button", {type: "button", className: "link", textContent: i.clis.length ? "Volver a detectar" : "Detectar de nuevo", onclick: async () => { await nubeCarga().catch(() => {}); P.pintar(); }});
     if (!i.clis.length) kids.push(el("small", {textContent: "¿Tienes suscripción de Claude o ChatGPT? Instala el programa (claude o codex), inicia sesión en él y pulsa «Detectar de nuevo». Actas no detecta ninguno ahora mismo en su PATH."}), redet);
     if (cli) {
-      kids.push(el("small", {textContent: "Usa tu suscripción: se aprovecha tu sesión ya iniciada en el programa instalado. Sin clave de API ni modelo; el consumo va a tu plan."}), el("small", {className: "warn", textContent: i.cli_aviso}), redet);
+      const sug = p.sugeridos || [], libre = !!s.modelo && !sug.includes(s.modelo);
+      const mi = el("input", {value: libre ? s.modelo : "", placeholder: "Nombre del modelo", hidden: !libre, "aria-label": "Nombre del modelo", oninput: () => { s.modelo = mi.value.trim(); }});
+      const ms = el("select", {onchange: () => { mi.hidden = ms.value !== "*"; s.modelo = ms.value === "*" ? mi.value.trim() : ms.value; if (!mi.hidden) mi.focus(); }},
+        new Option("El que tenga configurado el programa", ""), ...sug.map(x => new Option(x, x)), new Option("Otro…", "*"));
+      ms.value = libre ? "*" : s.modelo;
+      kids.push(el("small", {textContent: "Usa tu suscripción: se aprovecha tu sesión ya iniciada en el programa instalado. Sin clave de API; el consumo va a tu plan."}), el("small", {className: "warn", textContent: i.cli_aviso}), redet,
+        el("div", {className: "field"}, el("label", {textContent: "Modelo"}), ms, mi, el("small", {textContent: "Los que permita tu plan. «Otro…»: escribe el nombre que acepte el programa."})));
     } else {
       if (!sinURL) {
         const u = el("input", {value: s.url || p.url || "", placeholder: s.proveedor === "azure" ? "https://TU-RECURSO.openai.azure.com/openai/v1" : "http://localhost:11434/v1", oninput: () => { s.url = u.value.trim(); }});

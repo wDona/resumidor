@@ -267,3 +267,16 @@ def test_claude_argv_y_utf8(tmp_path, monkeypatch, kr):
         assert fl in out
     assert "acción ñandú" in out
     assert nube.INYECCION in out  # aviso anti-inyección antepuesto a toda llamada por CLI
+    out = nube._cli("claude", "x", "opus")  # el modelo elegido en la interfaz manda sobre ACTAS_CLI_MODEL
+    assert "--model opus" in out and "haiku" not in out
+    cfg = nube.norm({"proveedor": "cli:claude", "modelo": "opus"})
+    assert nube.nombre(cfg) == "Claude Code / opus (suscripción)" and nube.slot(cfg) == "nube-cli-claude-opus"
+    with pytest.raises(ValueError):
+        nube.norm({"proveedor": "cli:claude", "modelo": "--dangerously-skip-permissions"})
+    g = b / "codex"  # codex lee el prompt de «-»: la opción de modelo va antes
+    g.write_text(f"#!{os.sys.executable}\nimport sys;sys.stdin.read();print(' '.join(sys.argv[1:]))\n", encoding="utf-8")
+    if os.name == "nt":
+        (b / "codex.cmd").write_text(f'@"{os.sys.executable}" "{g}" %*\r\n', encoding="utf-8")
+    else:
+        g.chmod(0o755)
+    assert nube._cli("codex", "x", "gpt-5.5").split()[-3:] == ["-m", "gpt-5.5", "-"]
