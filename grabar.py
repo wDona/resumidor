@@ -16,6 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
+from pipeline import leer_texto  # pipeline no importa grabar al cargar (lo hace dentro de funciones): sin ciclo
+
 SR = 16000
 SEG_S = int(os.environ.get("ACTAS_SEG", 180))  # s por tramo
 VENT = 45  # s a cada lado de una nota que se fuerzan en el documento
@@ -183,15 +185,15 @@ class Rec:
 
 def _meta(wd, **kw):
     f = Path(wd) / "rec.json"
-    m = json.loads(f.read_text()) if f.exists() else {}
+    m = json.loads(leer_texto(f)) if f.exists() else {}
     m.update(kw)
-    f.write_text(json.dumps(m, ensure_ascii=False))
+    f.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
     return m
 
 
 def meta(wd):
     try:
-        return json.loads((Path(wd) / "rec.json").read_text())
+        return json.loads(leer_texto(Path(wd) / "rec.json"))
     except (OSError, ValueError):
         return {}
 
@@ -292,7 +294,7 @@ def finalizar(wd):
         shutil.copy(wd / "mic.wav", wd / "mezcla.wav")
     vs = sorted(wd.glob("video_*.mkv"))
     if vs:
-        (wd / "video.txt").write_text("".join(f"file '{v.name}'\n" for v in vs))
+        (wd / "video.txt").write_text("".join(f"file '{v.name}'\n" for v in vs), encoding="utf-8")
         medio = wd / "grabacion.mp4"
         cmd = ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(wd / "video.txt"), "-i", str(wd / "mezcla.wav"),
                "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "48k", "-shortest", str(medio)]
@@ -352,7 +354,7 @@ def transcribir(pipeline, pistas, quality, threads, dur, cb, hot=None):
 # ---------- Notas ----------
 def leer_notas(wd):
     try:
-        return json.loads((Path(wd) / "notas.json").read_text())
+        return json.loads(leer_texto(Path(wd) / "notas.json"))
     except (OSError, ValueError):
         return []
 
@@ -373,7 +375,7 @@ def guardar_notas(wd, notas):
     notas = limpia_notas(notas)
     Path(wd).mkdir(parents=True, exist_ok=True)
     f = Path(wd) / "notas.json"
-    f.write_text(json.dumps(notas, ensure_ascii=False)) if notas else f.unlink(missing_ok=True)
+    f.write_text(json.dumps(notas, ensure_ascii=False), encoding="utf-8") if notas else f.unlink(missing_ok=True)
     return notas
 
 

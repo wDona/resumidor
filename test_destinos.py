@@ -101,7 +101,7 @@ def enviar(t, d, que, **k):
 def test_secretos_fuera_del_json_y_catalogo(E, mk):
     t, mem = E
     i = dest(t, "github", token="SECRETO-TK", repo="o/r", url=mk.url)
-    assert "SECRETO-TK" not in destinos.CFG().read_text() and mem[(destinos.SERV, f"{i}:token")] == "SECRETO-TK"
+    assert "SECRETO-TK" not in destinos.CFG().read_text(encoding="utf-8") and mem[(destinos.SERV, f"{i}:token")] == "SECRETO-TK"
     cat = t.get("/api/destinos").json()
     assert {"github", "gitlab", "gitea", "jira", "linear", "notion", "todoist", "trello", "azure", "webdav", "s3", "sftp", "correo", "slack", "teams", "power_automate", "webhook", "carpeta"} <= set(cat["tipos"])
     assert cat["destinos"][0]["secretos"] == {"token": True} and "token" not in cat["destinos"][0]["config"]
@@ -193,7 +193,7 @@ def test_webdav_docx_y_carpeta_vault(E, mk, tmp_path):
     c = dest(t, "carpeta", ruta=str(tmp_path / "boveda"), subcarpeta="Actas", vault=True)
     r = enviar(t, c, ["documento", "tareas"], doc="aaaa1111")
     assert r["estado"] == "ok"
-    md = next((tmp_path / "boveda" / "Actas").glob("*.md")).read_text()
+    md = next((tmp_path / "boveda" / "Actas").glob("*.md")).read_text(encoding="utf-8")
     assert md.startswith("---\ntitle:") and "- [ ] Arreglar la puerta del garaje" in md and "[[" in md and "Origen:" in md
     (tmp_path / "ms").mkdir()
     c2 = dest(t, "carpeta", ruta=str(tmp_path / "ms"))

@@ -224,12 +224,12 @@ def escanear(emb=False):
     for o in ollama:  # manifests/<host>/<espacio>/<modelo>/<etiqueta> -> blob "sha256-<hash>" (GGUF sin extensión)
         for mf in sorted((o / "manifests").rglob("*")) if (o / "manifests").is_dir() else []:
             try:
-                dg = next(l["digest"] for l in json.loads(mf.read_text())["layers"] if l["mediaType"].endswith("image.model"))
+                dg = next(l["digest"] for l in json.loads(mf.read_text(encoding="utf-8"))["layers"] if l["mediaType"].endswith("image.model"))
             except (OSError, ValueError, StopIteration, KeyError):
                 continue
             add(o / "blobs" / dg.replace(":", "-"), f"{mf.parent.name}:{mf.name}", "Ollama")
     try:
-        for e in json.loads(P.MODELOS.read_text()).get("extra", []):
+        for e in json.loads(P.leer_texto(P.MODELOS)).get("extra", []):
             add(Path(e["ruta"]), e["nombre"], "Añadido", not emb)
     except (OSError, ValueError):
         pass
@@ -241,7 +241,7 @@ ROLES = ("chat", "emb")  # roles intercambiables: chat de Preguntar y búsqueda 
 
 def _cfg():
     try:
-        return json.loads(P.MODELOS.read_text())
+        return json.loads(P.leer_texto(P.MODELOS))
     except (OSError, ValueError):
         return {}
 
@@ -264,7 +264,7 @@ def usar(ruta, nivel, nombre=""):
     elif nivel == "pers":
         ex.append({"ruta": str(p), "nombre": nombre or P.llm_label(p)})
     P.MODELOS.parent.mkdir(exist_ok=True)
-    P.MODELOS.write_text(json.dumps({"levels": lv, "extra": ex, "roles": ro}, ensure_ascii=False, indent=1))
+    P.MODELOS.write_text(json.dumps({"levels": lv, "extra": ex, "roles": ro}, ensure_ascii=False, indent=1), encoding="utf-8")
     P.cargar_modelos()
     return True
 
@@ -273,7 +273,7 @@ def quitar_rol(rol):
     """Vuelve al modelo de serie de ese rol."""
     c = _cfg()
     c.get("roles", {}).pop(rol, None)
-    P.MODELOS.write_text(json.dumps(c, ensure_ascii=False, indent=1))
+    P.MODELOS.write_text(json.dumps(c, ensure_ascii=False, indent=1), encoding="utf-8")
     P.cargar_modelos()
 
 

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pipeline as P
 import rag
 
-D = json.loads((Path(__file__).parent / "rag_preguntas.json").read_text())
+D = json.loads((Path(__file__).parent / "rag_preguntas.json").read_text(encoding="utf-8"))
 args = sys.argv[1:]
 only = args[args.index("--m") + 1] if "--m" in args else None
 retr_only = "--solo-recuperacion" in args
@@ -122,4 +122,4 @@ for k in ("recuperacion", "juez", "primer_token", "prefill", "gen", "total"):
 toks = [r["prompt_tok"] for r in rows if r.get("prompt_tok")]
 if toks:
     print("tokens de prompt: p50", statistics.median(toks))
-(Path(__file__).parent / "rag_resultados.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1))
+(Path(__file__).parent / "rag_resultados.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")

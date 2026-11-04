@@ -77,11 +77,11 @@ def guardar():
     pipeline.WORK.mkdir(exist_ok=True)
     fin = [e for e in cola if e["state"] not in ACTIVOS][-15:]  # del historial solo se guardan los últimos
     cola[:] = [e for e in cola if e["state"] in ACTIVOS or e in fin]
-    COLA.write_text(json.dumps(cola, ensure_ascii=False))
+    COLA.write_text(json.dumps(cola, ensure_ascii=False), encoding="utf-8")
 
 
 try:  # reinicio: lo que estaba en marcha ya no tiene hilo (se puede reintentar); lo pendiente sigue en cola
-    cola[:] = json.loads(COLA.read_text())
+    cola[:] = json.loads(pipeline.leer_texto(COLA))
     for e in cola:
         if e["state"] == "marcha":
             e.update(state="interrumpido", error="El trabajo se interrumpió al cerrar la aplicación")
@@ -189,7 +189,7 @@ def nube_estimar(d: dict):
     ch = int(d.get("chars") or 0) or int(float(d.get("minutos") or 0) * 900)
     if not ch and d.get("reuse"):
         tf = pipeline.WORK / Path(d["reuse"]).name / f"transcript_{d.get('asr', 'calidad')}.json"
-        ch = sum(len(x["text"]) for x in json.loads(tf.read_text())["segments"]) if tf.is_file() else 0
+        ch = sum(len(x["text"]) for x in json.loads(tf.read_text(encoding="utf-8"))["segments"]) if tf.is_file() else 0
     if not ch and d.get("video") and Path(d["video"]).is_file():
         ch = int(pipeline.duration(Path(d["video"])) / 60 * 900)
     if not ch and d.get("transcripcion") and Path(d["transcripcion"]).is_file():
@@ -544,13 +544,13 @@ def _acta_fn(d):
             shutil.rmtree(tmp, ignore_errors=True)
         ver = documentos.acta_tal_cual(wd, d.get("nombre_acta")) if tc else out.name
         if url:
-            (wd / "meta.json").write_text(json.dumps({**meta(wd), "url": url}, ensure_ascii=False))
+            (wd / "meta.json").write_text(json.dumps({**meta(wd), "url": url}, ensure_ascii=False), encoding="utf-8")
         if tc:
-            (wd / "meta.json").write_text(json.dumps({**meta(wd), "tal_cual": True}, ensure_ascii=False))
+            (wd / "meta.json").write_text(json.dumps({**meta(wd), "tal_cual": True}, ensure_ascii=False), encoding="utf-8")
         if dl and not any(m.is_symlink() for m in wd.glob("video.*")):  # ya hay enlace duro/copia en la reunión
             shutil.rmtree(dl.parent, ignore_errors=True)
         if (carp := str(d.get("carpeta") or "").strip()[:120]) and not meta(wd).get("carpeta"):  # carpeta pedida al generar
-            (wd / "meta.json").write_text(json.dumps({**meta(wd), "carpeta": carp}, ensure_ascii=False))
+            (wd / "meta.json").write_text(json.dumps({**meta(wd), "carpeta": carp}, ensure_ascii=False), encoding="utf-8")
         if not bus and (_ajustes() or {}).get("describir_capturas") and (vc := vision.elegir(_ajustes(), d.get("nube"))):
             try:  # «Describir capturas con IA»: las que lleva el documento; un fallo no estropea el documento
                 vision.capturas(out, vc, cb)
@@ -794,11 +794,11 @@ def importar(d: dict):
             with z.open(i) as src, open(dst, "wb") as f:
                 shutil.copyfileobj(src, f)
     if tr is None:
-        (wd / f"transcript_zip{h[15:21]}.json").write_text(json.dumps({"segments": [], "language": "es", "solo_acta": True}))
+        (wd / f"transcript_zip{h[15:21]}.json").write_text(json.dumps({"segments": [], "language": "es", "solo_acta": True}), encoding="utf-8")
     for v in wd.glob("video.*"):
         pipeline.put_file(v, out / v.name)
     nombre = re.sub(r"( \(con (vídeo|audio)\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
-    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False))
+    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False), encoding="utf-8")
     if carp and tr and tr.get("segments") and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp).casefold() == "proyecto":
         start("poblar", {"c": carp, "mid": wd.name, "auto": True}, carp, wd.name)  # como un documento nuevo del proyecto
     return {"id": wd.name}
@@ -900,7 +900,7 @@ def _grabacion_a_cola(wd, ex=None):
     wdm = pipeline.WORK / pipeline.video_id(medio)
     grabar.guardar_notas(wdm, grabar.leer_notas(wd))
     nombre = (c.get("nombre") or "").strip() or "Reunión " + time.strftime("%Y-%m-%d %H:%M", time.localtime(m.get("inicio") or time.time()))
-    (wdm / "meta.json").write_text(json.dumps({**meta(wdm), "nombre": nombre, **({"carpeta": c["carpeta"]} if c.get("carpeta") else {})}, ensure_ascii=False))
+    (wdm / "meta.json").write_text(json.dumps({**meta(wdm), "nombre": nombre, **({"carpeta": c["carpeta"]} if c.get("carpeta") else {})}, ensure_ascii=False), encoding="utf-8")
     spec = {"video": str(medio), "pistas": fin["pistas"], "nombres": c.get("nombres") or grabar.NOMBRES, "carpeta": c.get("carpeta") or "", "plantilla": c.get("perfil") or "",
             "calidad": c.get("calidad") or "rápida", "nivel": c.get("nivel") or "normal", "asr": c.get("asr") or "calidad", "idioma": c.get("idioma") or "",
             "habla": c.get("habla") or "", "gpu": c.get("gpu"), "grabacion": wd.name}
@@ -968,7 +968,7 @@ def put_notas(d: dict):
 # ---------- Reuniones ----------
 def _solo_acta(mid, asr):
     try:
-        return bool(json.loads((pipeline.WORK / Path(mid).name / f"transcript_{asr}.json").read_text()).get("solo_acta"))
+        return bool(json.loads((pipeline.WORK / Path(mid).name / f"transcript_{asr}.json").read_text(encoding="utf-8")).get("solo_acta"))
     except (OSError, ValueError):
         return False
 
@@ -976,7 +976,7 @@ def _solo_acta(mid, asr):
 def meta(wd):
     """work/<id>/meta.json: {"nombre": nombre a mostrar, "carpeta": carpeta}; no se renombra nada en disco."""
     try:
-        return json.loads((Path(wd) / "meta.json").read_text())
+        return json.loads(pipeline.leer_texto(Path(wd) / "meta.json"))
     except (OSError, ValueError):
         return {}
 
@@ -986,7 +986,7 @@ def resumen(wd):
     ds = [d for d in wd.glob("acta_*_*") if (d / "index.html").exists()]
     for d in ds:
         try:
-            return len(ds), json.loads((d / "acta.json").read_text()).get("duracion") or 0
+            return len(ds), json.loads((d / "acta.json").read_text(encoding="utf-8")).get("duracion") or 0
         except (OSError, ValueError):
             pass
     return len(ds), 0
@@ -1006,7 +1006,7 @@ def meetings():
     for tf in sorted(pipeline.WORK.glob("*/transcript_*.json"), key=os.path.getmtime, reverse=True):
         v = next(tf.parent.glob("video.*"), None)
         asr = tf.stem.split("_", 1)[1]
-        tj = json.loads(tf.read_text()) if asr.startswith(("imp", "zip")) else {}
+        tj = json.loads(tf.read_text(encoding="utf-8")) if asr.startswith(("imp", "zip")) else {}
         imp = tj.get("importada")
         mt = meta(tf.parent)
         base = mt.get("nombre") or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
@@ -1051,7 +1051,7 @@ def set_meta(d: dict):
         vs = m.setdefault("versiones", {})
         vs.pop(v, None) if not n else vs.__setitem__(v, n)
         m.pop("versiones") if not vs else None
-    (wd / "meta.json").write_text(json.dumps(m, ensure_ascii=False))
+    (wd / "meta.json").write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
     return m
 
 
@@ -1123,7 +1123,7 @@ CARPETAS = pipeline.WORK / "carpetas.json"  # carpetas creadas aunque aún no te
 def _carpetas():
     """carpetas.json: {"vacias": [carpetas creadas], "plantillas": {carpeta: plantilla por defecto}} (antes, solo la lista)."""
     try:
-        d = json.loads(CARPETAS.read_text())
+        d = json.loads(pipeline.leer_texto(CARPETAS))
     except (OSError, ValueError):
         d = {}
     return {"vacias": d, "plantillas": {}, "estilos": {}} if isinstance(d, list) else {"vacias": d.get("vacias", []), "plantillas": d.get("plantillas", {}), "estilos": d.get("estilos", {})}
@@ -1160,7 +1160,7 @@ def carpeta(d: dict):
         except ValueError as ex:
             raise HTTPException(400, str(ex))
         c["plantillas"].pop(old, None) if not d["plantilla"] else c["plantillas"].__setitem__(old, d["plantilla"])
-        CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
+        CARPETAS.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
         return {}
     if "estilo" in d:  # {nombre, estilo}: estilo de organización por defecto de la carpeta ("" = ninguno)
         if d["estilo"]:
@@ -1169,7 +1169,7 @@ def carpeta(d: dict):
             except KeyError:
                 raise HTTPException(400, "No existe ese estilo")
         c["estilos"].pop(old, None) if not d["estilo"] else c["estilos"].__setitem__(old, d["estilo"])
-        CARPETAS.write_text(json.dumps(c, ensure_ascii=False))
+        CARPETAS.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
         return {}
     if old:
         _ok(carpetas.renombrar, old, new)
@@ -1179,12 +1179,12 @@ def carpeta(d: dict):
     if new and es:
         c["estilos"][new] = es
     CARPETAS.write_text(json.dumps({"vacias": sorted(({*c["vacias"], new} if new else {*c["vacias"]}) - {old, ""}), "plantillas": c["plantillas"], "estilos": c["estilos"]},
-                                   ensure_ascii=False))
+                                   ensure_ascii=False), encoding="utf-8")
     for f in pipeline.WORK.glob("*/meta.json"):
         m = meta(f.parent)
         if m.get("carpeta") == old:
             m.pop("carpeta") if not new else m.__setitem__("carpeta", new)
-            f.write_text(json.dumps(m, ensure_ascii=False))
+            f.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
     return {}
 
 
@@ -1244,7 +1244,7 @@ def _calidad(name):
 
 def _acta_json(d):
     try:
-        return json.loads((d / "acta.json").read_text())
+        return json.loads((d / "acta.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
@@ -1261,9 +1261,9 @@ def meeting(mid: str):
     if not actas and not trs:
         raise HTTPException(404, "Sin actas")
     fu = next(wd.glob("fuente.*"), None)
-    rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text())) for c in wd.glob("cortes_*.json")}
+    rec = {c.stem.split("_", 1)[1]: pipeline.recommend_pct(json.loads(c.read_text(encoding="utf-8"))) for c in wd.glob("cortes_*.json")}
     conds = [{"name": c.name, "url": f"/files/{wd.name}/{c.name}"} for c in sorted(wd.glob("condensado_*")) if c.suffix in (".mp4", ".m4a")]
-    imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text())["importada"] for f in wd.glob("transcript_imp*.json")}
+    imp = {f.stem.split("_", 1)[1]: json.loads(f.read_text(encoding="utf-8"))["importada"] for f in wd.glob("transcript_imp*.json")}
     return {"id": wd.name, "actas": actas, "recomendado": rec, "condensados": conds, "video": any(wd.glob("video.*")), "audio": any(es_audio(v) for v in wd.glob("video.*")), "videourl": next((f"/files/{wd.name}/{v.name}" for v in wd.glob("video.*")), None), "versiones": meta(wd).get("versiones", {}), "importadas": imp,
             "videomb": next((round(v.stat().st_size / 1e6) for v in wd.glob("video.*") if v.exists()), 0), **{k: meta(wd).get(k, "") for k in ("nombre", "carpeta")},
             "kind": _kind(wd, exacto=True), "asr": trs[0].stem.split("_", 1)[1] if trs else None, "fuente": f"/files/{wd.name}/{fu.name}" if fu else None,
@@ -1294,7 +1294,7 @@ def _ex(fn, *a, **k):
 def get_doc(mid: str, ver: str):
     """Datos del documento (el editado si existe) + editado + original (siempre el de la generación)."""
     c = _ex(exportar.carga, mid, ver)
-    return {"editado": c["editado"], "datos": c["data"], "original": json.loads((c["d"] / "acta.json").read_text()) if c["editado"] else c["data"]}
+    return {"editado": c["editado"], "datos": c["data"], "original": json.loads((c["d"] / "acta.json").read_text(encoding="utf-8")) if c["editado"] else c["data"]}
 
 
 @app.put("/api/doc/{mid}/{ver}")
@@ -1315,7 +1315,7 @@ def vista(mid: str, ver: str, editar: int = 0, print: int = 0, original: int = 0
     """HTML del documento desde los datos (editado si existe). editar=1: contenteditable + window.cambios() -> {ruta: texto}; print=1: abre el diálogo de imprimir."""
     c = _ex(exportar.carga, mid, ver, bool(anon), bool(dudas) and not editar)
     if original and c["editado"]:
-        c["data"], c["editado"] = json.loads((c["d"] / "acta.json").read_text()), False
+        c["data"], c["editado"] = json.loads((c["d"] / "acta.json").read_text(encoding="utf-8")), False
     return HTMLResponse(exportar.html_doc(c, bool(editar), f"/files/{c['mid']}/{c['ver']}/", bool(print), exportar.estilo_para(c)))
 
 
@@ -1691,8 +1691,10 @@ def reg_list(request: Request, c: str, tipo: str = "", revision: str = "", estad
           and all(str(x["campos"].get(k, "")) == v for k, v in cf.items())
           and (not ds or ds in x["dueno"].casefold()) and (not huerfanos or x["campos"].get("huerfano"))
           and (not qs or any(qs in str(x[k] or "").casefold() for k in ("titulo", "detalle", "dueno", "codigo")))]
+    nr = Counter((x["tipo"], x["revision"]) for x in todas)  # Counter: nr[t, r] da 0 si no hay
     return {"items": registro.completas(xs), "contadores": {"por_tipo": dict(Counter(x["tipo"] for x in vis)),
             "por_revision": {r: sum(x["revision"] == r for x in todas) for r in ("propuesto", "aprobado", "descartado")},
+            "por_tipo_revision": {t: {r: nr[t, r] for r in ("propuesto", "aprobado", "descartado", "fusionado")} for t in {t for t, _ in nr}},  # chips de revisión por tipo, incl. descartadas sin abrirlas
             "fusionadas": sum(x["revision"] == "fusionado" and (not tipo or x["tipo"] == tipo) for x in todas),  # del tipo pedido: chip «Fusionadas (n)»
             "huerfanos": sum(bool(x["campos"].get("huerfano")) for x in vis)}}
 
@@ -2262,7 +2264,7 @@ def get_fuente(mid: str):
     """Lo que la vista «Fuente» enseña de un documento: kind, url del original (PDF/imagen…), descripción y su texto por página/sección
     [{loc, t, texto}] (t: la marca a la que apuntan las citas del documento)."""
     wd = pipeline.WORK / Path(mid).name
-    tr = json.loads(_tr_de(wd).read_text())
+    tr = json.loads(_tr_de(wd).read_text(encoding="utf-8"))
     partes = []
     for s in tr["segments"]:
         if partes and partes[-1]["loc"] == s.get("loc"):
@@ -2274,7 +2276,7 @@ def get_fuente(mid: str):
     return {"kind": _kind(wd, exacto=True), "url": f"/files/{wd.name}/{fu.name}" if fu else None, "nombre": imp.get("fuente"),
             "paginas": imp.get("paginas"), "ocr": imp.get("ocr", []), "partes": partes, "vision": vision.estado(vision.elegir(_ajustes())),
             **{k: imp.get(k, "") for k in ("descripcion", "descripcion_ia", "ocr_texto") if imp.get("tipo") == "imagen"},
-            "capturas_ia": json.loads(ci.read_text()) if ci.exists() else {}}
+            "capturas_ia": json.loads(ci.read_text(encoding="utf-8")) if ci.exists() else {}}
 
 
 # ---------- Ciclo de vida ----------
@@ -2298,7 +2300,7 @@ def bajar_modelos(d: dict | None = None):
 @app.get("/api/modelos/encontrados")
 def modelos_encontrados(emb: bool = False):
     """GGUF del equipo (emb=true: solo de embeddings) + la configuración (niveles, extra y roles)."""
-    return {"encontrados": models.escanear(emb), "config": json.loads(pipeline.MODELOS.read_text()) if pipeline.MODELOS.exists() else {}}
+    return {"encontrados": models.escanear(emb), "config": json.loads(pipeline.leer_texto(pipeline.MODELOS)) if pipeline.MODELOS.exists() else {}}
 
 
 @app.post("/api/modelos/usar")
@@ -2454,7 +2456,7 @@ app.mount("/", StaticFiles(directory=STATIC, html=True))
 def vivo():
     """URL de otra instancia en marcha (el lock guarda su puerto), o None."""
     try:
-        url = f"http://127.0.0.1:{int(LOCK.read_text())}"
+        url = f"http://127.0.0.1:{int(LOCK.read_text(encoding="utf-8"))}"
         return url if urllib.request.urlopen(url + "/api/ping", timeout=2).read() == b'"actas"' else None
     except (OSError, ValueError):
         return None
@@ -2492,7 +2494,7 @@ if __name__ == "__main__":
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
     procs.cleanup_stale()
-    LOCK.write_text(str(port))
+    LOCK.write_text(str(port), encoding="utf-8")
     atexit.register(lambda: LOCK.unlink(missing_ok=True))
     srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
 

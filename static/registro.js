@@ -260,7 +260,7 @@ function registroTabla(host, o) {
     const se = el("select", {onchange: () => { S.f.estado = se.value; cambia(); }}, new Option("Todos", ""), ...est.map(x => new Option(x, x))); se.value = S.f.estado;
     const sd = el("select", {onchange: () => { S.f.dueno = sd.value; cambia(); }}, new Option("Todos", ""), ...resp.map(x => new Option(x, x))); sd.value = S.f.dueno;
     const mf = masFiltros([regCampo("Estado", se), regCampo("Responsable", sd), ...(b.filtros || [])], nf());
-    const cuenta = regCuenta(S.vivos, {fusionado: co.fusionadas ?? 0, ...(S.aparte ? {[S.f.revision]: S.aparte.length} : {})});
+    const cuenta = regCuenta(S.vivos, {fusionado: co.fusionadas ?? 0, descartado: (tipo ? co.por_tipo_revision?.[tipo] : co.por_revision)?.descartado ?? 0, ...(S.aparte ? {[S.f.revision]: S.aparte.length} : {})});
     barra.replaceChildren(...(o.sinFiltros ? [] : [regBarra({buscar: {valor: S.f.q, fn: t => { S.f.q = t; pintarCuerpo(); }}, filtros: mf, vista: b.vista, add: {t: addT, fn: b.add?.fn || add}, mas: b.mas,
       chips: fijos.revision ? [] : regChips(REG_REV, S.f.revision, cuenta, k => { S.f.revision = k; lsSet("reg-rev", k); cargar(); })})]));
     chips.replaceChildren(...(ph ? [el("span", {className: "badge w", textContent: "Huérfanos · " + ph})] : []),

@@ -114,7 +114,7 @@ def frames(wd):
     out = {}
     for f in ("frames.json", "frames2.json"):
         try:
-            for k in json.loads((Path(wd) / f).read_text()):
+            for k in json.loads(P.leer_texto(Path(wd) / f)):
                 out[k["img"]] = {**out.get(k["img"], {}), **{a: k[a] for a in ("text", "lines", "wh") if a in k}}
         except (OSError, ValueError, KeyError):
             pass
@@ -134,7 +134,7 @@ def _nombres_conocidos(c):
     """Personas que el propio documento ya nombra: hablantes, nombres.json, responsables de tareas y campos persona/responsable."""
     ns = [s["spk"] for s in c["segs"] if s.get("spk") and not re.fullmatch(r"Hablante \d+", s["spk"])]
     try:
-        nm = json.loads((c["d"].parent / "nombres.json").read_text()).get("names")
+        nm = json.loads(P.leer_texto(c["d"].parent / "nombres.json")).get("names")
         ns += [str(v) for v in (nm.values() if isinstance(nm, dict) else nm or [])]
     except (OSError, ValueError, AttributeError):
         pass
@@ -284,7 +284,7 @@ def aplicar(c, items):
     d = c["d"]
     cuenta = [0]
     try:  # el nombre de la reunión (meta.json) con un dato marcado dentro: también se sustituye entero en el contenido
-        nom = str(json.loads((d.parent / "meta.json").read_text()).get("nombre") or "").strip()
+        nom = str(json.loads(P.leer_texto(d.parent / "meta.json")).get("nombre") or "").strip()
     except (OSError, ValueError):
         nom = ""
     nom = nom if len(nom) >= 3 and sus.toca(nom) else ""
@@ -343,7 +343,7 @@ def fuente(c):
 def estado(c):
     """{existe, obsoleta, ...} de la copia anonimizada de la versión (obsoleta: el documento se editó después)."""
     try:
-        m = json.loads((c["d"] / ANON_META).read_text())
+        m = json.loads((c["d"] / ANON_META).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"existe": False}
     return {"existe": (c["d"] / ANON).is_file(), "obsoleta": m.get("fuente") != fuente(c), "reemplazos": m["reemplazos"], "difuminadas": m["difuminadas"],

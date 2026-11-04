@@ -98,7 +98,7 @@ def test_estilos(cl):
     assert cl.put("/api/estilos/mi-org/logo?name=l.png", content=b.getvalue()).json()["logo"]
     assert cl.put("/api/estilos/mi-org/base_docx?name=b.docx", content=b"nope").status_code == 400
     cl.post("/api/carpeta", json={"nombre": "X", "estilo": "mi-org"})
-    assert json.loads((pipeline.WORK / "carpetas.json").read_text())["estilos"] == {"X": "mi-org"}
+    assert json.loads((pipeline.WORK / "carpetas.json").read_text(encoding="utf-8"))["estilos"] == {"X": "mi-org"}
     from docx import Document
     d = Document(io.BytesIO(cl.get(f"/api/exportar/{MID}/{VERS[0]}", params={"fmt": "docx", "estilo": "mi-org"}).content))
     assert "Org " in d.sections[0].header.paragraphs[0].text and "Sala 1" in "".join(c.text for t in d.tables for r in t.rows for c in r.cells)

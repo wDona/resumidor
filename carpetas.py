@@ -94,7 +94,7 @@ def docs(ms):
             continue
         d = max(vs, key=lambda x: (x / "acta.json").stat().st_mtime)
         try:
-            data = json.loads((d / (exportar.EDITADA if (d / exportar.EDITADA).is_file() else "acta.json")).read_text())
+            data = json.loads((d / (exportar.EDITADA if (d / exportar.EDITADA).is_file() else "acta.json")).read_text(encoding="utf-8"))
             tpl = next((t for t in plantillas.todas() if t["nombre"] == data.get("plantilla")), None) or plantillas.get("acta")
         except (OSError, ValueError):
             continue
@@ -330,7 +330,7 @@ def sugerir_glosario(c, ms, minimo=3, n=30):
     cap = re.compile(r"[A-ZÁÉÍÓÚÑ][\wáéíóúñü]{2,}(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñü]{2,})*")
     for d in docs(ms):
         try:
-            segs = json.loads((P.WORK / d["mid"] / f"transcript_{d['asr']}.json").read_text())["segments"]
+            segs = json.loads((P.WORK / d["mid"] / f"transcript_{d['asr']}.json").read_text(encoding="utf-8"))["segments"]
         except (OSError, ValueError, KeyError):
             continue
         for s in segs:

@@ -165,10 +165,10 @@ def test_cli_falsas(tmp_path, monkeypatch, kr):
                       "codex": 'import sys;sys.stdin.read();print("```json\\n{\\"tema\\":\\"x\\",\\"n\\":[1],\\"t\\":\\"0:01\\"}\\n```")',
                       "gemini": 'import sys;assert "esquema" in sys.stdin.read();print("{\\"tema\\":\\"g\\",\\"n\\":[],\\"t\\":\\"0:02\\"}")'}.items():
         f = b / n
-        f.write_text(f"#!{os.sys.executable}\n{cuerpo}\n")
+        f.write_text(f"#!{os.sys.executable}\n{cuerpo}\n", encoding="utf-8")
         f.chmod(f.stat().st_mode | stat.S_IEXEC)
         if os.name == "nt":  # shutil.which en Windows exige extensión
-            (b / (n + ".cmd")).write_text(f'@"{os.sys.executable}" "{f}" %*\r\n')
+            (b / (n + ".cmd")).write_text(f'@"{os.sys.executable}" "{f}" %*\r\n', encoding="utf-8")
     monkeypatch.setenv("PATH", str(b) + os.pathsep + "/usr/bin:/bin")
     assert [c["id"] for c in nube.detectar_clis()] == ["cli:claude", "cli:codex"]  # gemini/copilot apagados por defecto
     with pytest.raises(ValueError):
@@ -225,8 +225,8 @@ def test_pipeline_marca_y_exports(srv, kr, tmp_path, monkeypatch):
     vtt = VTT
     c = cfg(srv, "ok")
     out, _, _ = pipeline.run(None, "normal", "rápido", 2, lambda f, m: None, transcript=vtt, nube=c)
-    d = json.loads((out / "acta.json").read_text())
-    assert d["nube"] == "Redactado con Servidor propio / ok (nube)" and "Redactado con Servidor propio / ok (nube)" in (out / "index.html").read_text()
+    d = json.loads((out / "acta.json").read_text(encoding="utf-8"))
+    assert d["nube"] == "Redactado con Servidor propio / ok (nube)" and "Redactado con Servidor propio / ok (nube)" in (out / "index.html").read_text(encoding="utf-8")
     assert any(x[0] == "POST" for x in Falso.log) and not list(pipeline.WORK.glob("llama-server*"))
     mid = out.parent
     cc = exportar.carga(mid.name, out.name)
@@ -254,11 +254,11 @@ def test_claude_argv_y_utf8(tmp_path, monkeypatch, kr):
     b.mkdir()
     f = b / "claude"
     f.write_text(f"#!{os.sys.executable}\nimport sys,json;sys.stdin.reconfigure(encoding='utf-8');sys.stdout.reconfigure(encoding='utf-8')\n"
-                 "e=sys.stdin.read();print(json.dumps({'result':json.dumps({'tema':' '.join(sys.argv[1:])+'|'+e,'n':[],'t':'0:01'},ensure_ascii=False)}))\n")
+                 "e=sys.stdin.read();print(json.dumps({'result':json.dumps({'tema':' '.join(sys.argv[1:])+'|'+e,'n':[],'t':'0:01'},ensure_ascii=False)}))\n", encoding="utf-8")
     if os.name == "nt":
-        (b / "claude.cmd").write_text(f'@"{os.sys.executable}" "{f}" %*\r\n')
+        (b / "claude.cmd").write_text(f'@"{os.sys.executable}" "{f}" %*\r\n', encoding="utf-8")
     else:
-        (b / "claude").write_text(f'#!/bin/sh\nexec "{os.sys.executable}" "{f}" "$@"\n')
+        (b / "claude").write_text(f'#!/bin/sh\nexec "{os.sys.executable}" "{f}" "$@"\n', encoding="utf-8")
         (b / "claude").chmod(0o755)
     monkeypatch.setenv("PATH", str(b) + os.pathsep + os.environ["PATH"])
     monkeypatch.setenv("ACTAS_CLI_MODEL", "haiku")

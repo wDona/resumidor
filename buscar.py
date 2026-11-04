@@ -27,16 +27,16 @@ def _con():
 
 def fragmentos(wd, asr):
     """(tipo, t, loc, texto) de un documento: tramos de la transcripción/texto (~15 s, nunca cruzan de página) y pantallas con texto."""
-    tr = json.loads((wd / f"transcript_{asr}.json").read_text())
+    tr = json.loads((wd / f"transcript_{asr}.json").read_text(encoding="utf-8"))
     for s in P.merge_segs(tr["segments"]):
         loc = s.get("loc")
         yield FUENTE.get(loc, "texto" if loc else "voz"), s["s"], loc, s["text"]
     kf = next((f for f in (wd / "frames2.json", wd / "frames.json") if f.exists()), None)
-    for k in P.screens(json.loads(kf.read_text())) if kf else []:
+    for k in P.screens(json.loads(P.leer_texto(kf))) if kf else []:
         if k["screen"] and k["text"].strip():
             yield "pantalla", k["t"], None, k["text"].replace(" | ", " · ")
     ci = wd / "capturas_ia.json"  # capturas del documento descritas con IA (vision.capturas)
-    for x in json.loads(ci.read_text()).values() if ci.exists() else []:
+    for x in json.loads(ci.read_text(encoding="utf-8")).values() if ci.exists() else []:
         yield "descripcion_ia", x["t"], None, x["texto"]
 
 

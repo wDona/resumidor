@@ -235,7 +235,7 @@ def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
 def reescribir(tf, **campos):
     """Cambia descripcion / descripcion_ia de una imagen ya leída (transcript_*.json) y rehace sus segmentos: Buscar y Preguntar lo ven
     al momento (el índice se pone al día por la fecha del fichero). -> importada."""
-    tr = json.loads(Path(tf).read_text())
+    tr = json.loads(Path(tf).read_text(encoding="utf-8"))
     imp = tr["importada"]
     if imp.get("tipo") != "imagen":
         raise ValueError("Solo las imágenes llevan descripción")
@@ -244,7 +244,7 @@ def reescribir(tf, **campos):
     if not segs:
         raise ValueError("La imagen se quedaría sin texto: escribe una descripción")
     tr["segments"], imp["segmentos"] = segs, len(segs)
-    Path(tf).write_text(json.dumps(tr))  # ASCII: cp1252 (Windows) no escribe todo Unicode
+    Path(tf).write_text(json.dumps(tr), encoding="utf-8")  # ASCII: cp1252 (Windows) no escribe todo Unicode
     return imp
 
 
@@ -270,7 +270,7 @@ def acta_tal_cual(wd, titulo=None):
     import html
     wd = Path(wd)
     tf = max(wd.glob("transcript_*.json"), key=lambda f: f.stat().st_mtime)
-    tr = json.loads(tf.read_text())
+    tr = json.loads(tf.read_text(encoding="utf-8"))
     titulo = titulo or (tr.get("importada") or {}).get("fuente") or wd.name
     grupos = []  # [(loc, [textos])] seguidos con la misma loc
     for s in tr["segments"]:

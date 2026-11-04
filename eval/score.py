@@ -78,13 +78,13 @@ def main():
     f = lambda pr: "  -  " if pr is None else f"{pr:4.2f}"
     print(f"{'vídeo':18} {'nivel':9} {'dec P/R':11} {'tar P/R':11} prohib resp✗ claves 2ªmitad pts2  corte nolat")
     for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
-        gold = json.loads(gf.read_text())
+        gold = json.loads(gf.read_text(encoding="utf-8"))
         for lv in LEVELS:
             p = ROOT / "work" / gold["hash"] / f"acta_{lv}_{asr}{alta}" / "acta.json"
             if not p.exists():
                 print(f"{gold['video']:18} {lv:9} (sin acta.json)")
                 continue
-            s, bad = score(json.loads(p.read_text()), gold)
+            s, bad = score(json.loads(p.read_text(encoding="utf-8")), gold)
             print(f"{gold['video']:18} {lv:9} {f(s['dec'][0])}/{f(s['dec'][1])} {f(s['tar'][0])}/{f(s['tar'][1])} "
                   f"{s['forb']:6} {s['resp']:5} {s['claves'][0]:2}/{s['claves'][1]:<3} {s['late'][0]}/{s['late'][1]:<5} "
                   f"{s['pts2'][0]:2}/{s['pts2'][1]:<3} {s['cut']:4} {s['nolat'] or '-'}")

@@ -141,14 +141,14 @@ def calcular(mid, ver):
     h = hashlib.sha1(json.dumps([c["data"], c["segs"], fr and {k: v.get("text") for k, v in fr.items()}], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
     f = c["d"] / "dudas.json"
     try:
-        cache = json.loads(f.read_text())
+        cache = json.loads(f.read_text(encoding="utf-8"))
         if cache.get("hash") == h:
             return cache
     except (OSError, ValueError):
         pass
     r = analizar(c, fr)
     if c["editado"]:  # lo editado ya lo revisó el usuario
-        orig = json.loads((c["d"] / "acta.json").read_text())
+        orig = json.loads((c["d"] / "acta.json").read_text(encoding="utf-8"))
         r["dudas"] = {k: v for k, v in r["dudas"].items() if _get(c["data"], k) == _get(orig, k)}
     r.update(n=len(r["dudas"]), hash=h, asr=any("words" in s or "lp" in s for s in c["segs"]))
     f.write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")

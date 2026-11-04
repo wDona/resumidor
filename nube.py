@@ -291,17 +291,17 @@ def _nombres_llm(wds):
         if not fs:
             continue
         try:
-            tx = [s["text"] for s in json.loads(max(fs, key=lambda f: f.stat().st_mtime).read_text())["segments"]]
+            tx = [s["text"] for s in json.loads(max(fs, key=lambda f: f.stat().st_mtime).read_text(encoding="utf-8"))["segments"]]
         except (OSError, ValueError, KeyError):
             continue
         h, cf = hashlib.sha1("\n".join(tx).encode()).hexdigest()[:12], wd / "nombres_llm.json"
         try:
-            c = json.loads(cf.read_text())
+            c = json.loads(P.leer_texto(cf))
         except (OSError, ValueError):
             c = {}
         if h not in c:
             c = {h: privacidad._llm_personas(tx) or []}
-            cf.write_text(json.dumps(c, ensure_ascii=False))
+            cf.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
         out += c[h]
     return out
 

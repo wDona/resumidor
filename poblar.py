@@ -183,7 +183,7 @@ def poblar(c, ms, chat_ctx, mids=None, vistas=None, glosario=(), cb=lambda f, m:
     lote = uuid.uuid4().hex[:10]  # toda la pasada, un lote auto: Ctrl+Z (registro.deshacer) no lo toca; registro.deshacer_pasada(c, info["lote"]) sí
     trabajo = []
     for d in ds:
-        tr = json.loads((P.WORK / d["mid"] / f"transcript_{d['asr']}.json").read_text())
+        tr = json.loads((P.WORK / d["mid"] / f"transcript_{d['asr']}.json").read_text(encoding="utf-8"))
         trabajo += [(d, tr, b) for b in P.chunk_eq(tr["segments"])]
     if trabajo:
         cb(0.05, "Arrancando modelo de lenguaje…")

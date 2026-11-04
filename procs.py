@@ -62,7 +62,7 @@ def _cmdline(pid):
 
 def _save():
     PIDF.parent.mkdir(exist_ok=True)
-    PIDF.write_text(json.dumps([{"pid": p.pid, "exe": p.args[0]} for p in _REG if p.poll() is None]))
+    PIDF.write_text(json.dumps([{"pid": p.pid, "exe": p.args[0]} for p in _REG if p.poll() is None]), encoding="utf-8")
 
 
 def spawn(cmd, **kw):
@@ -91,7 +91,7 @@ def kill_all(wait=3):
         except subprocess.TimeoutExpired:
             p.kill()
     try:
-        PIDF.write_text("[]")
+        PIDF.write_text("[]", encoding="utf-8")
     except OSError:
         pass
 
@@ -99,7 +99,7 @@ def kill_all(wait=3):
 def cleanup_stale():
     """Mata los llama-server de una ejecución anterior que sigan vivos y sean exactamente el exe que anotamos (bajo bin/)."""
     try:
-        old = json.loads(PIDF.read_text())
+        old = json.loads(PIDF.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return
     bins = str(ROOT / "bin")
@@ -111,7 +111,7 @@ def cleanup_stale():
             except OSError:
                 pass
     try:
-        PIDF.write_text("[]")
+        PIDF.write_text("[]", encoding="utf-8")
     except OSError:
         pass
 

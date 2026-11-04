@@ -112,6 +112,15 @@ def parse_ts(s):
     return int(a) * 3600 + int(b) * 60 + int(c) if c else int(a) * 60 + int(b)
 
 
+def leer_texto(p):
+    """Texto de un fichero de datos nuestro: UTF-8 y, si no decodifica, cp1252."""
+    # ponytail: el respaldo cp1252 solo cubre ficheros que escribieron en Windows las versiones anteriores a fijar UTF-8; quitar cuando ya no queden
+    try:
+        return Path(p).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return Path(p).read_text(encoding="cp1252")
+
+
 def video_id(path):
     # ponytail: hash de tamaño + primeros/últimos 4 MB, no del fichero entero (GBs); hash completo si hay colisiones
     n = os.path.getsize(path)
@@ -655,7 +664,7 @@ def pers_id(ruta):
 def cargar_modelos():
     """Lee MODELOS y añade a NIVELES un nivel «Personalizado: <nombre>» (modo Alta, ~4x) por cada modelo extra."""
     try:
-        c = json.loads(MODELOS.read_text())
+        c = json.loads(leer_texto(MODELOS))
     except (OSError, ValueError):
         c = {}
     for q in [q for q in NIVELES if q not in BASE]:
@@ -728,7 +737,7 @@ def ram_gb():
             return round(m.total / 2**30)
         if sys.platform == "darwin":
             return round(int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout) / 2**30)
-        return round(int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text())[1]) / 2**20)
+        return round(int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text(encoding="utf-8"))[1]) / 2**20)
     except Exception:
         return 0
 
@@ -756,7 +765,7 @@ def gpu_info():
     elif exe := llama_exe(True):
         r["why"] = "No se detecta ninguna GPU compatible"
         try:
-            out = subprocess.run([str(exe), "--list-devices"], capture_output=True, text=True, timeout=30).stdout
+            out = subprocess.run([str(exe), "--list-devices"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30).stdout
         except Exception:
             out = ""
         if d := parse_devices(out):
@@ -803,7 +812,7 @@ class Srv:
         cmd = s.cmd(s.use)
         if s.use and os.environ.get("ACTAS_TEST_GPU_FAIL") and s.restarts == 0:
             cmd.append("--argumento-invalido")  # solo pruebas: fuerza el fallo de arranque en GPU
-        s.proc = procs.spawn(cmd, stdout=open(WORK / s.logname, "w"), stderr=subprocess.STDOUT)
+        s.proc = procs.spawn(cmd, stdout=open(WORK / s.logname, "w", encoding="utf-8"), stderr=subprocess.STDOUT)
         for _ in range(600):
             if s.proc.poll() is not None:
                 return False
@@ -2157,7 +2166,7 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
     ffmpeg: trim/atrim por tramo (con fundido corto de audio en cada corte) + concat, en un guion de filtros (-/filter_complex:
     sin límite de largo de la línea de órdenes de Windows)."""
     wd = Path(wd)
-    units = json.loads((wd / f"cortes_{quality}.json").read_text())
+    units = json.loads((wd / f"cortes_{quality}.json").read_text(encoding="utf-8"))
     pct = pct or recommend_pct(units)
     keeps = condense_plan(units, pct)
     if not keeps:
@@ -2170,12 +2179,12 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
                     f"afade=d={FADE},afade=t=out:st={b - a - FADE:.3f}:d={FADE}[a{i}];" for i, (a, b) in enumerate(keeps))
     graph += "".join(f"{'' if solo else f'[v{i}]'}[a{i}]" for i in range(len(keeps))) + f"concat=n={len(keeps)}:v={int(not solo)}:a=1{'' if solo else '[v]'}[a]"
     script = wd / "condensado.ffgraph"
-    script.write_text(graph)
+    script.write_text(graph, encoding="utf-8")
     kept = sum(b - a for a, b in keeps)
     t0 = time.time()
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-/filter_complex", str(script), *(() if solo else ("-map", "[v]")),
                           "-map", "[a]", *(() if solo else h264(threads)), "-c:a", "aac", "-b:a", "96k" if not solo else "64k", "-movflags", "+faststart",
-                          "-progress", "pipe:1", "-nostats", str(out)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                          "-progress", "pipe:1", "-nostats", str(out)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     for line in p.stdout:
         if line.startswith("out_time_us=") and line[12:].strip().isdigit():
             cb(min(int(line[12:]) / 1e6 / kept, 1), f"Codificando condensado… {fmt(int(line[12:]) / 1e6)} / {fmt(kept)}")
@@ -2197,7 +2206,7 @@ def ritmo_key(fase, alta, gpu):
 
 def ritmos():
     try:
-        return json.loads(RITMOS.read_text())
+        return json.loads(RITMOS.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
@@ -2240,7 +2249,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if reuse:
         video = next((WORK / reuse[0]).glob("video.*"), None)
         quality, transcript = reuse[1], None
-        names, speakers = (lambda d: (d["names"], d["speakers"]))(json.loads((WORK / reuse[0] / "nombres.json").read_text())) \
+        names, speakers = (lambda d: (d["names"], d["speakers"]))(json.loads(leer_texto(WORK / reuse[0] / "nombres.json"))) \
             if (WORK / reuse[0] / "nombres.json").exists() else (None, False)
     elif not (video or transcript):
         raise RuntimeError("Falta el vídeo o la transcripción")
@@ -2256,11 +2265,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     pic = video and not audio
     wd = WORK / (reuse[0] if reuse else video_id(video) if video else "t" + th[:16])
     wd.mkdir(parents=True, exist_ok=True)
-    (wd / "nombres.json").write_text(json.dumps({"names": names, "speakers": bool(speakers)}, ensure_ascii=False))
+    (wd / "nombres.json").write_text(json.dumps({"names": names, "speakers": bool(speakers)}, ensure_ascii=False), encoding="utf-8")
     timings = {}
     stage = lambda name, t0: timings.__setitem__(name, round(time.time() - t0, 1))
     tf = wd / f"transcript_{quality}.json"
-    dur = duration(video) if video else json.loads(tf.read_text())["segments"][-1]["e"] if tf.exists() else 0
+    dur = duration(video) if video else json.loads(tf.read_text(encoding="utf-8"))["segments"][-1]["e"] if tf.exists() else 0
     if nube:  # nube y local no comparten caché: el id (proveedor + modelo [+ anonimizado]) sustituye a la ruta del gguf en las claves
         import nube as NB
         model = NB.id_cache(nube)
@@ -2297,9 +2306,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
         tr = import_transcript(transcript, video, threads, dur, pa, descripcion, vision) if transcript else \
             grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario) if pistas else transcribe(video, quality, threads, dur, pa, hot=glosario)
-        tf.write_text(json.dumps(tr))  # ASCII: un documento trae «✉», emojis… que cp1252 (Windows) no escribe
+        tf.write_text(json.dumps(tr), encoding="utf-8")  # ASCII: un documento trae «✉», emojis… que cp1252 (Windows) no escribe
         stage("documento" if (tr.get("importada") or {}).get("tipo") else "transcripción" if transcript else "asr", t0)  # documento: sin ritmo (OCR por página)
-    tr = json.loads(tf.read_text())
+    tr = json.loads(tf.read_text(encoding="utf-8"))
     if not tr["segments"]:
         raise RuntimeError("No se ha detectado voz en el vídeo")
     imp = tr.get("importada")
@@ -2322,9 +2331,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     sf = wd / f"hablantes_{dh}.json"
     if speakers and not sf.exists():  # opcional: con voces parecidas o mal audio se equivoca a menudo
         t0 = time.time()
-        sf.write_text(json.dumps(diarize(video, tr["segments"], threads, fase("hablantes", 0.45, 0.5))))
+        sf.write_text(json.dumps(diarize(video, tr["segments"], threads, fase("hablantes", 0.45, 0.5))), encoding="utf-8")
         stage("hablantes", t0)
-    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text()))) if speakers
+    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text(encoding="utf-8")))) if speakers
                     else []):
         if k:
             s["spk"] = k
@@ -2336,20 +2345,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     kf = wd / "frames2.json"  # OCR crudo (v2: muestreo a 1 s, más capturas); screens() lo clasifica y deduplica en cada ejecución
     if pic and not kf.exists():
         t0 = time.time()
-        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, fase("capturas+ocr", 0.5, 0.55)), ensure_ascii=False))
+        kf.write_text(json.dumps(keyframes(video, wd, threads, dur, fase("capturas+ocr", 0.5, 0.55)), ensure_ascii=False), encoding="utf-8")
         stage("capturas+ocr", t0)
     if buscable:  # «solo buscable»: transcripción/texto y OCR de pantallas, sin LLM (buscar.py lo indexa; Preguntar también va)
         cb(1, "Listo")
         return wd, None, timings
     vocab = {w for s in tr["segments"] for w in words(s["text"])}
     # lo que ve el informe: solo pantallas (sin caras ni cámaras), con las rachas de escritura reducidas
-    kfs = collapse_typing([k for k in screens(json.loads(kf.read_text()), vocab) if k["screen"]]) if pic else []
+    kfs = collapse_typing([k for k in screens(json.loads(leer_texto(kf)), vocab) if k["screen"]]) if pic else []
     km = wd / "frames_map.json"  # lo que lee el LLM: el muestreo y la deduplicación de siempre (misma caché del map)
     if pic and not km.exists():
         t0 = time.time()
-        km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, fase("ocr_map", 0.55, 0.6)), ensure_ascii=False))
+        km.write_text(json.dumps(keyframes_map(video, wd, threads, dur, fase("ocr_map", 0.55, 0.6)), ensure_ascii=False), encoding="utf-8")
         stage("ocr_map", t0)
-    kfm = screens_map(json.loads(km.read_text()), vocab) if pic else []
+    kfm = screens_map(json.loads(leer_texto(km)), vocab) if pic else []
 
     chunks = chunk(tr["segments"], alta)
     starts = [c[0]["s"] for c in chunks]
@@ -2359,7 +2368,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     mh, vh, rh = cache_keys(P, model, inputs, level, p2, lang if idioma else None)
     tag = (f"_p-{tpl['id']}" * (tpl["id"] != "acta") + f"_i-{idioma}" * bool(idioma) + f"_{calidad}" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "") + (f"_{NB.slot(nube)}" if nube else "")
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
-    maps = json.loads(mf.read_text()) if mf.exists() else []
+    maps = json.loads(leer_texto(mf)) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
     fh = hashlib.sha1((vh + FONDO_PROMPT + str(FONDO_CHARS)).encode()).hexdigest()[:8]
     ff0 = wd / f"fondo_crudo_{quality}{tag}_{fh}.json"  # lo que devuelve el LLM (caro); los filtros se pueden afinar sobre él
@@ -2376,31 +2385,31 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 ETA["f"] = (i - n0) / (len(chunks) - n0)
                 cb(0.6 + 0.3 * i / len(chunks), f"Resumiendo bloque {i + 1}/{len(chunks)}…")
                 maps.append(map_chunk(chat, chunks[i], inputs[i], lang, kfm, P))
-                mf.write_text(json.dumps(maps, ensure_ascii=False))  # caché incremental: se retoma si se corta
+                mf.write_text(json.dumps(maps, ensure_ascii=False), encoding="utf-8")  # caché incremental: se retoma si se corta
             stage("map", t0)
             t0 = time.time()
             fase("reduce", 0.92, 0.92)(0, "Redactando el acta…")
             maps = mark_reading(maps, tr["segments"], kfm)  # tras guardar la caché: es barato y así se puede ajustar
             maps = dedup_points(maps) if p2 else maps
             if not vf.exists():
-                vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False))
-            valid = json.loads(vf.read_text())
+                vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False), encoding="utf-8")
+            valid = json.loads(leer_texto(vf))
             if not rf.exists():
-                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P, lambda: fase("partes", 0.92, 0.97)), ensure_ascii=False))
+                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P, lambda: fase("partes", 0.92, 0.97)), ensure_ascii=False), encoding="utf-8")
             stage("reduce", t0)
             if fondo and not ff.exists():
                 t0 = time.time()
                 if not ff0.exists():
                     ff0.write_text(json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, fase("fondo", 0.93, 0.99)),
-                                              ensure_ascii=False))
-                ff.write_text(json.dumps(fondo_filtrar(chat, json.loads(ff0.read_text()), tr["segments"], kfm, valid, maps, starts),
-                                         ensure_ascii=False))
+                                              ensure_ascii=False), encoding="utf-8")
+                ff.write_text(json.dumps(fondo_filtrar(chat, json.loads(leer_texto(ff0)), tr["segments"], kfm, valid, maps, starts),
+                                         ensure_ascii=False), encoding="utf-8")
                 stage("fondo", t0)
     else:
         ETA.clear()  # sin LLM (todo en caché): solo queda pintar
-    red = json.loads(rf.read_text())
+    red = json.loads(leer_texto(rf))
     if ff.exists():  # búsqueda a fondo hecha antes (o ahora): sus decisiones y tareas van al acta
-        red = merge_fondo(red, json.loads(ff.read_text()))
+        red = merge_fondo(red, json.loads(leer_texto(ff)))
     timings["emb"] = round(EMB_T[0], 1)
     maps = mark_reading(maps, tr["segments"], kfm)
     maps = dedup_points(maps) if p2 else maps
@@ -2410,29 +2419,29 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         ntag, pend, cf = "_n-" + grabar.hash_notas(notas), grabar.pendientes(notas, P), wd / "notas_ext.json"
         kx = lambda n: hashlib.sha1(json.dumps([grabar.NOTA_PROMPT, str(model), lang, n["t"], n["boton"], n["seccion"],
                                                 [s["text"] for s in grabar.ventana(tr["segments"], n["t"])]]).encode()).hexdigest()[:12]
-        cx = json.loads(cf.read_text()) if cf.exists() else {}
+        cx = json.loads(leer_texto(cf)) if cf.exists() else {}
         if falta := [n for n in pend if kx(n) not in cx]:
             cb(0.94, "Leyendo tus notas…")
             with LL() as chat:
                 for n in falta:
                     cx[kx(n)] = grabar.extraer(me, chat, n, tr["segments"], P, lang, model)
-            cf.write_text(json.dumps(cx, ensure_ascii=False))
+            cf.write_text(json.dumps(cx, ensure_ascii=False), encoding="utf-8")
         filas = grabar.aplicar(me, notas, tr["segments"], maps, red, P, {n["id"]: cx[kx(n)] for n in pend if cx.get(kx(n))})
     if otro:  # traducción de las citas que se ven (caché por idioma: solo depende de la cita)
         trim_caps(red, maps, LEVELS[level], tr["segments"])
         qs = [x["cita"] for k in ("decisiones", "tareas") for x in red[k] if x.get("cita")] + \
              [x["cita"] for _, its in gen_show(maps, P, level, tr["segments"]) for x in its if x["cita"]]
         tq = wd / f"trad_{hashlib.sha1((TRAD_PROMPT + lang + str(model)).encode()).hexdigest()[:8]}.json"
-        trad = json.loads(tq.read_text()) if tq.exists() else {}
+        trad = json.loads(leer_texto(tq)) if tq.exists() else {}
         if falta := list(dict.fromkeys(q for q in qs if q not in trad)):
             cb(0.95, "Traduciendo las citas…")
             with LL() as chat:
                 trad.update(traducir(chat, falta, lang))
-            tq.write_text(json.dumps(trad, ensure_ascii=False))
+            tq.write_text(json.dumps(trad, ensure_ascii=False), encoding="utf-8")
         red["trad"] = trad
-    imp_ = seg_importance(tr["segments"], maps, json.loads(vf.read_text()))  # para el vídeo condensado
+    imp_ = seg_importance(tr["segments"], maps, json.loads(leer_texto(vf)))  # para el vídeo condensado
     if video:  # el vídeo condensado necesita vídeo
-        (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)))
+        (wd / f"cortes_{quality}.json").write_text(json.dumps(timeline([(s["s"], s["e"], n) for s, n in zip(tr["segments"], imp_)], dur)), encoding="utf-8")
     print(score_hist(maps), flush=True)
 
     stem = (video.resolve() if reuse and video else video or Path(transcript or wd.name)).stem
@@ -2440,7 +2449,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     shutil.rmtree(out, ignore_errors=True)
     (out / "img").mkdir(parents=True)
     try:
-        nombre = json.loads((wd / "meta.json").read_text()).get("nombre")  # nombre puesto por el usuario (app.py)
+        nombre = json.loads(leer_texto(wd / "meta.json")).get("nombre")  # nombre puesto por el usuario (app.py)
     except (OSError, ValueError):
         nombre = None
     op = tpl.get("opciones", {})
@@ -2454,7 +2463,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
             import cv2
             im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
             cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (400, 225), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 75])
-    miss = [m for m in re.findall(r'(?:src|href)="img/([^"]+)"', (out / "index.html").read_text()) if not (out / "img" / m).exists()]
+    miss = [m for m in re.findall(r'(?:src|href)="img/([^"]+)"', (out / "index.html").read_text(encoding="utf-8")) if not (out / "img" / m).exists()]
     if miss:
         raise RuntimeError(f"imágenes sin copiar: {sorted(set(miss))}")
     zpath = wd / f"acta_{stem}_{level}{tag}{ntag}.zip"
@@ -2470,13 +2479,13 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         if not src.exists():
             put_file(video.resolve(), src)
         put_file(src, out / src.name)
-    (wd / f"timings_{quality}_{level}{tag}{ntag}.json").write_text(json.dumps(timings))
+    (wd / f"timings_{quality}_{level}{tag}{ntag}.json").write_text(json.dumps(timings), encoding="utf-8")
     r = ritmos()  # lo medido en este equipo afina el tiempo restante de las siguientes actas
     for n, t in timings.items():
         if n in RITMO0 and t >= 1 and dur >= 600 and not nube:  # vídeos cortos: el arranque fijo pesa demasiado y falsearía el ritmo
             k, v = rk(n), t / dur / ((len(chunks) - n0) / len(chunks) if n == "map" else 1)
             r[k] = round((r[k] + v) / 2 if k in r else v, 4)
-    RITMOS.write_text(json.dumps(r))
+    RITMOS.write_text(json.dumps(r), encoding="utf-8")
     cb(1, "Listo")
     return out, zpath, timings
 

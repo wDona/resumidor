@@ -123,8 +123,8 @@ if __name__ == "__main__":
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=22050:cl=mono", "-t", "0.5", sil], check=True)
             wavs.append(f"file '{sil}'\n")
         concat.append(f"file '{img}'\n")  # el demuxer concat ignora la duración del último
-        (td / "v.txt").write_text("".join(concat))
-        (td / "a.txt").write_text("".join(wavs))
+        (td / "v.txt").write_text("".join(concat), encoding="utf-8")
+        (td / "a.txt").write_text("".join(wavs), encoding="utf-8")
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", td / "v.txt",
                         "-f", "concat", "-safe", "0", "-i", td / "a.txt", "-vf", "fps=15,format=yuv420p",
                         "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-c:a", "aac", "-b:a", "64k",

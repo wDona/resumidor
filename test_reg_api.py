@@ -166,6 +166,16 @@ def test_descartar_listar_restaurar(cl):
     assert todos(t, revision="descartado") and p not in todos(t)
 
 
+def test_por_tipo_revision(cl):
+    t, _ = cl
+    r1, r2 = (t.post("/api/reg", json={"c": C, "tipo": "riesgo", "titulo": x}).json()["id"] for x in ("R1", "R2"))
+    t.post("/api/reg/revisar", json={"c": C, "ids": [r1], "accion": "descartar"})
+    ptr = t.get("/api/reg", params={"c": C, "tipo": "decision"}).json()["contadores"]["por_tipo_revision"]  # no depende del tipo pedido
+    assert ptr["riesgo"] == {"propuesto": 0, "aprobado": 1, "descartado": 1, "fusionado": 0}
+    assert all(set(v) == {"propuesto", "aprobado", "descartado", "fusionado"} for v in ptr.values())
+    assert sum(v["descartado"] for v in ptr.values()) == t.get("/api/reg", params={"c": C}).json()["contadores"]["por_revision"]["descartado"] == 1
+
+
 def test_forma_que_lee_registro_js(cl):
     """Toda propiedad que registro.js lee de entidades/bandeja/historial existe en las respuestas reales."""
     from pathlib import Path
@@ -181,9 +191,9 @@ def test_forma_que_lee_registro_js(cl):
     assert {"mid", "ver", "t", "texto", "verificada"} <= set(it["citas"][0])
     assert {"tipo", "cita", "mid", "ver", "t"} <= set(it["sugerencia"])
     assert {"propuestos", "sugerencias", "relaciones_propuestas", "huerfanos"} <= set(b)
-    assert {"items", "contadores"} == set(ents) and {"por_tipo", "por_revision", "huerfanos"} <= set(ents["contadores"]) and {"propuesto", "aprobado", "descartado"} <= set(ents["contadores"]["por_revision"])
+    assert {"items", "contadores"} == set(ents) and {"por_tipo", "por_revision", "por_tipo_revision", "huerfanos"} <= set(ents["contadores"]) and {"propuesto", "aprobado", "descartado"} <= set(ents["contadores"]["por_revision"])
     t.patch(f"/api/reg/{h}", json={"c": C, "cambios": {"prioridad": "alta"}})
     hs = t.get(f"/api/reg/{h}/historial", params={"c": C}).json()
     assert hs and {"t", "accion", "antes", "despues"} <= set(hs[0]) and 1e9 < hs[0]["t"] < 1e11  # segundos epoch: el JS no los multiplica por 1000 de más
-    assert all(k in js for k in ("a_titulo", "b_titulo", "por_revision", "contadores", "relaciones_propuestas"))
+    assert all(k in js for k in ("a_titulo", "b_titulo", "por_tipo_revision", "contadores", "relaciones_propuestas"))  # por_tipo_revision: el recuento de «Descartadas» del chip, sin abrirlo
     assert {"a", "b", "tipo", "a_titulo", "b_titulo"} <= set(b["relaciones_propuestas"][0])

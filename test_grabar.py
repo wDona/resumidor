@@ -62,5 +62,5 @@ def test_aplicar_y_render(tmp_path):
     for nt in (filas, None):
         o = tmp_path / str(bool(nt)); (o / "img").mkdir(parents=True)
         pipeline.render(o, "T", 50, "es", copy.deepcopy(red), copy.deepcopy(maps), [], [0], SEGS, "normal", None, notas=nt, P=P)
-        h = (o / "index.html").read_text()
+        h = (o / "index.html").read_text(encoding="utf-8")
         assert ("Notas del usuario" in h and "marcado por ti" in h and "Confirmar importe" in h) == bool(nt)

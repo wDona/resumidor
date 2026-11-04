@@ -179,7 +179,7 @@ def abrir_outlook(cor, pdf=None, nombre_pdf="documento.pdf"):
         (t / "spec.json").write_text(json.dumps({"para": para, "asunto": cor["asunto"], "html": cor["html"], "adjuntos": adj}), encoding="utf-8")
         (t / "borrador.ps1").write_text(_PS, encoding="utf-8-sig")
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(t / "borrador.ps1"), str(t / "spec.json")],
-                           capture_output=True, text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                           capture_output=True, text=True, errors="replace", timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if r.returncode == 3:
         raise RuntimeError("Outlook clásico no está disponible (¿usas el «nuevo Outlook»?). Descarga el .eml")
     if r.returncode:

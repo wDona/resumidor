@@ -48,7 +48,7 @@ def cl(tmp_path, monkeypatch):
         (wd / "acta_normal_imp1").mkdir(parents=True)
         (wd / "acta_normal_imp1" / "acta.json").write_text(json.dumps(_acta("Acta de reunión"), ensure_ascii=False), encoding="utf-8")
         (wd / "transcript_imp1.json").write_text(json.dumps({"language": "es", "segments": segs}, ensure_ascii=False), encoding="utf-8")
-        (wd / "meta.json").write_text(json.dumps({"carpeta": C, "nombre": f"Reunión {i + 1}"}))
+        (wd / "meta.json").write_text(json.dumps({"carpeta": C, "nombre": f"Reunión {i + 1}"}), encoding="utf-8")
         for f in (wd / "transcript_imp1.json", wd / "acta_normal_imp1" / "acta.json"):
             os.utime(f, (t, t))
     import app

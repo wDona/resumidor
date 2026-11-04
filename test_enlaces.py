@@ -73,7 +73,7 @@ def test_traer(tmp_path, web):
     k, f = enlaces.traer(web + "/doc.pdf", tmp_path / "a", red_local=True)
     assert (k, f.suffix, f.read_bytes()) == ("fichero", ".pdf", PDF)
     k, f = enlaces.traer(web + "/articulo", tmp_path / "b", red_local=True)
-    assert k == "pagina" and f.suffix == ".md" and "calendario" in f.read_text()
+    assert k == "pagina" and f.suffix == ".md" and "calendario" in f.read_text(encoding="utf-8")
     with pytest.raises(RuntimeError, match="demasiado grande"):
         enlaces.traer(web + "/grande.pdf", tmp_path / "c", red_local=True, max_mb=0)
     import urllib.error
@@ -99,7 +99,7 @@ def test_enlace_job(cl, web):
     assert set(ms) == {"doc.pdf", "Obra calendario.md"} or any("calendario" in k for k in ms), ms.keys()
     assert buscar(t, "presupuesto", c="Obra")["fragmentos"] and buscar(t, "andamios", c="Obra")["fragmentos"]
     mid = next(m["id"] for k, m in ms.items() if "calendario" in k)
-    assert json.loads((pipeline.WORK / mid / "meta.json").read_text())["url"].endswith("/articulo")
+    assert json.loads((pipeline.WORK / mid / "meta.json").read_text(encoding="utf-8"))["url"].endswith("/articulo")
     app.cola.clear()
     t.post("/api/generar", json={**c, "enlace": web + "/404"})
     for _ in range(300):
@@ -157,10 +157,10 @@ def test_tal_cual(cl, monkeypatch):
     j = next(e for e in app.cola if e["kind"] == "acta")
     mid, ver = j["result"]["id"], j["result"]["acta"]
     assert ver.startswith("acta_normal_")
-    a = json.loads((pipeline.WORK / mid / ver / "acta.json").read_text())
+    a = json.loads((pipeline.WORK / mid / ver / "acta.json").read_text(encoding="utf-8"))
     assert a["tal_cual"] and a["resumen"] == "" and any("fachada" in x["texto"] for x in a["relato"])
     assert "Luis enviará" in (pipeline.WORK / mid / ver / "index.html").read_text(encoding="utf-8")
-    assert json.loads((pipeline.WORK / mid / "meta.json").read_text())["tal_cual"] and buscar(t, "andamios", c="Obra")["fragmentos"]
+    assert json.loads((pipeline.WORK / mid / "meta.json").read_text(encoding="utf-8"))["tal_cual"] and buscar(t, "andamios", c="Obra")["fragmentos"]
     k, spec = next(p for p in pedidos if p[0] == "poblar")
     assert spec["mid"] == mid and "tareas" in spec["vistas"]
     tipos = {x["tipo"]: x for tipo in ("tarea", "decision", "riesgo") for x in registro.listar("Obra", tipo)}

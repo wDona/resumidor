@@ -144,3 +144,10 @@ def test_deshacer_pasada_endpoint(cl):
     r = d("LOTEIA").json()
     assert r["ok"] and r["revertidas"] == 1 and x["id"] not in [i["id"] for i in t.get("/api/reg", params={"c": C}).json()["items"]]
     assert u["id"] in [i["id"] for i in t.get("/api/reg", params={"c": C}).json()["items"]]
+
+
+def test_leer_texto_utf8_y_cp1252_heredado(tmp_path):
+    u, w = tmp_path / "u.json", tmp_path / "w.json"
+    u.write_text('{"n": "reunión ✉"}', encoding="utf-8")
+    w.write_bytes('{"n": "reunión"}'.encode("cp1252"))  # lo que dejaban en Windows las versiones sin codificación fija
+    assert '"reunión ✉"' in pipeline.leer_texto(u) and '"reunión"' in pipeline.leer_texto(w)

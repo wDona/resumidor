@@ -91,10 +91,10 @@ def test_sincronizar(cl):
     t1 = ents["aaaa1111|acta_normal_impaaaa_v2|tareas.1"]
     registro.borrar(t1["id"])
     f = w / "acta_normal_impaaaa_v2" / "acta.json"
-    ac = json.loads(f.read_text())
+    ac = json.loads(f.read_text(encoding="utf-8"))
     ac["tareas"][0]["tarea"] = "Arreglar la puerta del garaje y el portero"
     ac["secciones_plantilla"] = ac["secciones_plantilla"][:1]  # fuera la gotera
-    f.write_text(json.dumps(ac, ensure_ascii=False))
+    f.write_text(json.dumps(ac, ensure_ascii=False), encoding="utf-8")
     ps = {p["id"]: p for p in carpetas.pendientes(C, ms(), HOY)}
     assert ps["aaaa1111|acta_normal_impaaaa_v2|tareas.0"]["texto"] == "Puerta del garaje (revisado)" and "aaaa1111|acta_normal_impaaaa_v2|tareas.1" not in ps
     assert "Gotera en el portal" not in [p["texto"] for p in ps.values()] and _n_ent() == n
@@ -293,9 +293,9 @@ def test_ref_por_posicion_exige_mismo_texto(cl):
     t0, t1 = ents[P0], ents["aaaa1111|acta_normal_impaaaa|tareas.1"]
     registro.editar(t0["id"], {"estado": "hecho", "campos": {"nota": "nota de la 0"}})
     f = pipeline.WORK / "aaaa1111" / "acta_normal_impaaaa" / "acta.json"
-    ac = json.loads(f.read_text())
+    ac = json.loads(f.read_text(encoding="utf-8"))
     del ac["tareas"][0]  # la 1 pasa a ser la 0
-    f.write_text(json.dumps(ac, ensure_ascii=False))
+    f.write_text(json.dumps(ac, ensure_ascii=False), encoding="utf-8")
     x = registro.sincronizar(C, carpetas.docs(ms()))[P0]
     assert x["id"] == t1["id"] and x["estado"] == "abierto" and not x["campos"].get("nota")
     assert registro.listar(C, id=t0["id"])[0]["campos"]["huerfano"] is True
@@ -332,13 +332,13 @@ def test_sincronizar_filtra_decisiones_no_firmes(cl):
     registro.sincronizar(C, ds)
     n = len(registro.listar(C, "decision"))
     f = pipeline.WORK / "aaaa1111" / "acta_normal_impaaaa" / "acta.json"
-    ac = json.loads(f.read_text())
+    ac = json.loads(f.read_text(encoding="utf-8"))
     ac["decisiones"] += [{"cita": "x", "texto": "Se aplaza decidir quién redacta las preguntas frecuentes", "t": 200, "b": 0, "n": 1},
                          {"cita": "x", "texto": "La próxima reunión será el martes", "t": 210, "b": 0, "n": 1},
                          {"cita": "deberíamos mirarlo", "texto": "Cambiar el proveedor de pagos", "t": 220, "b": 0, "n": 1},
                          {"cita": "x", "texto": "Se aprueba el calendario de la beta", "t": 230, "b": 0, "n": 1},
                          {"cita": "x", "texto": "Se aprueba presentar el presupuesto en la próxima reunión", "t": 240, "b": 0, "n": 1}]
-    f.write_text(json.dumps(ac, ensure_ascii=False))
+    f.write_text(json.dumps(ac, ensure_ascii=False), encoding="utf-8")
     registro.sincronizar(C, carpetas.docs(ms()))
     assert [x["titulo"] for x in registro.listar(C, "decision")][n:] == [  # en un acta solo se descarta lo aplazado; próxima reunión / propuestas llegan como propuestos para revisar
         "La próxima reunión será el martes", "Cambiar el proveedor de pagos", "Se aprueba el calendario de la beta", "Se aprueba presentar el presupuesto en la próxima reunión"]

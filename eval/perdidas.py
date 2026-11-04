@@ -29,14 +29,14 @@ W = 90
 tot, lost, dist = {}, [], []
 print(f"{'reunión':20} {'ítems':>5} a b c d e")
 for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
-    g = json.loads(gf.read_text())
+    g = json.loads(gf.read_text(encoding="utf-8"))
     if "--solo" in sys.argv and g["video"] not in arg("--solo", "").split(","):
         continue
     video = ROOT / "samples" / f"{g['video']}.mp4"
     P.run(video, level, "rápido")
     red, maps, segs = cap["red"], cap["maps"], cap["segments"]
     wd = P.WORK / g["hash"]
-    acta = json.loads((wd / f"acta_{level}_rápido{'_' + tag if tag else ''}" / "acta.json").read_text())
+    acta = json.loads((wd / f"acta_{level}_rápido{'_' + tag if tag else ''}" / "acta.json").read_text(encoding="utf-8"))
     sel = P.select_points(maps, P.LEVELS[level]["keep"], P.LEVELS[level]["pts"], P.LEVELS[level]["pts"], not P.LEVELS[level]["secs"])
     seltxt = [(t, x) for t, x, _, _ in sel] + [(P.parse_ts(d["t"]), d["texto"]) for d in red["decisiones"]] + \
              [(P.parse_ts(d["t"]), d["tarea"]) for d in red["tareas"]]
@@ -65,7 +65,7 @@ for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
             lost.append(f"| {g['video']} | {kind[:-1] if kind != 'claves' else 'clave'} {x.get('id', '')} (t={lo}) {x['texto'][:60]} | {st} |")
     print(f"{g['video']:20} {len(items):5} " + " ".join(str(cnt[k]) for k in "abcde"))
     tf = wd / f"timings_rápido_{level}{'_' + tag if tag else ''}.json"
-    if tf.exists() and "tipos" in (t := json.loads(tf.read_text())):
+    if tf.exists() and "tipos" in (t := json.loads(tf.read_text(encoding="utf-8"))):
         dist.append(f"| {g['video']} | " + " ".join(f"{k}:{v}" for k, v in t["tipos"].items()) + f" | {t['protegidos']} |")
 print(f"{'TOTAL':20} {sum(tot.values()):5} " + " ".join(str(tot.get(k, 0)) for k in "abcde"))
 if verbose or True:

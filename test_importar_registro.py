@@ -96,10 +96,10 @@ def test_a_proyecto(cl, monkeypatch):
     t.post("/api/carpeta", json={"nuevo": nueva})
     r = t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": nueva, "modo": "mover"}).json()
     assert r == {"ok": True, "mids": [mid], "poblando": ["j1"]} and lanzados[0][1]["c"] == nueva and lanzados[0][1]["mid"] == mid
-    assert json.loads((pipeline.WORK / mid / "meta.json").read_text())["carpeta"] == nueva
+    assert json.loads((pipeline.WORK / mid / "meta.json").read_text(encoding="utf-8"))["carpeta"] == nueva
     r = t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "copiar"}).json()
     nid = r["mids"][0]
-    assert nid != mid and (pipeline.WORK / mid / "meta.json").exists() and json.loads((pipeline.WORK / nid / "meta.json").read_text())["carpeta"] == C
+    assert nid != mid and (pipeline.WORK / mid / "meta.json").exists() and json.loads((pipeline.WORK / nid / "meta.json").read_text(encoding="utf-8"))["carpeta"] == C
     assert t.post("/api/doc/a-proyecto", json={"mids": ["nope"], "c": C, "modo": "mover"}).status_code == 404
     assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "x"}).status_code == 400
     monkeypatch.setattr(app, "_ajustes", lambda: {"poblar_auto": False})  # respeta poblar_auto

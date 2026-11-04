@@ -43,21 +43,21 @@ def carga(mid, ver, anon=False, dudas=False):
     ed = d / EDITADA
     if anon and not (d / "acta_anonima.json").is_file():
         raise ValueError("No hay copia anonimizada de este documento: anonimízalo primero")
-    data = json.loads((d / "acta_anonima.json" if anon else ed if ed.is_file() else d / "acta.json").read_text())
+    data = json.loads((d / "acta_anonima.json" if anon else ed if ed.is_file() else d / "acta.json").read_text(encoding="utf-8"))
     tf = d.parent / f"transcript_{d.name.split('_')[2]}.json"
     try:
         tpl = next(t for t in plantillas.todas() if t["nombre"] == data.get("plantilla")) if data.get("plantilla") else plantillas.get("acta")
     except StopIteration:
         tpl = plantillas.get("acta")
     try:
-        carpeta = json.loads((d.parent / "meta.json").read_text()).get("carpeta", "")
+        carpeta = json.loads(P.leer_texto(d.parent / "meta.json")).get("carpeta", "")
     except (OSError, ValueError):
         carpeta = ""
     if anon:
         tf = d / "transcript_anonimo.json"
     c = {"d": d, "mid": d.parent.name, "ver": d.name, "data": data, "tpl": tpl, "editado": ed.is_file() and not anon, "carpeta": carpeta, "anon": anon,
          "img": "img_anon" if anon else "img",
-         "segs": json.loads(tf.read_text()).get("segments", []) if tf.is_file() else [],
+         "segs": json.loads(tf.read_text(encoding="utf-8")).get("segments", []) if tf.is_file() else [],
             "doc": (data.get("documento") or tpl.get("documento") or {}).get("singular", "acta"),
          "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime)}
     if anon:  # título y nombres de fichero neutros: nada del nombre de la reunión ni de la carpeta
@@ -506,14 +506,14 @@ ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 
 
 def estilos():
-    return [json.loads(f.read_text()) for f in sorted(_est_dir().glob("*.json"))]
+    return [json.loads(P.leer_texto(f)) for f in sorted(_est_dir().glob("*.json"))]
 
 
 def estilo_get(eid):
     f = _est_dir() / f"{eid}.json"
     if not ID.fullmatch(eid or "") or not f.is_file():
         raise KeyError(eid)
-    return json.loads(f.read_text())
+    return json.loads(P.leer_texto(f))
 
 
 def estilo_guardar(d):
@@ -541,7 +541,7 @@ def estilo_guardar(d):
         if k in d and not d[k] and e[k]:
             (_est_dir() / e[k]).unlink(missing_ok=True)
             e[k] = ""
-    (_est_dir() / f"{eid}.json").write_text(json.dumps(e, ensure_ascii=False, indent=1))
+    (_est_dir() / f"{eid}.json").write_text(json.dumps(e, ensure_ascii=False, indent=1), encoding="utf-8")
     return e
 
 
@@ -568,7 +568,7 @@ def estilo_fichero(eid, clave, nombre, datos):
         (_est_dir() / e[clave]).unlink(missing_ok=True)
     (_est_dir() / fn).write_bytes(datos)
     e[clave] = fn
-    (_est_dir() / f"{eid}.json").write_text(json.dumps(e, ensure_ascii=False, indent=1))
+    (_est_dir() / f"{eid}.json").write_text(json.dumps(e, ensure_ascii=False, indent=1), encoding="utf-8")
     return e
 
 
@@ -580,10 +580,10 @@ def estilo_borrar(eid):
     (_est_dir() / f"{eid}.json").unlink()
     f = P.WORK / "carpetas.json"  # y de las carpetas que lo tenían por defecto
     try:
-        j = json.loads(f.read_text())
+        j = json.loads(P.leer_texto(f))
         if isinstance(j, dict) and any(v == eid for v in j.get("estilos", {}).values()):
             j["estilos"] = {k: v for k, v in j["estilos"].items() if v != eid}
-            f.write_text(json.dumps(j, ensure_ascii=False))
+            f.write_text(json.dumps(j, ensure_ascii=False), encoding="utf-8")
     except (OSError, ValueError):
         pass
 
@@ -594,7 +594,7 @@ def estilo_para(c, eid=None):
         return None
     if not eid:
         try:
-            j = json.loads((P.WORK / "carpetas.json").read_text())
+            j = json.loads(P.leer_texto(P.WORK / "carpetas.json"))
             eid = j.get("estilos", {}).get(c["carpeta"]) if isinstance(j, dict) else None
         except (OSError, ValueError):
             eid = None

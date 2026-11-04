@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory() as t:  # escáner: LM Studio, HF, Ollama con 
     gguf(t / ".cache/huggingface/hub/models--x--y/snapshots/1/y-Q4.gguf")
     gguf(t / ".ollama/models/blobs/sha256-abc")
     mf = t / ".ollama/models/manifests/registry.ollama.ai/library/qwen3/8b"; mf.parent.mkdir(parents=True)
-    mf.write_text(json.dumps({"layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:abc"}]}))
+    mf.write_text(json.dumps({"layers": [{"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:abc"}]}), encoding="utf-8")
     old = Path.home
     Path.home = classmethod(lambda c: t)
     try:

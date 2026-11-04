@@ -140,16 +140,16 @@ def terms(text):
 # ---------- índice ----------
 def units(wd, quality="rápido"):
     """Tramos de voz de ~15 s (marcas del ASR) y, aparte, el texto de cada pantalla compartida en trozos de 60 palabras."""
-    tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text())
+    tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text(encoding="utf-8"))
     segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk"), "loc": x.get("loc")} for x in P.merge_segs(tr["segments"])]  # loc: página/sección de un documento
     kf = Path(wd) / "frames.json"
-    for k in P.screens(json.loads(kf.read_text())) if kf.exists() else []:
+    for k in P.screens(json.loads(P.leer_texto(kf))) if kf.exists() else []:
         # sin URLs ni tokens kilométricos (barra de direcciones): solo meten ruido en BM25 y en el embedding
         w = [x for x in k["text"].replace(" | ", " · ").split() if len(x) < 25 and "/" not in x and "=" not in x] \
             if k["screen"] else []
         segs += [{"s": k["t"], "e": k["t"], "text": " ".join(w[i:i + 60]), "kind": "pantalla"} for i in range(0, len(w), 60)]
     ci = Path(wd) / "capturas_ia.json"  # capturas descritas con IA (vision.py): también se puede preguntar por lo que se veía
-    segs += [{"s": x["t"], "e": x["t"], "text": x["texto"], "kind": "pantalla"} for x in (json.loads(ci.read_text()).values() if ci.exists() else [])]
+    segs += [{"s": x["t"], "e": x["t"], "text": x["texto"], "kind": "pantalla"} for x in (json.loads(ci.read_text(encoding="utf-8")).values() if ci.exists() else [])]
     return segs
 
 
@@ -276,13 +276,13 @@ class Index:
         self.len = np.array([sum(d.values()) for d in self.docs], float)
         self.voz = [i for i, s in enumerate(self.segs) if s["kind"] == "voz"]
         self.wd = Path(wd)
-        self.lang = json.loads((self.wd / f"transcript_{quality}.json").read_text()).get("language") or "es"
+        self.lang = json.loads((self.wd / f"transcript_{quality}.json").read_text(encoding="utf-8")).get("language") or "es"
 
     def acta(self):
         """(resumen, [(t, texto)...]) del acta breve (o la más corta que haya) de esta reunión; (None, []) si no hay."""
         fs = sorted(self.wd.glob("acta_*/acta.json"), key=lambda f: ("_p-" in f.parent.name or "_i-" in f.parent.name, "breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name))
         try:
-            a = json.loads(fs[0].read_text())
+            a = json.loads(fs[0].read_text(encoding="utf-8"))
         except (IndexError, ValueError):
             return None, []
         rel = [(r["t"], r["texto"]) for r in a.get("relato", [])] or [(x.get("t", 0), x.get("titulo", "")) for x in a.get("secciones", [])]

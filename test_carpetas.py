@@ -27,12 +27,12 @@ def acta(titulo, decisiones=(), tareas=(), secs=(), puntos=()):
 def doc(work, mid, nombre, dias, ac, segs, ver="acta_normal_imp"):
     wd = work / mid
     (wd / (ver + mid[:4])).mkdir(parents=True)
-    (wd / (ver + mid[:4]) / "acta.json").write_text(json.dumps(ac, ensure_ascii=False))
-    (wd / (ver + mid[:4]) / "index.html").write_text("<!doctype html><title>x</title><body><p>Documento de prueba</p>")
+    (wd / (ver + mid[:4]) / "acta.json").write_text(json.dumps(ac, ensure_ascii=False), encoding="utf-8")
+    (wd / (ver + mid[:4]) / "index.html").write_text("<!doctype html><title>x</title><body><p>Documento de prueba</p>", encoding="utf-8")
     tf = wd / f"transcript_imp{mid[:4]}.json"
     tf.write_text(json.dumps({"language": "es", "segments": [{"s": s, "e": s + 8, "text": t, "spk": k} for s, t, k in segs],
-                              "importada": {"fuente": "x.vtt", "formato": "WebVTT", "segmentos": len(segs), "hablantes": [], "desfase": 0, "aviso": None}}, ensure_ascii=False))
-    (wd / "meta.json").write_text(json.dumps({"carpeta": C, "nombre": nombre}))
+                              "importada": {"fuente": "x.vtt", "formato": "WebVTT", "segmentos": len(segs), "hablantes": [], "desfase": 0, "aviso": None}}, ensure_ascii=False), encoding="utf-8")
+    (wd / "meta.json").write_text(json.dumps({"carpeta": C, "nombre": nombre}), encoding="utf-8")
     t = time.time() - dias * 86400
     os.utime(tf, (t, t)), os.utime(wd / (ver + mid[:4]) / "acta.json", (t, t))
     return wd

@@ -102,15 +102,15 @@ def capturas(out, cfg, cb=lambda f, m: None):
     """Describe las capturas que lleva el documento (acta.json «capturas») y guarda descripcion_ia en cada una; caché por imagen en
     <reunión>/capturas_ia.json (la leen Buscar y Preguntar). -> nº de descritas ahora."""
     cache = Path(out).parent / "capturas_ia.json"
-    ya = json.loads(cache.read_text()) if cache.exists() else {}
-    acta = json.loads((Path(out) / "acta.json").read_text())
+    ya = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else {}
+    acta = json.loads((Path(out) / "acta.json").read_text(encoding="utf-8"))
     falta = [k for k in acta.get("capturas", []) if k["img"] not in ya]
     if falta:
         with sesion(cfg) as desc:
             for i, k in enumerate(falta):
                 cb(i / len(falta), f"Describiendo capturas con IA… {i + 1}/{len(falta)}")
                 ya[k["img"]] = {"t": k["t"], "texto": desc(Path(out) / "img" / k["img"])}
-                cache.write_text(json.dumps(ya))  # ASCII: cp1252 (Windows) no escribe todo Unicode
+                cache.write_text(json.dumps(ya), encoding="utf-8")  # ASCII: cp1252 (Windows) no escribe todo Unicode
     for k in acta.get("capturas", []):
         if k["img"] in ya:
             k["descripcion_ia"] = ya[k["img"]]["texto"]

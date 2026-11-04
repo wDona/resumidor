@@ -98,7 +98,7 @@ if a.poblar:
             vistos[v].append(it)
         return ok
     poblar.comprobar = comprobar
-    (out.parent / "meta.json").write_text(json.dumps({"carpeta": "E2E", "nombre": "e2e"}))
+    (out.parent / "meta.json").write_text(json.dumps({"carpeta": "E2E", "nombre": "e2e"}), encoding="utf-8")
     n0, c0, t1 = st["n"], st["cost"], time.time()
     info = poblar.poblar("E2E", ms, lambda: nube.backend(cfg))
     print(f"\nPOBLAR llamadas={st['n'] - n0} tiempo={time.time() - t1:.0f}s coste=US${st['cost'] - c0:.3f} | info: creadas={info['creadas']} citas={info['citas']} descartadas={info['descartadas']}")

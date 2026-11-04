@@ -38,7 +38,7 @@ def test_no_embed_exige_sidecar(monkeypatch, tmp_path):
 def test_indice_lexico_y_onnx_no_comparten_cache(monkeypatch, tmp_path):
     """Un índice léxico (1024-d) no debe cargarse cuando se pasa a ONNX (768-d): la clave incluye «lex»."""
     monkeypatch.setattr(rag, "units", lambda wd, q: [{"text": "el proveedor retrasa los pagos", "kind": "voz"}, {"text": "la playa estaba llena", "kind": "voz"}])
-    (tmp_path / "transcript_rápido.json").write_text("{}")
+    (tmp_path / "transcript_rápido.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(rag, "_enc", None)
     monkeypatch.setattr(rag, "no_embed", lambda: True)
     a = rag.Index(tmp_path)

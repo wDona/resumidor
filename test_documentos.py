@@ -83,14 +83,14 @@ def test_formatos(tmp_path, monkeypatch):
     assert all(isinstance(x, int) for x in st) and st == sorted(set(st))  # inicios enteros y distintos: la marca lleva a su trozo
     lab = documentos.etiqueta(documentos.locs(r["segments"]))
     assert [lab(s["s"]) for s in r["segments"]] == ["p. 1", "p. 2", "p. 3"] and documentos.etiqueta(None)(65) == "01:05"
-    (tmp_path / "b.md").write_text("Intro.\n\n# Diseño\n\nTexto **clave** con [enlace](http://x).\n\n## API\n\n- uno\n\n```\n# no es título\n```\n")
+    (tmp_path / "b.md").write_text("Intro.\n\n# Diseño\n\nTexto **clave** con [enlace](http://x).\n\n## API\n\n- uno\n\n```\n# no es título\n```\n", encoding="utf-8")
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "b.md")["segments"]] == [
         ("§ Inicio", "Intro."), ("§ Diseño", "Diseño. Texto clave con enlace."), ("§ Diseño › API", "API. uno # no es título")]
-    (tmp_path / "t.md").write_text("# Comisión de obras\n\nAsisten tres.\n\n## Presupuesto\n\nSe aprueba.\n\n## Calendario\n\nEn enero.")
+    (tmp_path / "t.md").write_text("# Comisión de obras\n\nAsisten tres.\n\n## Presupuesto\n\nSe aprueba.\n\n## Calendario\n\nEn enero.", encoding="utf-8")
     assert [s["loc"] for s in documentos.leer(tmp_path / "t.md")["segments"]] == ["§ Comisión de obras", "§ Presupuesto", "§ Calendario"]  # título raíz único: no se repite
-    (tmp_path / "c.html").write_text("<html><head><title>T</title><script>x()</script></head><body><h1>Hola</h1><p>Uno &amp; dos</p></body></html>")
+    (tmp_path / "c.html").write_text("<html><head><title>T</title><script>x()</script></head><body><h1>Hola</h1><p>Uno &amp; dos</p></body></html>", encoding="utf-8")
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "c.html")["segments"]] == [("§ Hola", "Hola. Uno & dos")]
-    (tmp_path / "d.txt").write_text("Párrafo uno.\n\nPárrafo dos.")
+    (tmp_path / "d.txt").write_text("Párrafo uno.\n\nPárrafo dos.", encoding="utf-8")
     assert [s["loc"] for s in documentos.leer(tmp_path / "d.txt")["segments"]] == ["¶ 1", "¶ 2"]
     import docx
     doc = docx.Document()
@@ -99,7 +99,7 @@ def test_formatos(tmp_path, monkeypatch):
     doc.save(tmp_path / "e.docx")
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "e.docx")["segments"]] == [("§ Capítulo", "Capítulo. Contenido.")]
     # un .txt con marcas sigue siendo una transcripción; uno sin marcas, un documento
-    (tmp_path / "f.txt").write_text("[00:00:05] Ana: Hola a todos.\n[00:00:09] Luis: Empezamos.")
+    (tmp_path / "f.txt").write_text("[00:00:05] Ana: Hola a todos.\n[00:00:09] Luis: Empezamos.", encoding="utf-8")
     assert "tipo" not in pipeline.import_transcript(tmp_path / "f.txt", None, 1, 0, lambda f, m: None)["importada"]
     assert pipeline.import_transcript(tmp_path / "d.txt", None, 1, 0, lambda f, m: None)["importada"]["tipo"] == "texto"
     assert len(documentos._trozos("palabra " * 200)) == 3 and pipeline.merge_segs([{"s": 0, "e": 1, "text": "a", "loc": "p. 1"}, {"s": 1, "e": 2, "text": "b", "loc": "p. 2"}])[1]["loc"] == "p. 2"

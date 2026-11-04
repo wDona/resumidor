@@ -37,10 +37,10 @@ def wait(path, field, done, what, limit):
 try:
     lock = app / ".actas.lock"
     for _ in range(60):
-        if lock.exists() and lock.read_text().strip():
+        if lock.exists() and lock.read_text(encoding="utf-8").strip():
             break
         time.sleep(1)
-    base = f"http://127.0.0.1:{lock.read_text().strip()}"
+    base = f"http://127.0.0.1:{lock.read_text(encoding="utf-8").strip()}"
     for _ in range(30):
         try:
             assert call("/api/ping") == "actas"
