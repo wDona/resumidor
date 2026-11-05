@@ -75,3 +75,31 @@ def test_ida_vuelta_planner_simulado(cl, monkeypatch):
     assert (y["despues"]["estado"], y["despues"]["fecha_limite"]) == ("hecho", "2026-12-01")
     assert y["autor"] == "Planner"
     assert t.post("/api/destinos/d1/sincronizar").json()["actualizados"] == 0  # ya está al día
+
+
+def test_aviso_al_asignar(cl, monkeypatch):
+    """A4: una receta «al asignar» envía el elemento (con su responsable) en cuanto alguien pasa a ser responsable."""
+    import destinos
+    import destinos_tipos as T
+
+    t, _ = cl
+    enviados = []
+    monkeypatch.setitem(T.TIPOS, "falso", {**T.TIPOS["ms_planner"], "crear": lambda c, s, o, x, n=None: enviados.append(x) or ("1", "")})
+    monkeypatch.setitem(T.SECRETOS, "falso", [])
+    monkeypatch.setattr(destinos, "_hilo", lambda fn, *a: fn(*a))
+    cf = destinos.cfg()
+    cf["destinos"]["d1"] = {"tipo": "falso", "nombre": "Canal", "config": {"plan": "x"}}
+    destinos._escribir(destinos.CFG(), cf)
+    r = t.post(
+        "/api/recetas",
+        json={"nombre": "Avisos", "activa": True, "cuando": {"tipo": "al_asignar", "carpeta": C}, "plan": {"salidas": [{"destino": "d1", "que": "tareas"}]}},
+    )
+    assert r.status_code == 200, r.text
+    x = t.post("/api/reg", json={"c": C, "tipo": "tarea", "titulo": "Revisar contrato", "revision": "aprobado"}).json()
+    otra = t.post("/api/reg", json={"c": C, "tipo": "tarea", "titulo": "Otra"}).json()
+    assert not enviados
+    t.patch(f"/api/reg/{x['id']}", json={"c": C, "cambios": {"dueno": "Luis"}})
+    assert [(e["titulo"], e["dueno"]) for e in enviados] == [("Revisar contrato", "Luis")] and otra["id"] not in str(enviados)
+    t.patch(f"/api/reg/{x['id']}", json={"c": C, "cambios": {"detalle": "con abogados"}})
+    assert len(enviados) == 1  # solo al cambiar de responsable
+    assert t.post("/api/recetas", json={"nombre": "x", "cuando": {"tipo": "al_asignar"}}).status_code == 400

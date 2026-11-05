@@ -14,7 +14,7 @@ import exportar as X
 import pipeline as P
 import registro
 
-TIPO = {"requisitos": "requisito", "historias": "historia", "interesados": "interesado", "decisiones": "decision"}
+TIPO = {"requisitos": "requisito", "historias": "historia", "interesados": "interesado", "decisiones": "decision", "ideas": "idea"}
 BORR = "BORRADOR – sin revisar"
 BASE = ("docx", "pdf", "xlsx", "csv", "md", "json")
 EXTRA = {"historias": ("feature", "csv_jira", "csv_azure"), "requisitos": ("csv_jira", "csv_azure")}
@@ -58,14 +58,61 @@ COLS = {
         "Origen",
         "Revisión",
     ],
+    "ideas": [
+        "Código",
+        "Título",
+        "Problema",
+        "Autor",
+        "Estado",
+        "Impacto",
+        "Confianza",
+        "Facilidad",
+        "Alcance",
+        "Esfuerzo",
+        "Puntuación",
+        "Votos",
+        "Origen",
+        "Revisión",
+    ],
 }
 CORTAS = {
     "requisitos": ["Código", "Título", "Tipo", "Prioridad", "Estado", "Revisión"],
     "historias": ["Código", "Título", "Épica", "Puntos", "Estado", "Revisión"],
     "interesados": ["Código", "Nombre", "Rol", "Organización", "Poder", "Interés", "Actitud", "Revisión"],
     "decisiones": [],
+    "ideas": ["Código", "Título", "Estado", "Puntuación", "Votos", "Revisión"],
 }
-TITULO = {"requisitos": "Requisitos", "historias": "Historias de usuario", "interesados": "Interesados", "decisiones": "Registro de decisiones"}
+TITULO = {
+    "requisitos": "Requisitos",
+    "historias": "Historias de usuario",
+    "interesados": "Interesados",
+    "decisiones": "Registro de decisiones",
+    "ideas": "Embudo de ideas",
+}
+
+
+def _n(v):
+    try:
+        return max(0.0, float(str(v).replace(",", ".")))
+    except (TypeError, ValueError):
+        return None
+
+
+def puntuacion(campos, modo="ice"):
+    """B3: ICE = impacto × confianza × facilidad; RICE = alcance × impacto × confianza / esfuerzo (todas de 1 a 10, a mano). None si falta alguna."""
+    k = {x: _n(campos.get(x)) for x in ("impacto", "confianza", "facilidad", "alcance", "esfuerzo")}
+    if modo == "rice":
+        return (
+            None
+            if None in (k["alcance"], k["impacto"], k["confianza"]) or not k["esfuerzo"]
+            else round(k["alcance"] * k["impacto"] * k["confianza"] / k["esfuerzo"], 1)
+        )
+    return None if None in (k["impacto"], k["confianza"], k["facilidad"]) else round(k["impacto"] * k["confianza"] * k["facilidad"], 1)
+
+
+def votos(campos):
+    """Un voto por persona: campos «voto:Nombre» (así dos equipos que votan a la vez se fusionan campo a campo al compartir)."""
+    return sorted(k[5:] for k, v in campos.items() if k.startswith("voto:") and v)
 
 
 def formatos(vista):
@@ -118,6 +165,7 @@ def cargar(c, vista, borrador=True, docs=()):
     cod = {x["id"]: x["codigo"] for x in todas}
     docs = {d["mid"]: (d["data"].get("titulo") or d["nombre"], d["fecha"]) for d in docs}
     xs = [x for x in todas if x["tipo"] == TIPO[vista] and (x["revision"] == "aprobado" or (borrador and x["revision"] == "propuesto"))]
+    modo = (registro.expediente(c).get("ajustes") or {}).get("puntuacion") or "ice"
     xs.sort(key=lambda x: x["codigo"] or "")
     items, filas = registro.completas(xs), []
     for x in items:
@@ -164,6 +212,14 @@ def cargar(c, vista, borrador=True, docs=()):
                     ("Canal", "canal"),
                 )
             } | {"Notas": x["detalle"]}
+        elif vista == "ideas":
+            f |= {
+                "Problema": k.get("problema"),
+                "Autor": k.get("autor"),
+                **{a.capitalize(): k.get(a) for a in ("impacto", "confianza", "facilidad", "alcance", "esfuerzo")},
+                "Puntuación": puntuacion(k, modo),
+                "Votos": len(votos(k)) or "",
+            }
         else:
             f |= {
                 "Contexto": x["detalle"],
@@ -175,6 +231,9 @@ def cargar(c, vista, borrador=True, docs=()):
                 "Sustituida por": de("sustituye"),
             }
         filas.append({c2: _s(f.get(c2)) for c2 in COLS[vista]})
+    if vista == "ideas":  # el embudo sale ordenado por puntuación (y votos)
+        orden = sorted(range(len(items)), key=lambda i: (-(_n(filas[i]["Puntuación"]) or -1), -(_n(filas[i]["Votos"]) or 0)))
+        items, filas = [items[i] for i in orden], [filas[i] for i in orden]
     return items, filas
 
 

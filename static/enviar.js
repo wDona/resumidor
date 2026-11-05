@@ -521,6 +521,7 @@
 
   /* ---------- recetas ---------- */
   function describe(cu) {
+    if (cu?.tipo === "al_asignar") return "Al asignar un responsable";
     if (!cu || cu.tipo !== "programado") return "Al terminar un documento";
     return (
       "Cada " +
@@ -538,6 +539,7 @@
       { id: "env-ct" },
       el("option", { value: "al_terminar", textContent: "Al terminar un documento" }),
       el("option", { value: "programado", textContent: "Programado" }),
+      el("option", { value: "al_asignar", textContent: "Al asignar un responsable (aviso)" }),
     );
     tipo.value = cu.tipo;
     const cada = el("select", { id: "env-cc" }, ...Object.entries(CADA).map(([k, v]) => el("option", { value: k, textContent: "Cada " + v })));
@@ -566,7 +568,7 @@
       get: () =>
         tipo.value === "programado"
           ? { tipo: "programado", cada: cada.value, dia_semana: +ds.value, dia_mes: +dm.value, hora: hr.value }
-          : { tipo: "al_terminar" },
+          : { tipo: tipo.value },
     };
   }
   function formReceta(ctx, r, alGuardar) {

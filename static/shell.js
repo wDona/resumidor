@@ -2226,12 +2226,14 @@ async function recetasTxt(c) {
   return rs.map(r => ({
     r,
     txt:
-      (r.cuando?.tipo === "programado"
-        ? "cada " +
-          ({ dia: "día", semana: DIAS[r.cuando.dia_semana || 0], mes: "mes" }[r.cuando.cada] || "") +
-          (r.cuando.hora ? " " + r.cuando.hora : "") +
-          ": "
-        : "") + (sal(r) || r.nombre),
+      (r.cuando?.tipo === "al_asignar"
+        ? "al asignar: "
+        : r.cuando?.tipo === "programado"
+          ? "cada " +
+            ({ dia: "día", semana: DIAS[r.cuando.dia_semana || 0], mes: "mes" }[r.cuando.cada] || "") +
+            (r.cuando.hora ? " " + r.cuando.hora : "") +
+            ": "
+          : "") + (sal(r) || r.nombre),
   }));
 }
 async function fAutoLinea(c) {

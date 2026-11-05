@@ -1822,6 +1822,11 @@ def exp_datos(d: dict):
 @app.post("/api/exp/ajustes")
 def exp_ajustes(d: dict):
     """{c, anon: true|false|null (null = el ajuste general), idioma: "" (el de la reunión) | es en fr…}"""
+    if "puntuacion" in d:  # B3: ICE (por defecto) o RICE en el embudo de ideas; no toca lo demás
+        if d["puntuacion"] not in ("ice", "rice"):
+            raise HTTPException(400, "puntuacion: ice | rice")
+        carpetas.editar(_c(d), lambda e: e["ajustes"].update(puntuacion=d["puntuacion"]))
+        return exp_get(d["c"])
     if d.get("idioma") and d["idioma"] not in plantillas.IDIOMAS:
         raise HTTPException(400, "Idioma no válido")
     carpetas.guardar_ajustes(_c(d), d.get("anon"), d.get("idioma"))
@@ -2382,6 +2387,8 @@ def reg_editar(eid: str, d: dict):
         if x["tipo"] == "pregunta" and (cm.get("campos") or {}).get("respuesta") and "estado" not in cm and x["estado"] in ("", "abierto", "en curso"):
             cm["estado"] = "hecho"  # responderla la cierra (se reabre a mano)
         _ok(registro.editar, eid, cm, uuid.uuid4().hex[:10])
+        if cm.get("dueno") and cm["dueno"] != x["dueno"]:
+            destinos.al_asignar(c, eid)  # recetas «al asignar» (A4)
         return registro.completas([registro.de(c, eid)])[0]
 
 

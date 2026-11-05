@@ -94,3 +94,29 @@ def test_migracion_quita_check_de_tipo(tmp_path, monkeypatch):
     assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     db.execute("INSERT INTO entidad(id, proyecto_id, tipo, titulo) VALUES ('b', 1, 'idea', 'I')")
     assert db.execute("SELECT count(*) FROM entidad").fetchone()[0] == 2
+
+
+# ---- fase 4: B3 embudo de ideas ----
+def test_embudo_puntuacion_votos_y_excel(cl):
+    import export_registro as XR
+
+    t, _ = cl
+    assert XR.puntuacion({"impacto": 8, "confianza": "5", "facilidad": 2}) == 80
+    assert XR.puntuacion({"impacto": 8}) is None
+    assert XR.puntuacion({"alcance": 10, "impacto": 3, "confianza": 4, "esfuerzo": 6}, "rice") == 20
+    a = t.post(
+        "/api/reg", json={"c": C, "tipo": "idea", "titulo": "Baja", "revision": "aprobado", "campos": {"impacto": 2, "confianza": 2, "facilidad": 2}}
+    ).json()
+    b = t.post(
+        "/api/reg", json={"c": C, "tipo": "idea", "titulo": "Alta", "revision": "aprobado", "campos": {"impacto": 9, "confianza": 9, "facilidad": 9}}
+    ).json()
+    for quien in ("Ana", "Luis", "Ana"):  # un voto por persona
+        t.patch(f"/api/reg/{a['id']}", json={"c": C, "cambios": {"campos": {f"voto:{quien}": 1}}})
+    t.patch(f"/api/reg/{a['id']}", json={"c": C, "cambios": {"campos": {"voto:Luis": None}, "estado": "en evaluación"}})
+    _, filas = XR.cargar(C, "ideas")
+    assert [f["Título"] for f in filas] == ["Alta", "Baja"] and filas[0]["Puntuación"] == "729.0" and filas[1]["Votos"] == "1"
+    assert t.get("/api/reg/exportar", params={"c": C, "vista": "ideas", "fmt": "xlsx"}).status_code == 200
+    assert t.post("/api/exp/ajustes", json={"c": C, "puntuacion": "otra"}).status_code == 400
+    assert t.post("/api/exp/ajustes", json={"c": C, "puntuacion": "rice"}).json()["ajustes"]["puntuacion"] == "rice"
+    assert XR.cargar(C, "ideas")[1][0]["Puntuación"] == ""  # sin alcance/esfuerzo no hay RICE
+    assert b["codigo"] == "IDEA-002"

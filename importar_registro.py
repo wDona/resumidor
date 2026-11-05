@@ -261,11 +261,11 @@ def analizar(c, vista, nombre, datos):
         raise HTTPException(413, f"Demasiadas filas (máximo {MAX_FILAS})")
     cab = [norm(x) for x in filas[0]]
     if not vista:
-        pts = {v: sum(h in _mapa(v) for h in cab) for v in ER.TIPO}
+        pts = {v: sum(h in _mapa(v) for h in cab) for v in CAMPOS}
         vista = max(pts, key=pts.get)
         if pts[vista] < 2 or list(pts.values()).count(pts[vista]) > 1:
             raise HTTPException(400, "No se reconoce la vista por las columnas; indícala (vista=requisitos|historias|interesados|decisiones)")
-    elif vista not in ER.TIPO:
+    elif vista not in CAMPOS:
         raise HTTPException(400, f"Vista desconocida: {vista}")
     tipo, mapa = ER.TIPO[vista], _mapa(vista)
     icod = next((i for i, h in enumerate(cab) if h in CODIGO), None)
@@ -435,9 +435,9 @@ def a_proyecto(d: dict):
     if vistas:
         sp = {"c": c, "vistas": vistas, **({"nube": d["nube"]} if d.get("nube") else {}), **({} if enviar else {"sin_recetas": True})}
         pob = [A.start("poblar", {**sp, "mid": m}, c, m)["id"] for m in nuevos]
-    elif vistas is None and (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(
-        c
-    ).casefold() == "proyecto":  # misma regla que tras generar un acta; las sensibles nunca
+    elif (
+        vistas is None and (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(c).casefold() == "proyecto"
+    ):  # misma regla que tras generar un acta; las sensibles nunca
         pob = [A.start("poblar", {"c": c, "mid": m, "auto": True, **({} if enviar else {"sin_recetas": True})}, c, m)["id"] for m in nuevos]
     elif enviar:
         for m in nuevos:

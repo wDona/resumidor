@@ -807,6 +807,16 @@ def _auto(mid, ver, plan):
         ejecutar_plan(plan, {"doc": f"{mid}/{ver}"}, meta={"plan": "trabajo"})
 
 
+def al_asignar(c, eid):
+    """A4: alguien pasa a ser responsable de eid -> las recetas «al asignar» del proyecto envían ese elemento (un aviso con su
+    responsable) a su destino (canal de Teams, Slack, correo…). En segundo plano; nunca rompe la edición."""
+    rs = [(i, r) for i, r in cfg()["recetas"].items() if r.get("activa") and (r.get("cuando") or {}).get("tipo") == "al_asignar"]
+    for i, r in rs:
+        if (r["cuando"].get("carpeta") or "").casefold() == c.casefold():
+            _hilo(ejecutar_plan, _plan_de(r), {"c": c, "ids": [eid]}, None, {"receta": i, "al_asignar": eid})
+    return len(rs)
+
+
 def plan_defecto(c):
     """Salidas por defecto de una carpeta = sus recetas activas «al terminar» (la UI de Añadir las marca y el trabajo guarda el plan final)."""
     sal = []
@@ -1231,8 +1241,11 @@ def _val_receta(d):
         if "dia_semana" in cu and not 0 <= int(cu["dia_semana"]) <= 6 or "dia_mes" in cu and not 1 <= int(cu["dia_mes"]) <= 28:
             raise ValueError("dia_semana 0-6, dia_mes 1-28")
         r["proximo"] = proximo_tras(cu, dt.datetime.now()).timestamp()
+    elif cu["tipo"] == "al_asignar":
+        if not cu.get("carpeta"):
+            raise ValueError("Una receta «al asignar» necesita proyecto (cuando.carpeta)")
     elif cu["tipo"] != "al_terminar":
-        raise ValueError("cuando.tipo: al_terminar | programado")
+        raise ValueError("cuando.tipo: al_terminar | programado | al_asignar")
     return {**r, **({"plan": normalizar_plan(d["plan"])} if d.get("plan") else {})}
 
 

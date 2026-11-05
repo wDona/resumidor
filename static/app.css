@@ -6076,3 +6076,77 @@ body.soltando .f-drop {
 .f-tabla .pr .pw input.pw-in:focus {
   border-color: var(--line, currentColor);
 }
+
+/* Embudo de ideas (embudo.js) */
+.emb {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(200px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.emb-col {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+  padding: 10px;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emb-col.sobre {
+  border-color: var(--acc);
+  background: var(--acc-s);
+}
+.emb-col h3 {
+  margin: 0 0 4px;
+  font-size: var(--fs-sm);
+}
+.emb-card {
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  padding: 8px 10px;
+  background: var(--bg);
+  cursor: grab;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.emb-card p {
+  margin: 0;
+}
+.emb-p {
+  font-variant-numeric: tabular-nums;
+}
+.emb-ejes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.emb-eje {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--fs-xs);
+}
+.emb-eje input {
+  width: 64px;
+}
+.emb-card select {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.emb-barra select {
+  width: auto;
+}
+.emb-barra label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.emb-barra {
+  margin-bottom: 12px;
+  align-items: end;
+}
