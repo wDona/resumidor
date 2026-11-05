@@ -44,7 +44,7 @@ def test_patch_historial_borrar(cl):
     y = t.patch(f"/api/reg/{x['id']}", json={"c": C, "cambios": {"titulo": "B", "campos": {"k": 1}}}).json()
     assert (y["titulo"], y["editado"], y["campos"]) == ("B", True, {"k": 1})
     h = t.get(f"/api/reg/{x['id']}/historial", params={"c": C}).json()
-    assert [e["accion"] for e in h] == ["crear", "editar"] and h[1]["antes"]["titulo"] == "A" and set(h[1]) == {"t", "accion", "antes", "despues", "lote"}
+    assert [e["accion"] for e in h] == ["crear", "editar"] and h[1]["antes"]["titulo"] == "A" and set(h[1]) == {"t", "accion", "antes", "despues", "lote", "autor"}
     assert t.delete(f"/api/reg/{x['id']}", params={"c": C}).json() == {"ok": True}
     assert x["id"] not in todos(t) and todos(t, revision="descartado") == [x["id"]]
     assert t.post("/api/reg/deshacer", json={"c": C}).json()["revertidas"] == 1

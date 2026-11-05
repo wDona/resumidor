@@ -427,6 +427,76 @@ SERIE = [
         que="Solo lo que se dice; no inventes causas ni responsables.",
         notas=[{"nombre": "Acción", "seccion": "acciones", "atajo": "Ctrl+1"}, {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+2"}],
     ),
+    # Equipos de innovación (docs/plan-equipos.md, B2)
+    base(
+        "ideacion",
+        "Ideación o brainstorming",
+        "Sesión de ideas: propuestas agrupadas por tema, las que más apoyo tienen y siguientes pasos.",
+        [
+            sec(
+                "ideas",
+                "Ideas",
+                "cada idea propuesta: qué problema resuelve y qué se propone, con quién la propone solo si se dice.",
+                ("problema", "autor", "tema"),
+                True,
+            ),
+            sec("apoyos", "Más apoyadas", "ideas que reciben votos, apoyo explícito o se eligen para seguir, con el motivo si se dice.", ("motivo",)),
+            sec("descartes", "Descartadas", "ideas que se descartan en la sesión y por qué, solo si se dice.", ("motivo",)),
+            sec(
+                "siguientes",
+                "Siguientes pasos",
+                "qué se hará con las ideas elegidas, con responsable y plazo solo si se dicen.",
+                ("responsable", "plazo"),
+                True,
+                "tarea",
+            ),
+        ],
+        que="Todas las ideas, aunque sean breves o se digan de pasada; no las juzgues ni las fusiones si son distintas.",
+        notas=[{"nombre": "Idea", "seccion": "ideas", "atajo": "Ctrl+1"}, {"nombre": "Importante", "seccion": None, "atajo": "Ctrl+2"}],
+        documento=NOTAS_DOC,
+    ),
+    base(
+        "entrevista-usuario",
+        "Entrevista con usuario",
+        "Entrevista de descubrimiento con un usuario o cliente: necesidades, dolores, citas e insights.",
+        [
+            sec("necesidades", "Necesidades", "lo que el usuario necesita o intenta conseguir (sus objetivos), con sus palabras.", (), True),
+            sec(
+                "dolores",
+                "Dolores",
+                "problemas, frustraciones o rodeos que el usuario cuenta hoy, con la frecuencia o el coste si los dice.",
+                ("frecuencia",),
+                True,
+            ),
+            sec("citas", "Citas literales", "frases literales del usuario que ilustran una necesidad o un dolor.", ("tema",)),
+            sec("insights", "Insights", "aprendizajes que el equipo saca explícitamente en la entrevista; no deduzcas los tuyos.", ()),
+            sec("preguntas", "Preguntas abiertas", "lo que queda por validar o preguntar a otros usuarios.", (), False, "pregunta"),
+        ],
+        que="Lo que el usuario hace y siente, no lo que opina el entrevistador; contradicciones entre lo que dice y lo que hace.",
+        como="Sin datos personales del usuario más allá de su rol.",
+        escala=True,
+    ),
+    base(
+        "demo",
+        "Demo o sprint review",
+        "Demo o revisión de sprint: qué se enseñó, feedback recibido, decisiones y cambios de prioridad.",
+        [
+            sec("mostrado", "Qué se mostró", "funcionalidades o resultados que se enseñan, con su estado si se dice.", ("estado",), True),
+            sec("feedback", "Feedback", "comentarios de los asistentes sobre lo mostrado: qué gusta, qué no y qué piden cambiar.", ("autor",), True),
+            sec("decisiones", "Decisiones", "acuerdos firmes tomados en la sesión.", ("decisor",), True, "decision"),
+            sec("prioridades", "Cambios de prioridad", "lo que sube, baja, entra o sale del plan, con el motivo si se dice.", ("motivo",)),
+            sec(
+                "acciones",
+                "Acciones",
+                "trabajo que se encarga a raíz de la sesión, con responsable y plazo solo si se dicen.",
+                ("responsable", "plazo"),
+                True,
+                "tarea",
+            ),
+        ],
+        que="Feedback concreto y quién lo da; cambios de alcance o de prioridad.",
+        notas=[{"nombre": "Feedback", "seccion": "feedback", "atajo": "Ctrl+1"}, {"nombre": "Acción", "seccion": "acciones", "atajo": "Ctrl+2"}],
+    ),
 ]
 SERIE_ID = {t["id"]: t for t in SERIE}
 

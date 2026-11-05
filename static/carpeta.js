@@ -831,7 +831,7 @@ async function tPendientes(c, e) {
     "form",
     { className: "row wrap f-add" },
     el("input", { id: "pm-t", placeholder: "Añadir un pendiente a mano…", ariaLabel: "Pendiente" }),
-    el("input", { id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable" }),
+    respNuevo(c),
     el("input", { id: "pm-p", placeholder: "Plazo (viernes…)", ariaLabel: "Plazo" }),
     el("button", { className: "sec", textContent: "Añadir" }),
   ); // tamaños en app.css (.f-add)
@@ -864,6 +864,27 @@ async function tPendientes(c, e) {
         "Cada pendiente enlaza al minuto exacto del documento donde se acordó. Marcar o desmarcar es siempre a mano: el seguimiento automático solo propone.",
     }),
   ];
+}
+// Responsable editable con sugerencias de los miembros del proyecto (datalist #reg-miembros de registro.js); se puede escribir otro
+function respEditable(c, p) {
+  regMiembros(c);
+  const i = el("input", { value: p.resp || "", placeholder: "—", ariaLabel: "Responsable de " + p.texto, className: "pw-in" });
+  i.setAttribute("list", "reg-miembros");
+  i.onchange = fallo(async () => {
+    await api("/api/reg/" + encodeURIComponent(p.eid), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ c, cambios: { dueno: i.value.trim() } }),
+    });
+    await fRe();
+  });
+  return i;
+}
+function respNuevo(c) {
+  regMiembros(c);
+  const i = el("input", { id: "pm-r", placeholder: "Responsable", ariaLabel: "Responsable" });
+  i.setAttribute("list", "reg-miembros");
+  return i;
 }
 function filaPend(c, p) {
   const chk = el("input", {
@@ -962,7 +983,7 @@ function filaPend(c, p) {
         : []),
       ...(acc.length ? [el("div", { className: "ac" }, ...acc)] : []),
     ),
-    el("span", { className: "pw", textContent: p.resp || "—" }),
+    el("span", { className: "pw" }, p.eid && p.estado === "abierto" ? respEditable(c, p) : p.resp || "—"),
     el("span", { className: "pf" + (p.pronto && !p.vencido ? " w" : ""), title: p.pronto && !p.vencido ? "Vence pronto" : "" }, ...plazo),
     el("span", { className: "po" }, p.manual ? "Manual" : fLink(p)),
   );

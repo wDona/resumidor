@@ -1296,7 +1296,8 @@ AJ_DEF = {
     "tema": "auto",
     "densidad": "comoda",
     "animaciones": "completas",
-}  # apariencia (Ajustes › General); vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
+    "yo": {"nombre": "", "correo": ""},
+}  # yo: quien usa la app (autor en el historial del registro); apariencia (Ajustes › General); vision.py: imágenes a la nube solo con permiso; servidor {url, modelo}
 
 AJ_APARIENCIA = {"tema": ("auto", "claro", "oscuro"), "densidad": ("comoda", "compacta"), "animaciones": ("completas", "reducidas", "no")}
 
@@ -1341,6 +1342,11 @@ def post_ajustes(d: dict):
         a["uso"] = [str(x)[:30] for x in d["uso"]][:12]
     if isinstance(d.get("perfil_uso"), list):
         a["perfil_uso"] = [x for x in dict.fromkeys(d["perfil_uso"]) if x in {t["id"] for t in plantillas.todas()}] or a["perfil_uso"]
+    if isinstance(d.get("yo"), dict):  # «Tú»: firma los cambios del registro (historial.autor)
+        yo = {k: str(d["yo"].get(k) or "").strip()[:120] for k in ("nombre", "correo")}
+        if yo["correo"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", yo["correo"]):
+            raise HTTPException(400, "Correo no válido")
+        a["yo"] = yo
     if isinstance(d.get("nombres"), dict):
         a["nombres"] = {**a["nombres"], **{k: str(v).strip()[:40] for k, v in d["nombres"].items() if k in AJ_DEF["nombres"] and str(v).strip()}}
     pipeline.WORK.mkdir(exist_ok=True)
@@ -2046,6 +2052,27 @@ def reg_exportar(c: str, vista: str, fmt: str, borrador: int = 1, estilo: str | 
     return Response(datos, media_type=mime, headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nombre)})
 
 
+@app.get("/api/reg/miembros")
+def reg_miembros(c: str):
+    """Miembros del proyecto para elegir responsable: tú (Ajustes › Tú), hablantes con nombre, interesados y responsables ya usados."""
+    c = _c({"c": c})
+    ns = [((_ajustes() or AJ_DEF).get("yo") or {}).get("nombre", "")]
+    for m in _ms(c):
+        try:
+            nm = json.loads((pipeline.WORK / m["id"] / "nombres.json").read_text(encoding="utf-8")).get("names")
+            ns += [str(v) for v in (nm.values() if isinstance(nm, dict) else nm or [])]
+        except (OSError, ValueError, AttributeError):
+            pass
+    vivos = [x for x in registro.listar(c) if x["revision"] not in ("descartado", "fusionado")]
+    ns += [x["titulo"] for x in vivos if x["tipo"] == "interesado"] + [x["dueno"] or "" for x in vivos]
+    out = {}
+    for n in ns:
+        n = str(n).strip(" .—-")
+        if len(n) >= 2 and not re.fullmatch(r"(?i)hablante \d+|speaker \d+", n):
+            out.setdefault(n.casefold(), n)
+    return sorted(out.values(), key=str.casefold)
+
+
 @app.post("/api/reg")
 def reg_crear(d: dict):
     """{c, tipo, titulo, detalle?, estado?, dueno?, prioridad?, fecha_limite?, campos?}: entidad manual ya aprobada (sin cita)."""
@@ -2227,6 +2254,9 @@ def reg_poblar_estado(c: str):
 import importar_registro  # noqa: E402
 
 importar_registro.montar(sys.modules[__name__], app)  # /api/reg/importar/* y /api/doc/a-proyecto
+import equipo  # noqa: E402
+
+equipo.montar(sys.modules[__name__], app)  # /api/equipo/exportar e /api/equipo/importar (.actas-equipo.json)
 import derivar  # noqa: E402
 
 
@@ -2307,7 +2337,7 @@ def reg_bandeja(c: str):
 @app.get("/api/reg/{eid}/historial")
 def reg_historial(eid: str, c: str):
     _ok(registro.de, _c({"c": c}), eid)
-    return [{k: h[k] for k in ("t", "accion", "antes", "despues", "lote")} for h in registro.historial(eid)]
+    return [{k: h.get(k) for k in ("t", "accion", "antes", "despues", "lote", "autor")} for h in registro.historial(eid)]
 
 
 @app.patch("/api/reg/{eid}")

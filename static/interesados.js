@@ -905,6 +905,7 @@
                   "div",
                   { className: "reg-h" },
                   el("b", { textContent: x.accion }),
+                  ...(x.autor ? [el("small", { textContent: " · " + x.autor + " · " })] : []),
                   el("small", { className: "muted", textContent: " " + new Date(x.t * (x.t < 1e11 ? 1000 : 1)).toLocaleString("es") }),
                   el("div", { textContent: [x.antes && "Antes: " + j(x.antes), x.despues && "Después: " + j(x.despues)].filter(Boolean).join("  →  ") }),
                 ),

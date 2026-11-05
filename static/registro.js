@@ -413,6 +413,18 @@ function regExportar(c, vista, fmts) {
     ...fmts.map(([f, t]) => el("button", { type: "button", textContent: t, onclick: () => ir(f) })),
   );
 }
+// Miembros del proyecto (interesados, hablantes, responsables ya usados y tú): sugerencias para «Responsable»; se puede escribir otro
+const regMiembros = c => {
+  let dl = document.getElementById("reg-miembros");
+  if (!dl) dl = document.body.appendChild(el("datalist", { id: "reg-miembros" }));
+  if (dl.dataset.c !== c) {
+    dl.dataset.c = c;
+    api("/api/reg/miembros?c=" + encodeURIComponent(c))
+      .then(ms => dl.replaceChildren(...ms.map(m => new Option(m, m))))
+      .catch(() => {});
+  }
+};
+const REG_RESP = new Set(["dueno", "campos.responsable", "campos.dirigida_a", "campos.decisor"]);
 function registroTabla(host, o) {
   const { c, tipo } = o,
     cols = o.columnas || REG_COLS[tipo] || REG_DEF,
@@ -571,6 +583,7 @@ function registroTabla(host, o) {
                 "div",
                 { className: "reg-h" },
                 el("b", { textContent: x.accion }),
+                ...(x.autor ? [el("small", { textContent: " · " + x.autor })] : []),
                 el("small", { className: "muted", textContent: " " + new Date(x.t * (x.t < 1e11 ? 1000 : 1)).toLocaleString("es") }),
                 el("div", {
                   textContent: [
@@ -606,10 +619,12 @@ function registroTabla(host, o) {
       ctl.value = v;
       ctl.onchange = () => patch(it, col.k, ctl.value);
     } else {
+      if (REG_RESP.has(col.k)) regMiembros(c);
       ctl =
         t === "area"
           ? el("textarea", { ...f, rows: 2, value: v })
           : el("input", { ...f, type: t === "fecha" ? "date" : t === "num" ? "number" : "text", value: v });
+      if (REG_RESP.has(col.k) && t !== "area") ctl.setAttribute("list", "reg-miembros");
       ctl.onchange = () => patch(it, col.k, t === "num" && ctl.value !== "" ? Number(ctl.value) : ctl.value);
       if (t === "area")
         ctl.onkeydown = e => {

@@ -117,6 +117,9 @@ ALTER TABLE historial ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE meta(k TEXT PRIMARY KEY, v);
 CREATE TABLE contador(proyecto_id INTEGER NOT NULL REFERENCES proyecto(id) ON DELETE CASCADE, tipo TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(proyecto_id, tipo));
 """,
+    """
+ALTER TABLE historial ADD COLUMN autor TEXT;
+""",
 ]  # una entrada por versión del esquema (user_version = cuántas se han aplicado); solo se añaden al final
 ultima_migracion = None  # informe {antes, despues} de la última migración de expedientes.json en este proceso
 
@@ -272,10 +275,20 @@ def renombrar(old, new):
 
 
 # ---------- entidades ----------
+def autor():
+    """Quien usa la app (Ajustes → «Tú»): «Nombre <correo>», o None si no se ha configurado."""
+    try:
+        yo = json.loads((P.WORK / "ajustes.json").read_text(encoding="utf-8")).get("yo") or {}
+    except (OSError, ValueError):
+        return None
+    n, c = str(yo.get("nombre") or "").strip(), str(yo.get("correo") or "").strip()
+    return (n + (f" <{c}>" if c else "") if n else c) or None
+
+
 def _hist(db, pid, eid, accion, antes, despues, lote, auto=False):
     db.execute(
-        "INSERT INTO historial(proyecto_id, entidad_id, t, accion, antes, despues, lote, auto) VALUES (?,?,?,?,?,?,?,?)",
-        (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto)),
+        "INSERT INTO historial(proyecto_id, entidad_id, t, accion, antes, despues, lote, auto, autor) VALUES (?,?,?,?,?,?,?,?,?)",
+        (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto), "IA" if auto else autor()),
     )
 
 

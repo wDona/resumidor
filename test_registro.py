@@ -261,7 +261,7 @@ def test_migrado_t_sin_json_y_registro_antiguo(work):
     with registro._db(escribe=True) as db:  # registro de la versión 2 del esquema: migrado_t por proyecto
         db.execute("UPDATE proyecto SET extra=? WHERE id=?", (json.dumps({"migrado_t": 123.5}), p["id"]))
     db = registro.conectar()
-    db.executescript("DROP TABLE meta; DROP TABLE contador; ALTER TABLE historial DROP COLUMN auto; PRAGMA user_version=2;")
+    db.executescript("DROP TABLE meta; DROP TABLE contador; ALTER TABLE historial DROP COLUMN auto; ALTER TABLE historial DROP COLUMN autor; PRAGMA user_version=2;")
     db.close()
     registro.crear("P", "riesgo", titulo="x", lote="L")  # sube el esquema al conectar
     with registro._db() as db:

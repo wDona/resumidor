@@ -444,6 +444,90 @@ const cardNombres = () =>
     el("div", { className: "cols" }, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")),
     nom("nuevo_boton", "Botón de crear"),
   );
+// «Tú»: firma los cambios del registro (historial) y es «Asignado a mí»
+const cardYo = () => {
+  const yo = { nombre: "", correo: "", ...(AJ.yo || {}) },
+    campo = (k, lab, type) =>
+      el(
+        "div",
+        { className: "field" },
+        el("label", { textContent: lab }),
+        el("input", {
+          type,
+          value: yo[k],
+          ariaLabel: lab,
+          autocomplete: k === "correo" ? "email" : "name",
+          onchange: fallo(async e => {
+            await guardarAj({ yo: { ...yo, [k]: e.target.value } });
+          }),
+        }),
+      );
+  return card(
+    "Tú",
+    el("div", { className: "cols" }, campo("nombre", "Nombre", "text"), campo("correo", "Correo", "email")),
+    el("small", { textContent: "Aparece en el historial de cada cambio que hagas en un " + nm("carpeta").toLowerCase() + ". Se queda en este equipo." }),
+  );
+};
+// Configuración de equipo (.actas-equipo.json): plantillas, estilos, perfiles de uso, presets y nombres; sin destinos ni secretos
+const cardEquipo = () => {
+  const inp = el("input", {
+    type: "file",
+    accept: ".json,application/json",
+    hidden: true,
+    onchange: fallo(async () => {
+      const f = inp.files[0];
+      inp.value = "";
+      if (!f) return;
+      let d;
+      try {
+        d = JSON.parse(await f.text());
+      } catch {
+        throw new Error("El fichero no es JSON válido");
+      }
+      const r = await post("/api/equipo/importar", d),
+        n = r.importado;
+      aviso(
+        "Importado: " +
+          n.plantillas +
+          " plantillas, " +
+          n.estilos +
+          " estilos, " +
+          n.perfiles_uso +
+          " perfiles, " +
+          n.objetivos +
+          " presets" +
+          (r.errores.length ? " · " + r.errores.length + " con error: " + r.errores.join("; ") : ""),
+      );
+      Object.assign(AJ, await api("/api/ajustes"));
+      PL.length = 0;
+      pintarAjustes();
+    }),
+  });
+  const exp = fallo(async () => {
+    const d = await api("/api/equipo/exportar"),
+      a = el("a", {
+        href: URL.createObjectURL(new Blob([JSON.stringify(d, null, 1)], { type: "application/json" })),
+        download: "configuracion.actas-equipo.json",
+      });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  return card(
+    "Equipo",
+    el("p", {
+      className: "muted",
+      textContent:
+        "Comparte con tu equipo tus plantillas, estilos, perfiles de uso, presets y nombres para trabajar todos igual. No incluye destinos, claves ni reuniones.",
+    }),
+    el(
+      "div",
+      { className: "row wrap" },
+      el("button", { className: "sec", textContent: "Exportar configuración", onclick: exp }),
+      el("button", { className: "sec", textContent: "Importar configuración…", onclick: () => inp.click() }),
+      inp,
+    ),
+  );
+};
 function pintarAjustes() {
   const U = usos(),
     u = U.filter(x => AJ.uso.includes(x.id));
@@ -452,6 +536,8 @@ function pintarAjustes() {
       .then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes())
       .catch(() => {});
   $("aj-general").replaceChildren(
+    cardYo(),
+    cardEquipo(),
     tarjetaApariencia(),
     cardNombres(),
     card(

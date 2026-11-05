@@ -6061,3 +6061,18 @@ body.soltando .f-drop {
   text-align: left;
   padding-block: 6px;
 }
+
+/* Responsable editable en la lista de pendientes: parece texto hasta que se enfoca */
+.f-tabla .pr .pw input.pw-in {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+}
+.f-tabla .pr .pw input.pw-in:hover,
+.f-tabla .pr .pw input.pw-in:focus {
+  border-color: var(--line, currentColor);
+}
