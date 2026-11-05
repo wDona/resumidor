@@ -892,9 +892,78 @@ def correr_receta(i, ahora=None, atrasado=False, manual=False):
     return es
 
 
+# ---------- ida y vuelta (docs/plan-equipos.md, A5) ----------
+CERRADOS = ("hecho", "descartado", "cerrado", "terminado", "implementado")
+_ult_ida_vuelta = [0.0]
+
+
+def sincronizar(did):
+    """Trae del destino el estado de lo enviado desde el registro: cerrado fuera = «hecho» aquí, y la fecha límite si cambió.
+    Cada tipo con ida y vuelta define leer(config, secretos, opciones, id remoto) -> {"hecho": bool, "fecha": "AAAA-MM-DD"} o None.
+    Solo se trae el cierre (no se reabre): si se cerró aquí, el destino no lo sabe. Planner ya lo tiene; Jira y Azure reutilizan esto."""
+    d = cfg()["destinos"].get(did)
+    if not d:
+        raise ValueError("Destino no configurado")
+    tp = T.TIPOS[d["tipo"]]
+    if not tp.get("leer"):
+        raise ValueError("Este destino no tiene ida y vuelta")
+    o, s = dict(d["config"]), {k: _sec_get(did, k) for k in T.SECRETOS[d["tipo"]]}
+    n, err = 0, []
+    with T.tls(o):
+        for key, m in _mapa().items():
+            if not key.startswith(did + "|") or "|e:" not in key:
+                continue
+            try:
+                x = registro.uno(key.split("|e:", 1)[1])
+            except KeyError:
+                continue
+            if x["revision"] in registro.OCULTA:
+                continue
+            try:
+                r = tp["leer"](d["config"], s, o, m["id"])
+            except Exception as ex:
+                err.append(f"{x['codigo'] or x['titulo'][:40]}: {ex}")
+                continue
+            if not r:
+                continue
+            cm = {"estado": "hecho"} if r.get("hecho") and x["estado"] not in CERRADOS else {}
+            if r.get("fecha") and r["fecha"] != (x["fecha_limite"] or ""):
+                cm["fecha_limite"] = r["fecha"]
+            if cm:
+                registro.editar(x["id"], cm, quien=d.get("nombre") or d["tipo"])
+                n += 1
+    return {"actualizados": n, "errores": err[:20]}
+
+
+def _ida_vuelta_todos(ahora):
+    if ahora - _ult_ida_vuelta[0] < 900:  # cada 15 min
+        return
+    _ult_ida_vuelta[0] = ahora
+    for i, d in cfg()["destinos"].items():
+        if T.TIPOS.get(d.get("tipo"), {}).get("leer"):
+            try:
+                sincronizar(i)
+            except Exception as ex:  # sin sesión de Microsoft, sin red…: se reintenta en la próxima vuelta
+                _log_error({}, ex, {"ida_vuelta": i})
+
+
+@router.post("/api/destinos/{did}/sincronizar")
+def api_sincronizar(did: str):
+    try:
+        return sincronizar(did)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+
+
 def tick(ahora=None):
     """Una pasada del planificador (la llama el hilo cada minuto; en pruebas, con reloj inyectado)."""
     ahora, out = ahora or dt.datetime.now(), []
+    if not _ult_ida_vuelta[0]:
+        _ult_ida_vuelta[0] = time.time()  # la primera, a los 15 min de arrancar
+    try:
+        _ida_vuelta_todos(time.time())
+    except Exception:  # noqa: BLE001
+        pass
     for i, r in list(cfg()["recetas"].items()):
         cu = r.get("cuando") or {}
         if not r.get("activa") or cu.get("tipo") != "programado":
@@ -977,7 +1046,10 @@ def _publico(i, d):
 def api_destinos():
     cf = cfg()
     return {
-        "tipos": {t: {"nombre": v["nombre"], "modo": v["modo"], "interno": bool(v.get("interno")), "campos": v["campos"]} for t, v in T.TIPOS.items()},
+        "tipos": {
+            t: {"nombre": v["nombre"], "modo": v["modo"], "interno": bool(v.get("interno")), "ida_vuelta": bool(v.get("leer")), "campos": v["campos"]}
+            for t, v in T.TIPOS.items()
+        },
         "interno": INTERNO,
         "que": list(QUE),
         "destinos": [_publico(i, d) for i, d in cf["destinos"].items()],

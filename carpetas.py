@@ -262,16 +262,17 @@ def pendientes(c, ms, hoy=None):
                         "sugerido": x["sugerencia"],
                     }
                 )
-    for x in registro.listar(c, origen="manual"):
-        if x["revision"] in registro.OCULTA or x["tipo"] not in SEGUIBLES:
+    for x in registro.listar(c):  # manuales y los que llegan de otro equipo (compartir.py) sin su documento aquí
+        remoto = x["campos"].get("remoto") if x["mid"] is None and x["origen"] != "manual" else None
+        if (x["origen"] != "manual" and not remoto) or x["revision"] in registro.OCULTA or x["tipo"] not in SEGUIBLES:
             continue
-        pl = x["campos"].get("plazo", "")
+        pl = x["campos"].get("plazo", "") or x["fecha_limite"] or ""
         f = plazo_fecha(pl, dt.date.fromtimestamp(x["creado"]))
         res.append(
             {
                 "id": x["id"],
                 "eid": x["id"],
-                "tipo": "Manual",
+                "tipo": "Compartido" if remoto else "Manual",
                 "tipo_ent": x["tipo"],
                 "texto": x["titulo"],
                 "resp": x["dueno"],
@@ -280,11 +281,11 @@ def pendientes(c, ms, hoy=None):
                 "cita": "",
                 "mid": "",
                 "ver": "",
-                "doc": "",
+                "doc": f"De {remoto}" if remoto else "",
                 "h": "",
                 "fecha": f and f.isoformat(),
                 "mtime": x["creado"],
-                "manual": True,
+                "manual": not remoto,
                 "estado": x["estado"],
                 "nota": x["campos"].get("nota", ""),
                 "sugerido": x["sugerencia"],

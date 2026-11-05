@@ -248,6 +248,12 @@ def _uno(db, eid):
     return x
 
 
+def uno(eid):
+    """Entidad por id (de cualquier proyecto); KeyError si no existe."""
+    with _db() as db:
+        return _uno(db, eid)
+
+
 def ref(x):
     """id legado (el de los pendientes): mid|ver|ruta si viene de un documento; si no, el propio id."""
     return x["id"] if x["mid"] is None else f"{x['mid']}|{x['ver']}|{x['ruta']}"
@@ -311,10 +317,10 @@ def autor():
     return (n + (f" <{c}>" if c else "") if n else c) or None
 
 
-def _hist(db, pid, eid, accion, antes, despues, lote, auto=False):
+def _hist(db, pid, eid, accion, antes, despues, lote, auto=False, quien=None):
     db.execute(
         "INSERT INTO historial(proyecto_id, entidad_id, t, accion, antes, despues, lote, auto, autor) VALUES (?,?,?,?,?,?,?,?,?)",
-        (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto), "IA" if auto else autor()),
+        (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto), quien or ("IA" if auto else autor())),
     )
 
 
@@ -323,7 +329,7 @@ def _poner(db, eid, cambios):
     db.execute(f"UPDATE entidad SET {', '.join(f'{k}=?' for k in cambios)} WHERE id=?", [_j(v) if k in JSONS else v for k, v in cambios.items()] + [eid])
 
 
-def crear(c, tipo, lote=None, db=None, cita=None, auto=False, **f):
+def crear(c, tipo, lote=None, db=None, cita=None, auto=False, quien=None, **f):
     """Entidad nueva en el proyecto de c (lo crea si hace falta). f: columnas de entidad; cita: {mid, ver, t, texto, verificada}.
     lote=False: sin historial (sincronizar, migración). auto=True: lote de una pasada en segundo plano (deshacer() no lo toca)."""
     if tipo not in TIPOS or set(f) - set(ECOLS):
@@ -356,7 +362,7 @@ def crear(c, tipo, lote=None, db=None, cita=None, auto=False, **f):
         if cita:
             citar(x["id"], cita, db)
         if lote is not False:
-            _hist(db, p, x["id"], "crear", None, {k: v for k, v in x.items() if k != "proyecto_id"}, lote, auto)
+            _hist(db, p, x["id"], "crear", None, {k: v for k, v in x.items() if k != "proyecto_id"}, lote, auto, quien)
         return _uno(db, x["id"])
 
 
@@ -369,7 +375,7 @@ def citar(eid, cita, db=None):
         )
 
 
-def editar(eid, cambios, lote=None, db=None):
+def editar(eid, cambios, lote=None, db=None, quien=None):
     """Cambia columnas de la entidad (campos se fusiona) y lo apunta en el historial con antes/después. lote=False: sin historial."""
     if set(cambios) - set(ECOLS) or {"id", "proyecto_id"} & set(cambios):
         raise ValueError("Cambio no válido")
@@ -384,7 +390,7 @@ def editar(eid, cambios, lote=None, db=None):
             cambios["editado"] = 1
         _poner(db, eid, cambios)
         if lote is not False:
-            _hist(db, x["proyecto_id"], eid, "editar", {k: x[k] for k in cambios}, cambios, lote)
+            _hist(db, x["proyecto_id"], eid, "editar", {k: x[k] for k in cambios}, cambios, lote, quien=quien)
         return _uno(db, eid)
 
 

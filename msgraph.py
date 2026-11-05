@@ -312,6 +312,12 @@ def _planner(c, s, o, x, n=None):
     return planner(x, o["plan"], o.get("cubo", ""))
 
 
+def _planner_leer(c, s, o, tid):
+    """Ida y vuelta (destinos.sincronizar): una tarea de Planner al 100 % está cerrada; dueDateTime -> fecha límite."""
+    t = g("GET", f"/planner/tasks/{tid}?$select=percentComplete,dueDateTime")
+    return {"hecho": t.get("percentComplete") == 100, "fecha": str(t.get("dueDateTime") or "")[:10]}
+
+
 def _todo(c, s, o, x, n=None):
     return todo(x, o.get("lista", ""))
 
@@ -351,6 +357,7 @@ TIPOS_GRAPH = {
         "modo": "items",
         "http": True,
         "crear": _planner,
+        "leer": _planner_leer,
         "probar": _p,
         "campos": [F("plan", "ID del plan", req=True, preset=True), F("cubo", "ID del cubo (opcional)", preset=True)],
     },

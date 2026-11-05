@@ -1006,7 +1006,7 @@ function filaPend(c, p) {
     ),
     el("span", { className: "pw" }, p.eid && p.estado === "abierto" ? respEditable(c, p) : p.resp || "—"),
     el("span", { className: "pf" + (p.pronto && !p.vencido ? " w" : ""), title: p.pronto && !p.vencido ? "Vence pronto" : "" }, ...plazo),
-    el("span", { className: "po" }, p.manual ? "Manual" : fLink(p)),
+    el("span", { className: "po" }, p.manual ? "Manual" : p.mid ? fLink(p) : p.doc || "—"),
   );
 }
 
@@ -1444,9 +1444,87 @@ async function tAjustes(c, e) {
       ),
       el("div", { className: "row" }, guardar),
     ),
+    fCompartir(c),
     fAuto(c),
     Object.assign(caja, { id: "f-glos" }),
   ];
+}
+// A2: compartir el proyecto por una carpeta de OneDrive o SharePoint sincronizada (compartir.py)
+function fCompartir(c) {
+  const w = el("div", { className: "card" });
+  const pinta = s => {
+    const ruta = el("input", { readOnly: true, value: s.ruta || "", ariaLabel: "Carpeta compartida" });
+    const tr = el("input", {
+      type: "checkbox",
+      checked: !!s.transcripciones,
+      onchange: fallo(async () => {
+        if (
+          tr.checked &&
+          !confirm("Las transcripciones recogen todo lo que se dijo, palabra por palabra. Cualquiera con acceso a la carpeta podrá leerlas. ¿Compartirlas?")
+        )
+          return (tr.checked = false);
+        pinta(await post("/api/compartir", { c, transcripciones: tr.checked }));
+      }),
+    });
+    const elegir = fallo(async () => {
+      const r = await post("/api/pick", { tipo: "carpeta" });
+      if (!r.path) return;
+      pinta(await post("/api/compartir", { c, ruta: r.path, transcripciones: tr.checked }));
+      aviso("Proyecto compartido en " + r.path);
+    });
+    w.replaceChildren(
+      H("Compartir con el equipo"),
+      el("p", {
+        className: "muted",
+        textContent:
+          "Elige una carpeta de OneDrive o SharePoint que tu equipo tenga sincronizada. Se comparten las tareas, decisiones y demás elementos, y los documentos en .md. Los vídeos nunca. Los demás usan Ajustes › Equipo › «Unirse a un proyecto compartido».",
+      }),
+      el(
+        "div",
+        { className: "row wrap" },
+        ruta,
+        el("button", { className: "sec", textContent: s.compartido ? "Cambiar carpeta…" : "Compartir en carpeta…", onclick: elegir }),
+      ),
+      el("label", { className: "check" }, tr, el("span", { textContent: "Compartir también las transcripciones" })),
+      ...(s.compartido
+        ? [
+            el("p", {
+              className: s.error ? "err" : "muted",
+              textContent:
+                s.error ||
+                (s.ultima ? "Última sincronización: " + new Date(s.ultima * 1000).toLocaleString("es") : "Sin sincronizar todavía") +
+                  " · se sincroniza sola cada minuto" +
+                  (s.miembros.length ? " · " + s.miembros.length + (s.miembros.length === 1 ? " equipo más" : " equipos más") : ""),
+            }),
+            el(
+              "div",
+              { className: "row wrap" },
+              el("button", {
+                className: "sec",
+                textContent: "Sincronizar ahora",
+                onclick: fallo(async () => {
+                  pinta(await post("/api/compartir", { c }));
+                  aviso("Sincronizado");
+                  fsucio = true;
+                }),
+              }),
+              el("button", {
+                className: "gh",
+                textContent: "Dejar de compartir",
+                onclick: fallo(async () => {
+                  if (!confirm("Este equipo deja de sincronizar el proyecto. Lo que ya está en la carpeta compartida se queda allí.")) return;
+                  pinta(await post("/api/compartir", { c, dejar: true }));
+                }),
+              }),
+            ),
+          ]
+        : []),
+    );
+  };
+  api("/api/compartir?c=" + encodeURIComponent(c))
+    .then(pinta)
+    .catch(() => w.remove());
+  return w;
 }
 
 // ---- Registro: Revisión (bandeja) y vistas por tipo ----

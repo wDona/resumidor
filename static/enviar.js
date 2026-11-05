@@ -656,6 +656,26 @@
             "div",
             "env-row",
             pr,
+            ...(tp?.ida_vuelta
+              ? [
+                  btn("Traer estado", "sec env-sm", async e => {
+                    e.target.disabled = true;
+                    try {
+                      const r = await send("POST", `/api/destinos/${d.id}/sincronizar`);
+                      estado.set(d.id, {
+                        ok: !r.errores.length,
+                        mensaje:
+                          (r.actualizados ? r.actualizados + " actualizados desde " + d.nombre : "Todo al día") +
+                          (r.errores.length ? " · " + r.errores.length + " con error: " + r.errores[0] : "") +
+                          " · se hace sola cada 15 min",
+                      });
+                    } catch (x) {
+                      estado.set(d.id, { ok: false, mensaje: x.message });
+                    }
+                    refrescar();
+                  }),
+                ]
+              : []),
             btn("Editar", "sec env-sm", () => formDestino(ctx, d.tipo, d, refrescar)),
             btn("Eliminar", "sec dng env-sm", async () => {
               if (!confirm(`¿Eliminar «${d.nombre}»?`)) return;

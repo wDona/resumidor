@@ -526,6 +526,25 @@ const cardEquipo = () => {
       el("button", { className: "sec", textContent: "Importar configuración…", onclick: () => inp.click() }),
       inp,
     ),
+    el("p", {
+      className: "muted",
+      textContent: "¿Alguien ha compartido un proyecto en OneDrive o SharePoint? Elige su carpeta sincronizada para trabajar en él.",
+    }),
+    el(
+      "div",
+      { className: "row wrap" },
+      el("button", {
+        className: "sec",
+        textContent: "Unirse a un proyecto compartido…",
+        onclick: fallo(async () => {
+          const r = await post("/api/pick", { tipo: "carpeta" });
+          if (!r.path) return;
+          const u = await post("/api/compartir/unirse", { ruta: r.path });
+          aviso("Te has unido a «" + u.c + "»: " + u.recibidos + " elementos recibidos");
+          location.hash = "#/p/" + encodeURIComponent(u.c);
+        }),
+      }),
+    ),
   );
 };
 function pintarAjustes() {

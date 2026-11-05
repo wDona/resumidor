@@ -930,9 +930,10 @@ def pick(d: dict = None):
         if (d or {}).get("tipo") == "modelo"
         else ("Vídeo, audio, documento o imagen", " ".join("*" + x for x in (*MEDIA, *documentos.EXT, ".zip")))
     )
-    code = (
-        "import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-        f"print(f.askopenfilename(title='Elegir {tipo[0].lower()}', filetypes=[{tipo!r}, ('Todos', '*')]))"
+    code = "import tkinter as t, tkinter.filedialog as f\nr=t.Tk(); r.withdraw(); r.attributes('-topmost', True)\n" + (
+        "print(f.askdirectory(title='Elegir la carpeta compartida (OneDrive o SharePoint sincronizada)'))"
+        if (d or {}).get("tipo") == "carpeta"
+        else f"print(f.askopenfilename(title='Elegir {tipo[0].lower()}', filetypes=[{tipo!r}, ('Todos', '*')]))"
     )
     p = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, text=True, encoding="utf-8")
     return {"path": p.stdout.strip()}
@@ -2286,6 +2287,9 @@ importar_registro.montar(sys.modules[__name__], app)  # /api/reg/importar/* y /a
 import equipo  # noqa: E402
 
 equipo.montar(sys.modules[__name__], app)  # /api/equipo/exportar e /api/equipo/importar (.actas-equipo.json)
+import compartir  # noqa: E402
+
+compartir.montar(sys.modules[__name__], app, bucle="pytest" not in sys.modules)  # proyecto compartido por carpeta sincronizada (A2)
 import derivar  # noqa: E402
 
 
