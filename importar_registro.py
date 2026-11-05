@@ -396,7 +396,7 @@ def _copia(src, dst):
 
 @router.post("/api/doc/a-proyecto")
 def a_proyecto(d: dict):
-    """{mids, c, modo: mover|copiar, enviar?} -> mueve (o copia sin reprocesar) los documentos a la carpeta c y encola poblar de cada uno: {ok, mids, poblando}."""
+    """{mids, c, modo: mover|copiar, enviar?, vistas?, nube?} -> mueve (o copia sin reprocesar) los documentos a la carpeta c y encola poblar de cada uno: {ok, mids, poblando}."""
     c = A._c(d)
     mids, modo = d.get("mids"), d.get("modo") or "mover"
     if not c or not isinstance(mids, list) or not mids or modo not in ("mover", "copiar"):
@@ -408,6 +408,15 @@ def a_proyecto(d: dict):
         if not wd.is_dir():
             raise HTTPException(404, f"Reunión no encontrada: {m}")
         wds.append(wd)
+    vistas = d.get("vistas")  # «Qué sacar»: elegido a mano, se extrae aunque la carpeta no sea de tipo proyecto
+    if vistas is not None and (not isinstance(vistas, list) or set(vistas) - set(A.poblar.TODAS)):
+        raise HTTPException(400, f"Qué sacar no válido (valen: {', '.join(A.poblar.TODAS)})")
+    if vistas and A._tipo_carpeta(c).casefold() in A.carpetas.SENSIBLES:
+        raise HTTPException(400, "Esta carpeta es de un tipo sensible (paciente, candidato): la IA no puebla su registro")
+    if vistas and d.get("nube"):  # como /api/reg/poblar: lo de una plantilla «solo en este equipo» no sale a la nube
+        for wd in wds:
+            A._nube_spec({"nube": d["nube"]}, A._tpl_de(wd.name))
+        A._nube_spec({"nube": d["nube"]})
     nuevos = []
     for wd in wds:
         if modo == "mover":
@@ -423,7 +432,10 @@ def a_proyecto(d: dict):
             A.set_meta({"id": nid, "carpeta": c, "nombre": nom})
             nuevos.append(nid)
     pob, enviar = [], bool(d.get("enviar"))  # «enviar también»: las recetas «al terminar» de la carpeta (tras poblar si lo hay)
-    if (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(
+    if vistas:
+        sp = {"c": c, "vistas": vistas, **({"nube": d["nube"]} if d.get("nube") else {}), **({} if enviar else {"sin_recetas": True})}
+        pob = [A.start("poblar", {**sp, "mid": m}, c, m)["id"] for m in nuevos]
+    elif vistas is None and (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(
         c
     ).casefold() == "proyecto":  # misma regla que tras generar un acta; las sensibles nunca
         pob = [A.start("poblar", {"c": c, "mid": m, "auto": True, **({} if enviar else {"sin_recetas": True})}, c, m)["id"] for m in nuevos]

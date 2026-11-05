@@ -133,3 +133,19 @@ def test_a_proyecto_sin_enviar_no_lanza_recetas(cl, monkeypatch):
     assert llamadas == []
     assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "copiar", "enviar": True}).status_code == 200
     assert len(llamadas) == 1
+
+
+def test_a_proyecto_que_sacar(cl, monkeypatch):
+    """«Qué sacar»: solo esas vistas, aunque la carpeta no sea de tipo proyecto ni esté activado poblar_auto; [] = nada con IA."""
+    t, app = cl
+    lanzados = []
+    monkeypatch.setattr(app, "start", lambda kind, spec, video, mid="": lanzados.append((kind, spec, mid)) or {"id": f"j{len(lanzados)}"})
+    monkeypatch.setattr(app, "_tipo_carpeta", lambda c: "")
+    monkeypatch.setattr(app, "_ajustes", lambda: {"poblar_auto": False})
+    mid = next(m["id"] for m in app.meetings() if m["carpeta"] == C)
+    r = t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "mover", "vistas": ["decisiones"]}).json()
+    assert r["poblando"] == ["j1"] and lanzados[0][0] == "poblar" and lanzados[0][1]["vistas"] == ["decisiones"] and lanzados[0][1]["mid"] == mid
+    assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "mover", "vistas": []}).json()["poblando"] == []
+    assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "mover", "vistas": ["nada"]}).status_code == 400
+    monkeypatch.setattr(app, "_tipo_carpeta", lambda c: "Paciente")
+    assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "mover", "vistas": ["riesgos"]}).status_code == 400

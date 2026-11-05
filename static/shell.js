@@ -629,7 +629,13 @@ async function envUltimo(sel) {
   const u = lsGet("env.ultimo", null),
     n = u && (await nombresDst())[u];
   if (!n) return Enviar.enviar(sel);
-  const r = await post("/api/enviar", { ...(u.startsWith("p:") ? { preset: u.slice(2) } : { destino: u.slice(2), que: ["documento"] }), ...sel });
+  const body = { ...(u.startsWith("p:") ? { preset: u.slice(2) } : { destino: u.slice(2), que: ["documento"] }), ...sel },
+    r = await post("/api/enviar", body);
+  if (r.estado === "ok" && r.items?.length && r.items.every(x => x.accion === "omitido"))
+    return aviso("Ya enviado a " + n + ", sin cambios", {
+      txt: "Reenviar",
+      fn: fallo(async () => aviso((await post("/api/enviar", { ...body, reenviar: true })).estado === "ok" ? "Enviado a " + n : "Envío fallido")),
+    });
   aviso(r.estado === "ok" ? "Enviado a " + n : "Envío: " + r.estado + (r.error ? " — " + r.error : ""));
 }
 const docSel = () => ({ doc: cur.id + "/" + ver });
@@ -2475,8 +2481,8 @@ async function importarZip(c) {
 }
 function aProyecto(mids) {
   const { d, b, f } = dialogo(
-    "Añadir a " + nm("carpeta").toLowerCase(),
-    "Sin reprocesar: incorpora sus tareas, decisiones, riesgos y requisitos, y queda buscable en el " + nm("carpeta").toLowerCase() + ".",
+    "Llevar a " + nm("carpeta").toLowerCase(),
+    "Sin reprocesar: sus tareas entran tal cual y queda buscable en el " + nm("carpeta").toLowerCase() + ". Marca qué más quieres sacar.",
   );
   if (!carpetas.length) {
     b.append(el("p", { textContent: "Aún no hay ningún " + nm("carpeta").toLowerCase() + ". Créalo desde el menú lateral («Nuevo»)." }));
@@ -2487,6 +2493,14 @@ function aProyecto(mids) {
     cp = el("input", { type: "radio", name: "ap-m" }),
     env = el("input", { type: "checkbox" });
   if (carpetas.includes(fsel)) s.value = fsel;
+  const suya = mids.length === 1 && (todas.find(m => m.id === mids[0]) || BIB.ms.find(m => m.id === mids[0]))?.carpeta;
+  if (suya && carpetas.includes(suya)) s.value = suya; // ya está en un proyecto: por defecto, sacar a ese mismo
+  // «Qué sacar»: la IA lee la reunión y propone solo eso (queda en «Por revisar»); nada marcado = como siempre
+  const QS = { decisiones: "Decisiones", riesgos: "Riesgos", requisitos: "Requisitos", preguntas: "Preguntas abiertas", interesados: "Interesados" };
+  const qs = Object.entries(QS).map(([v, t]) => [v, el("input", { type: "checkbox", value: v })]);
+  const nl = el("div"),
+    nh = el("div");
+  nubeEnlace(nl, nh, "ap", null);
   b.append(
     el("div", { className: "field" }, el("label", { htmlFor: "ap-c", textContent: cap(nm("carpeta")) }), s),
     el(
@@ -2496,18 +2510,37 @@ function aProyecto(mids) {
       el("label", { className: "check" }, mv, el("span", { textContent: "Mover" })),
       el("label", { className: "check" }, cp, el("span", { textContent: "Copiar (sigue también donde está)" })),
     ),
+    el(
+      "fieldset",
+      {},
+      el("legend", { textContent: "Qué sacar al " + nm("carpeta").toLowerCase() }),
+      ...qs.map(([v, i]) => el("label", { className: "check" }, i, el("span", { textContent: QS[v] }))),
+      el("small", { className: "muted", textContent: "Con IA: en este equipo puede tardar; en la nube va más rápido." }),
+      nl,
+      nh,
+    ),
     el("label", { className: "check" }, env, el("span", { textContent: "Enviar también según las recetas del " + nm("carpeta").toLowerCase() })),
   );
   const ok = el("button", {
     type: "button",
     className: "pri",
-    textContent: "Añadir",
+    textContent: "Llevar",
     onclick: fallo(async () => {
       const antes = mids.map(id => [id, (todas.find(m => m.id === id) || BIB.ms.find(m => m.id === id))?.carpeta || ""]);
+      const vistas = qs.filter(([, i]) => i.checked).map(([v]) => v);
+      const nube = vistas.length ? nubeParams("ap") : null;
+      if (nube && !(await nubeOk("ap"))) return;
       ok.disabled = true;
       let r;
       try {
-        r = await post("/api/doc/a-proyecto", { mids, c: s.value, modo: cp.checked ? "copiar" : "mover", enviar: env.checked });
+        r = await post("/api/doc/a-proyecto", {
+          mids,
+          c: s.value,
+          modo: cp.checked ? "copiar" : "mover",
+          enviar: env.checked,
+          ...(vistas.length ? { vistas } : {}),
+          ...(nube ? { nube } : {}),
+        });
       } catch (e) {
         ok.disabled = false;
         throw e;
