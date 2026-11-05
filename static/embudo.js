@@ -31,6 +31,11 @@ function embPunt(k, modo) {
   return im == null || co == null || fa == null ? null : Math.round(im * co * fa * 10) / 10;
 }
 const embVotos = k => Object.keys(k).filter(x => x.startsWith("voto:") && k[x]);
+// B4: lo parecido en todos los proyectos (embeddings de serie, sin LLM) -> «parecida a X (proyecto Y, descartada el …: porque)»
+const embParecidas = async id =>
+  (await api("/api/reg/parecidas?" + regQ({ id }))).map(
+    p => `${p.codigo} «${p.titulo}» (${p.carpeta}, ${p.estado || "sin estado"}${p.fecha ? " el " + p.fecha : ""})${p.porque ? ": " + p.porque : ""}`,
+  );
 const embPatch = (c, id, cambios) =>
   api("/api/reg/" + encodeURIComponent(id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ c, cambios }) });
 
@@ -85,6 +90,15 @@ FVISTAS.ideas = async (c, e) => {
         recarga();
       }),
     });
+    const par = el("ul", { className: "emb-par" });
+    const bpar = el("button", {
+      className: "link",
+      textContent: "¿Ya probamos algo parecido?",
+      onclick: fallo(async () => {
+        const r = await embParecidas(x.id);
+        par.replaceChildren(...(r.length ? r : ["Nada parecido en ningún proyecto."]).map(s => el("li", { textContent: s })));
+      }),
+    });
     const t = el(
       "article",
       { className: "emb-card", draggable: true, "data-id": x.id },
@@ -97,7 +111,14 @@ FVISTAS.ideas = async (c, e) => {
       ),
       el("p", { textContent: x.titulo }),
       ...(k.problema ? [el("small", { className: "muted", textContent: k.problema })] : []),
-      el("details", {}, el("summary", { textContent: "Puntuar (" + modo.toUpperCase() + ")" }), el("div", { className: "emb-ejes" }, ...ejes)),
+      el(
+        "details",
+        {},
+        el("summary", { textContent: "Puntuar (" + modo.toUpperCase() + ") y parecidas" }),
+        el("div", { className: "emb-ejes" }, ...ejes),
+        bpar,
+        par,
+      ),
       el("div", { className: "row" }, voto, fase),
     );
     t.ondragstart = ev => ev.dataTransfer.setData("text/plain", x.id);
@@ -145,8 +166,10 @@ FVISTAS.ideas = async (c, e) => {
   const nueva = fallo(async () => {
     const t = prompt("Nueva idea:");
     if (!t?.trim()) return;
-    await post("/api/reg", { c, tipo: "idea", titulo: t.trim(), estado: "nueva", campos: yo ? { autor: yo } : {} });
-    recarga();
+    const x = await post("/api/reg", { c, tipo: "idea", titulo: t.trim(), estado: "nueva", campos: yo ? { autor: yo } : {} });
+    await recarga();
+    const r = await embParecidas(x.id).catch(() => []);
+    if (r.length) aviso("Parecida a " + r[0] + (r.length > 1 ? ` (y ${r.length - 1} más)` : ""));
   });
   return [
     el(
@@ -160,6 +183,17 @@ FVISTAS.ideas = async (c, e) => {
         ["csv", "CSV"],
         ["md", "Markdown"],
       ]),
+      el(
+        "a",
+        {
+          className: "btn sec sm",
+          href: "/api/portafolio?fmt=pptx",
+          download: "",
+          title: "Ideas, experimentos, decisiones y aprendizajes de todos los proyectos",
+        },
+        "Portafolio (PPTX)",
+      ),
+      el("a", { className: "link", href: "/api/portafolio?fmt=md", download: "" }, "MD"),
       el("button", { className: "link", textContent: "Ver como tabla", onclick: () => (lsSet("emb-vista", "tabla"), fRe()) }),
     ),
     el("div", { className: "emb" }, ...EMB_FASES.map(col)),

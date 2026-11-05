@@ -4,13 +4,16 @@ Nunca lleva destinos ni secretos, ni reuniones, ni datos de proyectos. Importar 
 tenga el mismo id; lo demás se queda. app.py llama a montar()."""
 
 import base64
+import datetime as dt
 import json
 
 from fastapi import APIRouter, HTTPException
 
+import carpetas
 import destinos
 import exportar
 import plantillas
+import registro
 
 router = APIRouter()
 A = None  # módulo app (montar): _perfiles, PERFILES, _ajustes, AJ_DEF, post_ajustes, pipeline
@@ -75,6 +78,145 @@ def importar_equipo(d):
     if isinstance(d.get("nombres"), dict):
         A.post_ajustes({"nombres": d["nombres"]})
     return {"importado": n, "errores": err}
+
+
+# ---------- B4: memoria de innovación entre proyectos ----------
+INNOV = ("idea", "experimento", "insight", "hipotesis")
+PARECIDA = 0.6  # coseno mínimo (embeddings de serie; sin modelo, vocabulario)
+
+
+def _txt(x):
+    return " ".join(filter(None, [x["titulo"], str(x["campos"].get("problema") or ""), x["detalle"]]))
+
+
+def parecidas(texto, sin=None, n=5):
+    """Ideas, experimentos, aprendizajes e hipótesis de TODOS los proyectos que se parecen a `texto` (sin LLM): [{id, codigo, tipo,
+    titulo, carpeta, estado, fecha, porque, parecido}] de más a menos parecido."""
+    if registro._vacio() or not texto.strip():
+        return []
+    with registro._db() as db:
+        filas = db.execute(
+            f"SELECT e.*, p.carpeta AS _c FROM entidad e JOIN proyecto p ON p.id = e.proyecto_id WHERE e.tipo IN ({registro._lista(INNOV)})"
+            " AND e.revision NOT IN ('descartado', 'fusionado') AND e.id != ?",
+            (sin or "",),
+        ).fetchall()
+    xs = [(r["_c"], registro._ent(r)) for r in filas]
+    if not xs:
+        return []
+    S = carpetas.sim([texto], [_txt(x) for _, x in xs])[0]
+    out = []
+    for i in sorted(range(len(xs)), key=lambda i: -S[i])[:n]:
+        if S[i] < PARECIDA:
+            break
+        c, x = xs[i]
+        k = x["campos"]
+        porque = next((str(k[a]) for a in ("motivo", "aprendizaje", "resultado", "exito") if k.get(a)), "") or x["detalle"]
+        out.append(
+            {
+                **{a: x[a] for a in ("id", "codigo", "tipo", "titulo", "estado")},
+                "carpeta": c,
+                "fecha": dt.date.fromtimestamp(x["modificado"]).isoformat() if x["modificado"] else "",
+                "porque": porque[:300],
+                "parecido": round(float(S[i]), 2),
+            }
+        )
+    return out
+
+
+@router.get("/api/reg/parecidas")
+def api_parecidas(texto: str = "", id: str = ""):
+    """?id= (una entidad: su texto) o ?texto= (lo que se está escribiendo)."""
+    try:
+        x = registro.uno(id) if id else None
+    except KeyError as ex:
+        raise HTTPException(404, str(ex))
+    return parecidas(_txt(x) if x else texto, id)
+
+
+# ---------- B5: informe de portafolio (comité de innovación) ----------
+FASES = ("nueva", "en evaluación", "en experimento", "escalada", "descartada")
+DECIDIDO = {"terminado", "pivotar", "perseverar", "matar"}
+
+
+def portafolio():
+    """Lo de innovación de todos los proyectos: {fecha, embudo: [[proyecto, n por fase…]], curso, decisiones, aprendizajes} (filas de texto)."""
+    if registro._vacio():
+        return {"fecha": dt.date.today().isoformat(), "embudo": [], "curso": [], "decisiones": [], "aprendizajes": []}
+    with registro._db() as db:
+        filas = db.execute(
+            f"SELECT e.*, p.carpeta AS _c FROM entidad e JOIN proyecto p ON p.id = e.proyecto_id WHERE e.tipo IN ({registro._lista(INNOV)})"
+            " AND e.revision NOT IN ('descartado', 'fusionado') ORDER BY p.carpeta, e.creado"
+        ).fetchall()
+    xs = [(r["_c"], registro._ent(r)) for r in filas]
+    emb, curso, dec, apr = {}, [], [], []
+    for c, x in xs:
+        k, e = x["campos"], x["estado"] or ""
+        motivo = next((str(k[a]) for a in ("motivo", "resultado", "aprendizaje") if k.get(a)), "") or x["detalle"]
+        if x["tipo"] == "idea":
+            emb.setdefault(c, dict.fromkeys(FASES, 0))[e if e in FASES else "nueva"] += 1
+            if e in ("escalada", "descartada"):
+                dec.append([c, x["codigo"], x["titulo"], e, motivo[:120]])
+        elif x["tipo"] == "experimento":
+            (
+                dec.append([c, x["codigo"], x["titulo"], e, motivo[:120]])
+                if e in DECIDIDO
+                else curso.append([c, x["codigo"], x["titulo"], e or "—", str(k.get("metrica") or "")])
+            )
+        elif x["tipo"] == "insight":
+            apr.append(f"{x['titulo']} ({c})")
+    return {
+        "fecha": dt.date.today().isoformat(),
+        "embudo": [[c, *v.values()] for c, v in emb.items()],
+        "curso": curso,
+        "decisiones": dec,
+        "aprendizajes": apr[-15:],
+    }
+
+
+CAB = {
+    "embudo": ["Proyecto", "Ideas", "En evaluación", "En experimento", "Escaladas", "Descartadas"],
+    "curso": ["Proyecto", "Código", "Experimento", "Estado", "Métrica"],
+    "decisiones": ["Proyecto", "Código", "Qué", "Decisión", "Por qué"],
+}
+TIT = {"embudo": "Embudo por proyecto", "curso": "Experimentos en curso", "decisiones": "Decisiones: escalar, pivotar o matar"}
+
+
+def portafolio_md(p):
+    tab = lambda cab, fs: (
+        [" | ".join(cab), " | ".join(["---"] * len(cab))]
+        + [" | ".join(str(v).replace("|", "/").replace("\n", " ") for v in f) for f in fs or [["—"] * len(cab)]]
+    )
+    out = ["# Portafolio de innovación", "", p["fecha"]]
+    for s in ("embudo", "curso", "decisiones"):
+        out += ["", "## " + TIT[s], ""] + tab(CAB[s], p[s])
+    out += ["", "## Aprendizajes clave", ""] + ([f"- {a}" for a in p["aprendizajes"]] or ["—"])
+    return "\n".join(out) + "\n"
+
+
+def portafolio_pptx(p):
+    import pptx_min as PM
+
+    sl = [PM.portada("Portafolio de innovación", [p["fecha"], f"{len(p['embudo'])} proyectos con ideas"])]
+    sl += [PM.tabla(TIT[s], CAB[s], p[s] or [["—"] * len(CAB[s])]) for s in ("embudo", "curso", "decisiones")]  # ponytail: 14 filas por tabla (pptx_min)
+    sl.append(PM.lista("Aprendizajes clave", p["aprendizajes"] or ["—"]))
+    return PM.pptx(sl)
+
+
+@router.get("/api/portafolio")
+def api_portafolio(fmt: str = "pptx"):
+    from fastapi.responses import Response
+
+    p = portafolio()
+    if fmt == "json":
+        return p
+    if fmt not in ("pptx", "md"):
+        raise HTTPException(400, "fmt: pptx | md | json")
+    b, mime = (
+        (portafolio_pptx(p), "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+        if fmt == "pptx"
+        else (portafolio_md(p).encode(), "text/markdown; charset=utf-8")
+    )
+    return Response(b, media_type=mime, headers={"Content-Disposition": f'attachment; filename="portafolio-{p["fecha"]}.{fmt}"'})
 
 
 @router.get("/api/equipo/exportar")

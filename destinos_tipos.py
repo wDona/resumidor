@@ -133,6 +133,13 @@ def _jira(c, s, o, x, n=None):
     return r["key"], f"{u}/browse/{r['key']}"
 
 
+def _jira_leer(c, s, o, n):
+    """Ida y vuelta (destinos.sincronizar): categoría de estado «done» = cerrada; duedate -> fecha límite."""
+    v, h, u = _jh(o, s)
+    f = http("GET", f"{u}/rest/api/{v}/issue/{n}?fields=status,duedate", h)["fields"]
+    return {"hecho": (f.get("status") or {}).get("statusCategory", {}).get("key") == "done", "fecha": f.get("duedate") or ""}
+
+
 def _gql(o, s, q, v):
     r = http("POST", U(o, "https://api.linear.app/graphql"), {"Authorization": s["token"]}, {"query": q, "variables": v})
     if r.get("errors"):
@@ -181,6 +188,16 @@ def _azure(c, s, o, x, n=None):
         else http("POST", f"{q}/${urllib.parse.quote(o.get('tipo_item') or 'Task')}?api-version=7.1", h, b)
     )
     return str(r["id"]), r.get("_links", {}).get("html", {}).get("href", "")
+
+
+AZ_CERRADO = {"done", "closed", "resolved", "completed", "removed", "hecho", "cerrado", "resuelto"}
+
+
+def _azure_leer(c, s, o, n):
+    """Ida y vuelta: System.State cerrado (Done/Closed/Resolved…) = hecho; Microsoft.VSTS.Scheduling.DueDate -> fecha límite."""
+    q = f"{o['url'].rstrip('/')}/{urllib.parse.quote(o['proyecto'])}/_apis/wit/workitems/{n}?fields=System.State,Microsoft.VSTS.Scheduling.DueDate&api-version=7.1"
+    f = http("GET", q, _basic("", s["token"]))["fields"]
+    return {"hecho": str(f.get("System.State", "")).casefold() in AZ_CERRADO, "fecha": str(f.get("Microsoft.VSTS.Scheduling.DueDate") or "")[:10]}
 
 
 # ---------- páginas / documentos ----------
@@ -718,6 +735,7 @@ TIPOS = {
         "http": True,
         "crear": _jira,
         "actualizar": _jira,
+        "leer": _jira_leer,
         "probar": lambda o, s: http("GET", f"{_jh(o, s)[2]}/rest/api/{_jh(o, s)[0]}/myself", _jh(o, s)[1]),
         "campos": [
             F("url", "URL de Jira", "url", True),
@@ -806,6 +824,7 @@ TIPOS = {
         "http": True,
         "crear": _azure,
         "actualizar": _azure,
+        "leer": _azure_leer,
         "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/_apis/projects?api-version=7.1", _basic("", s["token"])),
         "campos": [
             F("url", "Organización (https://dev.azure.com/org)", "url", True),

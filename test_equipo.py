@@ -120,3 +120,48 @@ def test_embudo_puntuacion_votos_y_excel(cl):
     assert t.post("/api/exp/ajustes", json={"c": C, "puntuacion": "rice"}).json()["ajustes"]["puntuacion"] == "rice"
     assert XR.cargar(C, "ideas")[1][0]["Puntuación"] == ""  # sin alcance/esfuerzo no hay RICE
     assert b["codigo"] == "IDEA-002"
+
+
+# ---- fase 5: B4 memoria de innovación entre proyectos ----
+def test_ideas_parecidas_en_otros_proyectos(cl):
+    t, _ = cl
+    t.post("/api/carpeta", json={"nuevo": "Lab viejo"})
+    t.post(
+        "/api/reg",
+        json={
+            "c": "Lab viejo",
+            "tipo": "idea",
+            "titulo": "Pagar con Bizum en la tienda online",
+            "estado": "descartada",
+            "campos": {"motivo": "Comisiones altas"},
+        },
+    )
+    t.post("/api/reg", json={"c": "Lab viejo", "tipo": "idea", "titulo": "Mascota para la oficina"})
+    x = t.post("/api/reg", json={"c": C, "tipo": "idea", "titulo": "Pago con Bizum en la tienda"}).json()
+    r = t.get("/api/reg/parecidas", params={"id": x["id"]}).json()
+    assert [(p["titulo"], p["carpeta"], p["estado"], p["porque"]) for p in r] == [
+        ("Pagar con Bizum en la tienda online", "Lab viejo", "descartada", "Comisiones altas")
+    ]
+    assert t.get("/api/reg/parecidas", params={"texto": "mascota oficina"}).json()[0]["titulo"] == "Mascota para la oficina"
+    assert t.get("/api/reg/parecidas", params={"id": "nada"}).status_code == 404
+
+
+# ---- fase 5: B5 informe de portafolio ----
+def test_portafolio(cl):
+    import io
+    import zipfile
+
+    t, _ = cl
+    t.post("/api/reg", json={"c": C, "tipo": "idea", "titulo": "Bizum", "estado": "escalada", "campos": {"motivo": "Gustó en el piloto"}})
+    t.post("/api/reg", json={"c": C, "tipo": "idea", "titulo": "Chat"})
+    t.post("/api/reg", json={"c": C, "tipo": "experimento", "titulo": "Test A/B", "estado": "diseño", "campos": {"metrica": "conversión"}})
+    t.post("/api/reg", json={"c": C, "tipo": "experimento", "titulo": "Landing", "estado": "matar", "detalle": "Nadie hizo clic"})
+    t.post("/api/reg", json={"c": C, "tipo": "insight", "titulo": "Odian rellenar formularios"})
+    p = t.get("/api/portafolio", params={"fmt": "json"}).json()
+    assert p["embudo"] == [[C, 1, 0, 0, 1, 0]] and p["curso"] == [[C, "EXP-001", "Test A/B", "diseño", "conversión"]]
+    assert [d[2:] for d in p["decisiones"]] == [["Bizum", "escalada", "Gustó en el piloto"], ["Landing", "matar", "Nadie hizo clic"]]
+    md = t.get("/api/portafolio", params={"fmt": "md"}).text
+    assert "## Experimentos en curso" in md and "- Odian rellenar formularios" in md
+    r = t.get("/api/portafolio")
+    assert r.status_code == 200 and len(zipfile.ZipFile(io.BytesIO(r.content)).namelist()) > 5
+    assert t.get("/api/portafolio", params={"fmt": "doc"}).status_code == 400

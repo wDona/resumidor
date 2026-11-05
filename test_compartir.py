@@ -103,3 +103,22 @@ def test_aviso_al_asignar(cl, monkeypatch):
     t.patch(f"/api/reg/{x['id']}", json={"c": C, "cambios": {"detalle": "con abogados"}})
     assert len(enviados) == 1  # solo al cambiar de responsable
     assert t.post("/api/recetas", json={"nombre": "x", "cuando": {"tipo": "al_asignar"}}).status_code == 400
+
+
+def test_leer_jira_y_azure(monkeypatch):
+    """Fase 5: Jira y Azure DevOps de ida y vuelta, misma interfaz que Planner (leer -> {hecho, fecha})."""
+    import destinos_tipos as T
+
+    pedidas = []
+
+    def http(met, url, h=None, body=None, raw=False):
+        pedidas.append(url)
+        if "/rest/api/" in url:
+            return {"fields": {"status": {"statusCategory": {"key": "done"}}, "duedate": "2026-12-01"}}
+        return {"fields": {"System.State": "Closed", "Microsoft.VSTS.Scheduling.DueDate": "2026-12-02T00:00:00Z"}}
+
+    monkeypatch.setattr(T, "http", http)
+    j = T.TIPOS["jira"]["leer"]({}, {"token": "t"}, {"url": "https://x.atlassian.net/", "email": "a@b.c"}, "ABC-1")
+    a = T.TIPOS["azure"]["leer"]({}, {"token": "t"}, {"url": "https://dev.azure.com/org", "proyecto": "Mi proyecto"}, "7")
+    assert j == {"hecho": True, "fecha": "2026-12-01"} and a == {"hecho": True, "fecha": "2026-12-02"}
+    assert pedidas[0].startswith("https://x.atlassian.net/rest/api/3/issue/ABC-1") and "Mi%20proyecto/_apis/wit/workitems/7" in pedidas[1]

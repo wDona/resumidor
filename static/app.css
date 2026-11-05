@@ -6150,3 +6150,8 @@ body.soltando .f-drop {
   margin-bottom: 12px;
   align-items: end;
 }
+.emb-par {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: var(--fs-xs);
+}
