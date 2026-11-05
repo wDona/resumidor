@@ -143,3 +143,65 @@ def test_files_no_sale_de_la_reunion(cl):
         "/files/abc123/C:/Windows/win.ini",
     ):
         assert t.get(u).status_code == 404, u
+
+
+# ---- S2: el escritorio envía al servidor y trae lo que se cambió en la web ----
+def test_escritorio_y_servidor(cl, tmp_path, monkeypatch):
+    import contextlib
+
+    import compartir
+    import pipeline
+
+    t, app = cl
+    wa, ws = pipeline.WORK, tmp_path / "servidor"
+    ws.mkdir()
+
+    @contextlib.contextmanager
+    def en(w, activo):
+        antes = (pipeline.WORK, app.CARPETAS, app.AJUSTES, servidor.ACTIVO)
+        pipeline.WORK, app.CARPETAS, app.AJUSTES, servidor.ACTIVO = w, w / "carpetas.json", w / "ajustes.json", activo
+        try:
+            yield
+        finally:
+            pipeline.WORK, app.CARPETAS, app.AJUSTES, servidor.ACTIVO = antes
+
+    servidor.SESIONES.clear()
+    servidor.FALLOS.clear()
+    with en(ws, True):
+        servidor.poner("Ana", "clave-de-ana-1", admin=True)
+        servidor.poner("Luis", "clave-de-luis-1")
+        us = servidor.usuarios()
+        us["Ana"]["token"] = servidor._sha("act_ana")
+        servidor._guardar(us)
+
+    def http(url, ruta, tok, cuerpo, tipo="application/json", timeout=120):
+        with en(ws, True):
+            h = {"Authorization": "Bearer " + tok}
+            r = t.post(ruta, content=cuerpo, headers={**h, "Content-Type": tipo}) if isinstance(cuerpo, bytes) else t.post(ruta, json=cuerpo, headers=h)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    monkeypatch.setattr(compartir, "_http", http)
+    monkeypatch.setattr(compartir, "conexion", lambda: ("https://equipo.example", "act_ana"))
+    docs = len(__import__("carpetas").docs(app._ms(C)))
+    r = t.post("/api/servidor/enviar", json={"c": C})
+    assert r.status_code == 200 and r.json()["servidor"] == "https://equipo.example", r.text
+    pa = {x["id"]: x for x in t.get("/api/reg", params={"c": C}).json()["items"]}
+    assert pa
+
+    with en(ws, True):  # en la web: Luis entra y cambia el responsable de un elemento
+        assert C in app.get_carpetas()
+        ps = {x["id"]: x for x in t.get("/api/reg", params={"c": C}, headers={"Authorization": "Bearer act_ana"}).json()["items"]}
+        assert set(ps) == set(pa)
+        assert len(__import__("carpetas").docs(app._ms(C))) == docs, "las reuniones llegan como actas importadas"
+        entrar(t, "Luis", "clave-de-luis-1")
+        eid = next(iter(ps))
+        assert t.patch(f"/api/reg/{eid}", json={"c": C, "cambios": {"dueno": "Luis"}}).status_code == 200
+        assert t.post("/api/servidor/conexion", json={}).status_code == 403  # rutas del escritorio, cerradas en el servidor
+        t.cookies.clear()
+
+    assert t.post("/api/compartir", json={"c": C}).status_code == 200  # «Sincronizar ahora» en el escritorio
+    x = t.get("/api/reg", params={"c": C}).json()["items"]
+    assert next(y for y in x if y["id"] == eid)["dueno"] == "Luis"
+    assert t.get(f"/api/reg/{eid}/historial", params={"c": C}).json()[-1]["autor"] == "Luis"
+    assert pipeline.WORK == wa

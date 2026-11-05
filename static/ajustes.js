@@ -546,6 +546,57 @@ const cardUsuarios = () => {
   );
 };
 // Configuración de equipo (.actas-equipo.json): plantillas, estilos, perfiles de uso, presets y nombres; sin destinos ni secretos
+// Escritorio: dirección y token del servidor de equipo (compartir.py). Cada proyecto se envía desde su Ajustes › Compartir.
+const servidorEquipo = () => {
+  const w = el("div");
+  const url = el("input", { type: "url", placeholder: "https://actas.miempresa.com", value: AJ.servidor_url || "", ariaLabel: "Dirección del servidor" });
+  const tok = el("input", {
+    type: "password",
+    placeholder: AJ.servidor_url ? "Token guardado (pega otro para cambiarlo)" : "Token (act_…)",
+    ariaLabel: "Token",
+  });
+  const estado = el("p", { className: "muted", textContent: AJ.servidor_url ? "Conectado a " + AJ.servidor_url : "" });
+  w.append(
+    el("h4", { textContent: "Servidor de equipo" }),
+    el("p", {
+      className: "muted",
+      textContent:
+        "Si tu equipo tiene Actas en un servidor, pega su dirección y tu token (en la web: Ajustes › Tu cuenta › Generar token). Luego envía cada proyecto desde su pestaña Ajustes.",
+    }),
+    el("div", { className: "row wrap" }, url, tok),
+    el(
+      "div",
+      { className: "row wrap" },
+      el("button", {
+        className: "sec",
+        textContent: "Guardar y probar",
+        onclick: fallo(async () => {
+          const r = await post("/api/servidor/conexion", { url: url.value, token: tok.value });
+          AJ.servidor_url = r.url;
+          tok.value = "";
+          estado.textContent = "Conectado a " + r.url + " como " + r.nombre;
+          aviso("Servidor de equipo conectado");
+        }),
+      }),
+      ...(AJ.servidor_url
+        ? [
+            el("button", {
+              className: "gh",
+              textContent: "Desconectar",
+              onclick: fallo(async () => {
+                if (!confirm("Los proyectos dejarán de enviarse al servidor hasta que vuelvas a conectarlo. ¿Desconectar?")) return;
+                await post("/api/servidor/conexion", { quitar: true });
+                AJ.servidor_url = "";
+                pintarAjustes();
+              }),
+            }),
+          ]
+        : []),
+    ),
+    estado,
+  );
+  return w;
+};
 const cardEquipo = () => {
   const inp = el("input", {
     type: "file",
@@ -603,6 +654,7 @@ const cardEquipo = () => {
       el("button", { className: "sec", textContent: "Importar configuración…", onclick: () => inp.click() }),
       inp,
     ),
+    ...(AJ.servidor ? [] : [servidorEquipo()]),
     ...(AJ.servidor
       ? []
       : [

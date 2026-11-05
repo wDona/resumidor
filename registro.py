@@ -701,7 +701,9 @@ def _del_doc(it):
 def sincronizar(c, docs):
     """Pone al día las entidades de la carpeta con sus documentos (carpetas.docs()). Idempotente; ver el docstring del módulo.
     -> {id legado: entidad} de los ítems actuales (también los descartados/fusionados: quien muestra decide)."""
-    its = [(d, it) for d in docs for it in _items(d)]
+    its = [
+        (d, it) for d in docs if not d.get("remoto") for it in _items(d)
+    ]  # remoto: acta enviada por un escritorio al servidor; sus ítems llegan como eventos (compartir.py)
     with _db() as db:  # primero en seco y sin cerrojo (casi siempre no hay nada que cambiar); el cerrojo, solo si algo difiere
         try:
             return _sincronizar(db, c, its, True)

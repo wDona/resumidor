@@ -79,7 +79,7 @@ Seguridad (lo que el modo servidor cierra):
 - Un test enumera todas las rutas: una ruta nueva debe declararse permitida o bloqueada en el servidor.
 - Riesgo aceptado: los webhooks y destinos HTTP los configura cualquier usuario con sesión (SSRF hacia la red interna); son miembros del equipo.
 
-Fases: S1 servidor con login y bloqueos + Dockerfile; S2 envío desde el escritorio; S3 IA en la nube en el servidor.
+Fases: S1 servidor con login y bloqueos + Dockerfile; S2 envío desde el escritorio (hecha: Ajustes › Equipo › Servidor de equipo y «Enviar al servidor» en cada proyecto); S3 IA en la nube en el servidor.
 
 ---
 

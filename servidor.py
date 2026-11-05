@@ -29,7 +29,7 @@ DURA = 14 * 86400  # una sesión dura dos semanas
 # descargaría o usaría modelos locales, o abriría Outlook; también la documentación automática de la API
 BLOQUEADAS = re.compile(
     r"/api/(pick|encolar|upload|generar|transcripcion|importar|previa|notas|grabar|vigiladas|modelos|compartir|descargar|mcp)(/.*)?"
-    r"|/api/nube/estimar|/api/correo/[^/]+/[^/]+/outlook/.*|/mcp|/docs.*|/redoc|/openapi\.json"
+    r"|/api/nube/estimar|/api/servidor/(conexion|enviar)|/api/correo/[^/]+/[^/]+/outlook/.*|/mcp|/docs.*|/redoc|/openapi\.json"
 )
 LIBRES = {"/api/login", "/api/ping", "/login.html", "/favicon.ico", "/favicon.svg"}
 DESTINOS_NO = {"carpeta", "sftp"}  # escriben en el disco del servidor o ejecutan un comando tras subir

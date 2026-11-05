@@ -23,6 +23,20 @@ Opcionales: `ACTAS_PORT` (8000), `ACTAS_HOST` (0.0.0.0), `ACTAS_NO_EMBED=0` para
 - Los secretos (claves de la nube, tokens de Jira, Planner…) se guardan en `/data/secretos.json` con permisos 600, en claro dentro del volumen: protege el volumen y sus copias.
 - Cualquier usuario puede configurar webhooks y destinos HTTP; pueden llegar a la red interna del servidor. Da de alta solo a gente del equipo.
 
+## Enviar desde el escritorio
+
+1. En la web: Ajustes › Tu cuenta › Generar token.
+2. En el escritorio: Ajustes › Equipo › Servidor de equipo: pega la dirección y el token y pulsa «Guardar y probar». El token se guarda en el llavero del sistema.
+3. En cada proyecto: pestaña Ajustes › Compartir con el equipo › «Enviar al servidor de equipo».
+
+Desde ahí se sincroniza solo cada minuto, en los dos sentidos:
+
+- Viajan las tareas, decisiones y demás elementos, más las actas en zip ligero, sin vídeo.
+- Las transcripciones solo viajan si marcas la casilla. Las actas que se anonimizan por defecto no se envían.
+- Lo que el equipo cambia en la web vuelve al escritorio con su autor.
+
+Un proyecto se comparte por carpeta (OneDrive) o por servidor, no por las dos vías a la vez.
+
 ## Copias de seguridad
 
 Basta con copiar el volumen `/data` (en Coolify: **Backups** del volumen, o un `tar` periódico). `registro.db` es SQLite: mejor copiarlo con la app parada o con `sqlite3 registro.db ".backup copia.db"`.

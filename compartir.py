@@ -9,23 +9,34 @@ Nunca se comparte registro.db (SQLite en carpetas sincronizadas se corrompe) ni 
 
 Sincronizar = exportar lo que cambió aquí desde la última vez (diferencia con lo último conocido, campo a campo) y luego leer las líneas
 nuevas de los demás. Conflictos: por campo, gana el cambio más reciente (t), y queda en el historial con su autor.
-Estado local en work/compartir/<proyecto>.json. app.py llama a montar()."""
+Estado local en work/compartir/<proyecto>.json. app.py llama a montar().
+
+Con un servidor de equipo (docs/servidor.md) es lo mismo por HTTP: el escritorio guarda la carpeta en un espejo local (work/espejos/) y en
+cada sincronización sube sus líneas nuevas y baja las de los demás (/api/servidor/sync); las reuniones viajan como zip ligero del acta
+(sin vídeo; la transcripción solo si el proyecto lo permite) y el servidor las importa con el mismo validador que «Importar acta»."""
 
 import hashlib
+import io
 import json
 import logging
 import re
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 import carpetas
 import exportar
 import pipeline as P
 import registro
+import servidor
 
 router = APIRouter()
 A = None  # módulo app (montar)
@@ -85,6 +96,7 @@ def _exportar(c, s, raiz):
     yo, ahora = instancia(), time.time()
     quien = registro.autor() or f"Actas {yo[:4]}"
     lineas = []
+    registro.sincronizar(c, carpetas.docs(A._ms(c)))  # los ítems de actas aún no abiertas en Pendientes también viajan
     for x in registro.listar(c):
         cur, prev = _plano(x), s["ultimo"].get(x["id"], {})
         cambios = {k: v for k, v in cur.items() if prev.get(k) != v}
@@ -92,7 +104,12 @@ def _exportar(c, s, raiz):
         if not cambios:
             continue
         t = x["modificado"] or ahora
-        lineas.append({"t": t, "inst": yo, "autor": quien, "id": x["id"], "tipo": x["tipo"], "cambios": cambios})
+        if servidor.ACTIVO:  # en el servidor sincroniza quien llama, pero el cambio lo hizo otro usuario de la web
+            h = registro.historial(x["id"])
+            autor = (h[-1].get("autor") if h else None) or quien
+        else:
+            autor = quien
+        lineas.append({"t": t, "inst": yo, "autor": autor, "id": x["id"], "tipo": x["tipo"], "cambios": cambios})
         s["ultimo"][x["id"]] = cur
         s["t"].setdefault(x["id"], {}).update({k: t for k in cambios})
     if lineas:
@@ -240,7 +257,7 @@ def unirse(ruta):
         assert pj.get("actas_proyecto") == 1 and c
     except (OSError, ValueError, KeyError, AssertionError, TypeError):
         raise ValueError("Esa carpeta no tiene un proyecto compartido de Actas (falta proyecto.json)")
-    if c not in A._carpetas():
+    if c not in A.get_carpetas():
         A.carpeta({"nuevo": c})
     carpetas.guardar_datos(c, pj.get("tipo") or None, pj.get("datos") or [])
     if pj.get("glosario") and not registro.expediente(c).get("glosario"):
@@ -265,22 +282,263 @@ def compartidos():
 def _bucle():
     while True:
         time.sleep(CADA)
-        for c in [c for c in A._carpetas() if estado(c)]:
+        for c in [c for c in A.get_carpetas() if estado(c)]:
             try:
-                sincronizar(c)
+                ahora(c)
             except Exception as ex:  # noqa: BLE001 - el bucle no se cae; el error queda en el estado del proyecto
                 log.warning("compartir: %s: %s", c, ex)
+
+
+# ---------- servidor de equipo: cliente (escritorio) ----------
+FICH_EV = re.compile(r"[0-9a-f]{12}\.jsonl")
+MAX = 8 << 20  # bytes de eventos por petición (lo que falte va en la siguiente)
+SERV_KR = "actas-servidor"
+ENVIO = threading.Lock()  # un envío al servidor a la vez
+
+
+def conexion():
+    """(url, token) del servidor de equipo configurado en Ajustes; ("", "") si no hay."""
+    url = str((A._ajustes() or {}).get("servidor_url") or "").rstrip("/")
+    try:
+        import keyring
+
+        tok = keyring.get_password(SERV_KR, "token") or ""
+    except Exception:  # noqa: BLE001 - sin llavero no hay token
+        tok = ""
+    return url, tok
+
+
+def _http(url, ruta, tok, cuerpo, tipo="application/json", timeout=120):
+    datos = cuerpo if isinstance(cuerpo, bytes) else json.dumps(cuerpo).encode()
+    req = urllib.request.Request(url + ruta, datos, {"Authorization": "Bearer " + tok, "Content-Type": tipo, "User-Agent": "actas"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as ex:
+        try:
+            det = json.loads(ex.read()).get("detail")
+        except ValueError:
+            det = ""
+        raise ValueError(f"El servidor respondió {ex.code}: {det or ex.reason}") from None
+    except (urllib.error.URLError, OSError) as ex:
+        raise ValueError(f"No se puede conectar con el servidor: {getattr(ex, 'reason', ex)}") from None
+
+
+def probar_conexion(url, tok):
+    url = url.strip().rstrip("/")
+    if not url.startswith(("https://", "http://")):
+        raise ValueError("La dirección empieza por https://")
+    req = urllib.request.Request(url + "/api/yo", headers={"Authorization": "Bearer " + tok.strip(), "User-Agent": "actas"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as ex:
+        raise ValueError("Token no válido" if ex.code == 401 else f"El servidor respondió {ex.code}") from None
+    except (urllib.error.URLError, OSError, ValueError) as ex:
+        raise ValueError(f"No se puede conectar con {url}: {getattr(ex, 'reason', ex)}") from None
+
+
+def _zip_reunion(mid, ver, trans):
+    """Zip ligero del acta (lo que acepta «Importar acta»: index.html, acta.json, img/…, transcript.json), o None si no hay acta."""
+    out = P.WORK / mid / ver
+    fs = [(f, f.relative_to(out).as_posix()) for f in out.rglob("*") if f.is_file()] if out.is_dir() else []
+    fs = [(f, a) for f, a in fs if A.ZIP_OK.fullmatch(a) and not a.startswith(("video.", "transcript"))]
+    if not {"index.html", "acta.json"} <= {a for _, a in fs}:
+        return None
+    if trans and len(ver.split("_")) > 2:
+        fs += [(t, "transcript.json") for t in (P.WORK / mid).glob(f"transcript_{ver.split('_')[2]}.json")][:1]
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+        for f, a in fs:
+            z.write(f, a)
+    return b.getvalue()
+
+
+def _firma(mid, ver, trans):
+    out = P.WORK / mid / ver
+    st = sorted((f.name, f.stat().st_mtime_ns, f.stat().st_size) for f in out.rglob("*") if f.is_file()) if out.is_dir() else []
+    return hashlib.sha1(json.dumps([st, bool(trans)]).encode()).hexdigest()[:16]
+
+
+def enviar_servidor(c, transcripciones=None):
+    """Envía el proyecto al servidor de equipo y trae lo que otros cambiaron allí. La primera vez lo da de alta (en el servidor y aquí)."""
+    url, tok = conexion()
+    if not (url and tok):
+        raise ValueError("Configura el servidor de equipo en Ajustes (dirección y token)")
+    with ENVIO:  # no LOCK: la red puede tardar minutos y el bucle y las demás carpetas siguen
+        s = estado(c)
+        if s and not s.get("servidor"):
+            raise ValueError("Este proyecto se comparte por una carpeta: deja de compartirlo antes de enviarlo al servidor")
+        if not s:
+            raiz = P.WORK / "espejos" / hashlib.sha1(c.encode()).hexdigest()[:16]
+            (raiz / "eventos").mkdir(parents=True, exist_ok=True)
+            s = {"ultimo": {}, "t": {}, "leido": {}, "alias": {}, "docs": {}, "ruta": str(raiz), "transcripciones": False, "subido": 0, "reuniones": {}}
+        s["servidor"] = url
+        if transcripciones is not None:
+            s["transcripciones"] = bool(transcripciones)
+        _guardar(c, s)
+        sincronizar(c)  # lo de aquí, al espejo
+        s, yo = estado(c), instancia()
+        raiz = Path(s["ruta"])
+        mio = raiz / "eventos" / f"{yo}.jsonl"
+        b = mio.read_bytes()[s.get("subido", 0) :][:MAX] if mio.exists() else b""
+        b = b[: b.rfind(b"\n") + 1]
+        tam = {g.name: g.stat().st_size for g in (raiz / "eventos").glob("*.jsonl") if g.stem != yo}
+        try:
+            pj = json.loads((raiz / "proyecto.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pj = {}
+        r = _http(url, "/api/servidor/sync", tok, {"c": c, "inst": yo, "mio": {"desde": s.get("subido", 0), "datos": b.decode()}, "proyecto": pj, "tam": tam})
+        s["subido"] = min(int(r.get("mio") or 0), mio.stat().st_size if mio.exists() else 0)  # si el servidor tiene menos (se perdió), se reenvía
+        for n, o in (r.get("otros") or {}).items():
+            f = raiz / "eventos" / n
+            if FICH_EV.fullmatch(n) and isinstance(o, dict) and int(o.get("desde", -1)) == (f.stat().st_size if f.exists() else 0):
+                with open(f, "ab") as fh:
+                    fh.write(str(o.get("datos") or "").encode())
+        _guardar(c, s)
+        res = sincronizar(c)  # lo traído, al registro
+        s = estado(c)
+        env, omit = 0, 0
+        for d in carpetas.docs(A._ms(c)):
+            k = f"{d['mid']}/{d['ver']}"
+            if A.anon_defecto(d["mid"]):
+                omit += 1  # lo anonimizado no sale como acta completa
+                continue
+            fi = _firma(d["mid"], d["ver"], s["transcripciones"])
+            if s["reuniones"].get(k) == fi or not (z := _zip_reunion(d["mid"], d["ver"], s["transcripciones"])):
+                continue
+            q = urllib.parse.urlencode({"c": c, "clave": k})
+            _http(url, "/api/servidor/reunion?" + q, tok, z, "application/zip", timeout=600)
+            s["reuniones"][k] = fi
+            env += 1
+            _guardar(c, s)
+        return {**res, "reuniones": env, "omitidas": omit}
+
+
+def ahora(c):
+    """Sincroniza ya: con el servidor de equipo o con la carpeta compartida, según cómo se comparta."""
+    s = estado(c)
+    return enviar_servidor(c) if s and s.get("servidor") else sincronizar(c)
+
+
+# ---------- servidor de equipo: lo que recibe (solo en modo servidor) ----------
+INST = re.compile(r"[0-9a-f]{12}")
+
+
+def recibir(d):
+    """{c, inst, mio: {desde, datos}, proyecto, tam: {fichero: bytes leídos}} -> {mio: bytes que tiene de esa instalación, otros: {fichero: {desde, datos}}}."""
+    c, inst = str(d.get("c") or "").strip()[:120], str(d.get("inst") or "")
+    if not c or not INST.fullmatch(inst):
+        raise ValueError("Petición no válida")
+    raiz = P.WORK / "servidor" / hashlib.sha1(c.encode()).hexdigest()[:16]
+    with LOCK:
+        if c not in A.get_carpetas():
+            A.carpeta({"nuevo": c})
+            pj = d.get("proyecto") if isinstance(d.get("proyecto"), dict) else {}
+            carpetas.guardar_datos(c, pj.get("tipo") or None, pj.get("datos") or [])
+            if pj.get("glosario"):
+                carpetas.editar(c, lambda e: e.update(glosario=pj["glosario"]))
+        if not estado(c):
+            (raiz / "eventos").mkdir(parents=True, exist_ok=True)
+            _guardar(c, {"ultimo": {}, "t": {}, "leido": {}, "alias": {}, "docs": {}, "ruta": str(raiz), "transcripciones": False})
+        f = raiz / "eventos" / f"{inst}.jsonl"
+        tam = f.stat().st_size if f.exists() else 0
+        mio = d.get("mio") if isinstance(d.get("mio"), dict) else {}
+        datos = str(mio.get("datos") or "").encode()
+        if datos and int(mio.get("desde", -1)) == tam and datos.endswith(b"\n") and len(datos) <= MAX:
+            with open(f, "ab") as fh:
+                fh.write(datos)
+            tam += len(datos)
+        sincronizar(c)  # aplica lo recibido y exporta lo cambiado en la web
+        otros, leidos = {}, d.get("tam") if isinstance(d.get("tam"), dict) else {}
+        for g in sorted((raiz / "eventos").glob("*.jsonl")):
+            if g.stem == inst:
+                continue
+            desde = max(0, int(leidos.get(g.name) or 0))
+            with open(g, "rb") as fh:
+                fh.seek(desde)
+                b = fh.read(MAX)
+            b = b[: b.rfind(b"\n") + 1]
+            if b:
+                otros[g.name] = {"desde": desde, "datos": b.decode()}
+        return {"c": c, "mio": tam, "otros": otros}
+
+
+def _solo_servidor():
+    if not servidor.ACTIVO:
+        raise HTTPException(404, "Solo en el servidor de equipo")
+
+
+@router.post("/api/servidor/sync")
+def api_srv_sync(d: dict):
+    _solo_servidor()
+    try:
+        return recibir(d)
+    except (ValueError, KeyError) as ex:
+        raise HTTPException(400, str(ex))
+
+
+@router.post("/api/servidor/reunion")
+async def api_srv_reunion(request: Request, c: str, clave: str):
+    """Zip ligero de un acta enviado por el escritorio; la misma clave (mid/versión de allí) sustituye a la anterior."""
+    _solo_servidor()
+    if not re.fullmatch(r"[\w-]{1,60}/[\w.-]{1,80}", clave):
+        raise HTTPException(400, "Clave no válida")
+    cuerpo = await request.body()
+    if len(cuerpo) > 300 << 20:
+        raise HTTPException(413, "Demasiado grande")
+    tmp = P.WORK / "servidor" / "subidas" / (hashlib.sha1(clave.encode()).hexdigest()[:16] + ".zip")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_bytes(cuerpo)
+    try:
+        return await run_in_threadpool(A.importar, {"path": str(tmp), "c": c, "clave": clave})
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+# ---------- servidor de equipo: rutas del escritorio ----------
+@router.post("/api/servidor/conexion")
+def api_conexion(d: dict):
+    """{url, token}: prueba y guarda (la dirección en Ajustes, el token en el llavero). {quitar: true} lo olvida."""
+    import keyring
+
+    if d.get("quitar"):
+        A.post_ajustes({"servidor_url": ""})
+        try:
+            keyring.delete_password(SERV_KR, "token")
+        except Exception:  # noqa: BLE001 - ya no estaba
+            pass
+        return {"url": ""}
+    tok = str(d.get("token") or "").strip() or conexion()[1]  # sin token nuevo: el guardado
+    try:
+        yo = probar_conexion(str(d.get("url") or ""), tok)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    keyring.set_password(SERV_KR, "token", tok)
+    A.post_ajustes({"servidor_url": str(d["url"])})
+    return {"url": str(d["url"]).strip().rstrip("/"), "nombre": yo.get("nombre")}
+
+
+@router.post("/api/servidor/enviar")
+def api_enviar(d: dict):
+    c = A._c(d)
+    try:
+        enviar_servidor(c, d.get("transcripciones"))
+    except (ValueError, KeyError, FileNotFoundError) as ex:
+        raise HTTPException(400, str(ex))
+    return _vista(c)
 
 
 # ---------- rutas ----------
 def _vista(c):
     s = estado(c)
     return (
-        {"compartido": False}
+        {"compartido": False, "servidor_url": conexion()[0]}
         if not s
         else {
             "compartido": True,
             "ruta": s["ruta"],
+            "servidor": s.get("servidor", ""),
             "transcripciones": s.get("transcripciones", False),
             "ultima": s.get("ultima"),
             "error": s.get("error", ""),
@@ -307,7 +565,7 @@ def api_compartir(d: dict):
             s["transcripciones"] = bool(d["transcripciones"])
             _guardar(c, s)
         else:
-            sincronizar(c)
+            ahora(c)
     except (ValueError, KeyError, FileNotFoundError) as ex:
         raise HTTPException(400, str(ex))
     return _vista(c)

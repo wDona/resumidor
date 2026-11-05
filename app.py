@@ -967,7 +967,9 @@ def importar(d: dict):
             tr = json.loads(z.read("transcript.json")) if "transcript.json" in names else None
         except ValueError:
             raise HTTPException(400, "El zip está dañado")
-        h = hashlib.sha1(f"{zp.name}|{zp.stat().st_size}|{zp.stat().st_mtime_ns}".encode()).hexdigest()
+        h = hashlib.sha1(
+            (("srv|" + d["clave"]) if d.get("clave") else f"{zp.name}|{zp.stat().st_size}|{zp.stat().st_mtime_ns}").encode()
+        ).hexdigest()  # clave: la reunión del escritorio que el servidor sustituye al reenviarla (compartir.py)
         wd, nivel = pipeline.WORK / ("z" + h[:15]), acta.get("nivel") if acta.get("nivel") in pipeline.LEVELS else "normal"
         out = wd / f"acta_{nivel}_zip{h[15:21]}"
         shutil.rmtree(out, ignore_errors=True)
@@ -981,8 +983,18 @@ def importar(d: dict):
     for v in wd.glob("video.*"):
         pipeline.put_file(v, out / v.name)
     nombre = {"nombre": acta["titulo"]} if acta.get("titulo") else {}  # nunca el nombre del .zip
-    (wd / "meta.json").write_text(json.dumps({**meta(wd), **nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False), encoding="utf-8")
-    if carp and tr and tr.get("segments") and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp).casefold() == "proyecto":
+    (wd / "meta.json").write_text(
+        json.dumps({**meta(wd), **nombre, **({"carpeta": carp} if carp else {}), **({"remoto": d["clave"]} if d.get("clave") else {})}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    if (
+        not servidor.ACTIVO  # en el servidor el registro llega ya hecho desde el escritorio
+        and carp
+        and tr
+        and tr.get("segments")
+        and (_ajustes() or AJ_DEF).get("poblar_auto", True)
+        and _tipo_carpeta(carp).casefold() == "proyecto"
+    ):
         start("poblar", {"c": carp, "mid": wd.name, "auto": True}, carp, wd.name)  # como un documento nuevo del proyecto
     return {"id": wd.name}
 
@@ -1229,6 +1241,7 @@ def meetings():
                 "nombre": mt.get("nombre", ""),
                 "carpeta": mt.get("carpeta", ""),
                 "sin": bool(tj.get("solo_acta")),
+                "remoto": bool(mt.get("remoto")),
                 "actas": n_actas,
                 "dur": dur,
                 "name": base
@@ -1286,6 +1299,7 @@ def anon_defecto(mid):
 AJUSTES = pipeline.WORK / "ajustes.json"  # preferencias de uso (asistente inicial y pantalla Ajustes)
 AJ_DEF = {
     "modo": "simple",
+    "servidor_url": "",  # servidor de equipo del escritorio (compartir.py)
     "uso": ["empresa"],
     "perfil_uso": ["acta", "onboarding", "comercial"],
     "nombres": {"carpeta": "Proyecto", "documento": "documento", "nuevo_boton": "+ Añadir"},
@@ -1355,6 +1369,8 @@ def post_ajustes(d: dict):
         if yo["correo"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", yo["correo"]):
             raise HTTPException(400, "Correo no válido")
         a["yo"] = yo
+    if isinstance(d.get("servidor_url"), str):  # servidor de equipo (compartir.py): solo la dirección; el token va al llavero
+        a["servidor_url"] = d["servidor_url"].strip().rstrip("/")[:300]
     if isinstance(d.get("nombres"), dict):
         a["nombres"] = {**a["nombres"], **{k: str(v).strip()[:40] for k, v in d["nombres"].items() if k in AJ_DEF["nombres"] and str(v).strip()}}
     pipeline.WORK.mkdir(exist_ok=True)

@@ -154,6 +154,7 @@ def docs(ms):
                 "data": data,
                 "tpl": tpl,
                 "sin": m.get("sin"),
+                "remoto": m.get("remoto"),
                 "fecha": dt.date.fromtimestamp(m["mtime"]).isoformat(),
             }
         )

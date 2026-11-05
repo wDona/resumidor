@@ -1472,19 +1472,36 @@ function fCompartir(c) {
       pinta(await post("/api/compartir", { c, ruta: r.path, transcripciones: tr.checked }));
       aviso("Proyecto compartido en " + r.path);
     });
+    const alServidor = fallo(async () => {
+      pinta(await post("/api/servidor/enviar", { c, transcripciones: tr.checked }));
+      aviso("Proyecto enviado al servidor de equipo");
+    });
+    const srv = s.servidor || s.servidor_url;
     w.replaceChildren(
       H("Compartir con el equipo"),
-      el("p", {
-        className: "muted",
-        textContent:
-          "Elige una carpeta de OneDrive o SharePoint que tu equipo tenga sincronizada. Se comparten las tareas, decisiones y demás elementos, y los documentos en .md. Los vídeos nunca. Los demás usan Ajustes › Equipo › «Unirse a un proyecto compartido».",
-      }),
-      el(
-        "div",
-        { className: "row wrap" },
-        ruta,
-        el("button", { className: "sec", textContent: s.compartido ? "Cambiar carpeta…" : "Compartir en carpeta…", onclick: elegir }),
-      ),
+      s.servidor
+        ? el("p", {
+            className: "muted",
+            textContent:
+              "Se envía al servidor de equipo " +
+              s.servidor +
+              ": tareas, decisiones y demás elementos, y las actas (sin vídeo; las anonimizadas no). Lo que el equipo cambie en la web vuelve aquí.",
+          })
+        : el("p", {
+            className: "muted",
+            textContent:
+              "Elige una carpeta de OneDrive o SharePoint que tu equipo tenga sincronizada. Se comparten las tareas, decisiones y demás elementos, y los documentos en .md. Los vídeos nunca. Los demás usan Ajustes › Equipo › «Unirse a un proyecto compartido».",
+          }),
+      s.servidor
+        ? ""
+        : el(
+            "div",
+            { className: "row wrap" },
+            ruta,
+            el("button", { className: "sec", textContent: s.compartido ? "Cambiar carpeta…" : "Compartir en carpeta…", onclick: elegir }),
+            ...(!s.compartido && srv ? [el("button", { textContent: "Enviar al servidor de equipo", onclick: alServidor })] : []),
+          ),
+      !s.compartido && !srv ? el("p", { className: "muted", textContent: "¿Tenéis servidor de equipo? Conéctalo en Ajustes › Equipo." }) : "",
       el("label", { className: "check" }, tr, el("span", { textContent: "Compartir también las transcripciones" })),
       ...(s.compartido
         ? [
@@ -1493,7 +1510,7 @@ function fCompartir(c) {
               textContent:
                 s.error ||
                 (s.ultima ? "Última sincronización: " + new Date(s.ultima * 1000).toLocaleString("es") : "Sin sincronizar todavía") +
-                  " · se sincroniza sola cada minuto" +
+                  (s.servidor ? " · se envía sola cada minuto" : " · se sincroniza sola cada minuto") +
                   (s.miembros.length ? " · " + s.miembros.length + (s.miembros.length === 1 ? " equipo más" : " equipos más") : ""),
             }),
             el(
@@ -1501,7 +1518,7 @@ function fCompartir(c) {
               { className: "row wrap" },
               el("button", {
                 className: "sec",
-                textContent: "Sincronizar ahora",
+                textContent: s.servidor ? "Enviar ahora" : "Sincronizar ahora",
                 onclick: fallo(async () => {
                   pinta(await post("/api/compartir", { c }));
                   aviso("Sincronizado");
@@ -1510,9 +1527,16 @@ function fCompartir(c) {
               }),
               el("button", {
                 className: "gh",
-                textContent: "Dejar de compartir",
+                textContent: s.servidor ? "Dejar de enviar" : "Dejar de compartir",
                 onclick: fallo(async () => {
-                  if (!confirm("Este equipo deja de sincronizar el proyecto. Lo que ya está en la carpeta compartida se queda allí.")) return;
+                  if (
+                    !confirm(
+                      s.servidor
+                        ? "Este equipo deja de enviar el proyecto. Lo que ya está en el servidor se queda allí."
+                        : "Este equipo deja de sincronizar el proyecto. Lo que ya está en la carpeta compartida se queda allí.",
+                    )
+                  )
+                    return;
                   pinta(await post("/api/compartir", { c, dejar: true }));
                 }),
               }),
