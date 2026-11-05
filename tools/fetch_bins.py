@@ -1,5 +1,6 @@
 """Baja a bin/ ffmpeg + llama.cpp (+ uv y CPython con --uv) para este SO/arquitectura. Solo stdlib; lo usan CI y devs.
 Uso: python tools/fetch_bins.py [--target win-x64|linux-x64|macos-arm64|macos-x64] [--uv]"""
+
 import argparse, gzip, io, platform, tarfile, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
@@ -10,8 +11,10 @@ LL = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA}/llama-{LL
 LLAMA_ASSET = {"win-x64": "win-vulkan-x64.zip", "linux-x64": "ubuntu-x64.tar.gz", "macos-arm64": "macos-arm64.tar.gz", "macos-x64": "macos-x64.tar.gz"}
 # ffmpeg: Windows = gyan.dev "release essentials" (GPL, https://www.gyan.dev/ffmpeg/builds/, fuentes en https://ffmpeg.org);
 # Linux = estático de johnvansickle. macOS = estático (GPL, incluye VideoToolbox) de https://ffmpeg.martin-riedl.de (fuentes allí enlazadas).
-FFMPEG = {"win-x64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-          "linux-x64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"}
+FFMPEG = {
+    "win-x64": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    "linux-x64": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+}
 MAC_FF = "https://ffmpeg.martin-riedl.de/redirect/latest/macos/{}/release/{}.zip"  # un zip por binario
 MAC_FF_ALT = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/{}-{}.gz"  # respaldo (GPL, fuentes en el repo)
 TRIPLE = {"win-x64": "x86_64-pc-windows-msvc", "macos-arm64": "aarch64-apple-darwin", "macos-x64": "x86_64-apple-darwin"}

@@ -1,5 +1,6 @@
 """Carpetas vigiladas (p. ej. OneDrive donde caen las grabaciones de Teams): un hilo mira cada 10 s; un fichero se encola cuando es estable
 (mismo tamaño y fecha en dos pasadas). Lo ya encolado se recuerda (ruta+tamaño+fecha) para no repetir tras reiniciar. work/vigiladas.json."""
+
 import fnmatch
 import hashlib
 import json
@@ -52,7 +53,7 @@ def _firma(p, st):
 
 def _candidatos(v):
     r = Path(v["ruta"])
-    for p in (r.rglob("*") if v.get("recursivo") else r.iterdir()):
+    for p in r.rglob("*") if v.get("recursivo") else r.iterdir():
         if "Procesados" in p.relative_to(r).parts[:-1]:
             continue
         if p.is_file() and p.suffix.lower() in _ctx["exts"] and not any(fnmatch.fnmatch(p.name.lower(), t.lower()) for t in TEMP):
@@ -91,7 +92,7 @@ def revisar(v):
             except Exception as ex:  # un fichero malo no frena los demás
                 est["error"] = f"{p.name}: {ex}"[:300]
         if len(hechas) > MAX_HECHAS:
-            hechas = dict(sorted(hechas.items(), key=lambda kv: kv[1])[-MAX_HECHAS // 2:])
+            hechas = dict(sorted(hechas.items(), key=lambda kv: kv[1])[-MAX_HECHAS // 2 :])
         P.WORK.mkdir(exist_ok=True)
         HECHAS().write_text(json.dumps(hechas), encoding="utf-8")
     except Exception as ex:
@@ -118,6 +119,7 @@ def iniciar():
             except Exception:
                 pass
             _parar.wait(10)
+
     _hilo.append(threading.Thread(target=bucle, daemon=True, name="actas-vigiladas"))
     _hilo[0].start()
 
@@ -133,8 +135,15 @@ def _limpio(d, o=None):
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     b = lambda k, x: d[k] if isinstance(d.get(k), bool) else o.get(k, x)
-    return {"id": o.get("id") or uuid.uuid4().hex[:8], "ruta": str(Path(ruta).expanduser()), "carpeta": str(d.get("carpeta", o.get("carpeta", ""))).strip()[:120],
-            "recursivo": b("recursivo", False), "activa": b("activa", True), "mover": b("mover", False), **({"plan": plan} if plan else {})}
+    return {
+        "id": o.get("id") or uuid.uuid4().hex[:8],
+        "ruta": str(Path(ruta).expanduser()),
+        "carpeta": str(d.get("carpeta", o.get("carpeta", ""))).strip()[:120],
+        "recursivo": b("recursivo", False),
+        "activa": b("activa", True),
+        "mover": b("mover", False),
+        **({"plan": plan} if plan else {}),
+    }
 
 
 def _pub(v):

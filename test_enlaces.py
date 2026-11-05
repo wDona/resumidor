@@ -1,4 +1,5 @@
 """Enlaces inteligentes (enlaces.py + app), importar zip en carpeta y «Ya está hecho, no resumir». Servidor http local, sin red ni modelos."""
+
 import contextlib
 import http.server
 import io
@@ -26,8 +27,9 @@ HTML = """<html><head><title>Obra: calendario</title><meta property="og:site_nam
 
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        r = {"/doc.pdf": ("application/pdf", PDF), "/articulo": ("text/html; charset=utf-8", HTML.encode()),
-             "/grande.pdf": ("application/pdf", PDF * 40)}.get(self.path)
+        r = {"/doc.pdf": ("application/pdf", PDF), "/articulo": ("text/html; charset=utf-8", HTML.encode()), "/grande.pdf": ("application/pdf", PDF * 40)}.get(
+            self.path
+        )
         if not r:
             self.send_error(404)
             return
@@ -56,7 +58,11 @@ def test_ssrf_y_esquema():
     with pytest.raises(ValueError, match="red local"):
         enlaces.comprobar("http://127.0.0.1:1/")
     enlaces.comprobar("http://127.0.0.1:1/", red_local=True)
-    assert enlaces.es_microsoft("https://contoso.sharepoint.com/x") and enlaces.es_microsoft("https://1drv.ms/u/s!a") and not enlaces.es_microsoft("https://example.com/sharepoint.com")
+    assert (
+        enlaces.es_microsoft("https://contoso.sharepoint.com/x")
+        and enlaces.es_microsoft("https://1drv.ms/u/s!a")
+        and not enlaces.es_microsoft("https://example.com/sharepoint.com")
+    )
 
 
 def test_pagina_a_md():
@@ -77,6 +83,7 @@ def test_traer(tmp_path, web):
     with pytest.raises(RuntimeError, match="demasiado grande"):
         enlaces.traer(web + "/grande.pdf", tmp_path / "c", red_local=True, max_mb=0)
     import urllib.error
+
     with pytest.raises(urllib.error.HTTPError):
         enlaces.traer(web + "/no", tmp_path / "d", red_local=True)
 
@@ -137,10 +144,24 @@ Se decide que la fachada se pinta de azul en marzo.
 Luis enviará el presupuesto de andamios antes del viernes.
 Existe el riesgo de que la lluvia retrase la pintura de la fachada.
 """
-R = {"requisitos": [], "interesados": [], "preguntas": [], "riesgos": [{"cita": "el riesgo de que la lluvia retrase la pintura", "texto": "La lluvia puede retrasar la pintura",
-                                                                       "probabilidad": "—", "impacto": "—", "responsable": "—"}],
-     "decisiones": [{"cita": "Se decide que la fachada se pinta de azul", "texto": "La fachada se pinta de azul en marzo", "decisor": "—"}],
-     "tareas": [{"cita": "Luis enviará el presupuesto de andamios", "texto": "Luis envía el presupuesto de andamios", "responsable": "Luis", "plazo": "viernes"}]}
+R = {
+    "requisitos": [],
+    "interesados": [],
+    "preguntas": [],
+    "riesgos": [
+        {
+            "cita": "el riesgo de que la lluvia retrase la pintura",
+            "texto": "La lluvia puede retrasar la pintura",
+            "probabilidad": "—",
+            "impacto": "—",
+            "responsable": "—",
+        }
+    ],
+    "decisiones": [{"cita": "Se decide que la fachada se pinta de azul", "texto": "La fachada se pinta de azul en marzo", "decisor": "—"}],
+    "tareas": [
+        {"cita": "Luis enviará el presupuesto de andamios", "texto": "Luis envía el presupuesto de andamios", "responsable": "Luis", "plazo": "viernes"}
+    ],
+}
 
 
 def test_tal_cual(cl, monkeypatch):

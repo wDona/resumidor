@@ -2,6 +2,7 @@
 (a prueba de cortes), notas con el minuto, y las piezas que usa el pipeline (transcripción por pista, notas -> documento).
 Audio: python-soundcard (WASAPI loopback en Windows, monitores de PulseAudio/PipeWire en Linux, CoreAudio en macOS).
 Vídeo: ffmpeg (gdigrab / x11grab / avfoundation) a 2 fps, en tramos con el muxer segment."""
+
 import hashlib
 import json
 import os
@@ -49,6 +50,7 @@ def dispositivos():
     out = {"so": sys.platform, "mics": [], "sistemas": [], "mic": "", "sistema": "", "pantalla": [ok, why], "aviso": "", "error": ""}
     try:
         import soundcard as sc
+
         todos = sc.all_microphones(include_loopback=True)
         dm, ds = sc.default_microphone(), sc.default_speaker()
     except Exception as ex:
@@ -68,6 +70,7 @@ def dispositivos():
 # ---------- Grabación ----------
 def _dev(id_):
     import soundcard as sc
+
     return next((m for m in sc.all_microphones(include_loopback=True) if m.id == id_), None)
 
 
@@ -83,9 +86,31 @@ def _ffmpeg_video(n0, wd):
         src = ["-f", "avfoundation", "-framerate", "10", "-capture_cursor", "1", "-i", f"{m[1] if m else 1}:none"]
     else:
         src = ["-f", "x11grab", "-framerate", "2", "-i", os.environ.get("DISPLAY", ":0")]
-    return ["ffmpeg", "-y", "-v", "error", *src, "-vf", "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2", *cod, "-pix_fmt", "yuv420p", "-g", "10",
-            "-f", "segment", "-segment_time", str(SEG_S), "-segment_format", "matroska", "-segment_start_number", str(n0),
-            "-reset_timestamps", "1", str(wd / "video_%03d.mkv")]
+    return [
+        "ffmpeg",
+        "-y",
+        "-v",
+        "error",
+        *src,
+        "-vf",
+        "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        *cod,
+        "-pix_fmt",
+        "yuv420p",
+        "-g",
+        "10",
+        "-f",
+        "segment",
+        "-segment_time",
+        str(SEG_S),
+        "-segment_format",
+        "matroska",
+        "-segment_start_number",
+        str(n0),
+        "-reset_timestamps",
+        "1",
+        str(wd / "video_%03d.mkv"),
+    ]
 
 
 class Rec:
@@ -178,9 +203,16 @@ class Rec:
 
     def estado(s):
         db = lambda v: round(max(0, min(1, (20 * np.log10(v + 1e-9) + 60) / 60)) * 100)
-        return {"id": s.wd.name, "estado": "pausada" if s.pausada else "grabando", "elapsed": round(s.elapsed(), 1),
-                "size": sum(f.stat().st_size for f in s.wd.glob("*") if f.is_file()),
-                "nivel": {t: db(v) for t, v in s.nivel.items()}, "err": s.err, "pantalla": bool(s.ff), "notas": len(leer_notas(s.wd))}
+        return {
+            "id": s.wd.name,
+            "estado": "pausada" if s.pausada else "grabando",
+            "elapsed": round(s.elapsed(), 1),
+            "size": sum(f.stat().st_size for f in s.wd.glob("*") if f.is_file()),
+            "nivel": {t: db(v) for t, v in s.nivel.items()},
+            "err": s.err,
+            "pantalla": bool(s.ff),
+            "notas": len(leer_notas(s.wd)),
+        }
 
 
 def _meta(wd, **kw):
@@ -229,8 +261,16 @@ def recuperables(pipeline):
         m = meta(wd.parent)
         if m.get("estado") in ("grabando", "pausada", "parada") and not (a and a.wd == wd.parent):
             n = sum(f.stat().st_size for f in wd.parent.glob("mic_*.pcm"))
-            out.append({"id": wd.parent.name, "inicio": m.get("inicio"), "dur": round(n / 2 / SR), "tam": sum(f.stat().st_size for f in wd.parent.glob("*") if f.is_file()),
-                        "cfg": m.get("cfg", {}), "notas": len(leer_notas(wd.parent))})
+            out.append(
+                {
+                    "id": wd.parent.name,
+                    "inicio": m.get("inicio"),
+                    "dur": round(n / 2 / SR),
+                    "tam": sum(f.stat().st_size for f in wd.parent.glob("*") if f.is_file()),
+                    "cfg": m.get("cfg", {}),
+                    "notas": len(leer_notas(wd.parent)),
+                }
+            )
     return out
 
 
@@ -246,7 +286,7 @@ def unir_pcm(files, out, minimo=0):
             tam = Path(f).stat().st_size // 2 * 2  # un corte puede dejar medio byte
             with open(f, "rb") as g:
                 while tam > 0 and (b := g.read(min(tam, 1 << 20))):
-                    w.writeframes(b[:len(b) // 2 * 2])
+                    w.writeframes(b[: len(b) // 2 * 2])
                     n += len(b) // 2
                     tam -= len(b)
         if n < minimo:
@@ -263,7 +303,7 @@ def mezclar(a, b, out):
         while d := x.readframes(SR * 30):
             e = y.readframes(SR * 30)
             u, v = np.frombuffer(d, "<i2").astype(np.int32), np.frombuffer(e, "<i2").astype(np.int32)
-            v = np.pad(v, (0, max(0, len(u) - len(v))))[:len(u)]
+            v = np.pad(v, (0, max(0, len(u) - len(v))))[: len(u)]
             w.writeframes(np.clip(u + v, -32768, 32767).astype("<i2").tobytes())
 
 
@@ -296,8 +336,32 @@ def finalizar(wd):
     if vs:
         (wd / "video.txt").write_text("".join(f"file '{v.name}'\n" for v in vs), encoding="utf-8")
         medio = wd / "grabacion.mp4"
-        cmd = ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(wd / "video.txt"), "-i", str(wd / "mezcla.wav"),
-               "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "48k", "-shortest", str(medio)]
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(wd / "video.txt"),
+            "-i",
+            str(wd / "mezcla.wav"),
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "48k",
+            "-shortest",
+            str(medio),
+        ]
     else:
         medio = wd / "grabacion.m4a"
         cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(wd / "mezcla.wav"), "-c:a", "aac", "-b:a", "48k", str(medio)]
@@ -347,8 +411,11 @@ def transcribir(pipeline, pistas, quality, threads, dur, cb, hot=None):
         r = pipeline.transcribe(wav, quality, threads, dur, lambda f, m, i=i: cb((i + f) / n, m), hot=hot)
         res[k] = r
     langs = [r["language"] for r in res.values() if r["segments"] and r["language"]]
-    return {"language": max(set(langs), key=langs.count, default=None), "pistas": list(pistas),
-            "segments": fusionar({k: r["segments"] for k, r in res.items()}, eco=ROL["mic"])}
+    return {
+        "language": max(set(langs), key=langs.count, default=None),
+        "pistas": list(pistas),
+        "segments": fusionar({k: r["segments"] for k, r in res.items()}, eco=ROL["mic"]),
+    }
 
 
 # ---------- Notas ----------
@@ -366,8 +433,15 @@ def limpia_notas(notas):
             t = max(0.0, round(float(n.get("t", 0)), 1))
         except (TypeError, ValueError):
             continue
-        out.append({"id": str(n.get("id") or f"n{i}-{int(t)}")[:20], "t": t, "texto": str(n.get("texto") or "").strip()[:2000],
-                    "boton": str(n.get("boton") or "")[:40], "seccion": str(n.get("seccion") or "")[:40] or None})
+        out.append(
+            {
+                "id": str(n.get("id") or f"n{i}-{int(t)}")[:20],
+                "t": t,
+                "texto": str(n.get("texto") or "").strip()[:2000],
+                "boton": str(n.get("boton") or "")[:40],
+                "seccion": str(n.get("seccion") or "")[:40] or None,
+            }
+        )
     return sorted(out, key=lambda n: n["t"])
 
 
@@ -412,19 +486,28 @@ def _info(P, sec):
     if sec in ("decisiones", "tareas"):
         t = P.get("tpl") or {}
         s = next((x for x in t.get("secciones", []) if x["id"] == sec), None)
-        return (s or {}).get("nombre", sec.capitalize()), (s or {}).get("descripcion") or ("lo que se acordó" if sec == "decisiones" else "lo que alguien se compromete a hacer")
+        return (s or {}).get("nombre", sec.capitalize()), (s or {}).get("descripcion") or (
+            "lo que se acordó" if sec == "decisiones" else "lo que alguien se compromete a hacer"
+        )
     s = next((x for x in P["gen"] if x["id"] == sec), None)
     return (s["nombre"], s["descripcion"]) if s else (None, None)
 
 
 def pendientes(notas, P):
     """Notas con botón de sección que esta plantilla tiene (las demás solo se marcan)."""
-    return [n for n in notas if n["seccion"] and _info(P, n["seccion"])[0] and (n["seccion"] in ("decisiones", "tareas") and P["acta"] or n["seccion"] in [s["id"] for s in P["gen"]])]
+    return [
+        n
+        for n in notas
+        if n["seccion"]
+        and _info(P, n["seccion"])[0]
+        and (n["seccion"] in ("decisiones", "tareas") and P["acta"] or n["seccion"] in [s["id"] for s in P["gen"]])
+    ]
 
 
 def extraer(pipeline, chat, n, segs, P, lang, model):
     """Un elemento de la sección de la nota, con la cita verificada en la ventana (None si no hay). Una llamada al LLM."""
     import rag
+
     ws = ventana(segs, n["t"])
     if not ws:
         return None
@@ -465,7 +548,15 @@ def aplicar(pipeline, notas, segs, maps, red, P, ext):
             lst, k = red[sec], "tarea" if sec == "tareas" else "texto"
         else:
             lst, k = maps[0].setdefault(sec, []), "texto"
-        ya = next((x for x in lst if abs(pt(x["t"]) - pt(it["t"])) <= VENT and (pipeline.same(x.get(k, ""), it[k], 0.6) or pipeline.words(x.get("cita", "")) == pipeline.words(it["cita"]))), None)
+        ya = next(
+            (
+                x
+                for x in lst
+                if abs(pt(x["t"]) - pt(it["t"])) <= VENT
+                and (pipeline.same(x.get(k, ""), it[k], 0.6) or pipeline.words(x.get("cita", "")) == pipeline.words(it["cita"]))
+            ),
+            None,
+        )
         if ya:
             ya["usuario"] = True
         else:
@@ -475,6 +566,7 @@ def aplicar(pipeline, notas, segs, maps, red, P, ext):
 
 def _selftest():
     import tempfile
+
     d = Path(tempfile.mkdtemp())
     for i, v in enumerate((1000, 2000)):  # dos tramos de 1 s + 1 s; el segundo con medio byte de más (corte)
         (d / f"mic_{i:03d}.pcm").write_bytes(np.full(SR, v, "<i2").tobytes() + (b"\x01" if i else b""))
@@ -489,9 +581,18 @@ def _selftest():
         assert x[0] == 1500 and w.getnframes() == 3 * SR
     assert pico(d / "b.wav") == 500
     seg = lambda s, e, t: {"s": s, "e": e, "text": t}
-    m = fusionar({"Hablante 1": [seg(0, 4, "hola a todos buenos días"), seg(10, 12, "sí claro")],
-                  "Hablante 2": [seg(0.2, 4.2, "hola a todos, buenos días"), seg(11, 13, "adelante con el punto")]}, eco="Hablante 1")
-    assert [(s["spk"], s["text"]) for s in m] == [("Hablante 2", "hola a todos, buenos días"), ("Hablante 1", "sí claro"), ("Hablante 2", "adelante con el punto")], m
+    m = fusionar(
+        {
+            "Hablante 1": [seg(0, 4, "hola a todos buenos días"), seg(10, 12, "sí claro")],
+            "Hablante 2": [seg(0.2, 4.2, "hola a todos, buenos días"), seg(11, 13, "adelante con el punto")],
+        },
+        eco="Hablante 1",
+    )
+    assert [(s["spk"], s["text"]) for s in m] == [
+        ("Hablante 2", "hola a todos, buenos días"),
+        ("Hablante 1", "sí claro"),
+        ("Hablante 2", "adelante con el punto"),
+    ], m
     n = limpia_notas([{"t": "61.04", "texto": " x ", "boton": "Acuerdo", "seccion": "decisiones"}, {"t": 5}, {"t": "malo"}])
     assert [x["t"] for x in n] == [5.0, 61.0] and n[1]["seccion"] == "decisiones"
     ss = [seg(10 * i, 10 * i + 8, f"frase {i}") for i in range(30)]

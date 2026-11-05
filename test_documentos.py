@@ -1,5 +1,6 @@
 """Ingesta de documentos (PDF, Markdown, TXT, DOCX, HTML, imagen), modo «solo buscable», lote .zip, /api/buscar y descripción de
 imágenes con IA (vision.py). Sin red ni modelos: el OCR y la llamada de visión se sustituyen."""
+
 import io
 import shutil
 import time
@@ -30,8 +31,14 @@ def pdf(pages):
         offs.append(len(out))
         out += f"{i} 0 obj\n{o}\nendobj\n".encode()
     x = len(out)
-    return out + (f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n" + "".join(f"{o:010d} 00000 n \n" for o in offs)
-                  + f"trailer << /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF").encode()
+    return (
+        out
+        + (
+            f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n"
+            + "".join(f"{o:010d} 00000 n \n" for o in offs)
+            + f"trailer << /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF"
+        ).encode()
+    )
 
 
 PDF = pdf(["Primera pagina: el presupuesto anual sube un diez por ciento.", "Segunda pagina: el servidor nuevo se compra en enero.", ""])
@@ -50,6 +57,7 @@ def cl(tmp_path, monkeypatch):
     monkeypatch.setenv("ACTAS_CPU", "1")
     monkeypatch.setattr(pipeline, "WORK", w)
     import app
+
     for k, v in {"UPLOADS": tmp_path / "uploads", "CARPETAS": w / "carpetas.json", "AJUSTES": w / "ajustes.json", "COLA": w / "cola.json"}.items():
         monkeypatch.setattr(app, k, v)
     monkeypatch.setattr(documentos, "ocr", lambda im: ["TEXTO LEIDO POR OCR"])
@@ -83,16 +91,28 @@ def test_formatos(tmp_path, monkeypatch):
     assert all(isinstance(x, int) for x in st) and st == sorted(set(st))  # inicios enteros y distintos: la marca lleva a su trozo
     lab = documentos.etiqueta(documentos.locs(r["segments"]))
     assert [lab(s["s"]) for s in r["segments"]] == ["p. 1", "p. 2", "p. 3"] and documentos.etiqueta(None)(65) == "01:05"
-    (tmp_path / "b.md").write_text("Intro.\n\n# Diseño\n\nTexto **clave** con [enlace](http://x).\n\n## API\n\n- uno\n\n```\n# no es título\n```\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text(
+        "Intro.\n\n# Diseño\n\nTexto **clave** con [enlace](http://x).\n\n## API\n\n- uno\n\n```\n# no es título\n```\n", encoding="utf-8"
+    )
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "b.md")["segments"]] == [
-        ("§ Inicio", "Intro."), ("§ Diseño", "Diseño. Texto clave con enlace."), ("§ Diseño › API", "API. uno # no es título")]
+        ("§ Inicio", "Intro."),
+        ("§ Diseño", "Diseño. Texto clave con enlace."),
+        ("§ Diseño › API", "API. uno # no es título"),
+    ]
     (tmp_path / "t.md").write_text("# Comisión de obras\n\nAsisten tres.\n\n## Presupuesto\n\nSe aprueba.\n\n## Calendario\n\nEn enero.", encoding="utf-8")
-    assert [s["loc"] for s in documentos.leer(tmp_path / "t.md")["segments"]] == ["§ Comisión de obras", "§ Presupuesto", "§ Calendario"]  # título raíz único: no se repite
-    (tmp_path / "c.html").write_text("<html><head><title>T</title><script>x()</script></head><body><h1>Hola</h1><p>Uno &amp; dos</p></body></html>", encoding="utf-8")
+    assert [s["loc"] for s in documentos.leer(tmp_path / "t.md")["segments"]] == [
+        "§ Comisión de obras",
+        "§ Presupuesto",
+        "§ Calendario",
+    ]  # título raíz único: no se repite
+    (tmp_path / "c.html").write_text(
+        "<html><head><title>T</title><script>x()</script></head><body><h1>Hola</h1><p>Uno &amp; dos</p></body></html>", encoding="utf-8"
+    )
     assert [(s["loc"], s["text"]) for s in documentos.leer(tmp_path / "c.html")["segments"]] == [("§ Hola", "Hola. Uno & dos")]
     (tmp_path / "d.txt").write_text("Párrafo uno.\n\nPárrafo dos.", encoding="utf-8")
     assert [s["loc"] for s in documentos.leer(tmp_path / "d.txt")["segments"]] == ["¶ 1", "¶ 2"]
     import docx
+
     doc = docx.Document()
     doc.add_heading("Capítulo", 1)
     doc.add_paragraph("Contenido.")
@@ -102,7 +122,10 @@ def test_formatos(tmp_path, monkeypatch):
     (tmp_path / "f.txt").write_text("[00:00:05] Ana: Hola a todos.\n[00:00:09] Luis: Empezamos.", encoding="utf-8")
     assert "tipo" not in pipeline.import_transcript(tmp_path / "f.txt", None, 1, 0, lambda f, m: None)["importada"]
     assert pipeline.import_transcript(tmp_path / "d.txt", None, 1, 0, lambda f, m: None)["importada"]["tipo"] == "texto"
-    assert len(documentos._trozos("palabra " * 200)) == 3 and pipeline.merge_segs([{"s": 0, "e": 1, "text": "a", "loc": "p. 1"}, {"s": 1, "e": 2, "text": "b", "loc": "p. 2"}])[1]["loc"] == "p. 2"
+    assert (
+        len(documentos._trozos("palabra " * 200)) == 3
+        and pipeline.merge_segs([{"s": 0, "e": 1, "text": "a", "loc": "p. 1"}, {"s": 1, "e": 2, "text": "b", "loc": "p. 2"}])[1]["loc"] == "p. 2"
+    )
 
 
 def test_pdf_buscable_y_buscar(cl):
@@ -144,7 +167,12 @@ def test_imagen_con_ia(cl, monkeypatch):
     assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
     f = t.get(f"/api/fuente/{mid}").json()
     assert (f["kind"], f["descripcion"], f["descripcion_ia"], f["ocr_texto"], f["vision"]) == (
-        "imagen", "Cuadro de mando del lunes", "Panel con un gráfico de ventas al alza.", "TEXTO LEIDO POR OCR", "servidor") and f["url"].endswith("fuente.png")
+        "imagen",
+        "Cuadro de mando del lunes",
+        "Panel con un gráfico de ventas al alza.",
+        "TEXTO LEIDO POR OCR",
+        "servidor",
+    ) and f["url"].endswith("fuente.png")
     assert buscar(t, "ventas")["fragmentos"][0]["tipo_fuente"] == "descripcion_ia" and buscar(t, "cuadro")["fragmentos"][0]["tipo_fuente"] == "descripcion"
     assert buscar(t, "ocr")["fragmentos"][0]["tipo_fuente"] == "imagen"
     assert t.post(f"/api/imagen/{mid}", json={"descripcion_ia": "Gráfico de devoluciones"}).json()["descripcion_ia"] == "Gráfico de devoluciones"
@@ -166,7 +194,10 @@ def test_vision_elegir(monkeypatch):
     assert vision.elegir({"vision": remoto}) is None and vision.elegir({"vision": remoto, "nube_imagenes": True})["url"] == remoto["url"]
     assert vision.elegir({}, nb) is None  # imágenes a la nube: solo con permiso expreso
     assert vision.estado(vision.elegir({"nube_imagenes": True}, nb)) == "nube"
-    assert vision.elegir({"nube_imagenes": True}, {**nb, "anonimizar": True}) is None and vision.elegir({"nube_imagenes": True}, {**nb, "proveedor": "cli:claude"}) is None
+    assert (
+        vision.elegir({"nube_imagenes": True}, {**nb, "anonimizar": True}) is None
+        and vision.elegir({"nube_imagenes": True}, {**nb, "proveedor": "cli:claude"}) is None
+    )
     monkeypatch.setattr(vision, "_local", lambda: ("m.gguf", "mmproj.gguf"))
     assert vision.estado(vision.elegir({})) == "local" and vision.estado(None) == "no_disponible"
 
@@ -200,6 +231,8 @@ def test_buscar_elementos(cl):
     registro.crear("Otra", "riesgo", titulo="Retraso del presupuésto")
     x = buscar(t, "presupuesto arquitecto")["elementos"]
     assert [(e["tipo"], e["texto"], e["c"]) for e in x] == [("tarea", "Revisar el presupuesto anual", "Obra")]
-    assert {e["c"] for e in buscar(t, "PRESUPUESTO")["elementos"]} == {"Obra", "Otra"} and [e["c"] for e in buscar(t, "presupuesto", c="Otra")["elementos"]] == ["Otra"]
+    assert {e["c"] for e in buscar(t, "PRESUPUESTO")["elementos"]} == {"Obra", "Otra"} and [
+        e["c"] for e in buscar(t, "presupuesto", c="Otra")["elementos"]
+    ] == ["Otra"]
     assert buscar(t, "presupuesto", tipo="riesgo")["elementos"][0]["tipo"] == "riesgo" and buscar(t, "presupuesto", tipo="pdf")["elementos"] == []
     assert buscar(t, "")["elementos"] == [] and buscar(t, "")["fragmentos"] == []

@@ -1,4 +1,5 @@
 """Vídeo de reunión -> acta HTML (resumen + capturas + marcas de tiempo). Todo local (CPU; Metal para el LLM en Apple Silicon)."""
+
 import bisect, platform, contextlib, functools, hashlib, html, json, os, re, shutil, socket, subprocess, sys, tempfile, time, unicodedata, urllib.request, zipfile
 from collections import Counter
 from itertools import groupby
@@ -12,37 +13,42 @@ import transcripts
 
 ROOT = Path(__file__).resolve().parent
 WORK = Path(os.environ["ACTAS_WORK"]) if os.environ.get("ACTAS_WORK") else ROOT / "work"  # ACTAS_WORK: datos y lock aparte (pruebas)
-STEP = 1                      # s entre muestras de vídeo (un cambio que dure < 1 s se pierde)
-THUMB_W, THUMB_H = 128, 72    # miniatura en gris para detectar cambios
-CROP = 0.05                   # franjas de arriba/abajo ignoradas (barra de menús con reloj/batería, dock)
-BLOCK = 8                     # lado del bloque (px de miniatura) para comparar por zonas
-CUT = 0.05                    # fracción de bloques cambiados que cuenta como "cambio de pantalla"
-NOISY = 0.4                   # bloque que cambia en >= 40 % de las muestras vecinas (webcam superpuesta): se ignora
-LOCAL = 3                     # un grupo compacto (>= 2x2) de >= 3 bloques cambiados (menú, diálogo) también es cambio
-VIDEO = 0.25                  # bloque que cambia en >= 25 % de las muestras vecinas y forma una mancha de >= 3x3: vídeo en vivo
-LIVELY = 0.15                 # bloque que cambia en >= 15 % de las muestras vecinas: cámara/vídeo, no cuenta como cambio local
-MIN_LEN = 2                   # muestras estables seguidas para capturar
-SCROLL = 0.5                  # desplazamiento vertical (fracción de pantalla) que cuenta como contenido nuevo
+STEP = 1  # s entre muestras de vídeo (un cambio que dure < 1 s se pierde)
+THUMB_W, THUMB_H = 128, 72  # miniatura en gris para detectar cambios
+CROP = 0.05  # franjas de arriba/abajo ignoradas (barra de menús con reloj/batería, dock)
+BLOCK = 8  # lado del bloque (px de miniatura) para comparar por zonas
+CUT = 0.05  # fracción de bloques cambiados que cuenta como "cambio de pantalla"
+NOISY = 0.4  # bloque que cambia en >= 40 % de las muestras vecinas (webcam superpuesta): se ignora
+LOCAL = 3  # un grupo compacto (>= 2x2) de >= 3 bloques cambiados (menú, diálogo) también es cambio
+VIDEO = 0.25  # bloque que cambia en >= 25 % de las muestras vecinas y forma una mancha de >= 3x3: vídeo en vivo
+LIVELY = 0.15  # bloque que cambia en >= 15 % de las muestras vecinas: cámara/vídeo, no cuenta como cambio local
+MIN_LEN = 2  # muestras estables seguidas para capturar
+SCROLL = 0.5  # desplazamiento vertical (fracción de pantalla) que cuenta como contenido nuevo
 NAME = re.compile(r"(?:[A-ZÁÉÍÓÚÑ][\w.'-]*\s?){2,4}")  # nombre bajo una cara; >= 3 en la captura = mosaico de cámaras
-SAME = 5                      # diferencia media de huella bajo la cual dos capturas seguidas son el mismo documento en edición
-DUPFP = 25                    # diferencia media (0-255) de la huella 32x18 bajo la cual dos capturas que no son pantalla son la misma
-SKIN = 0.04                   # fracción de píxeles de piel por debajo de la cual una captura sin texto puede ser pantalla
-EDGE = 0.05                   # bordes duros (fracción de bloques de 16 px): una captura sin texto no vacía (gráfico, imagen)
-OCR_REC = ("latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
-           "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
-           "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a")
+SAME = 5  # diferencia media de huella bajo la cual dos capturas seguidas son el mismo documento en edición
+DUPFP = 25  # diferencia media (0-255) de la huella 32x18 bajo la cual dos capturas que no son pantalla son la misma
+SKIN = 0.04  # fracción de píxeles de piel por debajo de la cual una captura sin texto puede ser pantalla
+EDGE = 0.05  # bordes duros (fracción de bloques de 16 px): una captura sin texto no vacía (gráfico, imagen)
+OCR_REC = (
+    "latin_PP-OCRv5_rec_mobile.onnx",  # reconocedor latino (tildes, ñ, espacios); 7,5 MB, se baja solo
+    "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx",
+    "b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a",
+)
 # quién habla: sherpa-onnx (huella de voz CAM++ de 3D-Speaker, 27 MB)
-DIAR_EMB = ("3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
-            "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
-            "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2")
+DIAR_EMB = (
+    "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+    "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2",
+)
 DIAR_THR, DIAR_PIECE, DIAR_MIN = 0.6, 5, 1.2  # umbral de distancia coseno (más alto = menos hablantes) / s máx. y mín. por trozo
 DIAR_MERGE = 0.2  # grupos con centroides a menos distancia coseno = la misma voz (medido: misma voz 0.01-0.12, voces distintas ≥ 0.42)
-MIN_CHARS = 30                # letras OCR (sin interfaz ni nombres, ver screens) para considerar un frame "pantalla compartida"
-CHUNK_CHARS = 10000           # ~3k tokens de transcripción por bloque del map
-ASR_WIN = 900                 # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
+MIN_CHARS = 30  # letras OCR (sin interfaz ni nombres, ver screens) para considerar un frame "pantalla compartida"
+CHUNK_CHARS = 10000  # ~3k tokens de transcripción por bloque del map
+ASR_WIN = 900  # s de audio por ventana del ASR: la RAM no crece con la duración de la reunión
 ASR_MODELS = {"rápido": "small", "calidad": "large-v3-turbo"}
 LLM = ("Qwen3.5-4B-Q4_0.gguf", "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_0.gguf")
+
+
 # ponytail: núcleos físicos = lógicos / 2 (SMT de 2 hilos, p. ej. i5-1135G7 4C/8T); con más hilos que núcleos llama.cpp
 # genera a menos de la mitad de velocidad. Sin SMT se queda con la mitad: --threads / ACTAS_THREADS lo corrigen
 def _phys():
@@ -50,6 +56,7 @@ def _phys():
     try:
         if os.name == "nt":
             import ctypes, struct
+
             n = ctypes.c_ulong(0)
             ctypes.windll.kernel32.GetLogicalProcessorInformation(None, ctypes.byref(n))
             buf = ctypes.create_string_buffer(n.value)
@@ -74,6 +81,7 @@ if os.name == "nt":  # ffmpeg/llama-server/Tk sin ventana de consola (la app se 
         def __init__(self, *a, **k):
             k["creationflags"] = k.get("creationflags", 0) | 0x08000000  # CREATE_NO_WINDOW
             super().__init__(*a, **k)
+
     subprocess.Popen = _NoWin
 # ffmpeg/ffprobe empaquetados (bin/**/, ver tools/fetch_bins.py) delante del PATH; si no hay, se usan los del sistema
 for _f in ROOT.glob("bin/**/ffmpeg*"):
@@ -87,15 +95,25 @@ for _f in ROOT.glob("bin/**/ffmpeg*"):
 # completa (sentences): nunca a mitad de palabra
 LEVELS = {
     "breve": dict(keep=0.2, pts=10, shots=3, hshots=6, nshots=6, rel=1, dec=None, tar=None, secs=False, tldr=("2-3 frases", 450), sec=None),
-    "normal": dict(keep=0.5, pts=None, shots=10, hshots=20, nshots=12, rel=2, dec=None, tar=None, secs=True, tldr=("4-6 frases", 750),
-                   sec=("2-3 frases", 350)),
-    "detallado": dict(keep=1.0, pts=None, shots=None, hshots=None, nshots=20, rel=2, dec=None, tar=None, secs=True,
-                      tldr=("un párrafo de 6-10 frases", 1200), sec=("3-5 frases", 600)),
+    "normal": dict(keep=0.5, pts=None, shots=10, hshots=20, nshots=12, rel=2, dec=None, tar=None, secs=True, tldr=("4-6 frases", 750), sec=("2-3 frases", 350)),
+    "detallado": dict(
+        keep=1.0,
+        pts=None,
+        shots=None,
+        hshots=None,
+        nshots=20,
+        rel=2,
+        dec=None,
+        tar=None,
+        secs=True,
+        tldr=("un párrafo de 6-10 frases", 1200),
+        sec=("3-5 frases", 600),
+    ),
 }
 # rel = frases máx. de cada párrafo del relato; nshots = capturas máx. del relato; hshots = capturas en línea de la parte literal (None = todas) si el
 # vídeo es de pantalla (>= HEAVY cambios de pantalla distintos: demos, tutoriales); el resto va en la tira de miniaturas
 HEAVY = 20
-SHOT_WIN = (-10, 90)          # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
+SHOT_WIN = (-10, 90)  # s alrededor de una captura donde los puntos elegidos la hacen "relevante"
 LANG = {"es": "español", "en": "inglés (English)"}
 
 
@@ -134,14 +152,18 @@ def video_id(path):
 
 def has_video(path):
     """False si el fichero es solo audio (la carátula incrustada de un mp3/m4a no cuenta como vídeo)."""
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream_disposition=attached_pic", "-of", "csv=p=0", str(path)],
-                         capture_output=True, text=True).stdout.split()
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream_disposition=attached_pic", "-of", "csv=p=0", str(path)],
+        capture_output=True,
+        text=True,
+    ).stdout.split()
     return "0" in out
 
 
 def duration(path):
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
-                         capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True
+    ).stdout
     return float(out.strip())
 
 
@@ -158,7 +180,9 @@ def windowed(transcribe_win, dur, win, pad=30):
             if not final and s >= win:
                 nxt = start + s
                 break
-            out.append((start + s, start + e, txt, *([[{**x, "s": round(start + x["s"], 2), "e": round(start + x["e"], 2)} for x in wd[0]], *wd[1:]] if wd else [])))
+            out.append(
+                (start + s, start + e, txt, *([[{**x, "s": round(start + x["s"], 2), "e": round(start + x["e"], 2)} for x in wd[0]], *wd[1:]] if wd else []))
+            )
             nxt = max(nxt, start + e)
         if final:
             return out
@@ -168,15 +192,21 @@ def windowed(transcribe_win, dur, win, pad=30):
 def pcm16k(video, start, length):
     """Audio mono 16 kHz de una ventana vía ffmpeg (PyAV 19 rompe el decode_audio de faster-whisper 1.2.1); solo esa ventana
     en RAM: faster-whisper hace la STFT de todo lo que recibe de una vez; con la reunión entera eran 7 GB en 2 h 20."""
-    return np.frombuffer(subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{start:.2f}", "-t", str(length), "-i", str(video),
-                                         "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
-                                        capture_output=True, check=True).stdout, np.float32)
+    return np.frombuffer(
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", f"{start:.2f}", "-t", str(length), "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+            capture_output=True,
+            check=True,
+        ).stdout,
+        np.float32,
+    )
 
 
 def transcribe(video, quality, threads, dur, cb, t0=0, hot=None):
     """hot: términos del glosario de la carpeta (hotwords de faster-whisper; si esta versión no los tiene, initial_prompt)."""
     import inspect
     from faster_whisper import WhisperModel
+
     quality, _, habla = quality.partition("-")  # "calidad-en": idioma forzado; "calidad-mezcla": se detecta en cada ventana
     name = ASR_MODELS[quality]
     cb(0, f"Cargando modelo de voz ({name})…")
@@ -189,21 +219,49 @@ def transcribe(video, quality, threads, dur, cb, t0=0, hot=None):
     kw = ({"hotwords": hot} if "hotwords" in inspect.signature(WhisperModel.transcribe).parameters else {"initial_prompt": hot}) if hot else {}
 
     def win(start, length):
-        segs, info = model.transcribe(pcm16k(video, t0 + start, length), language=lang[0], vad_filter=True, word_timestamps=True,  # +palabras con tiempo y probabilidad (subtítulos), ~5-10 % más
-                                      beam_size=1 if name == "small" else 5, condition_on_previous_text=False, **kw)
+        segs, info = model.transcribe(
+            pcm16k(video, t0 + start, length),
+            language=lang[0],
+            vad_filter=True,
+            word_timestamps=True,  # +palabras con tiempo y probabilidad (subtítulos), ~5-10 % más
+            beam_size=1 if name == "small" else 5,
+            condition_on_previous_text=False,
+            **kw,
+        )
         lang[0] = lang[0] or (None if mezcla else info.language)  # mezcla: cada ventana de ~30 s en el idioma que detecta
         langs.append(info.language)
         for s in segs:
             cb(min((start + s.end) / dur, 1), f"Transcribiendo… {fmt(start + s.end)} / {fmt(dur)}")
-            yield s.start, s.end, s.text.strip(), [{"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in s.words or []], {"lp": round(s.avg_logprob, 2), "ns": round(s.no_speech_prob, 2), "cr": round(s.compression_ratio, 2)}  # calidad del segmento (dudas)
+            yield (
+                s.start,
+                s.end,
+                s.text.strip(),
+                [{"w": w.word.strip(), "s": round(w.start, 2), "e": round(w.end, 2), "p": round(w.probability, 2)} for w in s.words or []],
+                {"lp": round(s.avg_logprob, 2), "ns": round(s.no_speech_prob, 2), "cr": round(s.compression_ratio, 2)},
+            )  # calidad del segmento (dudas)
+
     segs = windowed(win, dur, 30, 10) if mezcla else windowed(win, dur, ASR_WIN)
-    return {"language": lang[0] or max(set(langs), key=langs.count, default=None), "segments": [{"s": round(t0 + s, 1), "e": round(t0 + e, 1), "text": t, **({"words": [{**x, "s": round(t0 + x["s"], 2), "e": round(t0 + x["e"], 2)} for x in w[0]]} if w and w[0] else {}), **(w[1] if len(w) > 1 else {})}
-                                                                         for s, e, t, *w in segs if t]}
+    return {
+        "language": lang[0] or max(set(langs), key=langs.count, default=None),
+        "segments": [
+            {
+                "s": round(t0 + s, 1),
+                "e": round(t0 + e, 1),
+                "text": t,
+                **({"words": [{**x, "s": round(t0 + x["s"], 2), "e": round(t0 + x["e"], 2)} for x in w[0]]} if w and w[0] else {}),
+                **(w[1] if len(w) > 1 else {}),
+            }
+            for s, e, t, *w in segs
+            if t
+        ],
+    }
 
 
 # ---------- Transcripción importada ----------
-DOC_NOTE = ("\nOjo: el texto no es una transcripción sino un documento escrito (PDF, texto, imagen…): las marcas [mm:ss] solo dicen "
-            "dónde está cada trozo (cópialas igual) y no hay hablantes ni reunión.")
+DOC_NOTE = (
+    "\nOjo: el texto no es una transcripción sino un documento escrito (PDF, texto, imagen…): las marcas [mm:ss] solo dicen "
+    "dónde está cada trozo (cópialas igual) y no hay hablantes ni reunión."
+)
 SAMPLE = 150  # s del vídeo que se transcriben para alinear la transcripción importada (desde el minuto 1: sin la charla inicial)
 
 
@@ -212,14 +270,17 @@ def import_transcript(path, video, threads, dur, cb, descripcion="", vision=None
     con whisper y se busca el desfase (±10 min) que más palabras comunes alinea; si no hay certeza, 0 y un aviso.
     Un documento (PDF, Markdown, imagen… o un .txt/.docx sin marcas de tiempo) va a documentos.leer()."""
     import documentos
+
     try:
         r = transcripts.parse(path) if Path(path).suffix.lower() in (".vtt", ".srt", ".txt", ".docx") and not descripcion else None
     except ValueError:
         r = None
     if r is None:
         return documentos.leer(path, cb, descripcion, vision)
-    segs, info = r["segments"], {"fuente": Path(path).name, "formato": r["formato"], "segmentos": len(r["segments"]),
-                                 "hablantes": r["speakers"], "desfase": 0, "aviso": None}
+    segs, info = (
+        r["segments"],
+        {"fuente": Path(path).name, "formato": r["formato"], "segmentos": len(r["segments"]), "hablantes": r["speakers"], "desfase": 0, "aviso": None},
+    )
     if video:
         t0 = min(60, max(0, dur - SAMPLE))
         sample = transcribe(video, "rápido", threads, min(SAMPLE, dur - t0), lambda f, m: cb(f, "Alineando la transcripción… " + m), t0)
@@ -241,6 +302,7 @@ def diarize(video, segments, threads, cb):
     (ya sin silencios), partidos en trozos de <= DIAR_PIECE s, y de cada uno se saca la huella de voz con 3D-Speaker CAM++ (~0,007x
     tiempo real). Por ventanas de ASR_WIN como el ASR (la RAM no crece con la duración). Los trozos se agrupan en speaker_turns."""
     import sherpa_onnx as so
+
     emb = model_file(DIAR_EMB)
     if not emb:
         return {"turns": [], "prints": []}
@@ -256,7 +318,7 @@ def diarize(video, segments, threads, cb):
             step = (sg["e"] - sg["s"]) / n
             for i in range(n):
                 a, b = sg["s"] + i * step, sg["s"] + (i + 1) * step
-                x = pcm[int((a - w * ASR_WIN) * 16000):int((b - w * ASR_WIN) * 16000)]
+                x = pcm[int((a - w * ASR_WIN) * 16000) : int((b - w * ASR_WIN) * 16000)]
                 if b - a < DIAR_MIN or len(x) < 16000 * DIAR_MIN:
                     continue
                 st = ex.create_stream()
@@ -272,6 +334,7 @@ def speaker_turns(turns, prints, thr=DIAR_THR, small=0.04):
     """Agrupa las huellas de todos los trozos (distancia coseno < thr = misma voz): turnos [(inicio, fin, hablante)]. Los
     grupos con < small del total (ruido, una frase suelta) se funden con el hablante grande más parecido."""
     import sherpa_onnx as so
+
     X = np.array(prints)
     lab = np.array(so.FastClustering(so.FastClusteringConfig(num_clusters=-1, threshold=thr))(X)) if len(X) > 1 else np.zeros(len(X), int)
     big = [k for k, v in Counter(lab.tolist()).items() if v >= small * len(lab)]
@@ -312,9 +375,24 @@ def rename(text, names):
 
 # ---------- Vídeo: cambios de pantalla ----------
 def sample_thumbs(video, threads, dur, cb, step=STEP):
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-threads", str(threads), "-i", str(video), "-an", "-vf",
-                          f"fps=1/{step},scale={THUMB_W}:{THUMB_H}:flags=area,format=gray", "-f", "rawvideo", "-"],
-                         stdout=subprocess.PIPE)
+    p = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-threads",
+            str(threads),
+            "-i",
+            str(video),
+            "-an",
+            "-vf",
+            f"fps=1/{step},scale={THUMB_W}:{THUMB_H}:flags=area,format=gray",
+            "-f",
+            "rawvideo",
+            "-",
+        ],
+        stdout=subprocess.PIPE,
+    )
     frames, size = [], THUMB_W * THUMB_H
     while buf := p.stdout.read(size):
         if len(buf) < size:
@@ -335,8 +413,9 @@ def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15, info=None):
     Un tramo se descarta si es igual a CUALQUIER captura anterior (A -> B -> A no repite A)."""
     # dHash probado y descartado: en imágenes planas (diapositiva blanca vs. mosaico oscuro) apenas cambia.
     import cv2
+
     c = round(THUMB_H * CROP)
-    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c:c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
+    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c : c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
     n, h, w = t.shape
     blk = lambda a, b: (np.abs(a - b) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
     cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(t[i], t[i + 1]) for i in range(n - 1)], 0)
@@ -371,7 +450,7 @@ def stable_segments(thumbs, cut=CUT, min_len=MIN_LEN, win=15, info=None):
         for dy in range(2 - h // 2, h // 2 - 1):
             if abs(dy) < 2:
                 continue
-            x, y, mm = (a[dy:], b[:h - dy], m[:h - dy]) if dy > 0 else (a[:h + dy], b[-dy:], m[-dy:])
+            x, y, mm = (a[dy:], b[: h - dy], m[: h - dy]) if dy > 0 else (a[: h + dy], b[-dy:], m[-dy:])
             f = ((np.abs(x - y) > 32) & ~mm).mean()
             if f < best[0] and f < 0.5 * f0:
                 best = (f, dy)
@@ -431,16 +510,21 @@ def screens(kfs, vocab=None):
     lines = [[x for x in k["text"].split(" | ") if key(x)] for k in kfs]
     freq = Counter(n for ls in lines for n in {key(x) for x in ls})
     ui = {n for n, c in freq.items() if c >= max(5, 0.3 * len(kfs))}
+
     def real(line):
         w = [v for v in words(line) if len(v) >= 3]
         return not vocab or sum(v in vocab for v in w) >= 0.7 * len(w)
+
     for k, ls in zip(kfs, lines):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
-        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS or (k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE
-                                                                  and sum(bool(NAME.fullmatch(x.strip())) for x in ls) < 3),
-                 end=int(re.search(r"\d+", k["img"])[0]))
+        k.update(
+            text=" | ".join(body),
+            title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
+            screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS
+            or (k.get("skin", 1) < SKIN and k.get("edge", 0) >= EDGE and sum(bool(NAME.fullmatch(x.strip())) for x in ls) < 3),
+            end=int(re.search(r"\d+", k["img"])[0]),
+        )
     fps, out = [], []  # no-pantalla casi igual a otra no-pantalla (mosaico de caras que cambia): fuera
     for k in kfs:
         if not k["screen"] and "fp" in k:
@@ -477,6 +561,7 @@ def keyframes(video, wd, threads, dur, cb):
     (si es < 30 % de la pantalla): el resto del texto se hereda; las capturas sin texto casi iguales a una anterior se omiten."""
     import cv2
     from rapidocr_onnxruntime import RapidOCR
+
     info = {}
     segs = stable_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.4, m)), info=info)
     (wd / "frames").mkdir(exist_ok=True)
@@ -485,18 +570,24 @@ def keyframes(video, wd, threads, dur, cb):
 
     def read(im, x0, y0):  # [[x0, y0, x1, y1, texto]] en coordenadas de la imagen entera
         res, _ = ocr(im)
-        return [[int(x0 + min(p[0] for p in bx)), int(y0 + min(p[1] for p in bx)), int(x0 + max(p[0] for p in bx)), int(y0 + max(p[1] for p in bx)), x]
-                for bx, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
+        return [
+            [int(x0 + min(p[0] for p in bx)), int(y0 + min(p[1] for p in bx)), int(x0 + max(p[0] for p in bx)), int(y0 + max(p[1] for p in bx)), x]
+            for bx, t, sc in (res or [])
+            if float(sc) > 0.6 and (x := clean_ocr(t))
+        ]
+
     out, prev, small = [], None, []
     for n, (a, b) in enumerate(segs):
         cb(0.4 + 0.6 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
         img = wd / "frames" / f"k{b * STEP:06d}.jpg"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1",
-                        "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP), "-i", str(video), "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)],
+            check=True,
+        )
         im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)  # imread no abre rutas con tildes en Windows
         H, W = im.shape[:2]
         c = round(H * CROP)  # sin barra de menús/dock: el reloj no ensucia el texto ni la deduplicación
-        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.int16)[:H // 16 * 16, :W // 16 * 16]
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).astype(np.int16)[: H // 16 * 16, : W // 16 * 16]
         edge = float(((np.abs(np.diff(g, axis=1, append=g[:, :1])) >= 80).reshape(len(g) // 16, 16, -1, 16).sum((1, 3)) >= 6).mean())
         yc = cv2.cvtColor(im, cv2.COLOR_BGR2YCrCb)  # piel (caras, manos): una captura sin texto con mucha piel es cámara, no pantalla
         skin = float(((yc[..., 1] >= 135) & (yc[..., 1] <= 170) & (yc[..., 2] >= 85) & (yc[..., 2] <= 125)).mean())
@@ -508,22 +599,33 @@ def keyframes(video, wd, threads, dur, cb):
             else:  # una zona por mancha de cambios (con 1 bloque de margen); las líneas anteriores que tocan se releen enteras
                 ct = round(THUMB_H * CROP)
                 st = cv2.connectedComponentsWithStats(cv2.dilate(m.astype(np.uint8), np.ones((3, 3), np.uint8)), connectivity=8)[2][1:]
-                zs = [[st[k, 0] * BLOCK / THUMB_W * W, (ct + st[k, 1] * BLOCK) / THUMB_H * H,
-                       (st[k, 0] + st[k, 2]) * BLOCK / THUMB_W * W, (ct + (st[k, 1] + st[k, 3]) * BLOCK) / THUMB_H * H] for k in range(len(st))]
+                zs = [
+                    [
+                        st[k, 0] * BLOCK / THUMB_W * W,
+                        (ct + st[k, 1] * BLOCK) / THUMB_H * H,
+                        (st[k, 0] + st[k, 2]) * BLOCK / THUMB_W * W,
+                        (ct + (st[k, 1] + st[k, 3]) * BLOCK) / THUMB_H * H,
+                    ]
+                    for k in range(len(st))
+                ]
                 hit = lambda l, z: l[0] < z[2] + 4 and l[2] > z[0] - 4 and l[1] < z[3] + 4 and l[3] > z[1] - 4
                 for _ in range(2):  # ampliar a las líneas tocadas y juntar zonas que se solapan
                     for z in zs:
                         for l in prev[1]:
                             if hit(l, z):
                                 z[:] = [min(z[0], l[0] - 2), min(z[1], l[1] - 2), max(z[2], l[2] + 2), max(z[3], l[3] + 2)]
-                    zs = [z for i, z in enumerate(zs) if not any(hit(z, o) and (o[2] - o[0]) * (o[3] - o[1]) > (z[2] - z[0]) * (z[3] - z[1]) for o in zs[:i] + zs[i + 1:])] or zs
+                    zs = [
+                        z
+                        for i, z in enumerate(zs)
+                        if not any(hit(z, o) and (o[2] - o[0]) * (o[3] - o[1]) > (z[2] - z[0]) * (z[3] - z[1]) for o in zs[:i] + zs[i + 1 :])
+                    ] or zs
                 zs = [[max(0, int(z[0])), max(c, int(z[1])), min(W, int(z[2])), min(H - c, int(z[3]))] for z in zs]
                 if len(zs) <= 6 and sum((z[2] - z[0]) * (z[3] - z[1]) for z in zs) < 0.35 * W * (H - 2 * c):
                     lines = [l for l in prev[1] if not any(hit(l, z) for z in zs)]
                     for z in zs:
-                        lines += read(im[z[1]:z[3], z[0]:z[2]], z[0], z[1])
+                        lines += read(im[z[1] : z[3], z[0] : z[2]], z[0], z[1])
         if lines is None:
-            lines = read(im[c:H - c], 0, c)
+            lines = read(im[c : H - c], 0, c)
         lines.sort(key=lambda l: (round(l[1] / 10), l[0]))
         texts = [l[4] for l in lines]
         fp = cv2.resize(g.astype(np.uint8), (32, 18), interpolation=cv2.INTER_AREA).astype(np.int16)  # huella: miniatura 32x18
@@ -532,15 +634,25 @@ def keyframes(video, wd, threads, dur, cb):
                 continue
             small.append(fp)
         prev = (b, lines)
-        out.append({"t": a * STEP, "img": img.name, "text": " | ".join(texts), "edge": round(edge, 3), "skin": round(skin, 3),
-                    "fp": fp.ravel().tolist(), "lines": lines, "wh": [W, H]})  # lines: cajas del OCR (anonimizar capturas)
+        out.append(
+            {
+                "t": a * STEP,
+                "img": img.name,
+                "text": " | ".join(texts),
+                "edge": round(edge, 3),
+                "skin": round(skin, 3),
+                "fp": fp.ravel().tolist(),
+                "lines": lines,
+                "wh": [W, H],
+            }
+        )  # lines: cajas del OCR (anonimizar capturas)
     return out  # crudo; screens() clasifica al cargar (barato, y así se puede ajustar sin repetir el OCR)
 
 
 # ---------- Texto de pantalla para el map: la selección de siempre (muestreo a 3 s, dedup por palabras) ----------
 # El acta del LLM depende de este texto; las capturas nuevas (1 s, cambios locales) solo alimentan lo que se ve en el informe.
 STEP_MAP = 3
-DUP = 0.75                    # palabras OCR compartidas / palabras de la pantalla más corta para darla por repetida
+DUP = 0.75  # palabras OCR compartidas / palabras de la pantalla más corta para darla por repetida
 
 
 def map_segments(thumbs, cut=CUT, min_len=2, win=5):
@@ -550,7 +662,7 @@ def map_segments(thumbs, cut=CUT, min_len=2, win=5):
     o vídeo incrustado) no cuentan, así que solo corta un cambio que cubra > cut del área útil."""
     # dHash probado y descartado: en imágenes planas (diapositiva blanca vs. mosaico oscuro) apenas cambia.
     c = round(THUMB_H * CROP)
-    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c:c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
+    t = thumbs.reshape(len(thumbs), THUMB_H, THUMB_W)[:, c : c + (THUMB_H - 2 * c) // BLOCK * BLOCK].astype(np.int16)
     n, h, w = t.shape
     blk = lambda i, j: (np.abs(t[i] - t[j]) > 32).reshape(h // BLOCK, BLOCK, w // BLOCK, BLOCK).mean((1, 3)) > 0.125
     cs = np.cumsum([np.zeros((h // BLOCK, w // BLOCK))] + [blk(i, i + 1) for i in range(n - 1)], 0)
@@ -565,7 +677,6 @@ def map_segments(thumbs, cut=CUT, min_len=2, win=5):
                 segs.append((start, i - 1))
             start = i
     return segs
-
 
 
 def screens_map(kfs, vocab=None):
@@ -583,16 +694,21 @@ def screens_map(kfs, vocab=None):
     lines = [[x for x in k["text"].split(" | ") if key(x)] for k in kfs]
     freq = Counter(n for ls in lines for n in {key(x) for x in ls})
     ui = {n for n, c in freq.items() if c >= max(5, 0.3 * len(kfs))}
+
     def real(line):
         w = [v for v in words(line) if len(v) >= 3]
         return not vocab or sum(v in vocab for v in w) >= 0.7 * len(w)
+
     kept = []  # [(palabras, líneas, keyframe)]
     for k, ls in zip(kfs, lines):
         body = [x for x in ls if key(x) not in ui]
         prose = [x for x in body if " " in x.strip() and re.search(r"(?<!\w)[a-záéíóúüñ]{3,}", x)]
-        k.update(text=" | ".join(body), title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
-                 screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS,
-                 end=int(re.search(r"\d+", k["img"])[0]))
+        k.update(
+            text=" | ".join(body),
+            title=next((x for x in prose if len(x.split()) >= 3 and real(x)), "")[:90],
+            screen=sum(c.isalnum() for x in prose for c in x) >= MIN_CHARS,
+            end=int(re.search(r"\d+", k["img"])[0]),
+        )
         if not k["screen"]:
             continue
         w, ln = words(k["text"]), [" ".join(words(x)) for x in body]
@@ -612,12 +728,11 @@ def screens_map(kfs, vocab=None):
     return kfs
 
 
-
-
 def keyframes_map(video, wd, threads, dur, cb):
     """[{t, img, text}] del muestreo antiguo (3 s, OCR de la captura entera): lo único que lee el map."""
     import cv2
     from rapidocr_onnxruntime import RapidOCR
+
     segs = map_segments(sample_thumbs(video, threads, dur, lambda f, m: cb(f * 0.5, m), STEP_MAP))
     (wd / "frames").mkdir(exist_ok=True)
     rec = model_file(OCR_REC)
@@ -627,11 +742,29 @@ def keyframes_map(video, wd, threads, dur, cb):
         cb(0.5 + 0.5 * n / len(segs), f"Leyendo texto de capturas… {n + 1}/{len(segs)}")
         img = wd / "frames" / f"k{b * STEP_MAP:06d}.jpg"
         if not img.exists():
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(b * STEP_MAP), "-i", str(video), "-frames:v", "1",
-                            "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(img)], check=True)
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-ss",
+                    str(b * STEP_MAP),
+                    "-i",
+                    str(video),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale='min(1280,iw)':-2",
+                    "-q:v",
+                    "3",
+                    str(img),
+                ],
+                check=True,
+            )
         im = cv2.imdecode(np.fromfile(img, np.uint8), cv2.IMREAD_COLOR)
         c = round(len(im) * CROP)
-        res, _ = ocr(im[c:len(im) - c])
+        res, _ = ocr(im[c : len(im) - c])
         lines = [x for _, t, sc in (res or []) if float(sc) > 0.6 and (x := clean_ocr(t))]
         out.append({"t": a * STEP_MAP, "img": img.name, "text": " | ".join(lines)})
     return out
@@ -647,14 +780,20 @@ def llm_model():
 LLM_DE = {"alta9": "Qwen3.5-9B-Q4_0.gguf", "muyalta": "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf", "maxima": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"}
 MOE = {"muyalta": 30, "maxima": 40}  # calidad -> capas de los MoE (~4B activos por token): si no caben en VRAM, expertos en RAM (moe_args)
 # calidad -> (nombre, recomendado (VRAM GB, RAM GB, Apple GB) o None = siempre, veces el tiempo de Rápida; orientativo)
-NIVELES = {"rápida": ("Rápida", None, 1), "alta": ("Alta", None, 2), "alta9": ("Alta+", (8, 0, 16), 4),
-           "muyalta": ("Muy alta", (8, 32, 24), 8), "maxima": ("Máxima", (8, 32, 32), 10)}
+NIVELES = {
+    "rápida": ("Rápida", None, 1),
+    "alta": ("Alta", None, 2),
+    "alta9": ("Alta+", (8, 0, 16), 4),
+    "muyalta": ("Muy alta", (8, 32, 24), 8),
+    "maxima": ("Máxima", (8, 32, 32), 10),
+}
 
 
 BASE = tuple(NIVELES)
-MODELOS = WORK / "modelos.json"  # {"levels": {calidad: ruta .gguf que sustituye al de serie}, "extra": [{ruta, nombre} = niveles «Personalizado»], "roles": {chat|emb: ruta .gguf}}
+MODELOS = (
+    WORK / "modelos.json"
+)  # {"levels": {calidad: ruta .gguf que sustituye al de serie}, "extra": [{ruta, nombre} = niveles «Personalizado»], "roles": {chat|emb: ruta .gguf}}
 OVER, PERS, ROLES = {}, {}, {}  # calidad -> ruta; id de nivel personalizado -> ruta; rol ("chat" | "emb") -> ruta .gguf que sustituye al de serie
-
 
 
 def pers_id(ruta):
@@ -730,8 +869,12 @@ def ram_gb():
             import ctypes
 
             class MS(ctypes.Structure):
-                _fields_ = [("l", ctypes.c_ulong), ("m", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + [(f"x{i}", ctypes.c_ulonglong) for i in range(6)]  # 7 campos ull tras dwLength/dwMemoryLoad (con menos, la API falla)
-            m = MS(); m.l = ctypes.sizeof(m)
+                _fields_ = [("l", ctypes.c_ulong), ("m", ctypes.c_ulong), ("total", ctypes.c_ulonglong)] + [
+                    (f"x{i}", ctypes.c_ulonglong) for i in range(6)
+                ]  # 7 campos ull tras dwLength/dwMemoryLoad (con menos, la API falla)
+
+            m = MS()
+            m.l = ctypes.sizeof(m)
             if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
                 return 0
             return round(m.total / 2**30)
@@ -745,8 +888,11 @@ def ram_gb():
 def parse_devices(out):
     """Salida de `--list-devices` -> {name, vram_mb, mem_mb, igpu} de la GPU con más memoria (None si no hay). En una iGPU la
     memoria que reporta Vulkan es RAM compartida: vram_mb=0 (así nada la trata como VRAM) y mem_mb guarda el dato."""
-    devs = [(m[1], int(m[2])) for m in re.finditer(r"^\s*\w+\d+: (.+?) \((\d+) MiB", out, re.M)
-            if not re.search(r"llvmpipe|lavapipe|swiftshader|software", m[1], re.I)]
+    devs = [
+        (m[1], int(m[2]))
+        for m in re.finditer(r"^\s*\w+\d+: (.+?) \((\d+) MiB", out, re.M)
+        if not re.search(r"llvmpipe|lavapipe|swiftshader|software", m[1], re.I)
+    ]
     if not devs:
         return None
     name, mb = max(devs, key=lambda d: d[1])
@@ -798,11 +944,12 @@ def chat_model(gpu=None, ram=None, vram_mb=None):
 
 
 NOTICE = []  # aviso corto para la interfaz (estado del trabajo / chat); lo vacía quien lo muestra
-_SRV = {}    # url -> Srv
+_SRV = {}  # url -> Srv
 
 
 class Srv:
     """Proceso llama-server reiniciable en el mismo puerto (el url no cambia). Hace de Popen para quien lo para."""
+
     def __init__(s, cmd, use, logname, port):
         s.cmd, s.use, s.logname, s.port, s.proc, s.restarts = cmd, use, logname, port, None, 0
         s.url = f"http://127.0.0.1:{port}"
@@ -824,9 +971,14 @@ class Srv:
         s.proc.terminate()
         return False
 
-    def terminate(s): s.proc.terminate()
-    def wait(s, t=None): return s.proc.wait(t)
-    def poll(s): return s.proc.poll()
+    def terminate(s):
+        s.proc.terminate()
+
+    def wait(s, t=None):
+        return s.proc.wait(t)
+
+    def poll(s):
+        return s.proc.poll()
 
     def recover(s, why):
         """Reinicia una vez (en CPU si estaba en GPU) tras morir o fallar por memoria."""
@@ -865,16 +1017,35 @@ def launch(model, ctx, threads, extra, logname, gpu=None, gpu_args=None):
     """Arranca llama-server -> (url, proc). En GPU (-ngl auto: descarga parcial según la VRAM libre) y, si no arranca
     (p. ej. sin memoria), un reintento en CPU."""
     g = use_gpu(gpu)
-    for use in ([True, False] if g else [False]):
+    for use in [True, False] if g else [False]:
         exe = llama_exe(use)
         if not exe or not model:
             raise RuntimeError("Falta bin/**/llama-server o models/*.gguf (ver README)")
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
-        srv = Srv(lambda u, exe=exe, port=port: [str(exe), "-m", str(model), "-c", str(ctx), "-t", str(threads), "-np", "1", *extra,
-                                                 *(gpu_args or ["-ngl", "99" if MAC_ARM else "auto"] if u else (["-dev", "none"] if "vulkan" in str(exe) else [])),
-                                                 "--host", "127.0.0.1", "--port", str(port)], use, logname, port)
+        srv = Srv(
+            lambda u, exe=exe, port=port: [
+                str(exe),
+                "-m",
+                str(model),
+                "-c",
+                str(ctx),
+                "-t",
+                str(threads),
+                "-np",
+                "1",
+                *extra,
+                *(gpu_args or ["-ngl", "99" if MAC_ARM else "auto"] if u else (["-dev", "none"] if "vulkan" in str(exe) else [])),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            use,
+            logname,
+            port,
+        )
         if srv.start():
             _SRV[srv.url] = srv
             return srv.url, srv
@@ -901,20 +1072,27 @@ def llama(threads, ctx=8192, model=None, gpu=None, capas=0):
     # con el del map; -ub 256/1024 no acelera la lectura). Sin "thinking" y sin mmap: con mmap los pesos
     # reempaquetados para AVX quedan duplicados (≈4,9 GB de RSS en vez de 3,2 GB con Qwen3.5-4B)
     model = model or llm_model()
-    url, proc = launch(model, ctx, threads, ["-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none"],
-                       "llama-server.log", gpu, moe_args(model, capas))
+    url, proc = launch(model, ctx, threads, ["-cram", "0", "-ctxcp", "2", "-rea", "off", "-lm", "none"], "llama-server.log", gpu, moe_args(model, capas))
     try:
+
         def chat(system, user, schema, max_tokens, repeat_penalty=1.0, temperature=0.2, seed=0):
-            body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    "temperature": temperature, "seed": seed, "max_tokens": max_tokens, "grammar": gbnf(schema),
-                    "repeat_penalty": repeat_penalty}
-            req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
-                                         {"Content-Type": "application/json"})
+            body = {
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": temperature,
+                "seed": seed,
+                "max_tokens": max_tokens,
+                "grammar": gbnf(schema),
+                "repeat_penalty": repeat_penalty,
+            }
+            req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
             r = call(url, lambda: json.load(urllib.request.urlopen(req, timeout=7200)))
             u, tm = r.get("usage", {}), r.get("timings", {})
-            print(f"  llm {u.get('prompt_tokens')}→{u.get('completion_tokens')} tok, "
-                  f"{(tm.get('prompt_ms', 0) + tm.get('predicted_ms', 0)) / 1000:.0f} s", flush=True)
+            print(
+                f"  llm {u.get('prompt_tokens')}→{u.get('completion_tokens')} tok, {(tm.get('prompt_ms', 0) + tm.get('predicted_ms', 0)) / 1000:.0f} s",
+                flush=True,
+            )
             return json.loads(r["choices"][0]["message"]["content"])
+
         yield chat
     finally:
         proc.terminate()
@@ -933,25 +1111,31 @@ arr = lambda item, n, lo=0: {"type": "array", "items": item, "maxItems": n, "min
 LOOSE = os.environ.get("ACTAS_LOOSE") == "1"  # experimento (9B): topes de longitud x1,7 y hasta 12 puntos por parte
 L = (lambda n: n * 17 // 10) if LOOSE else (lambda n: n)
 TASK = obj(cita=S(100), tarea=S(L(160)), responsable=S(60), plazo=S(60), t=TS)
+
+
 def sentences(s, cap):
     """Texto que llegó al tope `cap` de la gramática: se recorta en la última frase completa (si queda al menos la mitad)
     o en la última palabra completa con «…». Nunca a mitad de palabra."""
     s = s.strip()
-    if len(s) < cap - 10 or s[-1] in ".!?…»)\"”":
+    if len(s) < cap - 10 or s[-1] in '.!?…»)"”':
         return s
     i = max(s.rfind(c) for c in ".!?…")
     if i >= len(s) // 2:
-        return s[:i + 1]
+        return s[: i + 1]
     return s.rsplit(" ", 1)[0].rstrip(",;: ") + "…"
 
 
 PT_MAX = L(160)
-REL_MAX = L(230)   # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
+REL_MAX = L(230)  # un párrafo del relato: 1-2 frases (cada token extra del map cuesta ~0,3 s en el ProBook)
 MINPTS = int(os.environ.get("ACTAS_MINPTS", 6))  # experimento: mínimo de puntos por bloque (bloques pequeños: 3)
 PT_ITEM = obj(texto=S(PT_MAX), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS)
-MAP_SCHEMA = obj(tema=S(100), puntos=arr(PT_ITEM, 12 if LOOSE else 9, MINPTS),
-                 decisiones=arr(obj(cita=S(100), texto=S(L(160)), t=TS), 5), tareas=arr(TASK, 5),
-                 relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1))  # al final: decisiones y tareas se generan con el mismo contexto de siempre
+MAP_SCHEMA = obj(
+    tema=S(100),
+    puntos=arr(PT_ITEM, 12 if LOOSE else 9, MINPTS),
+    decisiones=arr(obj(cita=S(100), texto=S(L(160)), t=TS), 5),
+    tareas=arr(TASK, 5),
+    relato=arr(obj(t=TS, texto=S(REL_MAX)), 2, 1),
+)  # al final: decisiones y tareas se generan con el mismo contexto de siempre
 MAP_MAX = L(1800) + 400 * LOOSE  # peor caso con todos los topes llenos (≈ 1700 tokens); lo normal son 500-900
 
 
@@ -960,9 +1144,12 @@ def gbnf(schema):
     tokens; con json_schema Gemma se quedaba generando espacios hasta max_tokens) y con maxItems/maxLength como límite duro."""
     # ch: solo ASCII imprimible (sin " ni \), latín (tildes, ñ, ¿¡, «») y comillas/rayas/… tipográficas; sin \uXXXX: el
     # 4B a veces cerraba una cadena con un carácter chino
-    rules = {"sp": '" "?', "ts": r'"\"" [0-9] [0-9]? [0-9]? ":" [0-5] [0-9] "\""',
-             "ch": r'[\x20\x21\x23-\x5B\x5D-\x7E¡-ſ–—‘-”…€] | "\\" ["\\/nt]',
-             "str": r'"\"" ch* "\""'}
+    rules = {
+        "sp": '" "?',
+        "ts": r'"\"" [0-9] [0-9]? [0-9]? ":" [0-5] [0-9] "\""',
+        "ch": r'[\x20\x21\x23-\x5B\x5D-\x7E¡-ſ–—‘-”…€] | "\\" ["\\/nt]',
+        "str": r'"\"" ch* "\""',
+    }
     lit = json.dumps
 
     def g(s):
@@ -975,7 +1162,7 @@ def gbnf(schema):
             lo = s.get("minItems", 0)
             return f'"[" sp ({it} ("," sp {it}){{{max(0, lo - 1)},{s["maxItems"] - 1}}}){"?" * (not lo)} sp "]"'
         if s.get("type") == "object":
-            body = ' "," sp '.join(f'{lit(json.dumps(k) + ":")} sp {g(v)}' for k, v in s["properties"].items())
+            body = ' "," sp '.join(f"{lit(json.dumps(k) + ':')} sp {g(v)}" for k, v in s["properties"].items())
             name = f"o{len(rules)}"
             rules[name] = f'"{{" sp {body} sp "}}"'
             return name
@@ -983,8 +1170,10 @@ def gbnf(schema):
             rules[f"s{s['maxLength']}"] = f'"\\"" ch{{0,{s["maxLength"]}}} "\\""'
             return f"s{s['maxLength']}"
         return "ts" if "pattern" in s else "str"
+
     rules["root"] = g(schema)
     return "\n".join(f"{k} ::= {v}" for k, v in rules.items())
+
 
 # Salida corta a propósito: generar es lo caro en CPU (~12 tok/s); 10 puntos de <= 20 palabras ≈ 400 tokens por bloque.
 # Leer tampoco es gratis (~45 tok/s): el prompt de sistema se procesa en cada bloque, así que va escueto.
@@ -1059,28 +1248,51 @@ inventar cuántas. Nada de saludos, agradecimientos ni despedidas.
 # La de serie «Acta de reunión» da exactamente MAP_PROMPT/MAP_SCHEMA/SEC/SEC2/FINAL de siempre (mismas cachés, _selftest); las
 # demás cambian trozos: escala y que_destacar (map: clave mh), como_redactar (solo redacción: clave rh, el map en caché sirve) y
 # secciones propias con cita literal comprobada. decisiones/tareas siguen siempre el camino del acta (verify, fondo, evidencia).
-IDIOMAS = {"es": "español", "en": "inglés (English)", "fr": "francés (français)", "de": "alemán (Deutsch)", "pt": "portugués (português)",
-           "it": "italiano (italiano)", "ca": "catalán (català)", "eu": "euskera (euskara)", "gl": "gallego (galego)"}
-ESCALA = {"5": "decisión, compromiso o cifra clave", "4": "información nueva relevante (también preguntas del público y sus respuestas)",
-          "3": "contexto útil", "2": "detalle o ejemplo", "1": "saludos, presentaciones, agradecimientos, despedidas y logística, siempre"}
+IDIOMAS = {
+    "es": "español",
+    "en": "inglés (English)",
+    "fr": "francés (français)",
+    "de": "alemán (Deutsch)",
+    "pt": "portugués (português)",
+    "it": "italiano (italiano)",
+    "ca": "catalán (català)",
+    "eu": "euskera (euskara)",
+    "gl": "gallego (galego)",
+}
+ESCALA = {
+    "5": "decisión, compromiso o cifra clave",
+    "4": "información nueva relevante (también preguntas del público y sus respuestas)",
+    "3": "contexto útil",
+    "2": "detalle o ejemplo",
+    "1": "saludos, presentaciones, agradecimientos, despedidas y logística, siempre",
+}
 esc_txt = lambda e: "; ".join(f"{k} = {e[str(k)]}" for k in range(5, 0, -1))
 br = lambda s: s.replace("{", "{{").replace("}", "}}")  # texto del usuario dentro de un prompt que luego pasa por .format
 _i = {k: MAP_PROMPT.index(k) for k in ("puntos: de", "Fidelidad:", "decisiones: solo", "tareas: solo", "cita: copia", "relato: 2", "Listas vacías")}
-MAP_HEAD = MAP_PROMPT[:_i["decisiones: solo"]]
-DEC_DESC = MAP_PROMPT[_i["decisiones: solo"] + 12:_i["tareas: solo"] - 1]
-TAR_DESC = MAP_PROMPT[_i["tareas: solo"] + 8:_i["cita: copia"] - 1]
-CITA_LINE, REL_LINE, MAP_END = (MAP_PROMPT[_i["cita: copia"]:_i["relato: 2"]], MAP_PROMPT[_i["relato: 2"]:_i["Listas vacías"]],
-                                MAP_PROMPT[_i["Listas vacías"]:])
+MAP_HEAD = MAP_PROMPT[: _i["decisiones: solo"]]
+DEC_DESC = MAP_PROMPT[_i["decisiones: solo"] + 12 : _i["tareas: solo"] - 1]
+TAR_DESC = MAP_PROMPT[_i["tareas: solo"] + 8 : _i["cita: copia"] - 1]
+CITA_LINE, REL_LINE, MAP_END = (
+    MAP_PROMPT[_i["cita: copia"] : _i["relato: 2"]],
+    MAP_PROMPT[_i["relato: 2"] : _i["Listas vacías"]],
+    MAP_PROMPT[_i["Listas vacías"] :],
+)
 assert esc_txt(ESCALA) in MAP_HEAD
-GEN_HEAD = ("""Preparas un documento de tipo «{nombre}»{desc} a partir de una grabación. Recibes un fragmento de transcripción \
+GEN_HEAD = (
+    """Preparas un documento de tipo «{nombre}»{desc} a partir de una grabación. Recibes un fragmento de transcripción \
 automática (con errores) con marcas [mm:ss] y, a veces, texto de la pantalla compartida.
 tema: título breve del fragmento.
-""" + MAP_PROMPT[_i["puntos: de"]:_i["Fidelidad:"]] + """Fidelidad: las opiniones y propuestas no son hechos («X opina que…»); \
+"""
+    + MAP_PROMPT[_i["puntos: de"] : _i["Fidelidad:"]]
+    + """Fidelidad: las opiniones y propuestas no son hechos («X opina que…»); \
 nombra a quien habla solo si el texto lo deja claro, si no, en impersonal. «Hablante N:» al inicio de una línea es quien habla según \
 la voz (automático). No mezcles cifras ni nombres de partes distintas; números solo si se dicen.
-""")
-GEN_ITEM = ("{id}: {desc} Cada elemento: cita = copia literal de la transcripción (máx. 12 palabras) que lo prueba; texto = una frase "
-            "autocontenida de máx. 25 palabras; importancia con la misma escala; t = marca de la cita{campos}. Sin repetir.\n")
+"""
+)
+GEN_ITEM = (
+    "{id}: {desc} Cada elemento: cita = copia literal de la transcripción (máx. 12 palabras) que lo prueba; texto = una frase "
+    "autocontenida de máx. 25 palabras; importancia con la misma escala; t = marca de la cita{campos}. Sin repetir.\n"
+)
 GEN_FAITHFUL = "Usa solo lo recibido: no añadas hechos, cifras ni nombres. Atribuye las opiniones a quien las dice."
 GEN_FINAL = """Redactas un documento de tipo «{nombre}»{desc}. Recibes, en orden cronológico, {{src}} con marcas [mm:ss], y lo \
 principal de cada apartado.
@@ -1107,8 +1319,17 @@ def prompts(tpl=None, otro=False, glosario=None):
 
 def _prompts(tpl=None, otro=False):
     if tpl is None:
-        return {"map": MAP_PROMPT, "schema": MAP_SCHEMA, "map_max": MAP_MAX, "sec": SEC_PROMPT, "sec2": SEC2_PROMPT,
-                "final": FINAL_PROMPT, "faithful": FAITHFUL, "gen": [], "acta": True}
+        return {
+            "map": MAP_PROMPT,
+            "schema": MAP_SCHEMA,
+            "map_max": MAP_MAX,
+            "sec": SEC_PROMPT,
+            "sec2": SEC2_PROMPT,
+            "final": FINAL_PROMPT,
+            "faithful": FAITHFUL,
+            "gen": [],
+            "acta": True,
+        }
     secs = {s["id"]: s for s in tpl["secciones"]}
     gen = [s for s in tpl["secciones"] if s["id"] not in ("decisiones", "tareas")]
     acta = "decisiones" in secs or "tareas" in secs  # cabecera y fidelidad del acta (lectura del acta anterior, cargos…)
@@ -1116,14 +1337,18 @@ def _prompts(tpl=None, otro=False):
     head = MAP_HEAD if acta else GEN_HEAD.format(nombre=br(tpl["nombre"]), desc=desc)
     head = head.replace(esc_txt(ESCALA), br(esc_txt(tpl["escala"])))
     dt = "".join(f"{k}: {br(secs[k]['descripcion'])}\n" for k in ("decisiones", "tareas") if k in secs) + CITA_LINE * acta
-    g = "".join(GEN_ITEM.format(id=s["id"], desc=br(s["descripcion"]), campos="".join(
-        f"; {c}: solo si se dice, si no \"—\"" for c in campos(s))) for s in gen)
+    g = "".join(GEN_ITEM.format(id=s["id"], desc=br(s["descripcion"]), campos="".join(f'; {c}: solo si se dice, si no "—"' for c in campos(s))) for s in gen)
     q = f"Destaca especialmente: {br(tpl['que_destacar'])}\n" if tpl.get("que_destacar") else ""
     mp = head + dt + g + REL_LINE + q + MAP_END + OTRO_IDIOMA * otro
     item = lambda s: arr(obj(cita=S(100), texto=S(L(160)), importancia={"enum": [1, 2, 3, 4, 5]}, t=TS, **{c: S(60) for c in campos(s)}), GEN_N)
     pr = MAP_SCHEMA["properties"]
-    schema = obj(tema=pr["tema"], puntos=pr["puntos"], **{k: pr[k] for k in ("decisiones", "tareas") if k in secs},
-                 **{s["id"]: item(s) for s in gen}, relato=pr["relato"])
+    schema = obj(
+        tema=pr["tema"],
+        puntos=pr["puntos"],
+        **{k: pr[k] for k in ("decisiones", "tareas") if k in secs},
+        **{s["id"]: item(s) for s in gen},
+        relato=pr["relato"],
+    )
     mx = MAP_MAX + sum(GEN_N * (90 + 20 * len(campos(s))) for s in gen) - 300 * (("decisiones" in secs) + ("tareas" in secs) - 2) * acta
     como = f"\n{br(tpl['como_redactar'])}" if tpl.get("como_redactar") else ""
     if acta:
@@ -1132,16 +1357,40 @@ def _prompts(tpl=None, otro=False):
         nom = f"Redactas una sección de un documento de tipo «{br(tpl['nombre'])}»."
         sec, sec2 = (x.replace("Redactas una sección del acta de una reunión.", nom) for x in (SEC_PROMPT, SEC2_PROMPT))
         final, faith = GEN_FINAL.format(nombre=br(tpl["nombre"]), desc=desc), GEN_FAITHFUL
-    return {"map": mp, "schema": schema, "map_max": mx, "sec": sec + como, "sec2": sec2 + como, "final": final + como,
-            "faithful": faith, "gen": gen, "acta": acta, "tpl": tpl}
+    return {
+        "map": mp,
+        "schema": schema,
+        "map_max": mx,
+        "sec": sec + como,
+        "sec2": sec2 + como,
+        "final": final + como,
+        "faithful": faith,
+        "gen": gen,
+        "acta": acta,
+        "tpl": tpl,
+    }
 
 
 def cache_keys(P, model, inputs, level, p2, lang=None):
     """(mh, vh, rh): map (prompt + esquema + modelo + entrada; + idioma si se fuerza), verificación y redacción encadenadas."""
-    mh = hashlib.sha1("\0".join([P["map"], RESCUE_PROMPT, RESCUE.pattern, json.dumps(P["schema"]), str(model), *inputs, *([lang] if lang else [])]).encode()).hexdigest()[:8]
+    mh = hashlib.sha1(
+        "\0".join([P["map"], RESCUE_PROMPT, RESCUE.pattern, json.dumps(P["schema"]), str(model), *inputs, *([lang] if lang else [])]).encode()
+    ).hexdigest()[:8]
     vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-    rh = hashlib.sha1((vh + P["sec"] + P["final"] + P["faithful"] + READ_NOTE + json.dumps(LEVELS[level]) + (P["sec2"] + str(DEDUP_THR) + "cifras") * p2 + GROUP_PROMPT * (len(inputs) > LONG_BLOCKS)).encode()).hexdigest()[:8]
+    rh = hashlib.sha1(
+        (
+            vh
+            + P["sec"]
+            + P["final"]
+            + P["faithful"]
+            + READ_NOTE
+            + json.dumps(LEVELS[level])
+            + (P["sec2"] + str(DEDUP_THR) + "cifras") * p2
+            + GROUP_PROMPT * (len(inputs) > LONG_BLOCKS)
+        ).encode()
+    ).hexdigest()[:8]
     return mh, vh, rh
+
 
 SEMCHUNK = os.environ.get("ACTAS_SEMCHUNK") == "1"
 CHUNK_CHARS = int(os.environ.get("ACTAS_CHUNK_CHARS", CHUNK_CHARS))
@@ -1150,6 +1399,7 @@ EMB_T = [0.0]  # segundos acumulados en embeddings
 
 def embed(texts):
     import rag  # el mismo EmbeddingGemma ONNX del RAG
+
     t0 = time.time()
     v = rag.embed(texts, threads=PHYS, std=True)
     EMB_T[0] += time.time() - t0
@@ -1183,10 +1433,13 @@ def semchunk(segments, span=45, cap=None):
     ws_sz = [sum(size[a:b]) for a, b in ws]
     sc = []  # sc[g]: puntuación del hueco entre ws[g] y ws[g+1] (menor = mejor corte)
     for g in range(len(ws) - 1):
-        a, b = v[max(0, g - 1):g + 1].mean(0), v[g + 1:g + 3].mean(0)
+        a, b = v[max(0, g - 1) : g + 1].mean(0), v[g + 1 : g + 3].mean(0)
         s0, s1 = segments[ws[g][1] - 1], segments[ws[g + 1][0]]
-        sc.append(float(a @ b) / float(np.linalg.norm(a) * np.linalg.norm(b)) - 0.03 * min(2, max(0, s1["s"] - s0["e"]) / 1.5)
-                  - 0.03 * (s0.get("spk") != s1.get("spk")))
+        sc.append(
+            float(a @ b) / float(np.linalg.norm(a) * np.linalg.norm(b))
+            - 0.03 * min(2, max(0, s1["s"] - s0["e"]) / 1.5)
+            - 0.03 * (s0.get("spk") != s1.get("spk"))
+        )
     lo, out, g0, left = 0.4 * cap, [], 0, sum(ws_sz)
     while left > cap:
         acc, best = 0, None
@@ -1198,10 +1451,10 @@ def semchunk(segments, span=45, cap=None):
                 best = g
         if best is None:  # sin hueco válido: corta por tamaño
             best = max(g0, g - 1)
-        out.append(segments[ws[g0][0]:ws[best][1]])
-        left -= sum(ws_sz[g0:best + 1])
+        out.append(segments[ws[g0][0] : ws[best][1]])
+        left -= sum(ws_sz[g0 : best + 1])
         g0 = best + 1
-    out.append(segments[ws[g0][0]:])
+    out.append(segments[ws[g0][0] :])
     return out
 
 
@@ -1230,7 +1483,9 @@ def merge_segs(segs, span=15):
     segmentos de 2-3 palabras)."""
     out = []
     for s in segs:
-        if out and s["s"] - out[-1]["s"] < span and s.get("spk") == out[-1].get("spk") and s.get("loc") == out[-1].get("loc"):  # documentos: nunca cruza de página o sección
+        if (
+            out and s["s"] - out[-1]["s"] < span and s.get("spk") == out[-1].get("spk") and s.get("loc") == out[-1].get("loc")
+        ):  # documentos: nunca cruza de página o sección
             out[-1] = {**out[-1], "e": s["e"], "text": out[-1]["text"] + " " + s["text"]}
         else:
             out.append(s)
@@ -1258,7 +1513,7 @@ def find_quote(quote, segs, sw=None, near=None):
     sw = sw or [words(s["text"]) for s in segs]
     best, key = (0, segs[0]["s"]), (0, 0)
     for i in range(len(segs) if qb else 0):
-        w = sw[i] + [x for s in sw[i + 1:i + 8] for x in s][:len(q)]  # la cita puede cruzar segmentos cortos
+        w = sw[i] + [x for s in sw[i + 1 : i + 8] for x in s][: len(q)]  # la cita puede cruzar segmentos cortos
         f = len(qb & set(zip(w, w[1:]))) / len(qb)
         k = (round(f, 2), -abs(segs[i]["s"] - near) if near is not None else i)  # empate: la última / la más cercana
         if f and k >= key:
@@ -1297,12 +1552,20 @@ def mark_reading(maps, segments, kfs):
 
 COURTESY = re.compile(r"contact|alguna duda|cualquier (duda|consulta|pregunta)|no dud[eé]is|escr[ií]b(an|idme|irme)", re.I)
 APPROVE = re.compile(r"\b(de acuerdo|aprob|aprueb|conform|unanimidad)", re.I)
-COND = re.compile(r"\b(deber[ií]amos|habr[ií]a que|podr[ií]amos|se podr[ií]a|ser[ií]a (bueno|conveniente|importante)|"
-                  r"propongo|sugiero|sugerir|quer[ií]amos|ojal[aá])\b", re.I)
+COND = re.compile(
+    r"\b(deber[ií]amos|habr[ií]a que|podr[ií]amos|se podr[ií]a|ser[ií]a (bueno|conveniente|importante)|"
+    r"propongo|sugiero|sugerir|quer[ií]amos|ojal[aá])\b",
+    re.I,
+)
 # ponytail: guardia léxica de falsos positivos de decisiones (aplazar decidir, próxima reunión, propuestas), compartida por poblar y registro
-POSTPONED = re.compile(r"pendiente de decidir|sin decidir|no se ha decidido|no hemos decidido|aplaza\w* (la )?decisi|aplaza\w* (el )?decidir|"
-                       r"dejamos pendiente|lo vemos en la pr[oó]xima|se decidir[aá] m[aá]s adelante", re.I)  # lo que el acta dice que NO se decidió
-NO_DECISION = re.compile(POSTPONED.pattern + r"|pr[oó]xima reuni[oó]n|se propuso|se propone\b", re.I)  # + fecha de la próxima reunión y propuestas sin aprobar (salida del modelo en poblar)
+POSTPONED = re.compile(
+    r"pendiente de decidir|sin decidir|no se ha decidido|no hemos decidido|aplaza\w* (la )?decisi|aplaza\w* (el )?decidir|"
+    r"dejamos pendiente|lo vemos en la pr[oó]xima|se decidir[aá] m[aá]s adelante",
+    re.I,
+)  # lo que el acta dice que NO se decidió
+NO_DECISION = re.compile(
+    POSTPONED.pattern + r"|pr[oó]xima reuni[oó]n|se propuso|se propone\b", re.I
+)  # + fecha de la próxima reunión y propuestas sin aprobar (salida del modelo en poblar)
 
 
 def no_decision(texto, cita=""):
@@ -1315,8 +1578,10 @@ def aplazada(texto, cita=""):
 
 
 RESCUE = re.compile(r"pendiente.{0,60}pr[oó]xima|aplaz|se designa|se nombra", re.I)
-RESCUE_PROMPT = ("Fragmento de una reunión (transcripción con errores). Redacta en una frase, en impersonal, la decisión que se "
-                 "toma ahí (qué se aplaza, designa o fija). Solo lo dicho.")
+RESCUE_PROMPT = (
+    "Fragmento de una reunión (transcripción con errores). Redacta en una frase, en impersonal, la decisión que se "
+    "toma ahí (qué se aplaza, designa o fija). Solo lo dicho."
+)
 
 
 def anchor_items(m, segs, sw=None):
@@ -1360,8 +1625,13 @@ def map_chunk(chat, segs, text, lang, kfs=(), P=None):
     m["puntos"] = [p for p in m["puntos"] if not (k := " ".join(words(p["texto"]))) in seen and not seen.add(k)]
     sw = [words(s["text"]) for s in segs]
     for i, s in enumerate(segs):  # el 4B se deja decisiones de aplazar/designar: el texto manda y verify() decide si lo son
-        w = " ".join(x["text"] for x in segs[i:i + 3])
-        if "decisiones" in P["schema"]["properties"] and RESCUE.search(w) and len(m["decisiones"]) < 5 and not any(abs(parse_ts(d["t"]) - s["s"]) < 90 for d in m["decisiones"]):
+        w = " ".join(x["text"] for x in segs[i : i + 3])
+        if (
+            "decisiones" in P["schema"]["properties"]
+            and RESCUE.search(w)
+            and len(m["decisiones"]) < 5
+            and not any(abs(parse_ts(d["t"]) - s["s"]) < 90 for d in m["decisiones"])
+        ):
             ctx = "\n".join(f"[{fmt(x['s'])}] {x['text']}" for x in segs if s["s"] - 40 <= x["s"] <= s["s"] + 40)
             m["decisiones"].append({"cita": w[:100], "texto": chat(RESCUE_PROMPT, ctx, obj(texto=S(160)), 80)["texto"], "t": fmt(s["s"])})
     anchor_items(m, segs, sw)
@@ -1374,6 +1644,7 @@ def gen_check(items, segs, sw, text):
     """Elementos de una sección propia de la plantilla: la cita solo se queda si está en la transcripción original (y su marca
     pasa a la de la cita); sin ella, el elemento sigue sin cita. Fuera si trae cifras que no dice el bloque (rag.bad_nums)."""
     import rag
+
     t0, t1 = segs[0]["s"], segs[-1]["e"]
     out = []
     for it in fix_junk(items, "texto"):
@@ -1414,8 +1685,9 @@ def select_points(maps, keep, cap=None, floor=0, uniq=False):
     desempate elegía los primeros bloques y breve perdía la segunda mitad. Las notas 1 (saludos, logística) nunca entran.
     Con `uniq` (breve) se salta el punto con el mismo esqueleto que uno ya elegido: en un pleno, 26 «se aprueba la
     recalificación de X» llenaban los 8 puntos clave y no quedaba sitio para el patrón de voto ni la suspensión."""
-    allp = sorted((-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps)
-                  for n, p in enumerate(m["puntos"]) if p["importancia"] > 1)
+    allp = sorted(
+        (-p["importancia"], n, parse_ts(p["t"]), p["texto"], b) for b, m in enumerate(maps) for n, p in enumerate(m["puntos"]) if p["importancia"] > 1
+    )
     k = min(max(1, floor or 0, round(keep * len(allp))), cap or len(allp)) if allp else 0
     g = min(k, len(maps))
     pick = []
@@ -1427,10 +1699,10 @@ def select_points(maps, keep, cap=None, floor=0, uniq=False):
         for x in cands:
             if n <= 0:
                 return
-            if x not in pick and not (uniq and any(same(p[3], x[3], 0.75) for p in pick)) and \
-                    all(abs(p[2] - x[2]) >= gap for p in pick):
+            if x not in pick and not (uniq and any(same(p[3], x[3], 0.75) for p in pick)) and all(abs(p[2] - x[2]) >= gap for p in pick):
                 pick.append(x)
                 n -= 1
+
     for j in range(g):
         take([x for x in allp if x[4] * g // len(maps) == j], k // g, gap)
     take(allp, k - len(pick), gap)
@@ -1449,8 +1721,11 @@ def dedupe(items, key, loose=False):
     >= la mitad de las raíces (5 letras) de las palabras largas. Las decisiones no: "se aprueba la recalificación de X"
     y "… de Y" solo se distinguen por el nombre. Se queda la primera."""
     stems = lambda x: {w[:5] for w in words(x) if len(w) >= 4}
-    dup = lambda a, b: (SequenceMatcher(None, words(a), words(b), autojunk=False).ratio() >= 0.78 or
-                        loose and len(stems(a) & stems(b)) >= 0.5 * max(1, min(len(stems(a)), len(stems(b)))))
+    dup = lambda a, b: (
+        SequenceMatcher(None, words(a), words(b), autojunk=False).ratio() >= 0.78
+        or loose
+        and len(stems(a) & stems(b)) >= 0.5 * max(1, min(len(stems(a)), len(stems(b))))
+    )
     out = []
     for it in items:
         if not any(dup(it[key], o[key]) for o in out):
@@ -1481,49 +1756,78 @@ def verify(chat, maps, segments, kfs, win=45):
             t = parse_ts(it["t"])
             ctx = [s for s in segments if t - win <= s["s"] <= t + win]
             f = reading(t, segments, kfs, win)
-            if f >= 0.25 and name == "decisiones" and re.search(r"\bacta\b", it[key] + it["cita"], re.I):  # lo leído («el acta anterior queda aprobada») se suele votar justo después:
+            if (
+                f >= 0.25 and name == "decisiones" and re.search(r"\bacta\b", it[key] + it["cita"], re.I)
+            ):  # lo leído («el acta anterior queda aprobada») se suele votar justo después:
                 kw = {w for w in words(it[key]) if len(w) >= 4}  # si a <= 5 min se aprueba algo con sus palabras, va ahí
-                later = ([s for s in segments if t < s["s"] <= t + 300 and APPROVE.search(s["text"]) and  # la última:
-                          kw & set(words(s["text"])) and reading(s["s"], segments, kfs, win) < 0.25] or [None])[-1]  # antes se anuncia
+                later = (
+                    [
+                        s
+                        for s in segments
+                        if t < s["s"] <= t + 300
+                        and APPROVE.search(s["text"])  # la última:
+                        and kw & set(words(s["text"]))
+                        and reading(s["s"], segments, kfs, win) < 0.25
+                    ]
+                    or [None]
+                )[-1]  # antes se anuncia
                 if later:
                     t, f, it = later["s"], 0.0, {**it, "t": fmt(later["s"]), "cita": later["text"][:100]}
                     ctx = [s for s in segments if t - win <= s["s"] <= t + win]
-            why = ("condicional" if COND.search(it["cita"]) and not re.search(r"aprob|aprueb|acord", it["cita"], re.I) else
-                   "tarea = responsable" if name == "tareas" and set(words(it[key])) <= set(words(it["responsable"])) else
-                   "cortesía" if name == "tareas" and COURTESY.search(it["cita"] + " " + it[key]) else
-                   f"leída de la pantalla ({f:.2f})" if f >= 0.25 else "")
+            why = (
+                "condicional"
+                if COND.search(it["cita"]) and not re.search(r"aprob|aprueb|acord", it["cita"], re.I)
+                else "tarea = responsable"
+                if name == "tareas" and set(words(it[key])) <= set(words(it["responsable"]))
+                else "cortesía"
+                if name == "tareas" and COURTESY.search(it["cita"] + " " + it[key])
+                else f"leída de la pantalla ({f:.2f})"
+                if f >= 0.25
+                else ""
+            )
             if not why:
-                text = (f"Tema: {maps[it['b']]['tema']}\n\nExtracto:\n" +
-                        "\n".join(f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * (reading(s['s'] + 7, segments, kfs) >= 0.25)}"
-                                  f"{s['text']}" for s in merge_segs(ctx)) +
-                        f"\n\nPropuesta ({name[:-1].replace('decisione', 'decisión')}): {it[key]}\nCita: «{it['cita']}»")
+                text = (
+                    f"Tema: {maps[it['b']]['tema']}\n\nExtracto:\n"
+                    + "\n".join(
+                        f"[{fmt(s['s'])}] {who(s)}{'(lectura en voz alta) ' * (reading(s['s'] + 7, segments, kfs) >= 0.25)}{s['text']}" for s in merge_segs(ctx)
+                    )
+                    + f"\n\nPropuesta ({name[:-1].replace('decisione', 'decisión')}): {it[key]}\nCita: «{it['cita']}»"
+                )
                 tipo = chat(VERIFY_PROMPT, text, obj(tipo={"enum": TIPOS}), 30)["tipo"]
                 why = "" if tipo in ("acuerdo", "encargo") else tipo
             if why:
                 print(f"  descartada ({why}): {it[key]}", flush=True)
             else:
                 ctext = " ".join(who(s) + s["text"] for s in ctx)
-                out[name].append({**it, **({"responsable": said(it["responsable"], ctext, it[key]),
-                                            "plazo": said(it["plazo"], ctext)} if name == "tareas" else {})})
+                out[name].append(
+                    {**it, **({"responsable": said(it["responsable"], ctext, it[key]), "plazo": said(it["plazo"], ctext)} if name == "tareas" else {})}
+                )
     return out
 
 
 FONDO_CHARS = int(os.environ.get("ACTAS_FONDO_CHARS", 4000))  # bloques pequeños: el modelo solo busca decisiones y tareas
-FONDO_NOTE = {False: "Lista automática: puede faltar alguna.",
-              True: "Búsqueda a fondo hecha: se repasó toda la transcripción; lista automática, aun así puede faltar alguna."}
+FONDO_NOTE = {
+    False: "Lista automática: puede faltar alguna.",
+    True: "Búsqueda a fondo hecha: se repasó toda la transcripción; lista automática, aun así puede faltar alguna.",
+}
 # las mismas reglas de decisión/tarea/cita que el map (se cortan de MAP_PROMPT: un solo sitio donde afinarlas)
-FONDO_PROMPT = ("Buscas SOLO decisiones y tareas en un fragmento de transcripción automática (con errores) con marcas [mm:ss]. Lo marcado "
-                "«(lectura en voz alta)» es alguien leyendo el documento que se ve en pantalla: es lectura, nunca una decisión ni una tarea "
-                "de hoy. «Hablante N:» es quien habla según la voz (automático).\n" +
-                MAP_PROMPT[MAP_PROMPT.index("decisiones:"):MAP_PROMPT.index("relato:")] +
-                "t = marca donde se dice. Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}.")
+FONDO_PROMPT = (
+    "Buscas SOLO decisiones y tareas en un fragmento de transcripción automática (con errores) con marcas [mm:ss]. Lo marcado "
+    "«(lectura en voz alta)» es alguien leyendo el documento que se ve en pantalla: es lectura, nunca una decisión ni una tarea "
+    "de hoy. «Hablante N:» es quien habla según la voz (automático).\n"
+    + MAP_PROMPT[MAP_PROMPT.index("decisiones:") : MAP_PROMPT.index("relato:")]
+    + "t = marca donde se dice. Listas vacías si no hay. Solo lo que dice el texto; no inventes. Escribe en {lang}."
+)
 FONDO_SCHEMA = obj(decisiones=MAP_SCHEMA["properties"]["decisiones"], tareas=MAP_SCHEMA["properties"]["tareas"])
 FONDO_DUP = float(os.environ.get("ACTAS_FONDO_DUP", 0.7))  # coseno entre textos de decisiones/tareas a <= 60 s que cuenta como la misma
 FONDO_OVERLAP = 0.6  # palabras de la cita compartidas / las de la más corta (a <= 2 min) para darlas por la misma
 # una decisión NUEVA debe traer en su cita una señal explícita de acuerdo/resultado: aprobar, estar de acuerdo, votar con resultado,
 # resolver, designar, aplazar o suspender (en general, no atada a una reunión)
-FONDO_SIGNAL = re.compile(r"aprob|aprueb|de acuerdo|acord|conform|unanimidad|resuel|design|nombr|aplaz|suspend|pendiente|a favor|"
-                          r"en contra|abstenci|abstien|dispon|apelaci", re.I)
+FONDO_SIGNAL = re.compile(
+    r"aprob|aprueb|de acuerdo|acord|conform|unanimidad|resuel|design|nombr|aplaz|suspend|pendiente|a favor|"
+    r"en contra|abstenci|abstien|dispon|apelaci",
+    re.I,
+)
 
 
 def fondo_candidatas(chat, segments, kfs, lang, cb=lambda f, m: None):
@@ -1565,7 +1869,7 @@ def fondo_filtrar(chat, new, segments, kfs, valid, maps, starts):
         cand = [x for x in dedupe(have + cand, key, k == "tareas") if any(x is n for n in cand)]
         if cand and have:
             v = embed([x[key] for x in cand + have])
-            cand = [x for j, x in enumerate(cand) if not repite(x, key, have, (v[j], v[len(cand):]))]
+            cand = [x for j, x in enumerate(cand) if not repite(x, key, have, (v[j], v[len(cand) :]))]
         for x in cand:
             pm[max(0, bisect.bisect_right(starts, parse_ts(x["t"]) + 1) - 1)][k].append(x)
     return verify(chat, pm, segments, kfs)
@@ -1624,6 +1928,7 @@ def lost_facts(src, bullet):
     """Cifras, horas y fechas del texto de origen que NO están en la viñeta: reutiliza rag.bad_nums (34,75 != 75; también cuenta lo
     dicho en letra) con las horas 18:00 como una sola cifra, más los nombres de mes."""
     import rag
+
     return rag.bad_nums(hh(src), hh(bullet)) + [m for m in MONTHS if m in words(src) and m not in words(bullet)]
 
 
@@ -1634,10 +1939,13 @@ def group_section(chat, pts, ask_n, lang, mas, P=None):
     tal cual. Devuelve (resumen, [{t, ts, texto}]) con las marcas de cada id."""
     n, c = ask_n
     P = P or prompts()
-    ask = lambda ps, extra="": chat(P["sec2"].format(n=f"{n} (como mucho unos {c} caracteres)", faithful=P["faithful"], lang=lang),
-                          "\n".join(f"{i}. [{fmt(t)}] {x}" for i, (t, x, _, _) in enumerate(ps, 1)) + extra,
-                          obj(resumen=S(c * 3 // 2), items=arr(obj(texto=S(300), ids=arr({"enum": list(range(1, len(ps) + 1))}, 5, 1)), len(ps), 1)),
-                          900, 1.1)
+    ask = lambda ps, extra="": chat(
+        P["sec2"].format(n=f"{n} (como mucho unos {c} caracteres)", faithful=P["faithful"], lang=lang),
+        "\n".join(f"{i}. [{fmt(t)}] {x}" for i, (t, x, _, _) in enumerate(ps, 1)) + extra,
+        obj(resumen=S(c * 3 // 2), items=arr(obj(texto=S(300), ids=arr({"enum": list(range(1, len(ps) + 1))}, 5, 1)), len(ps), 1)),
+        900,
+        1.1,
+    )
 
     def group(idx, extra=""):  # viñetas [(ids globales, texto)] que cubren todos los puntos idx
         out, left, r = [], list(idx), None
@@ -1700,8 +2008,13 @@ def reduce_parts(chat, lines, lang, P, cb=None, c=700):
                 continue
             last = max(last, done / (done + len(groups) - i))
             cb and cb(last, f"Resumen por partes {i + 1}/{len(groups)}…")
-            r = chat(GROUP_PROMPT.format(n=f"2-4 frases (como mucho unos {c} caracteres)", faithful=P["faithful"], lang=lang),
-                     "\n".join(g), obj(resumen=S(c * 3 // 2)), 600, 1.1)["resumen"]
+            r = chat(
+                GROUP_PROMPT.format(n=f"2-4 frases (como mucho unos {c} caracteres)", faithful=P["faithful"], lang=lang),
+                "\n".join(g),
+                obj(resumen=S(c * 3 // 2)),
+                600,
+                1.1,
+            )["resumen"]
             out.append(f"{g[0].split(']')[0]}] {sentences(r, c * 3 // 2)}")
             done += 1
         lines = out
@@ -1728,8 +2041,14 @@ def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None, partes
                 res, items = group_section(chat, pts, cfg["sec"], lang, mas, P)
                 secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res, "items": items})
                 continue
-            res = sentences(chat(P["sec"].format(n=ask(n, c), faithful=P["faithful"], lang=lang), bullets(pts),
-                                 obj(resumen=S(c * 3 // 2)), 500, 1.1)["resumen"], c * 3 // 2) if len(pts) > 1 else pts[0][1]
+            res = (
+                sentences(
+                    chat(P["sec"].format(n=ask(n, c), faithful=P["faithful"], lang=lang), bullets(pts), obj(resumen=S(c * 3 // 2)), 500, 1.1)["resumen"],
+                    c * 3 // 2,
+                )
+                if len(pts) > 1
+                else pts[0][1]
+            )
             secs.append({"titulo": m["tema"], "t": starts[b], "b": b, "resumen": res})
     if secs:
         src, text = "los resúmenes de cada parte", "\n\n".join(f"[{fmt(s['t'])}] {s['titulo']}: {s['resumen']}" for s in secs)
@@ -1748,13 +2067,20 @@ def reduce_maps(chat, maps, valid, starts, level, lang, p2=False, P=None, partes
             text += f"\n\n{s['nombre']}:\n" + "\n".join(f"- [{x['t']}] {x['texto']}" for x in sorted(top, key=lambda x: parse_ts(x["t"])))
     c = cfg["tldr"][1]
     fields["resumen"] = S(c * 3 // 2)
-    what = ("qué se decidió y qué queda pendiente" if dec or tar else
-            "sin decir que se acordó, decidió o quedó pendiente nada: no hay decisiones ni tareas") if P["acta"] else \
-        "y lo más importante de cada apartado"
-    red = chat(P["final"].format(src=src, tldr=ask(cfg["tldr"][0], c), pick=pick, what=what, faithful=P["faithful"],
-                                 lang=lang), text, obj(**fields), 1000, 1.1)
-    return {"titulo": sentences(red["titulo"], 80).rstrip("."), "resumen": sentences(red["resumen"], c * 3 // 2),
-            "secciones": secs, "decisiones": dec, "tareas": tar, "mas": False}
+    what = (
+        ("qué se decidió y qué queda pendiente" if dec or tar else "sin decir que se acordó, decidió o quedó pendiente nada: no hay decisiones ni tareas")
+        if P["acta"]
+        else "y lo más importante de cada apartado"
+    )
+    red = chat(P["final"].format(src=src, tldr=ask(cfg["tldr"][0], c), pick=pick, what=what, faithful=P["faithful"], lang=lang), text, obj(**fields), 1000, 1.1)
+    return {
+        "titulo": sentences(red["titulo"], 80).rstrip("."),
+        "resumen": sentences(red["resumen"], c * 3 // 2),
+        "secciones": secs,
+        "decisiones": dec,
+        "tareas": tar,
+        "mas": False,
+    }
 
 
 def gen_items(maps, P):
@@ -1768,9 +2094,16 @@ def gen_show(maps, P, level, segments):
     out = []
     for s, its in gen_items(maps, P):
         if not s["nunca_recortar"]:
-            its = sorted([x for x in its if x["importancia"] > 1], key=lambda x: (-x["importancia"], parse_ts(x["t"])))[:GEN_CAP[level]]
-        out.append((s, [{**x, "cita": best_quote(x["texto"], x["cita"], parse_ts(x["t"]), segments, None) if x["cita"] and segments else x["cita"]}
-                        for x in sorted(its, key=lambda x: parse_ts(x["t"]))]))
+            its = sorted([x for x in its if x["importancia"] > 1], key=lambda x: (-x["importancia"], parse_ts(x["t"])))[: GEN_CAP[level]]
+        out.append(
+            (
+                s,
+                [
+                    {**x, "cita": best_quote(x["texto"], x["cita"], parse_ts(x["t"]), segments, None) if x["cita"] and segments else x["cita"]}
+                    for x in sorted(its, key=lambda x: parse_ts(x["t"]))
+                ],
+            )
+        )
     return out
 
 
@@ -1900,7 +2233,7 @@ def best_quote(text, cita, t, segments, task=False):
         m = (sig if task or task is None else VOTE).search(q) or sig.search(q)
         a = max(0, (m.start() if m else 0) - 80)
         a = q.rfind(" ", 0, a) + 1 if a else 0  # no a mitad de palabra
-        q = ("…" if a else "") + q[a:a + QUOTE_MAX].rsplit(" ", 1)[0] + ("…" if a + QUOTE_MAX < len(q) else "")
+        q = ("…" if a else "") + q[a : a + QUOTE_MAX].rsplit(" ", 1)[0] + ("…" if a + QUOTE_MAX < len(q) else "")
     return q
 
 
@@ -1922,18 +2255,25 @@ def trim_caps(red, maps, cfg, segments=()):
     for t in red["tareas"]:
         fix(t, "tarea", L(160))
     for s in red["secciones"] if cfg["sec"] else []:
-        fix(s, "resumen", cfg['sec'][1] * 3 // 2)
+        fix(s, "resumen", cfg["sec"][1] * 3 // 2)
         for it in s.get("items", []):
             fix(it, "texto", 420)
 
 
 ACTA_ORDEN = ["resumen", "desarrollo", "decisiones", "tareas", "detalle", "transcripcion"]
-ACTA_TIT = {"resumen": "Resumen", "desarrollo": "Desarrollo de la reunión", "decisiones": "Decisiones detectadas",
-            "tareas": "Tareas detectadas", "detalle": "Detalle por secciones", "transcripcion": "Transcripción"}
+ACTA_TIT = {
+    "resumen": "Resumen",
+    "desarrollo": "Desarrollo de la reunión",
+    "decisiones": "Decisiones detectadas",
+    "tareas": "Tareas detectadas",
+    "detalle": "Detalle por secciones",
+    "transcripcion": "Transcripción",
+}
 
 
-def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None, audio=False, P=None,
-           marcas=True, extra=None, notas=None):
+def render(
+    out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=".mp4", names=None, imp=None, audio=False, P=None, marcas=True, extra=None, notas=None
+):
     """Escribe index.html y devuelve las capturas que muestra (solo esas se copian a img/). names: {"2": "Luis"}. vext None: sin
     vídeo (las marcas no son enlaces). audio: el medio es solo audio (<audio> en vez de <video>). imp: datos de la transcripción importada (nota y participantes).
     P: prompts() de la plantilla (orden y títulos de los bloques, secciones propias); marcas False: sin marcas [mm:ss]; extra: más
@@ -1943,7 +2283,8 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     trim_caps(red, maps, cfg, segments)
     at = [s["s"] for s in segments]
     spk = lambda t, x: (lambda k: f'<span class="spk">{k}</span>' if k and k not in x else "")(  # quien habla en t
-        segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk"))
+        segments[max(0, bisect.bisect_right(at, t + 1) - 1)].get("spk")
+    )
     sel = select_points(maps, cfg["keep"], cfg["pts"], cfg["pts"], not cfg["secs"])
     scr = [k for k in kfs if k["screen"]]
     shots = pick_shots(kfs, sel, cfg["hshots"] if len(scr) >= HEAVY else cfg["shots"])
@@ -1951,17 +2292,23 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     rel = sorted((parse_ts(r["t"]), first_sentences(r["texto"], cfg["rel"])) for m in maps for r in m.get("relato", []))
     w = lambda k: sum(p[2] for p in sel if k["t"] + SHOT_WIN[0] <= p[0] <= k["t"] + SHOT_WIN[1])
     nxt = lambda i: rel[i + 1][0] if i + 1 < len(rel) else 1e9
-    cand = {i: max(c, key=w) for i, (t, _) in enumerate(rel)  # sin repetir las que ya van como captura grande del desarrollo
-            if (c := [k for k in scr if t <= k["t"] < nxt(i) and k not in shots])}
-    keep = sorted(cand, key=lambda i: -w(cand[i]))[:cfg["nshots"]]
+    cand = {
+        i: max(c, key=w)
+        for i, (t, _) in enumerate(rel)  # sin repetir las que ya van como captura grande del desarrollo
+        if (c := [k for k in scr if t <= k["t"] < nxt(i) and k not in shots])
+    }
+    keep = sorted(cand, key=lambda i: -w(cand[i]))[: cfg["nshots"]]
     nshots = {i: cand[i] for i in keep}
     esc = html.escape
     li = lambda t, x, more=(): f"<li>{ts_link(t)}{''.join(ts_link(u) for u in more[:3])}{spk(t, x)}{esc(x)}</li>"
-    fig = lambda k: (f'<figure><a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"] or "Pantalla compartida")}"><img src="img/{k["img"]}" loading="lazy"></a>'
-                     f'<figcaption>{ts_link(k["t"])}{esc(k["title"] or "Pantalla compartida")}</figcaption></figure>')
+    fig = lambda k: (
+        f'<figure><a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"] or "Pantalla compartida")}"><img src="img/{k["img"]}" loading="lazy"></a>'
+        f"<figcaption>{ts_link(k['t'])}{esc(k['title'] or 'Pantalla compartida')}</figcaption></figure>"
+    )
     shown = {k["img"] for k in [*shots, *nshots.values()]}
     rest = [k for k in scr if k["img"] not in shown]  # el resto de capturas: tira de miniaturas por tramo
     used = []  # capturas grandes que cuelgan de strip_: también hay que copiarlas
+
     def strip_(t0, t1, src=None):  # capturas restantes de [t0, t1): imagen legible si el vídeo no es de pantalla; si lo es, rejilla media
         ks = [k for k in (rest if src is None else src) if t0 <= k["t"] < t1]
         if len(scr) < HEAVY:
@@ -1969,30 +2316,48 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
             return "".join(fig(k) for k in ks)
         for k in ks:
             k["strip"] = True
-        return (f'<div class="strip">' + "".join(
-            f'<a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
-            f'height="120" alt="">[{fmt(k["t"])}]</a>' for k in ks) + "</div>") if ks else ""
+        return (
+            (
+                f'<div class="strip">'
+                + "".join(
+                    f'<a class="z" href="img/{k["img"]}" data-s="{int(k["t"])}" data-l="[{fmt(k["t"])}] {esc(k["title"])}"><img src="img/t_{k["img"]}" loading="lazy" '
+                    f'height="120" alt="">[{fmt(k["t"])}]</a>'
+                    for k in ks
+                )
+                + "</div>"
+            )
+            if ks
+            else ""
+        )
+
     more = "<p class=meta>Hay más decisiones y tareas en el nivel detallado.</p>" if red["mas"] else ""
     body = []
     secs = red["secciones"]
     for i, s in enumerate(secs):  # secciones = bloques del map: viñetas por bloque, capturas por rango de tiempo
         t0 = 0 if i == 0 else s["t"]
         t1 = secs[i + 1]["t"] if i + 1 < len(secs) else 1e9
-        inner = sorted([(t, li(t, x)) for t, x, _, b in sel if b == s["b"] and "items" not in s] +
-                       [(it["t"], li(it["t"], it["texto"], it["ts"][1:])) for it in s.get("items", [])] +
-                       [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1])
-        body.append(f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p>"
-                    f"<ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}")
+        inner = sorted(
+            [(t, li(t, x)) for t, x, _, b in sel if b == s["b"] and "items" not in s]
+            + [(it["t"], li(it["t"], it["texto"], it["ts"][1:])) for it in s.get("items", [])]
+            + [(k["t"], f"</ul>{fig(k)}<ul>") for k in shots if t0 <= k["t"] < t1]
+        )
+        body.append(
+            f"<h3>{ts_link(s['t'])}{esc(s['titulo'])}</h3><p>{esc(s['resumen'])}</p><ul>{''.join(h for _, h in inner)}</ul>{'' if rel else strip_(t0, t1)}"
+        )
     trad = red.get("trad") or {}  # cita literal en su idioma (traducción entre paréntesis)
     tq = lambda c: f" ({esc(trad[c])})" if c in trad else ""
-    quote = lambda x: ('<small class="q">★ marcado por ti</small>' if x.get("usuario") else "") + \
-        (f'<small class="q">«{esc(x["cita"])}»{tq(x["cita"])}</small>' if x.get("cita") else "")  # la cita literal que lo respalda
-    dec = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}{quote(d)}</li>"
-                  for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
-    tasks = "".join(f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}{quote(t)}</td><td>{esc(t['responsable'])}</td>"
-                    f"<td>{esc(t['plazo'])}</td></tr>" for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"])))
-    narr = "".join(f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(t, nxt(i))}</div>"
-                   for i, (t, x) in enumerate(rel))
+    quote = lambda x: (
+        ('<small class="q">★ marcado por ti</small>' if x.get("usuario") else "")
+        + (f'<small class="q">«{esc(x["cita"])}»{tq(x["cita"])}</small>' if x.get("cita") else "")
+    )  # la cita literal que lo respalda
+    dec = "".join(f"<li>{ts_link(parse_ts(d['t']))}{esc(d['texto'])}{quote(d)}</li>" for d in sorted(red["decisiones"], key=lambda d: parse_ts(d["t"])))
+    tasks = "".join(
+        f"<tr><td>{ts_link(parse_ts(t['t']))}{esc(t['tarea'])}{quote(t)}</td><td>{esc(t['responsable'])}</td><td>{esc(t['plazo'])}</td></tr>"
+        for t in sorted(red["tareas"], key=lambda t: parse_ts(t["t"]))
+    )
+    narr = "".join(
+        f"<div class=rel><p>{ts_link(t)}{esc(x)}</p>{fig(nshots[i]) if i in nshots else ''}{strip_(t, nxt(i))}</div>" for i, (t, x) in enumerate(rel)
+    )
     src = scr if len(scr) < HEAVY else rest  # pocas pantallas: todas en el relato, aunque ya salgan en otra sección
     pre = [k["t"] for k in src if rel and k["t"] < rel[0][0]]  # antes del primer párrafo: bloque propio, no colgado de uno posterior
     if pre:
@@ -2001,36 +2366,57 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
     if cfg["secs"]:
         desarrollo = f"<h2>{esc(T['detalle'])}</h2>{''.join(body)}"
     else:  # breve: unos pocos puntos clave con marca y las capturas más relevantes
-        desarrollo = (f"<h2>Puntos clave</h2><ul>{''.join(li(t, x) for t, x, _, _ in sel)}</ul>"
-                      + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else "")
-                      + (strip_(0, 1e9) if not rel and not secs else ""))
-    trans = "".join(f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}"
-                    f"{esc(s['text'])}</p>" for i, s in enumerate(segments))
+        desarrollo = (
+            f"<h2>Puntos clave</h2><ul>{''.join(li(t, x) for t, x, _, _ in sel)}</ul>"
+            + (f"<h2>Capturas</h2>{''.join(fig(k) for k in shots)}" if shots and not nshots else "")
+            + (strip_(0, 1e9) if not rel and not secs else "")
+        )
+    trans = "".join(
+        f"<p>{ts_link(s['s'])}{f'<b>{w}:</b> ' if (w := s.get('spk')) and (not i or w != segments[i - 1].get('spk')) else ''}{esc(s['text'])}</p>"
+        for i, s in enumerate(segments)
+    )
     nota = ""
     if imp:
-        nota = (f'<p class="meta">{"Documento" if imp.get("tipo") else "Transcripción importada"}: {esc(imp["fuente"])} ({imp["formato"]}, {imp["segmentos"]} segmentos'
-                + (f", desfase aplicado {imp['desfase']:+.0f} s" if vext and not imp["aviso"] else "") + ")."
-                + (f" <b>{esc(imp['aviso'])}</b>" if imp["aviso"] else "") + "</p>"
-                + (f'<p class="meta">Participantes: {esc(", ".join(imp["hablantes"]))}.</p>' if imp["hablantes"] else ""))
+        nota = (
+            f'<p class="meta">{"Documento" if imp.get("tipo") else "Transcripción importada"}: {esc(imp["fuente"])} ({imp["formato"]}, {imp["segmentos"]} segmentos'
+            + (f", desfase aplicado {imp['desfase']:+.0f} s" if vext and not imp["aviso"] else "")
+            + ")."
+            + (f" <b>{esc(imp['aviso'])}</b>" if imp["aviso"] else "")
+            + "</p>"
+            + (f'<p class="meta">Participantes: {esc(", ".join(imp["hablantes"]))}.</p>' if imp["hablantes"] else "")
+        )
     med = "audio" if audio else "video"
-    blk = {"resumen": f"<h2>{esc(T['resumen'])}</h2><div class=\"tldr\">{esc(red['resumen'])}</div>",
-           "desarrollo": f"<h2>{esc(T['desarrollo'])}</h2>{narr}" if narr else "",
-           "decisiones": f"<h2>{esc(T['decisiones'])}</h2><ul>{dec}</ul>" if dec else "",
-           "tareas": f"<h2>{esc(T['tareas'])}</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else "",
-           "detalle": desarrollo,
-           "transcripcion": f"<h2>{esc(T['transcripcion'])}</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>"}
+    blk = {
+        "resumen": f'<h2>{esc(T["resumen"])}</h2><div class="tldr">{esc(red["resumen"])}</div>',
+        "desarrollo": f"<h2>{esc(T['desarrollo'])}</h2>{narr}" if narr else "",
+        "decisiones": f"<h2>{esc(T['decisiones'])}</h2><ul>{dec}</ul>" if dec else "",
+        "tareas": f"<h2>{esc(T['tareas'])}</h2><table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>{tasks}</table>" if tasks else "",
+        "detalle": desarrollo,
+        "transcripcion": f"<h2>{esc(T['transcripcion'])}</h2><details><summary>Mostrar transcripción completa</summary>{trans}</details>",
+    }
     gen = gen_show(maps, P, level, segments)
     for sc, its in gen:  # secciones propias de la plantilla: una lista con marca, campos y la cita que lo respalda
         cs = campos(sc)
-        row = lambda x: (f"<li>{ts_link(parse_ts(x['t']))}{esc(x['texto'])}" + (lambda kv: f'<small class="cm"> — {kv}</small>' if kv else "")(
-            " · ".join(f"{esc(c.replace('_', ' ').capitalize())}: {esc(x[c])}" for c in cs if x.get(c, "—").strip(" —-"))) + quote(x) + "</li>")
+        row = lambda x: (
+            f"<li>{ts_link(parse_ts(x['t']))}{esc(x['texto'])}"
+            + (lambda kv: f'<small class="cm"> — {kv}</small>' if kv else "")(
+                " · ".join(f"{esc(c.replace('_', ' ').capitalize())}: {esc(x[c])}" for c in cs if x.get(c, "—").strip(" —-"))
+            )
+            + quote(x)
+            + "</li>"
+        )
         blk[sc["id"]] = f"<h2>{esc(T.get(sc['id']) or sc['nombre'])}</h2><ul>{''.join(row(x) for x in its)}</ul>" if its else ""
     orden = tpl.get("orden") or ACTA_ORDEN
     if notas:  # «Notas del usuario»: lo que anotó y lo que se decía en ese momento (literal)
-        blk["notas"] = "<h2>Notas del usuario</h2><ul>" + "".join(
-            f'<li>{ts_link(x["t"])}<b>★ {esc(x["nombre"] or "Marcado")}</b>{" " + esc(x["texto"]) if x["texto"] else ""}'
-            f'{f"<small class=q>Se decía: «{esc(x["dicho"])}»</small>" if x["dicho"] else ""}</li>' for x in notas) + \
-            '</ul><p class="meta">Anotado por ti durante la reunión; el resto del documento sale de lo que se dijo.</p>'
+        blk["notas"] = (
+            "<h2>Notas del usuario</h2><ul>"
+            + "".join(
+                f"<li>{ts_link(x['t'])}<b>★ {esc(x['nombre'] or 'Marcado')}</b>{' ' + esc(x['texto']) if x['texto'] else ''}"
+                f"{f'<small class=q>Se decía: «{esc(x["dicho"])}»</small>' if x['dicho'] else ''}</li>"
+                for x in notas
+            )
+            + '</ul><p class="meta">Anotado por ti durante la reunión; el resto del documento sale de lo que se dijo.</p>'
+        )
         orden = [*orden[:1], "notas", *orden[1:]] if orden[:1] == ["resumen"] else ["notas", *orden]
     fin = [b for b in orden if b in ("decisiones", "tareas")][-1:]  # nota de la búsqueda a fondo tras decisiones/tareas
     parts = []
@@ -2043,35 +2429,58 @@ def render(out, title, dur, lang, red, maps, kfs, starts, segments, level, vext=
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(cab)} — {esc(title)}</title><style>{CSS}</style></head>
 <body><main><div id="side"><{med} id="v" src="video{vext}" controls preload="metadata"></{med}>
 <button type="button" id="pip" hidden>Imagen en imagen</button><p id="pick" hidden>No se encuentra el {"audio" if audio else "vídeo"} junto al informe: las marcas [mm:ss] dicen el momento. Ábrelo para que salten: <input type="file" accept="{med}/*"></p></div>
-<div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">{'' if (extra or {}).get('locs') else 'Duración ' + fmt(dur) + ' · '}idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
-generado {time.strftime('%Y-%m-%d %H:%M')}{esc(' · ' + extra['nube']) if (extra or {}).get('nube') else ''}</p>
+<div class="doc"><h1>{esc(cab)}: {esc(title)}</h1><p class="meta">{"" if (extra or {}).get("locs") else "Duración " + fmt(dur) + " · "}idioma {esc(LANG.get(lang, lang).split()[0])} · nivel {level} ·
+generado {time.strftime("%Y-%m-%d %H:%M")}{esc(" · " + extra["nube"]) if (extra or {}).get("nube") else ""}</p>
 {nota}{chr(10).join(parts)}
 </div></main><script>{JS}</script></body></html>"""
     if not marcas:  # plantilla sin marcas de tiempo
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">.*?</a>', "", page)
     if not vext:  # sin vídeo: ni reproductor ni enlaces
         page = re.sub(r'<div id="side">.*?</p></div>', "", page, flags=re.S).replace(f"<script>{JS}</script>", "")
-        page = page.replace("<main>", '<main>', 1)
+        page = page.replace("<main>", "<main>", 1)
         page = re.sub(r'<a class="ts" href="#" data-t="\d+">(.*?)</a>', r'<span class="ts">\1</span>', page)
     if (extra or {}).get("locs"):  # documento: la marca dice la página o la sección («p. 12», «§ Diseño»)
         import documentos
+
         lab = documentos.etiqueta(extra["locs"])
         page = re.sub(r'<span class="ts">\[([\d:]+)\]</span>', lambda m: f'<span class="ts">[{esc(lab(parse_ts(m[1])))}]</span>', page)
     allshots = sorted({k["img"]: k for k in [*shots, *nshots.values(), *used]}.values(), key=lambda k: k["t"])
     allshots += [k for k in rest if k.get("strip")]  # al final: solo se copian (con su miniatura); no van a acta.json
     (out / "index.html").write_text(rename(page, names), encoding="utf-8")
-    (out / "acta.json").write_text(rename(json.dumps({  # lo mismo que index.html, legible por máquina (eval/score.py)
-        "titulo": title, "duracion": round(dur), "nivel": level, "fondo": bool(red.get("fondo")), "resumen": red["resumen"],
-        "relato": [{"t": t, "texto": x} for t, x in rel],
-        "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] and "items" not in s for s in secs)] +
-                  [{"t": it["t"], "texto": it["texto"]} for s in secs for it in s.get("items", [])],
-        "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
-        "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
-        "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
-        "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in allshots if not k.get("strip")],
-        **({"secciones_plantilla": [{"id": sc["id"], "nombre": sc["nombre"], "items": [{**x, "t": parse_ts(x["t"])} for x in its]}
-                                     for sc, its in gen]} if gen else {}), **(extra or {})}, ensure_ascii=False, indent=1),
-        names), encoding="utf-8")
+    (out / "acta.json").write_text(
+        rename(
+            json.dumps(
+                {  # lo mismo que index.html, legible por máquina (eval/score.py)
+                    "titulo": title,
+                    "duracion": round(dur),
+                    "nivel": level,
+                    "fondo": bool(red.get("fondo")),
+                    "resumen": red["resumen"],
+                    "relato": [{"t": t, "texto": x} for t, x in rel],
+                    "puntos": [{"t": t, "texto": x} for t, x, _, b in sel if not secs or any(b == s["b"] and "items" not in s for s in secs)]
+                    + [{"t": it["t"], "texto": it["texto"]} for s in secs for it in s.get("items", [])],
+                    "secciones": [{"t": s["t"], "titulo": s["titulo"], "resumen": s["resumen"]} for s in secs],
+                    "decisiones": [{**d, "t": parse_ts(d["t"])} for d in red["decisiones"]],
+                    "tareas": [{**t, "t": parse_ts(t["t"])} for t in red["tareas"]],
+                    "capturas": [{"t": k["t"], "img": k["img"], "titulo": k["title"]} for k in allshots if not k.get("strip")],
+                    **(
+                        {
+                            "secciones_plantilla": [
+                                {"id": sc["id"], "nombre": sc["nombre"], "items": [{**x, "t": parse_ts(x["t"])} for x in its]} for sc, its in gen
+                            ]
+                        }
+                        if gen
+                        else {}
+                    ),
+                    **(extra or {}),
+                },
+                ensure_ascii=False,
+                indent=1,
+            ),
+            names,
+        ),
+        encoding="utf-8",
+    )
     return allshots
 
 
@@ -2093,7 +2502,8 @@ def seg_importance(segments, maps, valid):
     """Nota de cada segmento: la más alta de los puntos del map que caen en él o empiezan hasta 45 s antes (un punto resume
     lo que se dice a partir de su marca) y 5 en decisiones y tareas; 1 (relleno) si no hay ninguno."""
     pts = [(parse_ts(p["t"]), p["importancia"]) for m in maps for p in m["puntos"]] + [
-        (parse_ts(x["t"]), 5) for k in ("decisiones", "tareas") for x in valid[k]]
+        (parse_ts(x["t"]), 5) for k in ("decisiones", "tareas") for x in valid[k]
+    ]
     return [max([n for t, n in pts if s["s"] - 45 <= t <= s["e"]], default=1) for s in segments]
 
 
@@ -2139,6 +2549,7 @@ def condense_plan(units, pct):
                 for i in r:
                     cut[i] = True
         return [(units[r[0]][0], units[r[-1]][1]) for r in runs(cut, False)]
+
     lo, hi = 0, len(units)
     while lo < hi:
         mid = (lo + hi) // 2
@@ -2155,10 +2566,11 @@ def recommend_pct(units):
 def h264(threads):
     """Codificador por hardware si funciona de verdad (macOS: VideoToolbox; si no, QuickSync, el ProBook lo tiene); si no, libx264."""
     enc, opts = ("h264_videotoolbox", ["-b:v", "3M"]) if sys.platform == "darwin" else ("h264_qsv", ["-preset", "veryfast", "-global_quality", "26"])
-    hw = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", enc,
-                         "-f", "null", "-"], capture_output=True).returncode == 0
-    return (["-c:v", enc, *opts] if hw else
-            ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-threads", str(threads)])
+    hw = (
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", enc, "-f", "null", "-"], capture_output=True).returncode
+        == 0
+    )
+    return ["-c:v", enc, *opts] if hw else ["-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-threads", str(threads)]
 
 
 def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
@@ -2174,17 +2586,48 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
     video = next(wd.glob("video.*"))
     solo = not has_video(video)  # solo audio: salida .m4a sin imagen
     out = wd / f"condensado_{pct}.{'m4a' if solo else 'mp4'}"
-    graph = "".join(f"{'' if solo else f'[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];'}"
-                    f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
-                    f"afade=d={FADE},afade=t=out:st={b - a - FADE:.3f}:d={FADE}[a{i}];" for i, (a, b) in enumerate(keeps))
+    graph = "".join(
+        f"{'' if solo else f'[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}];'}"
+        f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
+        f"afade=d={FADE},afade=t=out:st={b - a - FADE:.3f}:d={FADE}[a{i}];"
+        for i, (a, b) in enumerate(keeps)
+    )
     graph += "".join(f"{'' if solo else f'[v{i}]'}[a{i}]" for i in range(len(keeps))) + f"concat=n={len(keeps)}:v={int(not solo)}:a=1{'' if solo else '[v]'}[a]"
     script = wd / "condensado.ffgraph"
     script.write_text(graph, encoding="utf-8")
     kept = sum(b - a for a, b in keeps)
     t0 = time.time()
-    p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-/filter_complex", str(script), *(() if solo else ("-map", "[v]")),
-                          "-map", "[a]", *(() if solo else h264(threads)), "-c:a", "aac", "-b:a", "96k" if not solo else "64k", "-movflags", "+faststart",
-                          "-progress", "pipe:1", "-nostats", str(out)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(video),
+            "-/filter_complex",
+            str(script),
+            *(() if solo else ("-map", "[v]")),
+            "-map",
+            "[a]",
+            *(() if solo else h264(threads)),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k" if not solo else "64k",
+            "-movflags",
+            "+faststart",
+            "-progress",
+            "pipe:1",
+            "-nostats",
+            str(out),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     for line in p.stdout:
         if line.startswith("out_time_us=") and line[12:].strip().isdigit():
             cb(min(int(line[12:]) / 1e6 / kept, 1), f"Codificando condensado… {fmt(int(line[12:]) / 1e6)} / {fmt(kept)}")
@@ -2195,8 +2638,18 @@ def condense(wd, quality, pct, threads=PHYS, cb=lambda f, m: None):
 
 # ---------- Tiempo restante ----------
 RITMOS = WORK / "ritmos.json"  # segundos de cada fase por segundo de vídeo medidos en este equipo (media con la anterior)
-RITMO0 = {"asr": .35, "transcripción": .01, "hablantes": .05, "capturas+ocr": .05, "ocr_map": .03, "llm_carga": .005,
-          "map": .45, "reduce": .1, "partes": .1, "fondo": .5}  # portátil sin GPU, hasta la 1.ª acta; Alta x2 en map/reduce, GPU /4 en el LLM
+RITMO0 = {
+    "asr": 0.35,
+    "transcripción": 0.01,
+    "hablantes": 0.05,
+    "capturas+ocr": 0.05,
+    "ocr_map": 0.03,
+    "llm_carga": 0.005,
+    "map": 0.45,
+    "reduce": 0.1,
+    "partes": 0.1,
+    "fondo": 0.5,
+}  # portátil sin GPU, hasta la 1.ª acta; Alta x2 en map/reduce, GPU /4 en el LLM
 ETA = {}  # fase en curso del trabajo (la lee /api/job)
 
 
@@ -2224,8 +2677,29 @@ def eta():
 
 
 # ---------- Orquestación ----------
-def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: None, names=None, speakers=False, transcript=None, calidad="rápida", gpu=None, fondo=False, reuse=None,
-        plantilla=None, idioma=None, habla=None, glosario=None, pistas=None, nube=None, descripcion="", buscable=False, vision=None):
+def run(
+    video,
+    level="normal",
+    quality="rápido",
+    threads=PHYS,
+    cb=lambda f, m: None,
+    names=None,
+    speakers=False,
+    transcript=None,
+    calidad="rápida",
+    gpu=None,
+    fondo=False,
+    reuse=None,
+    plantilla=None,
+    idioma=None,
+    habla=None,
+    glosario=None,
+    pistas=None,
+    nube=None,
+    descripcion="",
+    buscable=False,
+    vision=None,
+):
     """video y/o transcript (.vtt .srt .txt .docx: sustituye al ASR; o un documento/imagen de documentos.py: PDF, Markdown, PNG…, con
     `descripcion` opcional del usuario). Sin vídeo no hay capturas ni reproductor. buscable: solo transcripción/texto y OCR, sin LLM
     (devuelve (wd, None, timings): queda para Buscar y Preguntar). vision: vision.elegir() para describir una imagen con IA.
@@ -2240,6 +2714,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     import grabar
     import documentos
     import plantillas
+
     tpl = plantilla if isinstance(plantilla, dict) else plantillas.get(plantilla)
     idioma = idioma if idioma and idioma != "reunión" else tpl.get("idioma_acta", "reunión")
     idioma = idioma if idioma in IDIOMAS else None
@@ -2249,8 +2724,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if reuse:
         video = next((WORK / reuse[0]).glob("video.*"), None)
         quality, transcript = reuse[1], None
-        names, speakers = (lambda d: (d["names"], d["speakers"]))(json.loads(leer_texto(WORK / reuse[0] / "nombres.json"))) \
-            if (WORK / reuse[0] / "nombres.json").exists() else (None, False)
+        names, speakers = (
+            (lambda d: (d["names"], d["speakers"]))(json.loads(leer_texto(WORK / reuse[0] / "nombres.json")))
+            if (WORK / reuse[0] / "nombres.json").exists()
+            else (None, False)
+        )
     elif not (video or transcript):
         raise RuntimeError("Falta el vídeo o la transcripción")
     alta = calidad != "rápida"  # Alta = bloques semánticos de 6000 + pasada 2 (fusión de repetidos, viñetas agrupadas con comprobación de cifras)
@@ -2272,6 +2750,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     dur = duration(video) if video else json.loads(tf.read_text(encoding="utf-8"))["segments"][-1]["e"] if tf.exists() else 0
     if nube:  # nube y local no comparten caché: el id (proveedor + modelo [+ anonimizado]) sustituye a la ruta del gguf en las claves
         import nube as NB
+
         model = NB.id_cache(nube)
         LL = lambda: NB.backend(nube)
     else:
@@ -2281,9 +2760,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         LL = lambda: llama(threads, model=model, gpu=gpu, capas=MOE.get(calidad, 0))
     rk = functools.partial(ritmo_key, alta=calidad if alta else "", gpu=use_gpu(gpu))
     # fases previstas (peso = parte por hacer); se afina al llegar al LLM, donde ya se sabe qué está en caché
-    todo = {n: 1.0 for n, on in (("transcripción" if transcript else "asr", not tf.exists()), ("hablantes", speakers and video),
-            ("capturas+ocr", pic and not (wd / "frames2.json").exists()), ("ocr_map", pic and not (wd / "frames_map.json").exists()),
-            ("llm_carga", not buscable), ("map", not buscable), ("reduce", not buscable), ("fondo", fondo)) if on}
+    todo = {
+        n: 1.0
+        for n, on in (
+            ("transcripción" if transcript else "asr", not tf.exists()),
+            ("hablantes", speakers and video),
+            ("capturas+ocr", pic and not (wd / "frames2.json").exists()),
+            ("ocr_map", pic and not (wd / "frames_map.json").exists()),
+            ("llm_carga", not buscable),
+            ("map", not buscable),
+            ("reduce", not buscable),
+            ("fondo", fondo),
+        )
+        if on
+    }
 
     def fase(name, lo, hi):
         """Empieza una fase: ETA con su ritmo y el de las que quedan; devuelve el cb de su tramo de la barra."""
@@ -2299,13 +2789,19 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         def p(f, m):
             ETA["f"] = f
             cb(lo + (hi - lo) * f, m)
+
         return p
 
     if not tf.exists():
         t0 = time.time()
         pa = fase("transcripción" if transcript else "asr", 0, 0.45)
-        tr = import_transcript(transcript, video, threads, dur, pa, descripcion, vision) if transcript else \
-            grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario) if pistas else transcribe(video, quality, threads, dur, pa, hot=glosario)
+        tr = (
+            import_transcript(transcript, video, threads, dur, pa, descripcion, vision)
+            if transcript
+            else grabar.transcribir(sys.modules[__name__], pistas, quality, threads, dur, pa, glosario)
+            if pistas
+            else transcribe(video, quality, threads, dur, pa, hot=glosario)
+        )
         tf.write_text(json.dumps(tr), encoding="utf-8")  # ASCII: un documento trae «✉», emojis… que cp1252 (Windows) no escribe
         stage("documento" if (tr.get("importada") or {}).get("tipo") else "transcripción" if transcript else "asr", t0)  # documento: sin ritmo (OCR por página)
     tr = json.loads(tf.read_text(encoding="utf-8"))
@@ -2333,8 +2829,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         t0 = time.time()
         sf.write_text(json.dumps(diarize(video, tr["segments"], threads, fase("hablantes", 0.45, 0.5))), encoding="utf-8")
         stage("hablantes", t0)
-    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text(encoding="utf-8")))) if speakers
-                    else []):
+    for s, k in zip(tr["segments"], assign_speakers(tr["segments"], speaker_turns(**json.loads(sf.read_text(encoding="utf-8")))) if speakers else []):
         if k:
             s["spk"] = k
 
@@ -2366,7 +2861,17 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     # la caché lleva el hash de prompt + esquema + modelo + entrada (transcripción y OCR): cambiar cualquiera la invalida
     # como_redactar solo entra en rh (redacción): cambiarlo reutiliza el map y la verificación
     mh, vh, rh = cache_keys(P, model, inputs, level, p2, lang if idioma else None)
-    tag = (f"_p-{tpl['id']}" * (tpl["id"] != "acta") + f"_i-{idioma}" * bool(idioma) + f"_{calidad}" * alta + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")) + "_loose" * LOOSE + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "") + (f"_{NB.slot(nube)}" if nube else "")
+    tag = (
+        (
+            f"_p-{tpl['id']}" * (tpl["id"] != "acta")
+            + f"_i-{idioma}" * bool(idioma)
+            + f"_{calidad}" * alta
+            + (f"_{Path(llm_model()).stem}" if os.environ.get("ACTAS_MAP_MODEL") else "")
+        )
+        + "_loose" * LOOSE
+        + (f"_{os.environ['ACTAS_TAG']}" if os.environ.get("ACTAS_TAG") else "")
+        + (f"_{NB.slot(nube)}" if nube else "")
+    )
     mf, rf = wd / f"map_{quality}_{mh}.json", wd / f"reduce_{quality}_{level}{tag}_{rh}.json"
     maps = json.loads(leer_texto(mf)) if mf.exists() else []
     vf = wd / f"valid_{quality}_{vh}.json"
@@ -2395,15 +2900,20 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
                 vf.write_text(json.dumps(verify(chat, maps, tr["segments"], kfm), ensure_ascii=False), encoding="utf-8")
             valid = json.loads(leer_texto(vf))
             if not rf.exists():
-                rf.write_text(json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P, lambda: fase("partes", 0.92, 0.97)), ensure_ascii=False), encoding="utf-8")
+                rf.write_text(
+                    json.dumps(reduce_maps(chat, maps, valid, starts, level, lang, p2, P, lambda: fase("partes", 0.92, 0.97)), ensure_ascii=False),
+                    encoding="utf-8",
+                )
             stage("reduce", t0)
             if fondo and not ff.exists():
                 t0 = time.time()
                 if not ff0.exists():
-                    ff0.write_text(json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, fase("fondo", 0.93, 0.99)),
-                                              ensure_ascii=False), encoding="utf-8")
-                ff.write_text(json.dumps(fondo_filtrar(chat, json.loads(leer_texto(ff0)), tr["segments"], kfm, valid, maps, starts),
-                                         ensure_ascii=False), encoding="utf-8")
+                    ff0.write_text(
+                        json.dumps(fondo_candidatas(chat, tr["segments"], kfm, lang, fase("fondo", 0.93, 0.99)), ensure_ascii=False), encoding="utf-8"
+                    )
+                ff.write_text(
+                    json.dumps(fondo_filtrar(chat, json.loads(leer_texto(ff0)), tr["segments"], kfm, valid, maps, starts), ensure_ascii=False), encoding="utf-8"
+                )
                 stage("fondo", t0)
     else:
         ETA.clear()  # sin LLM (todo en caché): solo queda pintar
@@ -2417,8 +2927,11 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     if notas:  # notas del usuario: lo marcado entra siempre; las de sección piden un elemento al LLM (caché por nota)
         me = sys.modules[__name__]
         ntag, pend, cf = "_n-" + grabar.hash_notas(notas), grabar.pendientes(notas, P), wd / "notas_ext.json"
-        kx = lambda n: hashlib.sha1(json.dumps([grabar.NOTA_PROMPT, str(model), lang, n["t"], n["boton"], n["seccion"],
-                                                [s["text"] for s in grabar.ventana(tr["segments"], n["t"])]]).encode()).hexdigest()[:12]
+        kx = lambda n: hashlib.sha1(
+            json.dumps(
+                [grabar.NOTA_PROMPT, str(model), lang, n["t"], n["boton"], n["seccion"], [s["text"] for s in grabar.ventana(tr["segments"], n["t"])]]
+            ).encode()
+        ).hexdigest()[:12]
         cx = json.loads(leer_texto(cf)) if cf.exists() else {}
         if falta := [n for n in pend if kx(n) not in cx]:
             cb(0.94, "Leyendo tus notas…")
@@ -2429,8 +2942,9 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
         filas = grabar.aplicar(me, notas, tr["segments"], maps, red, P, {n["id"]: cx[kx(n)] for n in pend if cx.get(kx(n))})
     if otro:  # traducción de las citas que se ven (caché por idioma: solo depende de la cita)
         trim_caps(red, maps, LEVELS[level], tr["segments"])
-        qs = [x["cita"] for k in ("decisiones", "tareas") for x in red[k] if x.get("cita")] + \
-             [x["cita"] for _, its in gen_show(maps, P, level, tr["segments"]) for x in its if x["cita"]]
+        qs = [x["cita"] for k in ("decisiones", "tareas") for x in red[k] if x.get("cita")] + [
+            x["cita"] for _, its in gen_show(maps, P, level, tr["segments"]) for x in its if x["cita"]
+        ]
         tq = wd / f"trad_{hashlib.sha1((TRAD_PROMPT + lang + str(model)).encode()).hexdigest()[:8]}.json"
         trad = json.loads(leer_texto(tq)) if tq.exists() else {}
         if falta := list(dict.fromkeys(q for q in qs if q not in trad)):
@@ -2453,14 +2967,34 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     except (OSError, ValueError):
         nombre = None
     op = tpl.get("opciones", {})
-    for k in render(out, nombre or red.get("titulo") or "Reunión " + time.strftime("%Y-%m-%d"), dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
-                    starts, tr["segments"], level, video.suffix if video else None, names, imp, audio, P, op.get("marcas", True),
-                    ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {}) |
-                    ({"idioma": idioma} if idioma else {}) | ({"nube": NB.marca(nube)} if nube else {}) | ({"notas_usuario": filas} if filas else {}) |
-                    ({"locs": lc} if (lc := documentos.locs(tr["segments"])) else {}), filas):
+    for k in render(
+        out,
+        nombre or red.get("titulo") or "Reunión " + time.strftime("%Y-%m-%d"),
+        dur,
+        idioma or tr["language"],
+        red,
+        maps,
+        kfs if op.get("capturas", True) else [],
+        starts,
+        tr["segments"],
+        level,
+        video.suffix if video else None,
+        names,
+        imp,
+        audio,
+        P,
+        op.get("marcas", True),
+        ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {})
+        | ({"idioma": idioma} if idioma else {})
+        | ({"nube": NB.marca(nube)} if nube else {})
+        | ({"notas_usuario": filas} if filas else {})
+        | ({"locs": lc} if (lc := documentos.locs(tr["segments"])) else {}),
+        filas,
+    ):
         shutil.copy(wd / "frames" / k["img"], out / "img" / k["img"])
         if k.get("strip"):  # miniatura para la tira (la imagen grande se baja solo al ampliar)
             import cv2
+
             im = cv2.imdecode(np.fromfile(wd / "frames" / k["img"], np.uint8), cv2.IMREAD_COLOR)
             cv2.imwrite(str(out / "img" / f"t_{k['img']}"), cv2.resize(im, (400, 225), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 75])
     miss = [m for m in re.findall(r'(?:src|href)="img/([^"]+)"', (out / "index.html").read_text(encoding="utf-8")) if not (out / "img" / m).exists()]
@@ -2498,9 +3032,13 @@ def traducir(chat, textos, lang, n=10):
     """{texto: traducción} de las citas (de n en n)."""
     out = {}
     for i in range(0, len(textos), n):
-        part = textos[i:i + n]
-        r = chat(TRAD_PROMPT.format(lang=lang), "\n".join(f"{j}. {x}" for j, x in enumerate(part, 1)),
-                 obj(t=arr(S(QUOTE_MAX + 100), len(part), len(part))), 120 * len(part))
+        part = textos[i : i + n]
+        r = chat(
+            TRAD_PROMPT.format(lang=lang),
+            "\n".join(f"{j}. {x}" for j, x in enumerate(part, 1)),
+            obj(t=arr(S(QUOTE_MAX + 100), len(part), len(part))),
+            120 * len(part),
+        )
         out.update(zip(part, (x.strip() for x in r["t"])))
     return out
 
@@ -2510,16 +3048,18 @@ def _selftest():
     assert fmt(3725) == "62:05" and parse_ts("62:05") == 3725 and parse_ts("1:02:05") == 3725
     rng = np.random.default_rng(0)
     a, b = rng.integers(0, 255, (2, THUMB_H, THUMB_W))
-    noisy = a.copy(); noisy[:2] += 100  # reloj en la barra de menús (franja CROP)
+    noisy = a.copy()
+    noisy[:2] += 100  # reloj en la barra de menús (franja CROP)
     cam = lambda f: (lambda x: (x.__setitem__((slice(48, 64), slice(104, 128)), rng.integers(0, 255, (16, 24))), x)[1])(f.copy())
     # A A A(reloj) A A A B*6 A*4, con webcam cambiando en cada muestra -> tramos A y B; la vuelta a A no se repite
     segs = stable_segments(np.array([cam(f) for f in (a, a, noisy, a, a, a, *[b] * 6, *[a] * 4)]))
     assert segs == [(0, 5), (6, 11)], segs
     # menú local (2x3 bloques, < 5 % de la pantalla) abre y cierra: captura; el scroll lento no corta, el grande sí
-    menu = a.copy(); menu[24:40, 40:64] = 0
+    menu = a.copy()
+    menu[24:40, 40:64] = 0
     assert stable_segments(np.array([a] * 12 + [menu] * 3 + [a] * 12)) == [(0, 11), (12, 14)]
     page = rng.integers(0, 255, (200, THUMB_W))
-    sc = lambda y: page[y:y + THUMB_H].reshape(-1)
+    sc = lambda y: page[y : y + THUMB_H].reshape(-1)
     assert stable_segments(np.array([sc(0)] * 12 + [sc(4)] * 2 + [sc(8)] * 12)) == [(0, 25)], "scroll corto: una captura"
     assert stable_segments(np.array([sc(0)] * 12 + [sc(60)] * 12)) == [(0, 11), (12, 23)], "scroll largo: contenido nuevo"
 
@@ -2534,14 +3074,20 @@ def _selftest():
     bar = "meet.google.com/abc | Otros marcadores | Ana Pérez está presentando"
     kf = lambda t, txt: {"t": t, "img": f"k{t}.jpg", "text": f"{bar} | Luis Antonio Gar{'cía Díaz' if t % 2 else '...'} | {txt}"}
     grid = "Miguel Ángel Calle | Ricardo Maldonado Reusens | Danny alexander Guevara"
-    ks = screens([kf(0, grid), kf(9, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas"),
-                  kf(20, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril"),
-                  kf(31, "Presupuesto total de doscientos mil euros para el año"),
-                  kf(40, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril | "
-                         "Fase 3 lanzamiento internacional con socios"),
-                  kf(51, grid), kf(60, "Presupuesto total de doscientos mil euros para el año 2025")])
-    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, True), (20, True), (31, True), (40, True),
-                                                   (51, False), (60, True)], ks  # repetidas: las quita stable_segments
+    ks = screens(
+        [
+            kf(0, grid),
+            kf(9, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas"),
+            kf(20, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril"),
+            kf(31, "Presupuesto total de doscientos mil euros para el año"),
+            kf(40, "Plan del proyecto | Fase 1 con el equipo de diseño y pruebas | Fase 2 beta pública en abril | Fase 3 lanzamiento internacional con socios"),
+            kf(51, grid),
+            kf(60, "Presupuesto total de doscientos mil euros para el año 2025"),
+        ]
+    )
+    assert [(k["t"], k["screen"]) for k in ks] == [(0, False), (9, True), (20, True), (31, True), (40, True), (51, False), (60, True)], (
+        ks
+    )  # repetidas: las quita stable_segments
     assert "marcadores" not in ks[6]["text"] and ks[6]["title"].startswith("Presupuesto total"), ks[6]
 
     fpz = lambda v, menu=0: [v] * 576 if not menu else [v] * 500 + [v + 120] * 76
@@ -2560,54 +3106,100 @@ def _selftest():
     assert len(select_points(maps, 1.0, 4)) == 4 and min(x[2] for x in select_points(maps, 1.0)) == 4, "1 = relleno, fuera"
     many = [pts(5, 5, 5, 3)] * 14  # 42 notas 5: breve reparte por tiempo, no se queda con los 8 primeros bloques
     assert sorted({x[3] for x in select_points(many, 0.2, 8)}) == [0, 2, 4, 6, 7, 9, 11, 13]
-    rep = [{"puntos": [{"importancia": 5, "t": "00:01", "texto": f"Se aprueba la recalificación de {x}"} for x in
-                        ("Ana Ruiz", "Luis Mera")] + [{"importancia": 3, "t": "00:02", "texto": "Se suspende la sesión hasta mañana"}]}]
+    rep = [
+        {
+            "puntos": [{"importancia": 5, "t": "00:01", "texto": f"Se aprueba la recalificación de {x}"} for x in ("Ana Ruiz", "Luis Mera")]
+            + [{"importancia": 3, "t": "00:02", "texto": "Se suspende la sesión hasta mañana"}]
+        }
+    ]
     assert [x[1][:5] for x in select_points(rep, 1.0, 2, uniq=True)] == ["Se ap", "Se su"], "breve: sin repetidos"
 
-    sg = [{"s": 0, "text": "Hola a todos."}, {"s": 10, "text": "Bueno, pues se aprueba el"},
-          {"s": 14, "text": "acta por unanimidad"}, {"s": 20, "text": "de los presentes."}]
+    sg = [
+        {"s": 0, "text": "Hola a todos."},
+        {"s": 10, "text": "Bueno, pues se aprueba el"},
+        {"s": 14, "text": "acta por unanimidad"},
+        {"s": 20, "text": "de los presentes."},
+    ]
     assert find_quote("se aprueba el acta por unanimidad", sg) == (1.0, 10)
     assert find_quote("se acordó contratar a dos personas", sg)[0] < 0.5
     dd = lambda c: {"cita": c, "texto": c, "t": "00:00"}
-    fake = lambda *a: {"tema": "", "puntos": [], "tareas": [], "decisiones": [
-        dd("se aprueba el acta por unanimidad"), dd("contratar a dos personas"), dd("hola a todos"),
-        {**dd("se aprueba el acta por unanimidad"), "t": "00:20"}]}
+    fake = lambda *a: {
+        "tema": "",
+        "puntos": [],
+        "tareas": [],
+        "decisiones": [
+            dd("se aprueba el acta por unanimidad"),
+            dd("contratar a dos personas"),
+            dd("hola a todos"),
+            {**dd("se aprueba el acta por unanimidad"), "t": "00:20"},
+        ],
+    }
     m = map_chunk(fake, [{**s, "e": s["s"] + 4} for s in sg], "", "español")
     assert [d["t"] for d in m["decisiones"]] == ["00:10", "00:00", "00:10"], m  # inventada fuera; marca = la de la cita
-    assert find_quote("se aprueba el presente informe", [{"s": t, "text": "se aprueba el presente informe"}
-                                                         for t in (100, 200, 300)], near=210) == (1.0, 200)
+    assert find_quote("se aprueba el presente informe", [{"s": t, "text": "se aprueba el presente informe"} for t in (100, 200, 300)], near=210) == (1.0, 200)
     # lectura de la pantalla: leer en voz alta el texto visible entonces sí; lo mismo con otra pantalla, no
-    doc = ("Acuerdos del consejo regional: comunicar a las instituciones integrantes que asistirán titular y alterno; "
-           "solicitar inspecciones sobre emanación de fuertes olores siempre que previamente existan resultados médicos")
+    doc = (
+        "Acuerdos del consejo regional: comunicar a las instituciones integrantes que asistirán titular y alterno; "
+        "solicitar inspecciones sobre emanación de fuertes olores siempre que previamente existan resultados médicos"
+    )
     rd = [{"s": t, "text": doc} for t in range(0, 90, 10)]
     assert reading(40, rd, [{"t": 0, "end": 90, "text": doc}]) > 0.9
     assert reading(40, rd, [{"t": 200, "end": 300, "text": doc}]) == 0
-    mk = mark_reading([{"puntos": [{"t": "00:40", "importancia": 5, "texto": "Se acuerda comunicar a las instituciones"},
-                                   {"t": "05:00", "importancia": 5, "texto": "Se acuerda otra cosa"}]}],
-                      rd, [{"t": 0, "end": 90, "text": doc}])[0]["puntos"]
+    mk = mark_reading(
+        [
+            {
+                "puntos": [
+                    {"t": "00:40", "importancia": 5, "texto": "Se acuerda comunicar a las instituciones"},
+                    {"t": "05:00", "importancia": 5, "texto": "Se acuerda otra cosa"},
+                ]
+            }
+        ],
+        rd,
+        [{"t": 0, "end": 90, "text": doc}],
+    )[0]["puntos"]
     assert [(p["importancia"], p["texto"][:21]) for p in mk] == [(2, READ_NOTE[:21]), (5, "Se acuerda otra cosa")], mk
     # verify: condicional, tarea = responsable y leída de la pantalla sin llamar al LLM; el resto lo clasifica el LLM;
     # responsable solo si lo dice la transcripción
-    seg = [{"s": 0, "e": 9, "text": "Bien, se aprueba el acta. María Gómez enviará el informe el lunes."},
-           {"s": 100, "e": 109, "text": "Deberíamos invitar a la zona naval. No veo el chat."}]
+    seg = [
+        {"s": 0, "e": 9, "text": "Bien, se aprueba el acta. María Gómez enviará el informe el lunes."},
+        {"s": 100, "e": 109, "text": "Deberíamos invitar a la zona naval. No veo el chat."},
+    ]
     tsk = lambda c, x, r, t: {"cita": c, "tarea": x, "responsable": r, "plazo": "—", "t": t}
-    mp = [{"tema": "a", "puntos": [], "decisiones": [{"cita": "se aprueba el acta", "texto": "Se aprueba el acta", "t": "00:00"},
-                                                     {"cita": "deberíamos invitar a la zona naval", "texto": "Invitar a la zona naval", "t": "01:40"}],
-           "tareas": [tsk("María Gómez enviará el informe", "Enviar el informe", "María Gómez", "00:00"),
-                      tsk("enviará el informe el lunes", "Preparar el presupuesto anual", "Secretaría Técnica", "00:00"),
-                      tsk("No veo el chat", "David López", "David López", "01:40"),
-                      tsk("invitar a la zona naval", "Contactar al ponente si hay dudas", "—", "01:40")]}]
+    mp = [
+        {
+            "tema": "a",
+            "puntos": [],
+            "decisiones": [
+                {"cita": "se aprueba el acta", "texto": "Se aprueba el acta", "t": "00:00"},
+                {"cita": "deberíamos invitar a la zona naval", "texto": "Invitar a la zona naval", "t": "01:40"},
+            ],
+            "tareas": [
+                tsk("María Gómez enviará el informe", "Enviar el informe", "María Gómez", "00:00"),
+                tsk("enviará el informe el lunes", "Preparar el presupuesto anual", "Secretaría Técnica", "00:00"),
+                tsk("No veo el chat", "David López", "David López", "01:40"),
+                tsk("invitar a la zona naval", "Contactar al ponente si hay dudas", "—", "01:40"),
+            ],
+        }
+    ]
     calls = []
     v = verify(lambda sy, u, *a: calls.append(u) or {"tipo": "acuerdo" if "Se aprueba" in u else "encargo"}, mp, seg, [])
     assert [d["texto"] for d in v["decisiones"]] == ["Se aprueba el acta"] and len(calls) == 3, (v, calls)
-    assert [(t["tarea"], t["responsable"]) for t in v["tareas"]] == [("Enviar el informe", "María Gómez"),
-                                                                 ("Preparar el presupuesto anual", "—")], v
+    assert [(t["tarea"], t["responsable"]) for t in v["tareas"]] == [("Enviar el informe", "María Gómez"), ("Preparar el presupuesto anual", "—")], v
     dc = lambda t, x: {"t": t, "texto": x}
     rdoc = [{"s": t, "e": t + 9, "text": doc} for t in range(0, 90, 10)] + [
-        {"s": 200, "e": 209, "text": "¿Estamos de acuerdo con el acta? Sí, de acuerdo, queda aprobada."}]
-    mp2 = [{"tema": "a", "puntos": [], "tareas": [], "decisiones": [
-        {"cita": "comunicar a las instituciones integrantes", "texto": "Comunicar a las instituciones", "t": "00:40"},
-        {"cita": "solicitar inspecciones", "texto": "Se aprueba el acta anterior con correcciones", "t": "00:40"}]}]
+        {"s": 200, "e": 209, "text": "¿Estamos de acuerdo con el acta? Sí, de acuerdo, queda aprobada."}
+    ]
+    mp2 = [
+        {
+            "tema": "a",
+            "puntos": [],
+            "tareas": [],
+            "decisiones": [
+                {"cita": "comunicar a las instituciones integrantes", "texto": "Comunicar a las instituciones", "t": "00:40"},
+                {"cita": "solicitar inspecciones", "texto": "Se aprueba el acta anterior con correcciones", "t": "00:40"},
+            ],
+        }
+    ]
     v2 = verify(lambda *a: {"tipo": "acuerdo"}, mp2, rdoc, [{"t": 0, "end": 90, "text": doc}])
     assert [(d["texto"][:15], d["t"]) for d in v2["decisiones"]] == [("Se aprueba el a", "03:20")], v2  # leída: fuera / re-anclada
     rp = [dc("10:00", f"Se aprueba parcialmente la recalificación de {x}") for x in ("Ana Ruiz", "Luis Mera", "Eva Paz")]
@@ -2617,34 +3209,70 @@ def _selftest():
     assert sentences("Frase corta sin punto", 100) == "Frase corta sin punto" and sentences("Frase uno completa. Otra fr", 30) == "Frase uno completa."
     assert sentences("Frase corta sin punto", 100) == "Frase corta sin punto"
     d = lambda t, x: {"t": t, "texto": x}
-    assert [x["t"] for x in dedupe([
-        d("44:59", "Notificar la resolución adoptada al correo electrónico del postulante."),
-        d("79:00", "Notificar la resolución adoptada por el pleno al correo electrónico del postulante."),
-        d("80:03", "Aceptación parcial de la recalificación de Juan Manuel García."),
-        d("86:14", "Aceptación parcial de la recalificación de Carlos Javier Espinoza."),
-        d("88:00", "Aceptación parcial de la recalificación de Kappa.")], "texto")] == ["44:59", "80:03", "86:14", "88:00"]
+    assert [
+        x["t"]
+        for x in dedupe(
+            [
+                d("44:59", "Notificar la resolución adoptada al correo electrónico del postulante."),
+                d("79:00", "Notificar la resolución adoptada por el pleno al correo electrónico del postulante."),
+                d("80:03", "Aceptación parcial de la recalificación de Juan Manuel García."),
+                d("86:14", "Aceptación parcial de la recalificación de Carlos Javier Espinoza."),
+                d("88:00", "Aceptación parcial de la recalificación de Kappa."),
+            ],
+            "texto",
+        )
+    ] == ["44:59", "80:03", "86:14", "88:00"]
     tk = lambda t, x: {"t": t, "tarea": x}
-    assert [x["t"] for x in dedupe([tk("25:51", "La Secretaría General del CNE notificará la resolución a los postulantes."),
-                                    tk("59:28", "Notificar las resoluciones adoptadas por el pleno al correo del postulante."),
-                                    tk("138:56", "Reanudar la sesión el día siguiente a las 9:00 h.")], "tarea", True)] == [
-        "25:51", "138:56"]
+    assert [
+        x["t"]
+        for x in dedupe(
+            [
+                tk("25:51", "La Secretaría General del CNE notificará la resolución a los postulantes."),
+                tk("59:28", "Notificar las resoluciones adoptadas por el pleno al correo del postulante."),
+                tk("138:56", "Reanudar la sesión el día siguiente a las 9:00 h."),
+            ],
+            "tarea",
+            True,
+        )
+    ] == ["25:51", "138:56"]
     with tempfile.TemporaryDirectory() as d:  # sin decisiones ni tareas, sus secciones no salen; el relato sí, recortado por nivel
-        mp = [{"tema": "a", "puntos": [{"texto": "x", "importancia": 3, "t": "00:05"}],
-               "relato": [{"t": "00:00", "texto": "Uno. Dos. Tres."}]}]
-        render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
-               [{"s": 0, "e": 5, "text": "hola"}], "breve")
+        mp = [{"tema": "a", "puntos": [{"texto": "x", "importancia": 3, "t": "00:05"}], "relato": [{"t": "00:00", "texto": "Uno. Dos. Tres."}]}]
+        render(
+            Path(d),
+            "T",
+            9,
+            "es",
+            {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False},
+            mp,
+            [],
+            [0],
+            [{"s": 0, "e": 5, "text": "hola"}],
+            "breve",
+        )
         h = (Path(d) / "index.html").read_text(encoding="utf-8")
         assert "<h2>Decisiones" not in h and "<h2>Tareas" not in h and "Desarrollo de la reunión" in h and "Uno." in h and "Dos." not in h, h
-        render(Path(d), "T", 9, "es", {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False}, mp, [], [0],
-               [{"s": 0, "e": 5, "text": "hola", "spk": "Ana"}], "breve", None, None,
-               {"fuente": "t.vtt", "formato": "WebVTT", "segmentos": 1, "hablantes": ["Ana"], "desfase": 0, "aviso": None})
+        render(
+            Path(d),
+            "T",
+            9,
+            "es",
+            {"resumen": "r", "secciones": [], "decisiones": [], "tareas": [], "mas": False},
+            mp,
+            [],
+            [0],
+            [{"s": 0, "e": 5, "text": "hola", "spk": "Ana"}],
+            "breve",
+            None,
+            None,
+            {"fuente": "t.vtt", "formato": "WebVTT", "segmentos": 1, "hablantes": ["Ana"], "desfase": 0, "aviso": None},
+        )
         h = (Path(d) / "index.html").read_text(encoding="utf-8")  # sin vídeo: sin reproductor ni enlaces; con nota y participantes
         assert "<video" not in h and 'data-t="' not in h and "Participantes: Ana" in h and "t.vtt (WebVTT, 1 segmentos" in h, h
     g = gbnf(obj(p=arr(obj(n={"enum": [1, 2]}, t=TS, c=S(9)), 3)))
-    assert 'root ::= o6' in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g
+    assert "root ::= o6" in g and '"[" sp (o5 ("," sp o5){0,2})? sp "]"' in g and '("1" | "2")' in g, g
     assert '("," sp ("1")){1,4}) sp "]"' in gbnf(obj(p=arr({"enum": [1]}, 5, 2))), "minItems sin ? final"
     assert '("\\"si\\"" | "\\"no\\"")' in gbnf(obj(x={"enum": ["si", "no"]})), "enum de cadenas con comillas JSON"
-    assert 's9 ::= "\\"" ch{0,9} "\\""' in g and "¡-ſ" in g and "u\" [0-9" not in g, g  # sin CJK ni \\uXXXX
+    assert 's9 ::= "\\"" ch{0,9} "\\""' in g and "¡-ſ" in g and 'u" [0-9' not in g, g  # sin CJK ni \\uXXXX
     with tempfile.TemporaryDirectory() as d:  # el vídeo subido a un temporal se enlaza duro o se copia, nunca simbólico
         (Path(d) / "a.mp4").write_bytes(b"v")
         put_file(Path(d) / "a.mp4", Path(d) / "b.mp4")
@@ -2666,9 +3294,9 @@ def _selftest():
     # vídeo condensado: partición sin huecos, silencios largos primero, % pedido ±3, reglas de unión y de mínimo
     segs, t = [], 0.0
     for i in range(600):
-        t += rng.choice([0.2, 0.8, 1.2, 2.5, 6.0], p=[.4, .3, .1, .1, .1])  # pausas cortas y alguna larga
+        t += rng.choice([0.2, 0.8, 1.2, 2.5, 6.0], p=[0.4, 0.3, 0.1, 0.1, 0.1])  # pausas cortas y alguna larga
         d = float(rng.uniform(1, 9))
-        segs.append((t, t + d, int(rng.choice([1, 2, 3, 4, 5], p=[.3, .3, .2, .1, .1]))))
+        segs.append((t, t + d, int(rng.choice([1, 2, 3, 4, 5], p=[0.3, 0.3, 0.2, 0.1, 0.1]))))
         t += d
     u = timeline(segs, t + 4)
     assert u[0][0] == 0 and u[-1][1] == t + 4 and all(x[1] == y[0] for x, y in zip(u, u[1:])) and all(x[0] < x[1] for x in u)
@@ -2687,27 +3315,41 @@ def _selftest():
     assert all(u[r[-1]][1] - u[r[0]][0] < MIN_KEEP for r in runs([n == 0 for *_, n in u], False) if any(map(gone, r))), "silencios primero"
     assert recommend_pct([[0, 10, 0], [10, 100, 4]]) == 20 and recommend_pct([[0, 90, 2], [90, 100, 5]]) == 70
     assert recommend_pct([[0, 20, 0], [20, 40, 1], [40, 100, 3]]) == 40
-    sg = [{"s": 0, "e": 5, "text": "Considerando que los informes técnicos no son vinculantes, que estos son referenciales."},
-          {"s": 6, "e": 12, "text": "Se pone a consideración el informe sobre la recalificación de la postulante."},
-          {"s": 14, "e": 20, "text": "Con cuatro votos a favor y una abstención se aprueba el informe."}]
-    assert best_quote("Se aprueba parcialmente la recalificación de la postulante", "Considerando que los informes", 0, sg).startswith("Con cuatro votos"), "el resultado del voto"
-    r = merge_fondo({"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:00"}], "tareas": []},
-                    {"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:05"},
-                                    {"texto": "Se aplaza la votación a la próxima sesión", "t": "02:00"}], "tareas": []})
+    sg = [
+        {"s": 0, "e": 5, "text": "Considerando que los informes técnicos no son vinculantes, que estos son referenciales."},
+        {"s": 6, "e": 12, "text": "Se pone a consideración el informe sobre la recalificación de la postulante."},
+        {"s": 14, "e": 20, "text": "Con cuatro votos a favor y una abstención se aprueba el informe."},
+    ]
+    assert best_quote("Se aprueba parcialmente la recalificación de la postulante", "Considerando que los informes", 0, sg).startswith("Con cuatro votos"), (
+        "el resultado del voto"
+    )
+    r = merge_fondo(
+        {"decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:00"}], "tareas": []},
+        {
+            "decisiones": [{"texto": "Se aprueba el acta anterior", "t": "10:05"}, {"texto": "Se aplaza la votación a la próxima sesión", "t": "02:00"}],
+            "tareas": [],
+        },
+    )
     assert [d["t"] for d in r["decisiones"]] == ["02:00", "10:00"] and r["fondo"], r
-    assert fix_junk([{"texto": "101:34", "cita": "se apruebe el informe"}, {"texto": "98:10", "cita": "ok"}], "texto") == \
-        [{"texto": "Se apruebe el informe", "cita": "se apruebe el informe"}]
+    assert fix_junk([{"texto": "101:34", "cita": "se apruebe el informe"}, {"texto": "98:10", "cita": "ok"}], "texto") == [
+        {"texto": "Se apruebe el informe", "cita": "se apruebe el informe"}
+    ]
     # plantillas: «Acta de reunión» = prompts, esquema y claves de caché de siempre (las fórmulas de antes, copiadas aquí)
     import plantillas
+
     plantillas._selftest()
     acta, old = plantillas.get("acta"), prompts()
     assert prompts(acta) == {**old, "tpl": acta}, "plantilla acta != prompts de siempre"
     assert acta["orden"] == ACTA_ORDEN and acta["titulos"] == ACTA_TIT and not acta["que_destacar"] and not acta["como_redactar"]
-    assert prompts({**acta, "notas_rapidas": [], "mostrar_escala": False, "nube_permitida": False}) == prompts(acta) | {"tpl": {**acta, "notas_rapidas": [], "mostrar_escala": False, "nube_permitida": False}}
+    assert prompts({**acta, "notas_rapidas": [], "mostrar_escala": False, "nube_permitida": False}) == prompts(acta) | {
+        "tpl": {**acta, "notas_rapidas": [], "mostrar_escala": False, "nube_permitida": False}
+    }
     for model, inputs, level, p2 in (("m.gguf", ["[00:01] hola", "x"], "normal", False), ("n", ["a"], "breve", True)):
         mh = hashlib.sha1("\0".join([MAP_PROMPT, RESCUE_PROMPT, RESCUE.pattern, json.dumps(MAP_SCHEMA), str(model), *inputs]).encode()).hexdigest()[:8]
         vh = hashlib.sha1((mh + VERIFY_PROMPT + COND.pattern + APPROVE.pattern + COURTESY.pattern).encode()).hexdigest()[:8]
-        rh = hashlib.sha1((vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * p2).encode()).hexdigest()[:8]
+        rh = hashlib.sha1(
+            (vh + SEC_PROMPT + FINAL_PROMPT + FAITHFUL + READ_NOTE + json.dumps(LEVELS[level]) + (SEC2_PROMPT + str(DEDUP_THR) + "cifras") * p2).encode()
+        ).hexdigest()[:8]
         assert cache_keys(prompts(acta), model, inputs, level, p2) == (mh, vh, rh), "claves de caché del acta"
     # como_redactar solo cambia la redacción (rh); escala / que_destacar / secciones, el map (mh)
     k = lambda t: cache_keys(prompts(t), "m", ["x"], "normal", False)
@@ -2725,24 +3367,39 @@ def _selftest():
         assert all(x in q["schema"]["properties"] for x in ("tema", "puntos", "relato")) and len(q["gen"]) + q["acta"] * 0 >= (t["id"] == "comunidad") * 5
     cl = prompts(plantillas.get("clase"))
     assert not cl["acta"] and "decisiones" not in cl["schema"]["properties"] and "glosario:" in cl["map"] and "el acta" not in cl["final"]
-    segs = [{"s": 0, "e": 5, "text": "El teorema de Pitágoras relaciona los tres lados del triángulo rectángulo."},
-            {"s": 6, "e": 9, "text": "Hay 3 ejemplos en el libro."}]
+    segs = [
+        {"s": 0, "e": 5, "text": "El teorema de Pitágoras relaciona los tres lados del triángulo rectángulo."},
+        {"s": 6, "e": 9, "text": "Hay 3 ejemplos en el libro."},
+    ]
     sw = [words(x["text"]) for x in segs]
-    its = gen_check([{"cita": "relaciona los tres lados del triángulo", "texto": "Pitágoras relaciona los lados", "importancia": 4, "t": "00:09"},
-                     {"cita": "esto no se dijo nunca aquí", "texto": "Hay ejemplos en el libro", "importancia": 3, "t": "00:06"},
-                     {"cita": "Hay 3 ejemplos", "texto": "Hay 7 ejemplos", "importancia": 3, "t": "00:06"}], segs, sw, " ".join(x["text"] for x in segs))
+    its = gen_check(
+        [
+            {"cita": "relaciona los tres lados del triángulo", "texto": "Pitágoras relaciona los lados", "importancia": 4, "t": "00:09"},
+            {"cita": "esto no se dijo nunca aquí", "texto": "Hay ejemplos en el libro", "importancia": 3, "t": "00:06"},
+            {"cita": "Hay 3 ejemplos", "texto": "Hay 7 ejemplos", "importancia": 3, "t": "00:06"},
+        ],
+        segs,
+        sw,
+        " ".join(x["text"] for x in segs),
+    )
     assert [(x["cita"] != "", x["t"]) for x in its] == [(True, "00:00"), (False, "00:06")], its
     print("ok")
 
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser(description="Genera el acta de una reunión grabada")
     ap.add_argument("video", nargs="?")
     ap.add_argument("--transcripcion", metavar="FICHERO", help="transcripción exportada (.vtt .srt .txt .docx) en lugar del ASR")
     ap.add_argument("--nivel", default="normal", choices=LEVELS)
     ap.add_argument("--asr", default="calidad", choices=ASR_MODELS)
-    ap.add_argument("--calidad", default="rápida", choices=tuple(NIVELES), help="alta/alta9/muyalta/maxima: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)")
+    ap.add_argument(
+        "--calidad",
+        default="rápida",
+        choices=tuple(NIVELES),
+        help="alta/alta9/muyalta/maxima: bloques semánticos de 6000 caracteres + pasada 2 (viñetas agrupadas y fusión de repetidos)",
+    )
     ap.add_argument("--fondo", action="store_true", help="además, la búsqueda a fondo de decisiones y tareas")
     ap.add_argument("--threads", type=int, default=PHYS)
     ap.add_argument("--hablantes", action="store_true", help="separar quién habla (experimental)")
@@ -2760,8 +3417,21 @@ if __name__ == "__main__":
         if time.time() - last[0] > 5 or f >= 1:
             last[0] = time.time()
             print(f"{f:5.0%} {m}", flush=True)
-    out, z, t = run(a.video, a.nivel, a.asr, a.threads, cb, speakers=a.hablantes, transcript=a.transcripcion, calidad=a.calidad, fondo=a.fondo,
-                  plantilla=a.plantilla, idioma=a.idioma, habla=a.habla)
+
+    out, z, t = run(
+        a.video,
+        a.nivel,
+        a.asr,
+        a.threads,
+        cb,
+        speakers=a.hablantes,
+        transcript=a.transcripcion,
+        calidad=a.calidad,
+        fondo=a.fondo,
+        plantilla=a.plantilla,
+        idioma=a.idioma,
+        habla=a.habla,
+    )
     print(out / "index.html", z, json.dumps(t), sep="\n")
     if a.condensar is not None and a.video:
         v, pct, st = condense(out.parent, a.asr, a.condensar, a.threads, cb)

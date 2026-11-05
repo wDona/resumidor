@@ -2,6 +2,7 @@
 sistema, y destinos: OneDrive/SharePoint, Planner, To Do, OneNote, canal de Teams y correo de Outlook. Hay que registrar una app en Entra ID
 (cliente público, «Permitir flujos de cliente público») y dar su client_id (y tenant) aquí o en ACTAS_MS_CLIENT_ID / ACTAS_MS_TENANT: no hay valores por defecto.
 `TIPOS_GRAPH` usa el mismo esquema que destinos_tipos.TIPOS (se mezcla con `TIPOS.update(msgraph.TIPOS_GRAPH)`)."""
+
 import base64
 import html
 import json
@@ -26,19 +27,21 @@ FUNCIONES = {"archivos": "Files.ReadWrite", "tareas": "Tasks.ReadWrite", "onenot
 SIMPLE = 4_000_000  # Graph: PUT simple hasta 4 MB; más -> sesión de subida
 TROZO = 320 * 1024 * 10  # múltiplo de 320 KiB (requisito de Graph)
 MAIL_MAX = 3_000_000  # sendMail con adjuntos en línea: la petición entera ronda los 4 MB
-AADSTS = {"65001": "Falta el consentimiento: un administrador (o tú) debe aceptar los permisos de la aplicación en Entra ID",
-          "90094": "Se necesita el consentimiento de un administrador del tenant para estos permisos",
-          "90095": "Se necesita el consentimiento de un administrador del tenant para estos permisos",
-          "65002": "La aplicación no tiene el consentimiento del administrador",
-          "700016": "No se encuentra la aplicación: revisa el client_id y el tenant",
-          "700021": "La aplicación debe permitir «flujos de cliente público» (Autenticación en Entra ID)",
-          "7000218": "La aplicación debe permitir «flujos de cliente público» (Autenticación en Entra ID)",
-          "70011": "Permiso (scope) no válido o no concedido a la aplicación",
-          "53003": "Una política de acceso condicional bloquea el inicio de sesión",
-          "50076": "Se requiere autenticación multifactor: vuelve a iniciar sesión",
-          "50079": "Se requiere autenticación multifactor: vuelve a iniciar sesión",
-          "50034": "La cuenta no existe en ese tenant",
-          "900144": "Falta el client_id de la aplicación"}
+AADSTS = {
+    "65001": "Falta el consentimiento: un administrador (o tú) debe aceptar los permisos de la aplicación en Entra ID",
+    "90094": "Se necesita el consentimiento de un administrador del tenant para estos permisos",
+    "90095": "Se necesita el consentimiento de un administrador del tenant para estos permisos",
+    "65002": "La aplicación no tiene el consentimiento del administrador",
+    "700016": "No se encuentra la aplicación: revisa el client_id y el tenant",
+    "700021": "La aplicación debe permitir «flujos de cliente público» (Autenticación en Entra ID)",
+    "7000218": "La aplicación debe permitir «flujos de cliente público» (Autenticación en Entra ID)",
+    "70011": "Permiso (scope) no válido o no concedido a la aplicación",
+    "53003": "Una política de acceso condicional bloquea el inicio de sesión",
+    "50076": "Se requiere autenticación multifactor: vuelve a iniciar sesión",
+    "50079": "Se requiere autenticación multifactor: vuelve a iniciar sesión",
+    "50034": "La cuenta no existe en ese tenant",
+    "900144": "Falta el client_id de la aplicación",
+}
 _AT = {"t": "", "exp": 0}
 _L = {"estado": "ninguno", "msg": ""}  # inicio de sesión en curso
 _sleep = time.sleep
@@ -54,8 +57,12 @@ def config():
         d = json.loads(_fich().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         d = {}
-    return {"tenant": d.get("tenant") or os.environ.get("ACTAS_MS_TENANT") or "organizations", "client_id": d.get("client_id") or os.environ.get("ACTAS_MS_CLIENT_ID") or "",
-            "cuenta": d.get("cuenta", ""), "scopes": d.get("scopes", [])}
+    return {
+        "tenant": d.get("tenant") or os.environ.get("ACTAS_MS_TENANT") or "organizations",
+        "client_id": d.get("client_id") or os.environ.get("ACTAS_MS_CLIENT_ID") or "",
+        "cuenta": d.get("cuenta", ""),
+        "scopes": d.get("scopes", []),
+    }
 
 
 def _guardar(**kw):
@@ -65,6 +72,7 @@ def _guardar(**kw):
 
 def _refresco(v=None):
     import keyring
+
     if v is None:
         try:
             return keyring.get_password(SERV, "refresh") or ""
@@ -142,7 +150,11 @@ def iniciar(tenant="", client_id="", funciones=None):
     sc = list(BASE) + [FUNCIONES[f] for f in fs]
     j = _http("POST", f"{LOGIN}/{urllib.parse.quote(c['tenant'])}/oauth2/v2.0/devicecode", form={"client_id": c["client_id"], "scope": " ".join(sc)})
     _L.update(estado="pendiente", msg="", sc=sc, dc=j["device_code"], cada=int(j.get("interval", 5)), fin=time.time() + int(j.get("expires_in", 900)))
-    return {"user_code": j["user_code"], "verification_uri": j.get("verification_uri") or j.get("verification_url"), "expires_in": int(j.get("expires_in", 900))}
+    return {
+        "user_code": j["user_code"],
+        "verification_uri": j.get("verification_uri") or j.get("verification_url"),
+        "expires_in": int(j.get("expires_in", 900)),
+    }
 
 
 def _sondear():
@@ -194,7 +206,7 @@ def subir(nombre, datos, carpeta="", sitio="", biblioteca=""):
         u = g("POST", ruta + "/createUploadSession", {"item": {"@microsoft.graph.conflictBehavior": "rename"}})["uploadUrl"]
         n = len(datos)
         for i in range(0, n, TROZO):  # la URL de subida ya va firmada: sin Authorization
-            r = _http("PUT", u, {"Content-Range": f"bytes {i}-{min(i + TROZO, n) - 1}/{n}", "Content-Type": "application/octet-stream"}, datos[i:i + TROZO])
+            r = _http("PUT", u, {"Content-Range": f"bytes {i}-{min(i + TROZO, n) - 1}/{n}", "Content-Type": "application/octet-stream"}, datos[i : i + TROZO])
     return r["id"], r.get("webUrl", "")
 
 
@@ -226,7 +238,11 @@ def todo(x, lista=""):
     if not lista:
         ls = g("GET", "/me/todo/lists")["value"]
         lista = next((l["id"] for l in ls if l.get("wellknownListName") == "defaultList"), ls[0]["id"] if ls else "")
-    t = {"title": _tit(x), "body": {"content": _cuerpo(x), "contentType": "text"}, **({"dueDateTime": {"dateTime": _fecha(x) + "T00:00:00", "timeZone": "UTC"}} if _fecha(x) else {})}
+    t = {
+        "title": _tit(x),
+        "body": {"content": _cuerpo(x), "contentType": "text"},
+        **({"dueDateTime": {"dateTime": _fecha(x) + "T00:00:00", "timeZone": "UTC"}} if _fecha(x) else {}),
+    }
     r = g("POST", f"/me/todo/lists/{lista}/tasks", t)
     return r["id"], "https://to-do.live.com/tasks/"
 
@@ -267,8 +283,13 @@ def correo(asunto, cuerpo_html, para, adjuntos=(), cc=""):
     dest = lambda s: [{"emailAddress": {"address": a.strip()}} for a in str(s).replace(";", ",").split(",") if a.strip()]
     if not dest(para):
         raise RuntimeError("Falta el destinatario")
-    m = {"subject": asunto, "body": {"contentType": "html", "content": cuerpo_html}, "toRecipients": dest(para), "ccRecipients": dest(cc),
-         "attachments": [{"@odata.type": "#microsoft.graph.fileAttachment", "name": n, "contentBytes": base64.b64encode(b).decode()} for n, b in adjuntos]}
+    m = {
+        "subject": asunto,
+        "body": {"contentType": "html", "content": cuerpo_html},
+        "toRecipients": dest(para),
+        "ccRecipients": dest(cc),
+        "attachments": [{"@odata.type": "#microsoft.graph.fileAttachment", "name": n, "contentBytes": base64.b64encode(b).decode()} for n, b in adjuntos],
+    }
     g("POST", "/me/sendMail", {"message": m, "saveToSentItems": True})
     return "", ""
 
@@ -312,18 +333,60 @@ def _p(o, s):
 
 
 TIPOS_GRAPH = {
-    "ms_onedrive": {"nombre": "Microsoft 365: OneDrive / SharePoint", "modo": "pagina", "http": True, "archivos": True, "crear": _onedrive, "probar": _p,
-                    "campos": [F("carpeta", "Carpeta (ruta en la biblioteca)", preset=True), F("sitio", "SharePoint: id del sitio (vacío = tu OneDrive)", preset=True), F("biblioteca", "SharePoint: id de la biblioteca (vacío = la predeterminada)", preset=True)]},
-    "ms_planner": {"nombre": "Microsoft 365: Planner", "modo": "items", "http": True, "crear": _planner, "probar": _p,
-                   "campos": [F("plan", "ID del plan", req=True, preset=True), F("cubo", "ID del cubo (opcional)", preset=True)]},
-    "ms_todo": {"nombre": "Microsoft 365: To Do", "modo": "items", "http": True, "crear": _todo, "probar": _p,
-                "campos": [F("lista", "ID de la lista (vacío = Tareas)", preset=True)]},
-    "ms_onenote": {"nombre": "Microsoft 365: OneNote", "modo": "pagina", "http": True, "crear": _onenote, "probar": _p,
-                   "campos": [F("seccion", "ID de la sección (vacío = la predeterminada)", preset=True)]},
-    "ms_teams": {"nombre": "Microsoft 365: canal de Teams", "modo": "pagina", "http": True, "crear": _teams, "probar": _p,
-                 "campos": [F("equipo", "ID del equipo", req=True, preset=True), F("canal", "ID del canal", req=True, preset=True)]},
-    "ms_outlook": {"nombre": "Microsoft 365: correo de Outlook", "modo": "pagina", "http": True, "archivos": True, "crear": _outlook, "probar": _p,
-                   "campos": [F("para", "Para (coma)", req=True, preset=True), F("cc", "Cc (coma)", preset=True), F("asunto", "Asunto (vacío = título)", preset=True)]},
+    "ms_onedrive": {
+        "nombre": "Microsoft 365: OneDrive / SharePoint",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _onedrive,
+        "probar": _p,
+        "campos": [
+            F("carpeta", "Carpeta (ruta en la biblioteca)", preset=True),
+            F("sitio", "SharePoint: id del sitio (vacío = tu OneDrive)", preset=True),
+            F("biblioteca", "SharePoint: id de la biblioteca (vacío = la predeterminada)", preset=True),
+        ],
+    },
+    "ms_planner": {
+        "nombre": "Microsoft 365: Planner",
+        "modo": "items",
+        "http": True,
+        "crear": _planner,
+        "probar": _p,
+        "campos": [F("plan", "ID del plan", req=True, preset=True), F("cubo", "ID del cubo (opcional)", preset=True)],
+    },
+    "ms_todo": {
+        "nombre": "Microsoft 365: To Do",
+        "modo": "items",
+        "http": True,
+        "crear": _todo,
+        "probar": _p,
+        "campos": [F("lista", "ID de la lista (vacío = Tareas)", preset=True)],
+    },
+    "ms_onenote": {
+        "nombre": "Microsoft 365: OneNote",
+        "modo": "pagina",
+        "http": True,
+        "crear": _onenote,
+        "probar": _p,
+        "campos": [F("seccion", "ID de la sección (vacío = la predeterminada)", preset=True)],
+    },
+    "ms_teams": {
+        "nombre": "Microsoft 365: canal de Teams",
+        "modo": "pagina",
+        "http": True,
+        "crear": _teams,
+        "probar": _p,
+        "campos": [F("equipo", "ID del equipo", req=True, preset=True), F("canal", "ID del canal", req=True, preset=True)],
+    },
+    "ms_outlook": {
+        "nombre": "Microsoft 365: correo de Outlook",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _outlook,
+        "probar": _p,
+        "campos": [F("para", "Para (coma)", req=True, preset=True), F("cc", "Cc (coma)", preset=True), F("asunto", "Asunto (vacío = título)", preset=True)],
+    },
 }
 
 # ---------- API ----------
@@ -344,8 +407,15 @@ def api_login(d: dict = None):
 @router.get("/api/ms/estado")
 def api_estado():
     c = config()
-    return {"conectado": bool(_refresco()) and bool(c["cuenta"]), "cuenta": c["cuenta"], "scopes": c["scopes"], "client_id": c["client_id"], "tenant": c["tenant"],
-            "login": _L["estado"], **({"error": _L["msg"]} if _L["msg"] else {})}
+    return {
+        "conectado": bool(_refresco()) and bool(c["cuenta"]),
+        "cuenta": c["cuenta"],
+        "scopes": c["scopes"],
+        "client_id": c["client_id"],
+        "tenant": c["tenant"],
+        "login": _L["estado"],
+        **({"error": _L["msg"]} if _L["msg"] else {}),
+    }
 
 
 @router.post("/api/ms/logout")

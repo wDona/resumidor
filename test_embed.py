@@ -1,4 +1,5 @@
 """ACTAS_NO_EMBED=1 sin el ONNX: vectores léxicos en pipeline.embed / rag.embed y models.faltan sin «busq». `uv run pytest test_embed.py`"""
+
 import numpy as np
 
 import models
@@ -11,7 +12,7 @@ def test_lexico_sin_onnx(monkeypatch):
     assert rag.no_embed()
     v = pipeline.embed(["El proveedor de pagos retrasa la entrega", "El proveedor retrasa los pagos", "La playa estaba llena de gente"])
     assert v.shape[0] == 3 and np.allclose(np.linalg.norm(v, axis=1), 1, atol=1e-5)
-    assert v[0] @ v[1] > v[0] @ v[2] + .2
+    assert v[0] @ v[1] > v[0] @ v[2] + 0.2
     assert (rag.embed(["pagos"], True)[0] @ v[1]) > (rag.embed(["pagos"], True)[0] @ v[2])
 
 
@@ -37,7 +38,9 @@ def test_no_embed_exige_sidecar(monkeypatch, tmp_path):
 
 def test_indice_lexico_y_onnx_no_comparten_cache(monkeypatch, tmp_path):
     """Un índice léxico (1024-d) no debe cargarse cuando se pasa a ONNX (768-d): la clave incluye «lex»."""
-    monkeypatch.setattr(rag, "units", lambda wd, q: [{"text": "el proveedor retrasa los pagos", "kind": "voz"}, {"text": "la playa estaba llena", "kind": "voz"}])
+    monkeypatch.setattr(
+        rag, "units", lambda wd, q: [{"text": "el proveedor retrasa los pagos", "kind": "voz"}, {"text": "la playa estaba llena", "kind": "voz"}]
+    )
     (tmp_path / "transcript_rápido.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(rag, "_enc", None)
     monkeypatch.setattr(rag, "no_embed", lambda: True)

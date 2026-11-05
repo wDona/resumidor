@@ -6,6 +6,7 @@ R = gold obligatorios recogidos / obligatorios. prohib = prohibidos que aparecen
 claves = puntos clave mencionados (y los de la 2.ª mitad); pts2 = viñetas con marca en la 2.ª mitad;
 corte = resúmenes que no acaban en signo de puntuación; nolat = caracteres no latinos.
 uv run eval/score.py [-v] [--asr rápido]"""
+
 import json, re, sys
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -22,15 +23,16 @@ latin = lambda c: ord(c) <= 0x24F or 0x2000 <= ord(c) <= 0x206F or c in "€№"
 
 def hit(text, t, g):
     n = norm(text)
-    ok = any(re.search(r, n) for r in g["re"]) or \
-        SequenceMatcher(None, words(text), words(g["texto"]), autojunk=False).ratio() >= 0.6
+    ok = any(re.search(r, n) for r in g["re"]) or SequenceMatcher(None, words(text), words(g["texto"]), autojunk=False).ratio() >= 0.6
     return ok and g["t"][0] - 60 <= t <= g["t"][1] + 60
 
 
 def score(acta, gold):
     dur = gold["dur"]
-    pool = {"decisiones": gold["decisiones"] + [g for g in gold["tareas"] if g.get("kind") == "any"],
-            "tareas": gold["tareas"] + [g for g in gold["decisiones"] if g.get("kind") == "any"]}
+    pool = {
+        "decisiones": gold["decisiones"] + [g for g in gold["tareas"] if g.get("kind") == "any"],
+        "tareas": gold["tareas"] + [g for g in gold["decisiones"] if g.get("kind") == "any"],
+    }
     got, res, bad = set(), {}, []
     for k, key in (("decisiones", "texto"), ("tareas", "tarea")):
         tp = 0
@@ -48,14 +50,15 @@ def score(acta, gold):
     for k in ("decisiones", "tareas"):  # recall al final: un gold "any" lo puede recoger una tarea o una decisión
         req = [g["id"] for g in gold[k] if g.get("req")]
         res[k] = (res[k], sum(i in got for i in req) / len(req) if req else None)
-    items = [(d["texto"], d) for d in acta["decisiones"]] + [(t["tarea"] + " " + t.get("responsable", ""), t)
-                                                               for t in acta["tareas"]]
-    content = " \n ".join([acta["resumen"]] + [p["texto"] for p in acta["puntos"]] +
-                          [s["titulo"] + ". " + s["resumen"] for s in acta["secciones"]] + [x for x, _ in items])
+    items = [(d["texto"], d) for d in acta["decisiones"]] + [(t["tarea"] + " " + t.get("responsable", ""), t) for t in acta["tareas"]]
+    content = " \n ".join(
+        [acta["resumen"]] + [p["texto"] for p in acta["puntos"]] + [s["titulo"] + ". " + s["resumen"] for s in acta["secciones"]] + [x for x, _ in items]
+    )
     forb = 0
     for f in gold["prohibidos"]:
-        hits = [x for x, _ in items if re.search(f["re"], norm(x))] if f["where"] == "items" else \
-            [x for x in content.split(" \n ") if re.search(f["re"], norm(x))]
+        hits = (
+            [x for x, _ in items if re.search(f["re"], norm(x))] if f["where"] == "items" else [x for x in content.split(" \n ") if re.search(f["re"], norm(x))]
+        )
         forb += len(hits)
         bad += [f"PROHIBIDO ({f['texto']}): {x[:140]}" for x in hits]
     cov = [c for c in gold["claves"] if re.search(c["re"], norm(content))]
@@ -67,9 +70,17 @@ def score(acta, gold):
     alltext = json.dumps(acta, ensure_ascii=False)
     nolat = [c for c in alltext if not latin(c)]
     pts = acta["puntos"]
-    return dict(dec=res["decisiones"], tar=res["tareas"], forb=forb, resp=res.get("resp", 0),
-                claves=(len(cov), len(gold["claves"])), late=(sum(c in cov for c in late), len(late)),
-                pts2=(sum(p["t"] > dur / 2 for p in pts), len(pts)), cut=len(cut), nolat="".join(nolat)), bad
+    return dict(
+        dec=res["decisiones"],
+        tar=res["tareas"],
+        forb=forb,
+        resp=res.get("resp", 0),
+        claves=(len(cov), len(gold["claves"])),
+        late=(sum(c in cov for c in late), len(late)),
+        pts2=(sum(p["t"] > dur / 2 for p in pts), len(pts)),
+        cut=len(cut),
+        nolat="".join(nolat),
+    ), bad
 
 
 def main():
@@ -85,9 +96,11 @@ def main():
                 print(f"{gold['video']:18} {lv:9} (sin acta.json)")
                 continue
             s, bad = score(json.loads(p.read_text(encoding="utf-8")), gold)
-            print(f"{gold['video']:18} {lv:9} {f(s['dec'][0])}/{f(s['dec'][1])} {f(s['tar'][0])}/{f(s['tar'][1])} "
-                  f"{s['forb']:6} {s['resp']:5} {s['claves'][0]:2}/{s['claves'][1]:<3} {s['late'][0]}/{s['late'][1]:<5} "
-                  f"{s['pts2'][0]:2}/{s['pts2'][1]:<3} {s['cut']:4} {s['nolat'] or '-'}")
+            print(
+                f"{gold['video']:18} {lv:9} {f(s['dec'][0])}/{f(s['dec'][1])} {f(s['tar'][0])}/{f(s['tar'][1])} "
+                f"{s['forb']:6} {s['resp']:5} {s['claves'][0]:2}/{s['claves'][1]:<3} {s['late'][0]}/{s['late'][1]:<5} "
+                f"{s['pts2'][0]:2}/{s['pts2'][1]:<3} {s['cut']:4} {s['nolat'] or '-'}"
+            )
             if verbose:
                 print("".join(f"    {b}\n" for b in bad), end="")
 

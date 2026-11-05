@@ -1,5 +1,6 @@
 """Registro de los llama-server que lanzamos: se paran al salir, mueren con el padre y los huérfanos de un
 arranque anterior se matan al empezar (solo los de WORK/llama_pids.json que sigan siendo bin/**/llama-*)."""
+
 import atexit, ctypes, json, os, signal, subprocess, sys, threading
 from pathlib import Path
 
@@ -11,16 +12,28 @@ _REG, _lock, _job = [], threading.Lock(), [None]
 def _win_job():
     """Un Job Object de por vida del proceso: al cerrarse (incluso si nos matan) mueren sus hijos."""
     from ctypes import wintypes as w
+
     if _job[0] is None:
+
         class Basic(ctypes.Structure):
-            _fields_ = [("a", ctypes.c_int64), ("b", ctypes.c_int64), ("LimitFlags", w.DWORD), ("c", ctypes.c_size_t),
-                        ("d", ctypes.c_size_t), ("e", w.DWORD), ("f", ctypes.c_size_t), ("g", w.DWORD), ("h", w.DWORD)]
+            _fields_ = [
+                ("a", ctypes.c_int64),
+                ("b", ctypes.c_int64),
+                ("LimitFlags", w.DWORD),
+                ("c", ctypes.c_size_t),
+                ("d", ctypes.c_size_t),
+                ("e", w.DWORD),
+                ("f", ctypes.c_size_t),
+                ("g", w.DWORD),
+                ("h", w.DWORD),
+            ]
 
         class Io(ctypes.Structure):
             _fields_ = [(n, ctypes.c_uint64) for n in "abcdef"]
 
         class Ext(ctypes.Structure):
             _fields_ = [("Basic", Basic), ("Io", Io)] + [(n, ctypes.c_size_t) for n in "abcd"]
+
         k = ctypes.WinDLL("kernel32", use_last_error=True)
         k.CreateJobObjectW.restype = w.HANDLE
         k.AssignProcessToJobObject.argtypes = [w.HANDLE, w.HANDLE]
@@ -45,6 +58,7 @@ def _cmdline(pid):
             return [x.decode() for x in a if x] or None
         if os.name == "nt":
             from ctypes import wintypes as w
+
             k = ctypes.WinDLL("kernel32", use_last_error=True)
             k.OpenProcess.restype = w.HANDLE
             h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
@@ -118,12 +132,14 @@ def cleanup_stale():
 
 def on_signal(stop=None):
     """SIGTERM/SIGINT (+SIGBREAK, cierre de consola en Windows): para a los hijos y pide `stop()` (p. ej. cerrar uvicorn)."""
+
     def h(*_):
         kill_all()
         if stop:
             stop()
         else:
             sys.exit(0)
+
     for n in ("SIGTERM", "SIGINT", "SIGBREAK"):
         if hasattr(signal, n):
             signal.signal(getattr(signal, n), h)

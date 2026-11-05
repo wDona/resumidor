@@ -1,4 +1,5 @@
 """Pruebas de exportar.py y sus endpoints sobre una copia (acta + perfil clase) en un work temporal. `uv run pytest test_exportar.py`"""
+
 import io
 import os
 import json
@@ -25,6 +26,7 @@ def cl(tmp_path, monkeypatch, src):
         shutil.copytree(src / v, w / v, ignore=shutil.ignore_patterns("video.*"))
     monkeypatch.setattr(pipeline, "WORK", tmp_path / "work")
     import app
+
     monkeypatch.setattr(app, "CARPETAS", tmp_path / "work" / "carpetas.json")
     return TestClient(app.app)
 
@@ -34,6 +36,7 @@ def test_formatos(cl, ver, monkeypatch):
     mp = monkeypatch
     g = lambda f, **q: cl.get(f"/api/exportar/{MID}/{ver}", params={"fmt": f, **q})
     from docx import Document
+
     r = g("docx")
     assert r.status_code == 200 and len(Document(io.BytesIO(r.content)).paragraphs) > 5
     assert g("md").text.startswith("# ")
@@ -46,13 +49,16 @@ def test_formatos(cl, ver, monkeypatch):
     assert t.startswith("BEGIN:VCALENDAR") and t.rstrip().endswith("END:VCALENDAR") and "BEGIN:VEVENT" in t
     assert g("csv_todoist").text.lstrip("\ufeff").startswith("TYPE,CONTENT")
     assert g("csv_jira").text.lstrip("\ufeff").startswith("Summary,")
-    for f, cab in (("csv_azure", "Work Item Type,Title,Description,Assigned To,Tags,Priority"), ("csv_planner", "Task Name,Bucket,Assigned To,Start Date,Due Date,Priority,Notes")):
+    for f, cab in (
+        ("csv_azure", "Work Item Type,Title,Description,Assigned To,Tags,Priority"),
+        ("csv_planner", "Task Name,Bucket,Assigned To,Start Date,Due Date,Priority,Notes"),
+    ):
         ls = g(f).text.lstrip("﻿").splitlines()
         assert ls[0] == cab
         assert len(ls) < 3 or ls[1]  # con tareas, hay fila de datos
     for f in ("srt", "vtt"):
         s = g(f, hablantes=1).text
-        assert (s.startswith("WEBVTT") if f == "vtt" else s.startswith("1\n"))
+        assert s.startswith("WEBVTT") if f == "vtt" else s.startswith("1\n")
     if os.environ.get("ACTAS_TEST_PDF") and exportar.navegador():  # lento y depende del navegador: opcional
         assert g("pdf").content.startswith(b"%PDF")
     mp.setattr(exportar, "navegador", lambda: None)
@@ -63,8 +69,10 @@ def test_formatos(cl, ver, monkeypatch):
 
 
 def test_subtitulos():
-    segs = [{"s": 0, "e": 10, "text": " ".join(["palabra"] * 30), "spk": "Ana"},
-            {"s": 10, "e": 12, "text": "hola", "words": [{"w": "hola", "s": 10.5, "e": 11.0, "p": .9}], "spk": "Ana"}]
+    segs = [
+        {"s": 0, "e": 10, "text": " ".join(["palabra"] * 30), "spk": "Ana"},
+        {"s": 10, "e": 12, "text": "hola", "words": [{"w": "hola", "s": 10.5, "e": 11.0, "p": 0.9}], "spk": "Ana"},
+    ]
     cs = exportar.cues(segs, True)
     assert len(cs) > 2 and all(len(l) <= 42 and len(q[2].split("\n")) <= 2 for q in cs for l in q[2].split("\n"))
     assert all(a[1] <= b[0] and a[0] < a[1] for a, b in zip(cs, cs[1:])) and cs[0][2].startswith("Ana:") and "Ana:" not in cs[-1][2]
@@ -89,10 +97,20 @@ def test_edicion(cl, src):
 
 
 def test_estilos(cl):
-    e = cl.post("/api/estilos", json={"nombre": "Mi Org", "cabecera": "Org {fecha}", "pie": "{título} p.{página}", "color": "#112233",
-                                      "campos": {"lugar": "Sala 1"}, "firmas": [{"cargo": "Presidente", "nombre": "Ana"}]}).json()
+    e = cl.post(
+        "/api/estilos",
+        json={
+            "nombre": "Mi Org",
+            "cabecera": "Org {fecha}",
+            "pie": "{título} p.{página}",
+            "color": "#112233",
+            "campos": {"lugar": "Sala 1"},
+            "firmas": [{"cargo": "Presidente", "nombre": "Ana"}],
+        },
+    ).json()
     assert e["id"] == "mi-org"
     from PIL import Image
+
     b = io.BytesIO()
     Image.new("RGB", (20, 20)).save(b, "PNG")
     assert cl.put("/api/estilos/mi-org/logo?name=l.png", content=b.getvalue()).json()["logo"]
@@ -100,6 +118,7 @@ def test_estilos(cl):
     cl.post("/api/carpeta", json={"nombre": "X", "estilo": "mi-org"})
     assert json.loads((pipeline.WORK / "carpetas.json").read_text(encoding="utf-8"))["estilos"] == {"X": "mi-org"}
     from docx import Document
+
     d = Document(io.BytesIO(cl.get(f"/api/exportar/{MID}/{VERS[0]}", params={"fmt": "docx", "estilo": "mi-org"}).content))
     assert "Org " in d.sections[0].header.paragraphs[0].text and "Sala 1" in "".join(c.text for t in d.tables for r in t.rows for c in r.cells)
     cl.post("/api/estilos/borrar", json={"id": "mi-org"})

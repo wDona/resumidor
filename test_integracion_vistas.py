@@ -1,5 +1,6 @@
 """Humo extremo a extremo de /api/reg con TestClient (sin LLM): una entidad de cada tipo, filtros, PATCH, revisar, deshacer, relación «aplicar»,
 exportación de todas las vistas y comprobación estática de que cada URL /api/reg de las vistas JS tiene ruta en app.py."""
+
 import os
 import re
 from pathlib import Path
@@ -29,8 +30,18 @@ def test_flujo_completo(cl):
     t, _ = cl
     rq = mk(t, "requisito", "El sistema permitirá reservar", prioridad="alta", campos={"solicitante": "Ana", "tipo_req": "funcional"})
     mk(t, "requisito", "Exportar a PDF", prioridad="baja", campos={"solicitante": "Luis", "tipo_req": "no funcional"})
-    hu = mk(t, "historia", "Reservar pista", campos={"como": "socio", "quiero": "reservar", "para": "jugar", "epica": "Reservas",
-                                                     "criterios": [{"escenario": "ok", "dado": "d", "cuando": "c", "entonces": "e"}]})
+    hu = mk(
+        t,
+        "historia",
+        "Reservar pista",
+        campos={
+            "como": "socio",
+            "quiero": "reservar",
+            "para": "jugar",
+            "epica": "Reservas",
+            "criterios": [{"escenario": "ok", "dado": "d", "cuando": "c", "entonces": "e"}],
+        },
+    )
     assert hu["campos"]["criterios"][0]["escenario"] == "ok"
     t.post("/api/reg/relacion", json={"c": C, "a": hu["id"], "b": rq["id"], "tipo": "deriva_de"})
     it = mk(t, "interesado", "Ana", campos={"poder": 4, "interes": 2})
@@ -78,7 +89,9 @@ def test_flujo_completo(cl):
 
 def test_urls_js_tienen_ruta(cl):
     _, app = cl
-    rutas = [re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.path) + "$") for r in app.app.routes if getattr(r, "path", "").startswith("/api/reg")]  # getattr: include_router mete routers sin path
+    rutas = [
+        re.compile("^" + re.sub(r"\{[^}]+\}", "[^/]+", r.path) + "$") for r in app.app.routes if getattr(r, "path", "").startswith("/api/reg")
+    ]  # getattr: include_router mete routers sin path
     sin = set()
     for f in ("registro", "requisitos", "historias", "interesados", "decisiones", "carpeta"):
         for u in re.findall(r"""["'`](/api/reg[^"'`?\s]*)""", (STATIC / f"{f}.js").read_text(encoding="utf8")):

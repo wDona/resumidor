@@ -1,37 +1,71 @@
 // Ajustes (General · Modelos · Plantillas · Perfiles de uso), asistente de primer arranque y modo simple. Se carga tras app.js.
-let AJ = {modo: "simple", uso: ["empresa"], perfil_uso: ["acta", "onboarding", "comercial"], nombres: {carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Añadir"},
-  nube_visible: true, anonimizar_defecto: false, poblar_auto: true, existe: true, ...lsGet("apariencia", {})};
-let ajTiposAb = false, GPUREC = false, sq = "r";  // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
+let AJ = {
+  modo: "simple",
+  uso: ["empresa"],
+  perfil_uso: ["acta", "onboarding", "comercial"],
+  nombres: { carpeta: "Proyecto", documento: "documento", nuevo_boton: "+ Añadir" },
+  nube_visible: true,
+  anonimizar_defecto: false,
+  poblar_auto: true,
+  existe: true,
+  ...lsGet("apariencia", {}),
+};
+let ajTiposAb = false,
+  GPUREC = false,
+  sq = "r"; // GPUREC: GPU recomendada (el modo simple no la pregunta); sq: Rápido (r) | Calidad (c)
 const simple = () => AJ.modo !== "avanzado";
 const nm = k => AJ.nombres[k];
-const pl = w => /[aeiouáéíóú]$/i.test(w) ? w + "s" : w + "es";
+const pl = w => (/[aeiouáéíóú]$/i.test(w) ? w + "s" : w + "es");
 const sinC = () => "Sin " + nm("carpeta").toLowerCase();
-const guardarAj = async patch => { AJ = await post("/api/ajustes", patch); aplicar(); aviso("Guardado"); };
-api("/api/gpu").then(g => GPUREC = !!(g.ok && g.default)).catch(() => {});
+const guardarAj = async patch => {
+  AJ = await post("/api/ajustes", patch);
+  aplicar();
+  aviso("Guardado");
+};
+api("/api/gpu")
+  .then(g => (GPUREC = !!(g.ok && g.default)))
+  .catch(() => {});
 
 // uso: perfiles (ids de plantillas.py), nombre de carpeta y privacidad de cada opción del asistente
 const USOS = [
-  {id: "empresa", t: "Reuniones de empresa", p: ["acta", "onboarding", "comercial"], c: "Proyecto"},
-  {id: "fincas", t: "Administración de fincas", p: ["comunidad", "obra"], c: "Comunidad"},
-  {id: "salud", t: "Salud / consulta", p: ["consulta"], c: "Paciente", sens: 1},
-  {id: "abogacia", t: "Abogacía / asesoría", p: ["consulta", "cualitativa"], c: "Cliente", sens: 1},
-  {id: "rrhh", t: "RRHH", p: ["seleccion", "onboarding"], c: "Candidato", anon: 1},
-  {id: "educacion", t: "Educación", p: ["clase"], c: "Asignatura"},
-  {id: "periodismo", t: "Periodismo / investigación", p: ["periodistica", "cualitativa"], c: "Estudio"},
-  {id: "comercial", t: "Comercial / soporte", p: ["comercial"], c: "Cliente"},
-  {id: "creador", t: "Creador de contenido", p: ["video"], c: "Serie"},
-  {id: "obra", t: "Construcción / inspección", p: ["obra"], c: "Obra"},
-  {id: "otro", t: "Otro", p: [], c: "Carpeta"}];
-const NOTA_SENS = "Los datos de salud y los de clientes son especialmente protegidos (RGPD art. 9 y secreto profesional): por eso la nube viene desactivada. Si tu organización lo permite, puedes activarla en Ajustes.";
-let UP = [];  // perfiles de uso propios (/api/perfiles-uso)
-const cargarUP = () => api("/api/perfiles-uso").then(l => UP = l).catch(() => {});
-const propioUso = p => ({id: p.id, t: p.nombre, p: p.plantillas, c: p.carpeta, d: p.documento, nb: p.nuevo_boton, nonube: !p.nube, anon: p.anonimizar, propio: 1});
+  { id: "empresa", t: "Reuniones de empresa", p: ["acta", "onboarding", "comercial"], c: "Proyecto" },
+  { id: "fincas", t: "Administración de fincas", p: ["comunidad", "obra"], c: "Comunidad" },
+  { id: "salud", t: "Salud / consulta", p: ["consulta"], c: "Paciente", sens: 1 },
+  { id: "abogacia", t: "Abogacía / asesoría", p: ["consulta", "cualitativa"], c: "Cliente", sens: 1 },
+  { id: "rrhh", t: "RRHH", p: ["seleccion", "onboarding"], c: "Candidato", anon: 1 },
+  { id: "educacion", t: "Educación", p: ["clase"], c: "Asignatura" },
+  { id: "periodismo", t: "Periodismo / investigación", p: ["periodistica", "cualitativa"], c: "Estudio" },
+  { id: "comercial", t: "Comercial / soporte", p: ["comercial"], c: "Cliente" },
+  { id: "creador", t: "Creador de contenido", p: ["video"], c: "Serie" },
+  { id: "obra", t: "Construcción / inspección", p: ["obra"], c: "Obra" },
+  { id: "otro", t: "Otro", p: [], c: "Carpeta" },
+];
+const NOTA_SENS =
+  "Los datos de salud y los de clientes son especialmente protegidos (RGPD art. 9 y secreto profesional): por eso la nube viene desactivada. Si tu organización lo permite, puedes activarla en Ajustes.";
+let UP = []; // perfiles de uso propios (/api/perfiles-uso)
+const cargarUP = () =>
+  api("/api/perfiles-uso")
+    .then(l => (UP = l))
+    .catch(() => {});
+const propioUso = p => ({
+  id: p.id,
+  t: p.nombre,
+  p: p.plantillas,
+  c: p.carpeta,
+  d: p.documento,
+  nb: p.nuevo_boton,
+  nonube: !p.nube,
+  anon: p.anonimizar,
+  propio: 1,
+});
 const usos = () => [...USOS, ...UP.map(propioUso)];
 
 function aplicar() {
   const c = document.body.classList;
-  c.toggle("simple", simple()); c.toggle("avanzado", !simple()); c.toggle("sin-nube", !AJ.nube_visible);
-  $("nueva-t").textContent = nm("nuevo_boton").replace(/^\+\s*/, "");  // nombre del perfil de uso («+ Documento», «+ Caso»…); el «+» es el icono
+  c.toggle("simple", simple());
+  c.toggle("avanzado", !simple());
+  c.toggle("sin-nube", !AJ.nube_visible);
+  $("nueva-t").textContent = nm("nuevo_boton").replace(/^\+\s*/, ""); // nombre del perfil de uso («+ Documento», «+ Caso»…); el «+» es el icono
   apariencia();
   if (vistaAct === "home" && typeof todas !== "undefined") pintarHome();
   if (vistaAct === "ajustes" && tabAj === "general") pintarAjustes();
@@ -40,260 +74,969 @@ function aplicar() {
 
 // apariencia: tema (auto = sistema), densidad y animaciones; se copia en localStorage para aplicarla antes del primer pintado (index.html)
 function apariencia() {
-  const h = document.documentElement, a = {tema: AJ.tema || "auto", densidad: AJ.densidad || "comoda", animaciones: AJ.animaciones || "completas"};
-  if (a.tema === "auto") delete h.dataset.tema; else h.dataset.tema = a.tema;
-  h.dataset.densidad = a.densidad; h.dataset.anim = a.animaciones; lsSet("apariencia", a);
+  const h = document.documentElement,
+    a = { tema: AJ.tema || "auto", densidad: AJ.densidad || "comoda", animaciones: AJ.animaciones || "completas" };
+  if (a.tema === "auto") delete h.dataset.tema;
+  else h.dataset.tema = a.tema;
+  h.dataset.densidad = a.densidad;
+  h.dataset.anim = a.animaciones;
+  lsSet("apariencia", a);
 }
-const APAR = [["modo", "Modo", [["simple", "Simple"], ["avanzado", "Avanzado"]]], ["tema", "Tema", [["auto", "Auto"], ["claro", "Claro"], ["oscuro", "Oscuro"]]],
-  ["densidad", "Densidad", [["comoda", "Cómoda"], ["compacta", "Compacta"]]], ["animaciones", "Animaciones", [["completas", "Completas"], ["reducidas", "Reducidas"], ["no", "No"]]]];
-const tarjetaApariencia = () => cardR("Apariencia", {tema: "auto", densidad: "comoda", animaciones: "completas"}, el("div", {className: "apar", id: "modo-g"}, ...APAR.map(([k, t, ops]) => el("div", {}, el("div", {className: "lbl", id: "ap-" + k, textContent: t}),
-  el("div", {className: "seg", role: "radiogroup", "aria-labelledby": "ap-" + k}, ...ops.map(([v, x]) => el("button", {type: "button", role: "radio", "aria-checked": (AJ[k] || ops[0][0]) === v, textContent: x,
-    onclick: fallo(async () => { AJ = {...AJ, [k]: v}; apariencia(); await guardarAj({[k]: v}); document.querySelector(`[aria-labelledby=ap-${k}] [aria-checked=true]`)?.focus(); })})))))),
-  el("small", {textContent: "Simple: pocas decisiones, lo demás es automático. Avanzado: todas las opciones a la vista. Auto sigue al sistema; si pide menos movimiento, «Completas» se queda en reducidas."}));
+const APAR = [
+  [
+    "modo",
+    "Modo",
+    [
+      ["simple", "Simple"],
+      ["avanzado", "Avanzado"],
+    ],
+  ],
+  [
+    "tema",
+    "Tema",
+    [
+      ["auto", "Auto"],
+      ["claro", "Claro"],
+      ["oscuro", "Oscuro"],
+    ],
+  ],
+  [
+    "densidad",
+    "Densidad",
+    [
+      ["comoda", "Cómoda"],
+      ["compacta", "Compacta"],
+    ],
+  ],
+  [
+    "animaciones",
+    "Animaciones",
+    [
+      ["completas", "Completas"],
+      ["reducidas", "Reducidas"],
+      ["no", "No"],
+    ],
+  ],
+];
+const tarjetaApariencia = () =>
+  cardR(
+    "Apariencia",
+    { tema: "auto", densidad: "comoda", animaciones: "completas" },
+    el(
+      "div",
+      { className: "apar", id: "modo-g" },
+      ...APAR.map(([k, t, ops]) =>
+        el(
+          "div",
+          {},
+          el("div", { className: "lbl", id: "ap-" + k, textContent: t }),
+          el(
+            "div",
+            { className: "seg", role: "radiogroup", "aria-labelledby": "ap-" + k },
+            ...ops.map(([v, x]) =>
+              el("button", {
+                type: "button",
+                role: "radio",
+                "aria-checked": (AJ[k] || ops[0][0]) === v,
+                textContent: x,
+                onclick: fallo(async () => {
+                  AJ = { ...AJ, [k]: v };
+                  apariencia();
+                  await guardarAj({ [k]: v });
+                  document.querySelector(`[aria-labelledby=ap-${k}] [aria-checked=true]`)?.focus();
+                }),
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+    el("small", {
+      textContent:
+        "Simple: pocas decisiones, lo demás es automático. Avanzado: todas las opciones a la vista. Auto sigue al sistema; si pide menos movimiento, «Completas» se queda en reducidas.",
+    }),
+  );
 
 // ---- nuevo documento en modo simple: «Tipo» + Rápido/Calidad; el resto es automático ----
-const calidadAuto = () => [...NIV].reverse().find(n => !n.pers && n.id !== "rápida" && n.estado === "ok" && n.instalado)
-  || (n => n && n.instalado && n.estado !== "no" ? n : null)(nivelInfo("alta"));
+const calidadAuto = () =>
+  [...NIV].reverse().find(n => !n.pers && n.id !== "rápida" && n.estado === "ok" && n.instalado) ||
+  (n => (n && n.instalado && n.estado !== "no" ? n : null))(nivelInfo("alta"));
 function hintCalidad() {
   const n = calidadAuto();
-  $("sp-hint").textContent = n ? "Mejor resultado" + (n.tiempo > 1 ? ` · tarda ~${n.tiempo}× más` : "") + ` (${n.nombre})` : "Mejor resultado · primero hay que instalar los modelos";
+  $("sp-hint").textContent = n
+    ? "Mejor resultado" + (n.tiempo > 1 ? ` · tarda ~${n.tiempo}× más` : "") + ` (${n.nombre})`
+    : "Mejor resultado · primero hay que instalar los modelos";
 }
-function formSimple() { setQ_(sq); hintCalidad(); pintarCal(); }
-function setQ_(q) { sq = q; document.querySelectorAll("#sp-cal .chip").forEach(b => b.setAttribute("aria-checked", b.dataset.q === q)); }
-document.querySelectorAll("#sp-cal .chip").forEach(b => b.onclick = () => setQ_(b.dataset.q));
+function formSimple() {
+  setQ_(sq);
+  hintCalidad();
+  pintarCal();
+}
+function setQ_(q) {
+  sq = q;
+  document.querySelectorAll("#sp-cal .chip").forEach(b => b.setAttribute("aria-checked", b.dataset.q === q));
+}
+document.querySelectorAll("#sp-cal .chip").forEach(b => (b.onclick = () => setQ_(b.dataset.q)));
 let focoModo = false;
-$("av-form").onclick = () => { focoModo = true; abrirAjustes("general"); };  // «Más opciones» -> Ajustes › Apariencia › Modo
+$("av-form").onclick = () => {
+  focoModo = true;
+  abrirAjustes("general");
+}; // «Más opciones» -> Ajustes › Apariencia › Modo
 function paramsSimple() {
   if (!simple()) return {};
   let calidad = "rápida";
   if (sq === "c") {
     const n = calidadAuto();
-    if (!n) { abrirModelos("Para la opción «Calidad» hay que instalar antes los modelos recomendados."); throw new Error("Faltan los modelos recomendados"); }
+    if (!n) {
+      abrirModelos("Para la opción «Calidad» hay que instalar antes los modelos recomendados.");
+      throw new Error("Faltan los modelos recomendados");
+    }
     calidad = n.id;
   }
-  return {nivel: "normal", calidad, habla: reuse ? "" : "auto", idioma: "reunión", hablantes: false, nombres: "", gpu: GPUREC};
+  return { nivel: "normal", calidad, habla: reuse ? "" : "auto", idioma: "reunión", hablantes: false, nombres: "", gpu: GPUREC };
 }
 
 // ---- asistente: «¿Para qué vas a usar la app?» (primer arranque o desde Ajustes) ----
 async function abrirUso(primera) {
   if (!PL.length) await cargarPlant().catch(() => {});
   await cargarUP();
-  const sel = new Set(primera ? [] : AJ.uso), cuerpo = $("uso-cuerpo"), U = usos();
-  const resumen = el("div", {className: "resumen"}), ok = el("button", {className: "pri", textContent: primera ? "Siguiente: modelos" : "Aplicar", disabled: !sel.size});
-  const nombresDe = us => ({carpeta: us[0].c, documento: us[0].d || "documento", nuevo_boton: us[0].nb || "+ Añadir"});
+  const sel = new Set(primera ? [] : AJ.uso),
+    cuerpo = $("uso-cuerpo"),
+    U = usos();
+  const resumen = el("div", { className: "resumen" }),
+    ok = el("button", { className: "pri", textContent: primera ? "Siguiente: modelos" : "Aplicar", disabled: !sel.size });
+  const nombresDe = us => ({ carpeta: us[0].c, documento: us[0].d || "documento", nuevo_boton: us[0].nb || "+ Añadir" });
   const act = () => {
-    const us = U.filter(u => sel.has(u.id)); ok.disabled = !us.length; resumen.hidden = !us.length; if (!us.length) return;
+    const us = U.filter(u => sel.has(u.id));
+    ok.disabled = !us.length;
+    resumen.hidden = !us.length;
+    if (!us.length) return;
     const perf = [...new Set(us.flatMap(u => u.p))].map(p => PL.find(t => t.id === p)?.nombre).filter(Boolean);
-    resumen.replaceChildren(el("b", {textContent: "Con esta elección"}), el("ul", {},
-      el("li", {textContent: "Se llamará «" + nombresDe(us).carpeta + "» a las carpetas." }), el("li", {textContent: "Tipos de documento: " + (perf.join(", ") || "los eliges tú") + "."}),
-      el("li", {textContent: us.some(u => u.sens || u.nonube) ? "Procesar en la nube: oculto. Todo se queda en este equipo." : "Todo se procesa en este equipo."}),
-      ...(us.some(u => u.sens || u.anon) ? [el("li", {textContent: "Anonimizar por defecto: se activará (próximamente)."})] : [])),
-      ...(us.some(u => u.sens) ? [el("p", {className: "muted", style: "margin:8px 0 0", textContent: NOTA_SENS})] : []));
+    resumen.replaceChildren(
+      el("b", { textContent: "Con esta elección" }),
+      el(
+        "ul",
+        {},
+        el("li", { textContent: "Se llamará «" + nombresDe(us).carpeta + "» a las carpetas." }),
+        el("li", { textContent: "Tipos de documento: " + (perf.join(", ") || "los eliges tú") + "." }),
+        el("li", {
+          textContent: us.some(u => u.sens || u.nonube) ? "Procesar en la nube: oculto. Todo se queda en este equipo." : "Todo se procesa en este equipo.",
+        }),
+        ...(us.some(u => u.sens || u.anon) ? [el("li", { textContent: "Anonimizar por defecto: se activará (próximamente)." })] : []),
+      ),
+      ...(us.some(u => u.sens) ? [el("p", { className: "muted", style: "margin:8px 0 0", textContent: NOTA_SENS })] : []),
+    );
   };
   ok.onclick = fallo(async () => {
-    const us = U.filter(u => sel.has(u.id)), n = nombresDe(us), perf = [...new Set(us.flatMap(u => u.p))].filter(p => PL.some(t => t.id === p));
+    const us = U.filter(u => sel.has(u.id)),
+      n = nombresDe(us),
+      perf = [...new Set(us.flatMap(u => u.p))].filter(p => PL.some(t => t.id === p));
     if (!primera && us[0].id === "otro") Object.assign(n, AJ.nombres);
-    AJ = await post("/api/ajustes", {uso: [...sel], perfil_uso: perf.length ? perf : AJ.perfil_uso, nombres: n, nube_visible: !us.some(u => u.sens || u.nonube), anonimizar_defecto: us.some(u => u.sens || u.anon)});
+    AJ = await post("/api/ajustes", {
+      uso: [...sel],
+      perfil_uso: perf.length ? perf : AJ.perfil_uso,
+      nombres: n,
+      nube_visible: !us.some(u => u.sens || u.nonube),
+      anonimizar_defecto: us.some(u => u.sens || u.anon),
+    });
     aplicar();
-    if (primera) { irInicio(); $("d-crear").showModal(); } else { abrirAjustes("general"); aviso("Guardado"); }
+    if (primera) {
+      irInicio();
+      $("d-crear").showModal();
+    } else {
+      abrirAjustes("general");
+      aviso("Guardado");
+    }
   });
   $("uso-pasos").hidden = !primera;
-  $("uso-pasos").replaceChildren(el("li", {className: "on", "aria-current": "step"}, el("b", {textContent: "1"}), "Para qué lo usas"), el("li", {}, el("b", {textContent: "2"}), "Modelos"));
+  $("uso-pasos").replaceChildren(
+    el("li", { className: "on", "aria-current": "step" }, el("b", { textContent: "1" }), "Para qué lo usas"),
+    el("li", {}, el("b", { textContent: "2" }), "Modelos"),
+  );
   cuerpo.replaceChildren(
-    el("div", {className: "uso-h"}, el("h1", {textContent: "¿Para qué vas a usar la app?"}),
-    el("p", {className: "muted", textContent: "Elige uno o varios. Solo prepara perfiles y nombres; puedes cambiarlo todo después en Ajustes sin perder nada."})),
-    el("div", {className: "chips", role: "group", ariaLabel: "Usos"}, ...U.map(u => el("button", {type: "button", role: "checkbox", className: "chip", "aria-checked": sel.has(u.id),
-      onclick: e => { sel.has(u.id) ? sel.delete(u.id) : sel.add(u.id); e.currentTarget.setAttribute("aria-checked", sel.has(u.id)); act(); }},
-      el("b", {textContent: u.t}), el("small", {textContent: u.p.length ? u.p.map(p => PL.find(t => t.id === p)?.nombre).filter(Boolean).join(" · ") : "Eliges tú los perfiles y los nombres"})))),
-    el("p", {}, el("button", {className: "link", type: "button", textContent: "+ Crear un perfil de uso propio", onclick: () => abrirAjustes("perfiles", "nuevo")})),
+    el(
+      "div",
+      { className: "uso-h" },
+      el("h1", { textContent: "¿Para qué vas a usar la app?" }),
+      el("p", {
+        className: "muted",
+        textContent: "Elige uno o varios. Solo prepara perfiles y nombres; puedes cambiarlo todo después en Ajustes sin perder nada.",
+      }),
+    ),
+    el(
+      "div",
+      { className: "chips", role: "group", ariaLabel: "Usos" },
+      ...U.map(u =>
+        el(
+          "button",
+          {
+            type: "button",
+            role: "checkbox",
+            className: "chip",
+            "aria-checked": sel.has(u.id),
+            onclick: e => {
+              sel.has(u.id) ? sel.delete(u.id) : sel.add(u.id);
+              e.currentTarget.setAttribute("aria-checked", sel.has(u.id));
+              act();
+            },
+          },
+          el("b", { textContent: u.t }),
+          el("small", {
+            textContent: u.p.length
+              ? u.p
+                  .map(p => PL.find(t => t.id === p)?.nombre)
+                  .filter(Boolean)
+                  .join(" · ")
+              : "Eliges tú los perfiles y los nombres",
+          }),
+        ),
+      ),
+    ),
+    el(
+      "p",
+      {},
+      el("button", { className: "link", type: "button", textContent: "+ Crear un perfil de uso propio", onclick: () => abrirAjustes("perfiles", "nuevo") }),
+    ),
     resumen,
-    el("div", {className: "row wrap entre"}, primera ? el("button", {className: "link", textContent: "Saltar, configurar luego", onclick: fallo(async () => { AJ = await post("/api/ajustes", {}); aplicar(); irInicio(); })})
-      : el("button", {className: "sec", textContent: "Cancelar", onclick: () => abrirAjustes("general")}), ok));
-  act(); vista("uso");
+    el(
+      "div",
+      { className: "row wrap entre" },
+      primera
+        ? el("button", {
+            className: "link",
+            textContent: "Saltar, configurar luego",
+            onclick: fallo(async () => {
+              AJ = await post("/api/ajustes", {});
+              aplicar();
+              irInicio();
+            }),
+          })
+        : el("button", { className: "sec", textContent: "Cancelar", onclick: () => abrirAjustes("general") }),
+      ok,
+    ),
+  );
+  act();
+  vista("uso");
 }
-$("dc-imp").onclick = () => { $("d-crear").close(); $("b-importar").click(); };  // también en Ctrl+K y en Añadir (.zip)
-$("dc-crear").onclick = () => { $("d-crear").close(); abrirModelos(null, null, true); };
+$("dc-imp").onclick = () => {
+  $("d-crear").close();
+  $("b-importar").click();
+}; // también en Ctrl+K y en Añadir (.zip)
+$("dc-crear").onclick = () => {
+  $("d-crear").close();
+  abrirModelos(null, null, true);
+};
 
 // ---- Ajustes: pestañas ----
-const TABS = ["general", "modelos", "plantillas", "enviar", "avanzado"];  // «perfiles» (ruta antigua) -> Avanzado
-const GRP = {general: "ap", modelos: "pr", plantillas: "pr", avanzado: "pr", enviar: "en"};  // grupo de cada sección
-const SEC = {general: "General", modelos: "Modelos", plantillas: "Plantillas", avanzado: "Avanzado", enviar: "Enviar"};
+const TABS = ["general", "modelos", "plantillas", "enviar", "avanzado"]; // «perfiles» (ruta antigua) -> Avanzado
+const GRP = { general: "ap", modelos: "pr", plantillas: "pr", avanzado: "pr", enviar: "en" }; // grupo de cada sección
+const SEC = { general: "General", modelos: "Modelos", plantillas: "Plantillas", avanzado: "Avanzado", enviar: "Enviar" };
 let tabAj = "general";
 function abrirAjustes(t = "general", sub) {
   const antes = vistaAct === "ajustes" ? tabAj : null;
   tabAj = t === "perfiles" ? "avanzado" : TABS.includes(t) ? t : "general";
-  const h = "#/ajustes/" + tabAj; if (location.hash !== h) history.pushState(null, "", h);
-  vista("ajustes"); history.replaceState(null, "", h);
+  const h = "#/ajustes/" + tabAj;
+  if (location.hash !== h) history.pushState(null, "", h);
+  vista("ajustes");
+  history.replaceState(null, "", h);
   const g = GRP[tabAj];
-  document.querySelectorAll("#aj-tabs a").forEach(a => { const on = a.dataset.g === g; a.setAttribute("aria-selected", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); });
-  const hs = TABS.filter(x => GRP[x] === g);  // secciones del grupo
+  document.querySelectorAll("#aj-tabs a").forEach(a => {
+    const on = a.dataset.g === g;
+    a.setAttribute("aria-selected", on);
+    on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current");
+  });
+  const hs = TABS.filter(x => GRP[x] === g); // secciones del grupo
   $("aj-sub").hidden = hs.length < 2;
-  $("aj-sub").replaceChildren(...hs.map(x => el("a", {href: "#/ajustes/" + x, className: "aj-c" + (x === tabAj ? " on" : ""), "aria-current": x === tabAj ? "page" : null, textContent: SEC[x]})));
-  for (const x of TABS) $({general: "aj-general", modelos: "aj-modelos", plantillas: "aj-plant", enviar: "aj-enviar", avanzado: "aj-avanzado"}[x]).hidden = x !== tabAj;
+  $("aj-sub").replaceChildren(
+    ...hs.map(x =>
+      el("a", { href: "#/ajustes/" + x, className: "aj-c" + (x === tabAj ? " on" : ""), "aria-current": x === tabAj ? "page" : null, textContent: SEC[x] }),
+    ),
+  );
+  for (const x of TABS)
+    $({ general: "aj-general", modelos: "aj-modelos", plantillas: "aj-plant", enviar: "aj-enviar", avanzado: "aj-avanzado" }[x]).hidden = x !== tabAj;
   $("aj-perfiles").hidden = tabAj !== "avanzado";
   if (antes && antes !== tabAj) ejeX(document.querySelector("#v-ajustes .page"), Math.sign(TABS.indexOf(tabAj) - TABS.indexOf(antes)));
   document.title = "Ajustes · Actas";
-  if (tabAj === "general") pintarAjustes(); else if (tabAj === "modelos") pintarTabModelos(); else if (tabAj === "plantillas") pintarTabPlant(sub);
+  if (tabAj === "general") pintarAjustes();
+  else if (tabAj === "modelos") pintarTabModelos();
+  else if (tabAj === "plantillas") pintarTabPlant(sub);
   else if (tabAj === "enviar") conEnviar(montarEnviar);
-  else { pintarAvanzado(); pintarTabPerfiles(sub); }
+  else {
+    pintarAvanzado();
+    pintarTabPerfiles(sub);
+  }
 }
 // enviar.js carga después de ajustes.js: con un enlace directo (#/ajustes/enviar) se espera a que termine la carga en vez de mirar una sola vez
-const conEnviar = f => document.readyState === "loading" && !window.Enviar ? addEventListener("DOMContentLoaded", f, {once: true}) : f();
+const conEnviar = f => (document.readyState === "loading" && !window.Enviar ? addEventListener("DOMContentLoaded", f, { once: true }) : f());
 const montarEnviar = () => {
-  if (tabAj !== "enviar" || vistaAct !== "ajustes") return;  // el usuario ya cambió de sección
-  window.Enviar ? Enviar.montar($("aj-enviar")) : $("aj-enviar").replaceChildren(el("p", {className: "muted", textContent: "El módulo de envío no está disponible."}));
+  if (tabAj !== "enviar" || vistaAct !== "ajustes") return; // el usuario ya cambió de sección
+  window.Enviar
+    ? Enviar.montar($("aj-enviar"))
+    : $("aj-enviar").replaceChildren(el("p", { className: "muted", textContent: "El módulo de envío no está disponible." }));
 };
-$("aj-volver").onclick = e => { e.preventDefault(); irInicio(); };
-function ruta_() {  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantillas redirigen
-  const h = location.hash, m = h.match(/^#\/(ajustes|modelos|plantillas)(?:\/(\w+))?/);
+$("aj-volver").onclick = e => {
+  e.preventDefault();
+  irInicio();
+};
+function ruta_() {
+  // #/ajustes[/tab]; las rutas antiguas #/modelos y #/plantillas redirigen
+  const h = location.hash,
+    m = h.match(/^#\/(ajustes|modelos|plantillas)(?:\/(\w+))?/);
   if (!m) return false;
-  abrirAjustes(m[1] === "ajustes" ? m[2] : m[1]); return true;
+  abrirAjustes(m[1] === "ajustes" ? m[2] : m[1]);
+  return true;
 }
-addEventListener("hashchange", () => { if (/^#\/(ajustes|modelos|plantillas)/.test(location.hash)) { const t = location.hash.match(/^#\/ajustes\/(\w+)/)?.[1]; if (vistaAct !== "ajustes" || (t && t !== tabAj) || !t) ruta_(); } });
+addEventListener("hashchange", () => {
+  if (/^#\/(ajustes|modelos|plantillas)/.test(location.hash)) {
+    const t = location.hash.match(/^#\/ajustes\/(\w+)/)?.[1];
+    if (vistaAct !== "ajustes" || (t && t !== tabAj) || !t) ruta_();
+  }
+});
 
 // ---- Ajustes › General ----
-const card = (t, ...k) => el("section", {className: "card"}, el("div", {className: "aj-ch"}, el("h2", {textContent: t})), ...k);
+const card = (t, ...k) => el("section", { className: "card" }, el("div", { className: "aj-ch" }, el("h2", { textContent: t })), ...k);
 // tarjeta con «Restablecer» (vuelve a los valores por defecto del ajuste)
-const cardR = (t, patch, ...k) => el("section", {className: "card"}, el("div", {className: "aj-ch"}, el("h2", {textContent: t}),
-  el("button", {type: "button", className: "link", textContent: "Restablecer", "aria-label": "Restablecer " + t.toLowerCase(), onclick: fallo(() => guardarAj(patch))})), ...k);
-const chk2 = (lab, v, f, nota) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: v, onchange: fallo(async e => f(e.target.checked))}), el("span", {}, lab, ...(nota ? [el("small", {textContent: nota})] : [])));
-const nom = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: nm(k), ariaLabel: lab, onchange: fallo(async e => { if (e.target.value.trim()) await guardarAj({nombres: {[k]: e.target.value}}); })}));
+const cardR = (t, patch, ...k) =>
+  el(
+    "section",
+    { className: "card" },
+    el(
+      "div",
+      { className: "aj-ch" },
+      el("h2", { textContent: t }),
+      el("button", {
+        type: "button",
+        className: "link",
+        textContent: "Restablecer",
+        "aria-label": "Restablecer " + t.toLowerCase(),
+        onclick: fallo(() => guardarAj(patch)),
+      }),
+    ),
+    ...k,
+  );
+const chk2 = (lab, v, f, nota) =>
+  el(
+    "label",
+    { className: "check" },
+    el("input", { type: "checkbox", checked: v, onchange: fallo(async e => f(e.target.checked)) }),
+    el("span", {}, lab, ...(nota ? [el("small", { textContent: nota })] : [])),
+  );
+const nom = (k, lab) =>
+  el(
+    "div",
+    { className: "field" },
+    el("label", { textContent: lab }),
+    el("input", {
+      value: nm(k),
+      ariaLabel: lab,
+      onchange: fallo(async e => {
+        if (e.target.value.trim()) await guardarAj({ nombres: { [k]: e.target.value } });
+      }),
+    }),
+  );
 // «Nombres» (cómo llama la app a carpeta, documento y al botón de crear) va con la apariencia, no en Avanzado
-const cardNombres = () => cardR("Nombres", (u => ({nombres: {carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Añadir"}}))(usos().find(x => AJ.uso.includes(x.id))),
-  el("div", {className: "cols"}, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")), nom("nuevo_boton", "Botón de crear"));
+const cardNombres = () =>
+  cardR(
+    "Nombres",
+    (u => ({ nombres: { carpeta: u?.c || "Carpeta", documento: u?.d || "documento", nuevo_boton: u?.nb || "+ Añadir" } }))(
+      usos().find(x => AJ.uso.includes(x.id)),
+    ),
+    el("div", { className: "cols" }, nom("carpeta", "Carpeta (singular)"), nom("documento", "Documento (singular)")),
+    nom("nuevo_boton", "Botón de crear"),
+  );
 function pintarAjustes() {
-  const U = usos(), u = U.filter(x => AJ.uso.includes(x.id));
-  if (!PL.length) cargarPlant().then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes()).catch(() => {});
+  const U = usos(),
+    u = U.filter(x => AJ.uso.includes(x.id));
+  if (!PL.length)
+    cargarPlant()
+      .then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes())
+      .catch(() => {});
   $("aj-general").replaceChildren(
-    tarjetaApariencia(), cardNombres(),
-    card("Perfil de uso", el("p", {className: "muted", textContent: u.length ? u.map(x => x.t).join(", ") : "Sin elegir"}),
-      el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Cambiar perfil de uso", onclick: () => abrirUso(false)}), el("button", {className: "link", textContent: "Gestionar perfiles de uso", onclick: () => abrirAjustes("perfiles")})),
-      el("small", {textContent: "Vuelve a ejecutar el asistente. No toca tus carpetas ni documentos."}),
-      el("details", {className: "aj-tipos", open: ajTiposAb, ontoggle: e => ajTiposAb = e.target.open}, el("summary", {textContent: "Tipos de documento que se ofrecen al crear (" + AJ.perfil_uso.length + ")"}),
-      ...(!PL.length ? [el("p", {className: "muted", textContent: "Cargando tipos de documento…"})] : []),
-      el("div", {className: "perfiles"}, ...PL.map(t => chk2(t.nombre, AJ.perfil_uso.includes(t.id), async v => {
-        const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id); if (!l.length) { aviso("Debe quedar al menos un tipo"); return pintarAjustes(); } await guardarAj({perfil_uso: l}); }))))),
-    cardR("Privacidad", {anonimizar_defecto: u.some(x => x.sens || x.anon)}, ...(u.some(x => x.sens) ? [el("p", {className: "aviso", textContent: NOTA_SENS})] : []),
-      chk2("Anonimizar por defecto", AJ.anonimizar_defecto, v => guardarAj({anonimizar_defecto: v}), "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.")),
-    cardR("Proyectos", {poblar_auto: true}, chk2("Poblar proyecto automáticamente", AJ.poblar_auto !== false, v => guardarAj({poblar_auto: v}),
-      "Al terminar cada reunión de una carpeta, la IA propone requisitos, decisiones, interesados, riesgos y preguntas abiertas con su cita (revísalos en «Revisión»).")));
-  $("aj-general").append(Object.assign(card("Estilos de organización", el("p", {className: "muted", textContent: "Cabecera, pie, color, logo y firmas que llevan los documentos que exportas. Cada " + nm("carpeta").toLowerCase() + " puede tener uno por defecto."}), el("div", {id: "est-w"})), {className: "card solo-av"}));
+    tarjetaApariencia(),
+    cardNombres(),
+    card(
+      "Perfil de uso",
+      el("p", { className: "muted", textContent: u.length ? u.map(x => x.t).join(", ") : "Sin elegir" }),
+      el(
+        "div",
+        { className: "row wrap" },
+        el("button", { className: "sec", textContent: "Cambiar perfil de uso", onclick: () => abrirUso(false) }),
+        el("button", { className: "link", textContent: "Gestionar perfiles de uso", onclick: () => abrirAjustes("perfiles") }),
+      ),
+      el("small", { textContent: "Vuelve a ejecutar el asistente. No toca tus carpetas ni documentos." }),
+      el(
+        "details",
+        { className: "aj-tipos", open: ajTiposAb, ontoggle: e => (ajTiposAb = e.target.open) },
+        el("summary", { textContent: "Tipos de documento que se ofrecen al crear (" + AJ.perfil_uso.length + ")" }),
+        ...(!PL.length ? [el("p", { className: "muted", textContent: "Cargando tipos de documento…" })] : []),
+        el(
+          "div",
+          { className: "perfiles" },
+          ...PL.map(t =>
+            chk2(t.nombre, AJ.perfil_uso.includes(t.id), async v => {
+              const l = v ? [...AJ.perfil_uso, t.id] : AJ.perfil_uso.filter(x => x !== t.id);
+              if (!l.length) {
+                aviso("Debe quedar al menos un tipo");
+                return pintarAjustes();
+              }
+              await guardarAj({ perfil_uso: l });
+            }),
+          ),
+        ),
+      ),
+    ),
+    cardR(
+      "Privacidad",
+      { anonimizar_defecto: u.some(x => x.sens || x.anon) },
+      ...(u.some(x => x.sens) ? [el("p", { className: "aviso", textContent: NOTA_SENS })] : []),
+      chk2(
+        "Anonimizar por defecto",
+        AJ.anonimizar_defecto,
+        v => guardarAj({ anonimizar_defecto: v }),
+        "Exportar y Correo usan la copia anonimizada; siempre puedes desmarcarlo al exportar.",
+      ),
+    ),
+    cardR(
+      "Proyectos",
+      { poblar_auto: true },
+      chk2(
+        "Poblar proyecto automáticamente",
+        AJ.poblar_auto !== false,
+        v => guardarAj({ poblar_auto: v }),
+        "Al terminar cada reunión de una carpeta, la IA propone requisitos, decisiones, interesados, riesgos y preguntas abiertas con su cita (revísalos en «Revisión»).",
+      ),
+    ),
+  );
+  $("aj-general").append(
+    Object.assign(
+      card(
+        "Estilos de organización",
+        el("p", {
+          className: "muted",
+          textContent:
+            "Cabecera, pie, color, logo y firmas que llevan los documentos que exportas. Cada " + nm("carpeta").toLowerCase() + " puede tener uno por defecto.",
+        }),
+        el("div", { id: "est-w" }),
+      ),
+      { className: "card solo-av" },
+    ),
+  );
   pintarEstilos();
-  if (focoModo) { focoModo = false; document.querySelector("#ap-modo + .seg [aria-checked=true]")?.focus(); }
-  if (typeof ajVigiladas === "function") $("aj-general").append(ajVigiladas());  // shell.js
+  if (focoModo) {
+    focoModo = false;
+    document.querySelector("#ap-modo + .seg [aria-checked=true]")?.focus();
+  }
+  if (typeof ajVigiladas === "function") $("aj-general").append(ajVigiladas()); // shell.js
 }
 // ---- Ajustes › Avanzado: modo, nube, imágenes con IA, red local (los perfiles de uso van debajo, #aj-perfiles) ----
 function pintarAvanzado() {
-  const vis = AJ.vision || {}, url = el("input", {value: vis.url || "", placeholder: "http://localhost:11434 (Ollama) o http://localhost:1234 (LM Studio)", ariaLabel: "URL del modelo con visión"}),
-    mod = el("input", {value: vis.modelo || "", placeholder: "qwen2.5vl, llava…", ariaLabel: "Modelo con visión"});
-  const fld = (t, c) => el("div", {className: "field"}, el("label", {}, t, c));
+  const vis = AJ.vision || {},
+    url = el("input", {
+      value: vis.url || "",
+      placeholder: "http://localhost:11434 (Ollama) o http://localhost:1234 (LM Studio)",
+      ariaLabel: "URL del modelo con visión",
+    }),
+    mod = el("input", { value: vis.modelo || "", placeholder: "qwen2.5vl, llava…", ariaLabel: "Modelo con visión" });
+  const fld = (t, c) => el("div", { className: "field" }, el("label", {}, t, c));
   $("aj-av").replaceChildren(
-    cardR("Nube", {nube_visible: true}, chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({nube_visible: v}), "Por ahora todo se procesa en este equipo."),
-      el("small", {}, "Los niveles de calidad y los modelos están en ", el("a", {href: "#/ajustes/modelos", textContent: "Modelos"}), ".")),
-    cardR("Imágenes y capturas", {describir_capturas: false, nube_imagenes: false, vision: {url: "", modelo: ""}}, el("p", {className: "muted", textContent: "La IA describe las imágenes para que se puedan buscar y preguntar. Usa un modelo local con visión (el mismo modelo si es multimodal, Ollama o LM Studio)."}),
-      chk2("Describir capturas con IA", !!AJ.describir_capturas, v => guardarAj({describir_capturas: v}), "También las capturas de pantalla de los vídeos (más lento)."),
-      chk2("Permitir enviar imágenes a la nube", !!AJ.nube_imagenes, v => guardarAj({nube_imagenes: v}), "Apagado por defecto: las imágenes no salen de este equipo. Las capturas pueden contener datos personales o confidenciales."),
-      el("div", {className: "cols"}, fld("Servidor con visión (opcional)", url), fld("Modelo", mod)),
-      el("div", {className: "row"}, el("button", {className: "sec", textContent: "Guardar modelo de visión", onclick: fallo(() => guardarAj({vision: {url: url.value.trim(), modelo: mod.value.trim()}}))}))),
-    cardR("Enlaces", {enlaces_red_local: false}, chk2("Permitir enlaces a la red local", !!AJ.enlaces_red_local, v => guardarAj({enlaces_red_local: v}), "Deja procesar enlaces a equipos de tu red (NAS, intranet, 192.168…). Apagado por seguridad.")));
-  if (typeof ajMcp === "function") $("aj-av").append(ajMcp());  // shell.js
+    cardR(
+      "Nube",
+      { nube_visible: true },
+      chk2("Mostrar opciones de procesar en la nube", AJ.nube_visible, v => guardarAj({ nube_visible: v }), "Por ahora todo se procesa en este equipo."),
+      el("small", {}, "Los niveles de calidad y los modelos están en ", el("a", { href: "#/ajustes/modelos", textContent: "Modelos" }), "."),
+    ),
+    cardR(
+      "Imágenes y capturas",
+      { describir_capturas: false, nube_imagenes: false, vision: { url: "", modelo: "" } },
+      el("p", {
+        className: "muted",
+        textContent:
+          "La IA describe las imágenes para que se puedan buscar y preguntar. Usa un modelo local con visión (el mismo modelo si es multimodal, Ollama o LM Studio).",
+      }),
+      chk2(
+        "Describir capturas con IA",
+        !!AJ.describir_capturas,
+        v => guardarAj({ describir_capturas: v }),
+        "También las capturas de pantalla de los vídeos (más lento).",
+      ),
+      chk2(
+        "Permitir enviar imágenes a la nube",
+        !!AJ.nube_imagenes,
+        v => guardarAj({ nube_imagenes: v }),
+        "Apagado por defecto: las imágenes no salen de este equipo. Las capturas pueden contener datos personales o confidenciales.",
+      ),
+      el("div", { className: "cols" }, fld("Servidor con visión (opcional)", url), fld("Modelo", mod)),
+      el(
+        "div",
+        { className: "row" },
+        el("button", {
+          className: "sec",
+          textContent: "Guardar modelo de visión",
+          onclick: fallo(() => guardarAj({ vision: { url: url.value.trim(), modelo: mod.value.trim() } })),
+        }),
+      ),
+    ),
+    cardR(
+      "Enlaces",
+      { enlaces_red_local: false },
+      chk2(
+        "Permitir enlaces a la red local",
+        !!AJ.enlaces_red_local,
+        v => guardarAj({ enlaces_red_local: v }),
+        "Deja procesar enlaces a equipos de tu red (NAS, intranet, 192.168…). Apagado por seguridad.",
+      ),
+    ),
+  );
+  if (typeof ajMcp === "function") $("aj-av").append(ajMcp()); // shell.js
 }
 
 // ---- Ajustes › Perfiles de uso (CRUD sobre /api/perfiles-uso) ----
-let upSel = null, upEd = null;
+let upSel = null,
+  upEd = null;
 async function pintarTabPerfiles(sub) {
   if (!PL.length) await cargarPlant().catch(() => {});
-  await cargarUP(); if (sub === "nuevo") { upSel = "nuevo"; upEd = {nombre: "", plantillas: [], carpeta: "Carpeta", documento: "documento", nuevo_boton: "+ Añadir", nube: true, anonimizar: false}; }
-  else if (upSel !== "nuevo" || !upEd) { if (!usos().some(x => x.id === upSel)) upSel = UP[0]?.id || "empresa"; upEd = null; }
-  const li = x => el("button", {className: "nav", "aria-current": x.id === upSel ? "page" : "false", onclick: () => { upSel = x.id; upEd = null; pintarTabPerfiles(); }}, el("span", {textContent: x.t}), el("span", {className: "c", textContent: AJ.uso.includes(x.id) ? "en uso" : ""}));
-  $("up-lista").replaceChildren(el("button", {className: "pri", textContent: "+ Nuevo perfil de uso", style: "margin-bottom:8px", onclick: () => { upSel = "nuevo"; upEd = null; pintarTabPerfiles("nuevo"); }}),
-    ...(UP.length ? [el("div", {className: "t", textContent: "Tuyos"}), ...UP.map(propioUso).map(li)] : []), el("div", {className: "t", textContent: "De serie · solo lectura"}), ...USOS.map(li));
+  await cargarUP();
+  if (sub === "nuevo") {
+    upSel = "nuevo";
+    upEd = { nombre: "", plantillas: [], carpeta: "Carpeta", documento: "documento", nuevo_boton: "+ Añadir", nube: true, anonimizar: false };
+  } else if (upSel !== "nuevo" || !upEd) {
+    if (!usos().some(x => x.id === upSel)) upSel = UP[0]?.id || "empresa";
+    upEd = null;
+  }
+  const li = x =>
+    el(
+      "button",
+      {
+        className: "nav",
+        "aria-current": x.id === upSel ? "page" : "false",
+        onclick: () => {
+          upSel = x.id;
+          upEd = null;
+          pintarTabPerfiles();
+        },
+      },
+      el("span", { textContent: x.t }),
+      el("span", { className: "c", textContent: AJ.uso.includes(x.id) ? "en uso" : "" }),
+    );
+  $("up-lista").replaceChildren(
+    el("button", {
+      className: "pri",
+      textContent: "+ Nuevo perfil de uso",
+      style: "margin-bottom:8px",
+      onclick: () => {
+        upSel = "nuevo";
+        upEd = null;
+        pintarTabPerfiles("nuevo");
+      },
+    }),
+    ...(UP.length ? [el("div", { className: "t", textContent: "Tuyos" }), ...UP.map(propioUso).map(li)] : []),
+    el("div", { className: "t", textContent: "De serie · solo lectura" }),
+    ...USOS.map(li),
+  );
   pintarUP();
 }
 function pintarUP() {
-  const x = usos().find(u => u.id === upSel), nuevo = upSel === "nuevo", p = nuevo ? upEd : x?.propio ? {...UP.find(q => q.id === x.id)} : null;
+  const x = usos().find(u => u.id === upSel),
+    nuevo = upSel === "nuevo",
+    p = nuevo ? upEd : x?.propio ? { ...UP.find(q => q.id === x.id) } : null;
   const ed = $("up-ed");
-  if (!p) {  // de serie: resumen y duplicar
-    ed.replaceChildren(el("h2", {textContent: x.t}), el("p", {className: "muted", textContent: "Perfil de serie: no se edita. Duplícalo para ajustarlo."}),
-      el("p", {textContent: "Tipos de documento: " + (x.p.map(i => PL.find(t => t.id === i)?.nombre).filter(Boolean).join(", ") || "los eliges tú")}), el("p", {textContent: "Las carpetas se llaman «" + x.c + "»."}),
-      el("div", {className: "row wrap"}, el("button", {className: "sec", textContent: "Duplicar como perfil propio", onclick: () => { upEd = {nombre: x.t + " (mío)", plantillas: [...x.p], carpeta: x.c, documento: "documento", nuevo_boton: "+ Añadir", nube: !x.sens, anonimizar: !!(x.sens || x.anon)}; upSel = "nuevo"; pintarTabPerfiles(); }}), usarBtn(x)));
+  if (!p) {
+    // de serie: resumen y duplicar
+    ed.replaceChildren(
+      el("h2", { textContent: x.t }),
+      el("p", { className: "muted", textContent: "Perfil de serie: no se edita. Duplícalo para ajustarlo." }),
+      el("p", {
+        textContent:
+          "Tipos de documento: " +
+          (x.p
+            .map(i => PL.find(t => t.id === i)?.nombre)
+            .filter(Boolean)
+            .join(", ") || "los eliges tú"),
+      }),
+      el("p", { textContent: "Las carpetas se llaman «" + x.c + "»." }),
+      el(
+        "div",
+        { className: "row wrap" },
+        el("button", {
+          className: "sec",
+          textContent: "Duplicar como perfil propio",
+          onclick: () => {
+            upEd = {
+              nombre: x.t + " (mío)",
+              plantillas: [...x.p],
+              carpeta: x.c,
+              documento: "documento",
+              nuevo_boton: "+ Añadir",
+              nube: !x.sens,
+              anonimizar: !!(x.sens || x.anon),
+            };
+            upSel = "nuevo";
+            pintarTabPerfiles();
+          },
+        }),
+        usarBtn(x),
+      ),
+    );
     return;
   }
-  const t = (k, lab) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: p[k] ?? "", oninput: e => p[k] = e.target.value}));
-  const ck = (k, lab) => el("label", {className: "check"}, el("input", {type: "checkbox", checked: !!p[k], onchange: e => p[k] = e.target.checked}), el("span", {textContent: lab}));
-  const guardar = fallo(async () => { const r = await post("/api/perfiles-uso", p); upSel = r.id; upEd = null; await pintarTabPerfiles(); aviso("Perfil guardado"); });
-  ed.replaceChildren(el("h2", {textContent: nuevo ? "Nuevo perfil de uso" : p.nombre}), t("nombre", "Nombre"),
-    el("h3", {textContent: "Tipos de documento que ofrece"}), el("div", {className: "perfiles"}, ...PL.map(tp => el("label", {className: "check"}, el("input", {type: "checkbox", checked: p.plantillas.includes(tp.id),
-      onchange: e => p.plantillas = e.target.checked ? [...p.plantillas, tp.id] : p.plantillas.filter(i => i !== tp.id)}), el("span", {textContent: tp.nombre})))),
-    el("h3", {textContent: "Nombres"}), el("div", {className: "cols"}, t("carpeta", "Carpeta (singular)"), t("documento", "Documento (singular)")), t("nuevo_boton", "Botón de crear"),
-    el("h3", {textContent: "Privacidad"}), ck("nube", "Mostrar opciones de procesar en la nube"), ck("anonimizar", "Anonimizar por defecto (próximamente)"),
-    el("div", {className: "row wrap", style: "margin-top:16px"}, el("button", {className: "pri", textContent: "Guardar", onclick: guardar}), ...(nuevo ? [] : [usarBtn(propioUso(p)),
-      el("button", {className: "sec dng", textContent: "Eliminar", onclick: fallo(async () => { if (!confirm("¿Eliminar el perfil «" + p.nombre + "»?")) return; await post("/api/perfiles-uso/borrar", {id: p.id}); upSel = null; await pintarTabPerfiles(); })})])));
+  const t = (k, lab) =>
+    el("div", { className: "field" }, el("label", { textContent: lab }), el("input", { value: p[k] ?? "", oninput: e => (p[k] = e.target.value) }));
+  const ck = (k, lab) =>
+    el(
+      "label",
+      { className: "check" },
+      el("input", { type: "checkbox", checked: !!p[k], onchange: e => (p[k] = e.target.checked) }),
+      el("span", { textContent: lab }),
+    );
+  const guardar = fallo(async () => {
+    const r = await post("/api/perfiles-uso", p);
+    upSel = r.id;
+    upEd = null;
+    await pintarTabPerfiles();
+    aviso("Perfil guardado");
+  });
+  ed.replaceChildren(
+    el("h2", { textContent: nuevo ? "Nuevo perfil de uso" : p.nombre }),
+    t("nombre", "Nombre"),
+    el("h3", { textContent: "Tipos de documento que ofrece" }),
+    el(
+      "div",
+      { className: "perfiles" },
+      ...PL.map(tp =>
+        el(
+          "label",
+          { className: "check" },
+          el("input", {
+            type: "checkbox",
+            checked: p.plantillas.includes(tp.id),
+            onchange: e => (p.plantillas = e.target.checked ? [...p.plantillas, tp.id] : p.plantillas.filter(i => i !== tp.id)),
+          }),
+          el("span", { textContent: tp.nombre }),
+        ),
+      ),
+    ),
+    el("h3", { textContent: "Nombres" }),
+    el("div", { className: "cols" }, t("carpeta", "Carpeta (singular)"), t("documento", "Documento (singular)")),
+    t("nuevo_boton", "Botón de crear"),
+    el("h3", { textContent: "Privacidad" }),
+    ck("nube", "Mostrar opciones de procesar en la nube"),
+    ck("anonimizar", "Anonimizar por defecto (próximamente)"),
+    el(
+      "div",
+      { className: "row wrap", style: "margin-top:16px" },
+      el("button", { className: "pri", textContent: "Guardar", onclick: guardar }),
+      ...(nuevo
+        ? []
+        : [
+            usarBtn(propioUso(p)),
+            el("button", {
+              className: "sec dng",
+              textContent: "Eliminar",
+              onclick: fallo(async () => {
+                if (!confirm("¿Eliminar el perfil «" + p.nombre + "»?")) return;
+                await post("/api/perfiles-uso/borrar", { id: p.id });
+                upSel = null;
+                await pintarTabPerfiles();
+              }),
+            }),
+          ]),
+    ),
+  );
 }
-const usarBtn = x => el("button", {className: "sec", textContent: "Usar este perfil", onclick: fallo(async () => {
-  const perf = x.p.filter(i => PL.some(t => t.id === i));
-  AJ = await post("/api/ajustes", {uso: [x.id], perfil_uso: perf.length ? perf : AJ.perfil_uso, nombres: {carpeta: x.c, documento: x.d || "documento", nuevo_boton: x.nb || "+ Añadir"}, nube_visible: !(x.sens || x.nonube), anonimizar_defecto: !!(x.sens || x.anon)});
-  aplicar(); aviso("Perfil aplicado"); pintarTabPerfiles(); })});
+const usarBtn = x =>
+  el("button", {
+    className: "sec",
+    textContent: "Usar este perfil",
+    onclick: fallo(async () => {
+      const perf = x.p.filter(i => PL.some(t => t.id === i));
+      AJ = await post("/api/ajustes", {
+        uso: [x.id],
+        perfil_uso: perf.length ? perf : AJ.perfil_uso,
+        nombres: { carpeta: x.c, documento: x.d || "documento", nuevo_boton: x.nb || "+ Añadir" },
+        nube_visible: !(x.sens || x.nonube),
+        anonimizar_defecto: !!(x.sens || x.anon),
+      });
+      aplicar();
+      aviso("Perfil aplicado");
+      pintarTabPerfiles();
+    }),
+  });
 
-api("/api/ajustes").then(a => { AJ = a; aplicar(); if (!a.existe && !/^#\/(modelos|ajustes)/.test(location.hash)) abrirUso(true); }).catch(() => {});
+api("/api/ajustes")
+  .then(a => {
+    AJ = a;
+    aplicar();
+    if (!a.existe && !/^#\/(modelos|ajustes)/.test(location.hash)) abrirUso(true);
+  })
+  .catch(() => {});
 
 // ---- Estilos de organización (/api/estilos): cabecera, pie, color, campos formales, firmas, logo y .docx base ----
-const CAMPOS_E = [["numero", "Nº"], ["tipo", "Tipo de sesión"], ["lugar", "Lugar"], ["hora_inicio", "Hora de inicio"], ["hora_fin", "Hora de fin"], ["convocatoria", "Convocatoria"], ["asistentes", "Asistentes"], ["ausentes", "Ausentes"]];
+const CAMPOS_E = [
+  ["numero", "Nº"],
+  ["tipo", "Tipo de sesión"],
+  ["lugar", "Lugar"],
+  ["hora_inicio", "Hora de inicio"],
+  ["hora_fin", "Hora de fin"],
+  ["convocatoria", "Convocatoria"],
+  ["asistentes", "Asistentes"],
+  ["ausentes", "Ausentes"],
+];
 let estEd = null;
 async function pintarEstilos() {
-  const w = $("est-w"); if (!w) return;
+  const w = $("est-w");
+  if (!w) return;
   ESTILOS = await api("/api/estilos").catch(() => ESTILOS);
   if (estEd) return editorEstilo(w);
-  w.replaceChildren(...(ESTILOS.length ? ESTILOS.map(e => el("div", {className: "mrow"}, el("span", {className: "grow"}, el("b", {textContent: e.nombre}), el("small", {textContent: [e.cabecera, e.color, e.logo && "con logo", e.base_docx && "con .docx base"].filter(Boolean).join(" · ")})),
-    el("button", {className: "sec sm", textContent: "Editar", onclick: () => { estEd = structuredClone(e); pintarEstilos(); }}))) : [el("p", {className: "muted", textContent: "Aún no hay estilos."})]),
-    el("button", {className: "pri", textContent: "+ Nuevo estilo", onclick: () => { estEd = {nombre: "", cabecera: "", pie: "{título} · {fecha} · pág. {página}", color: "", campos: {}, firmas: [], logo: "", base_docx: ""}; pintarEstilos(); }}));
+  w.replaceChildren(
+    ...(ESTILOS.length
+      ? ESTILOS.map(e =>
+          el(
+            "div",
+            { className: "mrow" },
+            el(
+              "span",
+              { className: "grow" },
+              el("b", { textContent: e.nombre }),
+              el("small", { textContent: [e.cabecera, e.color, e.logo && "con logo", e.base_docx && "con .docx base"].filter(Boolean).join(" · ") }),
+            ),
+            el("button", {
+              className: "sec sm",
+              textContent: "Editar",
+              onclick: () => {
+                estEd = structuredClone(e);
+                pintarEstilos();
+              },
+            }),
+          ),
+        )
+      : [el("p", { className: "muted", textContent: "Aún no hay estilos." })]),
+    el("button", {
+      className: "pri",
+      textContent: "+ Nuevo estilo",
+      onclick: () => {
+        estEd = { nombre: "", cabecera: "", pie: "{título} · {fecha} · pág. {página}", color: "", campos: {}, firmas: [], logo: "", base_docx: "" };
+        pintarEstilos();
+      },
+    }),
+  );
 }
 function editorEstilo(w) {
-  const e = estEd, nuevo = !e.id, ficheros = {}, quitar = {};
-  const t = (k, lab, ayuda) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: e[k] || "", oninput: ev => e[k] = ev.target.value}), ...(ayuda ? [el("small", {textContent: ayuda})] : []));
-  const firmas = el("div"), pf = () => firmas.replaceChildren(...e.firmas.map((f, i) => el("div", {className: "firma"}, el("input", {value: f.cargo, placeholder: "Cargo", ariaLabel: "Cargo", oninput: ev => f.cargo = ev.target.value}),
-    el("input", {value: f.nombre, placeholder: "Nombre", ariaLabel: "Nombre", oninput: ev => f.nombre = ev.target.value}), el("button", {type: "button", className: "sec", textContent: "✕", ariaLabel: "Quitar firma", onclick: () => { e.firmas.splice(i, 1); pf(); }}))));
+  const e = estEd,
+    nuevo = !e.id,
+    ficheros = {},
+    quitar = {};
+  const t = (k, lab, ayuda) =>
+    el(
+      "div",
+      { className: "field" },
+      el("label", { textContent: lab }),
+      el("input", { value: e[k] || "", oninput: ev => (e[k] = ev.target.value) }),
+      ...(ayuda ? [el("small", { textContent: ayuda })] : []),
+    );
+  const firmas = el("div"),
+    pf = () =>
+      firmas.replaceChildren(
+        ...e.firmas.map((f, i) =>
+          el(
+            "div",
+            { className: "firma" },
+            el("input", { value: f.cargo, placeholder: "Cargo", ariaLabel: "Cargo", oninput: ev => (f.cargo = ev.target.value) }),
+            el("input", { value: f.nombre, placeholder: "Nombre", ariaLabel: "Nombre", oninput: ev => (f.nombre = ev.target.value) }),
+            el("button", {
+              type: "button",
+              className: "sec",
+              textContent: "✕",
+              ariaLabel: "Quitar firma",
+              onclick: () => {
+                e.firmas.splice(i, 1);
+                pf();
+              },
+            }),
+          ),
+        ),
+      );
   pf();
-  const fich = (k, lab, acc) => el("div", {className: "field"}, el("label", {textContent: lab}), el("div", {className: "row wrap"}, el("input", {type: "file", accept: acc, ariaLabel: lab, onchange: ev => ficheros[k] = ev.target.files[0]}),
-    ...(e[k] ? [el("span", {className: "muted", textContent: "Ya hay uno cargado"}), el("button", {type: "button", className: "link", textContent: "Quitar", onclick: ev => { quitar[k] = true; ev.target.previousSibling.textContent = "Se quitará al guardar"; ev.target.remove(); }})] : [])));
-  const color = el("input", {type: "color", value: e.color || "#1d5fd1", ariaLabel: "Color", oninput: ev => e.color = ev.target.value}), sinc = el("input", {type: "checkbox", checked: !e.color, onchange: ev => { e.color = ev.target.checked ? "" : color.value; }});
-  color.oninput = () => { e.color = color.value; sinc.checked = false; };
+  const fich = (k, lab, acc) =>
+    el(
+      "div",
+      { className: "field" },
+      el("label", { textContent: lab }),
+      el(
+        "div",
+        { className: "row wrap" },
+        el("input", { type: "file", accept: acc, ariaLabel: lab, onchange: ev => (ficheros[k] = ev.target.files[0]) }),
+        ...(e[k]
+          ? [
+              el("span", { className: "muted", textContent: "Ya hay uno cargado" }),
+              el("button", {
+                type: "button",
+                className: "link",
+                textContent: "Quitar",
+                onclick: ev => {
+                  quitar[k] = true;
+                  ev.target.previousSibling.textContent = "Se quitará al guardar";
+                  ev.target.remove();
+                },
+              }),
+            ]
+          : []),
+      ),
+    );
+  const color = el("input", { type: "color", value: e.color || "#1d5fd1", ariaLabel: "Color", oninput: ev => (e.color = ev.target.value) }),
+    sinc = el("input", {
+      type: "checkbox",
+      checked: !e.color,
+      onchange: ev => {
+        e.color = ev.target.checked ? "" : color.value;
+      },
+    });
+  color.oninput = () => {
+    e.color = color.value;
+    sinc.checked = false;
+  };
   const guardar = fallo(async () => {
-    const d = {...e, campos: e.campos || {}}; for (const k in quitar) d[k] = "";
+    const d = { ...e, campos: e.campos || {} };
+    for (const k in quitar) d[k] = "";
     const r = await post("/api/estilos", d);
-    for (const [k, f] of Object.entries(ficheros)) if (f) await api(`/api/estilos/${r.id}/${k}?name=${encodeURIComponent(f.name)}`, {method: "PUT", body: f});
-    estEd = null; await pintarEstilos(); aviso("Estilo guardado");
+    for (const [k, f] of Object.entries(ficheros)) if (f) await api(`/api/estilos/${r.id}/${k}?name=${encodeURIComponent(f.name)}`, { method: "PUT", body: f });
+    estEd = null;
+    await pintarEstilos();
+    aviso("Estilo guardado");
   });
-  w.replaceChildren(el("h3", {textContent: nuevo ? "Nuevo estilo" : e.nombre}), t("nombre", "Nombre"), t("cabecera", "Cabecera"), t("pie", "Pie", "Puedes usar {fecha}, {título} y {página}."),
-    el("div", {className: "field"}, el("label", {textContent: "Color"}), el("div", {className: "colorf"}, color, el("label", {className: "check", style: "margin:0"}, sinc, "Sin color"))),
-    fich("logo", "Logo (png o jpg, hasta 5 MB)", "image/png,image/jpeg"), fich("base_docx", "Documento Word de base (.docx, opcional)", ".docx"),
-    el("h4", {textContent: "Campos del encabezado formal"}), el("div", {className: "cols"}, ...CAMPOS_E.map(([k, lab]) => el("div", {className: "field"}, el("label", {textContent: lab}), el("input", {value: (e.campos || {})[k] || "", oninput: ev => (e.campos ||= {})[k] = ev.target.value})))),
-    el("h4", {textContent: "Firmas"}), firmas, el("button", {type: "button", className: "sec sm", textContent: "+ Firma", onclick: () => { e.firmas.push({cargo: "", nombre: ""}); pf(); }}),
-    el("div", {className: "row wrap", style: "margin-top:16px"}, el("button", {className: "pri", textContent: "Guardar", onclick: guardar}), el("button", {className: "sec", textContent: "Cancelar", onclick: () => { estEd = null; pintarEstilos(); }}),
-      ...(nuevo ? [] : [el("button", {className: "sec dng", textContent: "Eliminar", onclick: fallo(async () => { if (!confirm("¿Eliminar el estilo «" + e.nombre + "»?")) return; await post("/api/estilos/borrar", {id: e.id}); estEd = null; await pintarEstilos(); })})])));
+  w.replaceChildren(
+    el("h3", { textContent: nuevo ? "Nuevo estilo" : e.nombre }),
+    t("nombre", "Nombre"),
+    t("cabecera", "Cabecera"),
+    t("pie", "Pie", "Puedes usar {fecha}, {título} y {página}."),
+    el(
+      "div",
+      { className: "field" },
+      el("label", { textContent: "Color" }),
+      el("div", { className: "colorf" }, color, el("label", { className: "check", style: "margin:0" }, sinc, "Sin color")),
+    ),
+    fich("logo", "Logo (png o jpg, hasta 5 MB)", "image/png,image/jpeg"),
+    fich("base_docx", "Documento Word de base (.docx, opcional)", ".docx"),
+    el("h4", { textContent: "Campos del encabezado formal" }),
+    el(
+      "div",
+      { className: "cols" },
+      ...CAMPOS_E.map(([k, lab]) =>
+        el(
+          "div",
+          { className: "field" },
+          el("label", { textContent: lab }),
+          el("input", { value: (e.campos || {})[k] || "", oninput: ev => ((e.campos ||= {})[k] = ev.target.value) }),
+        ),
+      ),
+    ),
+    el("h4", { textContent: "Firmas" }),
+    firmas,
+    el("button", {
+      type: "button",
+      className: "sec sm",
+      textContent: "+ Firma",
+      onclick: () => {
+        e.firmas.push({ cargo: "", nombre: "" });
+        pf();
+      },
+    }),
+    el(
+      "div",
+      { className: "row wrap", style: "margin-top:16px" },
+      el("button", { className: "pri", textContent: "Guardar", onclick: guardar }),
+      el("button", {
+        className: "sec",
+        textContent: "Cancelar",
+        onclick: () => {
+          estEd = null;
+          pintarEstilos();
+        },
+      }),
+      ...(nuevo
+        ? []
+        : [
+            el("button", {
+              className: "sec dng",
+              textContent: "Eliminar",
+              onclick: fallo(async () => {
+                if (!confirm("¿Eliminar el estilo «" + e.nombre + "»?")) return;
+                await post("/api/estilos/borrar", { id: e.id });
+                estEd = null;
+                await pintarEstilos();
+              }),
+            }),
+          ]),
+    ),
+  );
 }
 
 // ---- buscador de ajustes: [nombre, palabras clave, sección, texto a enfocar] ----
-const INDICE = [["Modo Simple / Avanzado", "modo simple avanzado opciones", "general", "Apariencia"], ["Tema claro / oscuro", "tema claro oscuro automatico", "general", "Apariencia"],
-  ["Densidad", "densidad comoda compacta", "general", "Apariencia"], ["Animaciones", "animaciones movimiento reducidas", "general", "Apariencia"],
-  ["Perfil de uso y tipos de documento", "perfil uso asistente tipos documento crear", "general", "Perfil de uso"], ["Anonimizar por defecto", "privacidad anonimizar rgpd", "general", "Privacidad"],
-  ["Poblar proyecto automáticamente", "proyectos poblar ia requisitos decisiones", "general", "Proyectos"], ["Estilos de organización", "estilos cabecera pie logo firmas color docx", "general", "Estilos"],
-  ["Carpetas vigiladas", "vigilar vigiladas carpeta automatico", "general", "vigilad"], ["Nombres (carpeta, documento, botón)", "nombres carpeta documento boton crear", "general", "Nombres"],
-  ["Nube", "nube procesar", "avanzado", "Nube"], ["Imágenes y capturas con IA", "imagenes capturas vision describir ollama lm studio", "avanzado", "Imágenes"],
-  ["Enlaces a la red local", "enlaces red local nas intranet", "avanzado", "Enlaces"], ["Servidor MCP", "mcp agentes servidor", "avanzado", "MCP"], ["Perfiles de uso propios", "perfiles uso propios crear", "avanzado", "Perfiles de uso"],
-  ["Modelos y niveles de calidad", "modelos catalogo instalar calidad niveles locales", "modelos", "Modelos"], ["Plantillas", "plantillas tipos documento editar", "plantillas", ""],
-  ["Destinos, presets, recetas e historial de envíos", "enviar destinos presets recetas historial correo slack", "enviar", ""]];
+const INDICE = [
+  ["Modo Simple / Avanzado", "modo simple avanzado opciones", "general", "Apariencia"],
+  ["Tema claro / oscuro", "tema claro oscuro automatico", "general", "Apariencia"],
+  ["Densidad", "densidad comoda compacta", "general", "Apariencia"],
+  ["Animaciones", "animaciones movimiento reducidas", "general", "Apariencia"],
+  ["Perfil de uso y tipos de documento", "perfil uso asistente tipos documento crear", "general", "Perfil de uso"],
+  ["Anonimizar por defecto", "privacidad anonimizar rgpd", "general", "Privacidad"],
+  ["Poblar proyecto automáticamente", "proyectos poblar ia requisitos decisiones", "general", "Proyectos"],
+  ["Estilos de organización", "estilos cabecera pie logo firmas color docx", "general", "Estilos"],
+  ["Carpetas vigiladas", "vigilar vigiladas carpeta automatico", "general", "vigilad"],
+  ["Nombres (carpeta, documento, botón)", "nombres carpeta documento boton crear", "general", "Nombres"],
+  ["Nube", "nube procesar", "avanzado", "Nube"],
+  ["Imágenes y capturas con IA", "imagenes capturas vision describir ollama lm studio", "avanzado", "Imágenes"],
+  ["Enlaces a la red local", "enlaces red local nas intranet", "avanzado", "Enlaces"],
+  ["Servidor MCP", "mcp agentes servidor", "avanzado", "MCP"],
+  ["Perfiles de uso propios", "perfiles uso propios crear", "avanzado", "Perfiles de uso"],
+  ["Modelos y niveles de calidad", "modelos catalogo instalar calidad niveles locales", "modelos", "Modelos"],
+  ["Plantillas", "plantillas tipos documento editar", "plantillas", ""],
+  ["Destinos, presets, recetas e historial de envíos", "enviar destinos presets recetas historial correo slack", "enviar", ""],
+];
 {
-  const nor = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(), q = $("aj-q"), res = $("aj-res");
+  const nor = t =>
+      t
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase(),
+    q = $("aj-q"),
+    res = $("aj-res");
   const ir = ([, , tab, foco]) => {
-    q.value = ""; res.hidden = true; abrirAjustes(tab);
-    setTimeout(() => { const t = foco && [...document.querySelectorAll("#v-ajustes h2, #v-ajustes h3, #v-ajustes h4")].find(x => nor(x.textContent).includes(nor(foco)));
-      if (t) { t.scrollIntoView({block: "center"}); t.closest(".card, section")?.classList.add("aj-hit"); setTimeout(() => document.querySelector(".aj-hit")?.classList.remove("aj-hit"), 1600); } }, 250);
+    q.value = "";
+    res.hidden = true;
+    abrirAjustes(tab);
+    setTimeout(() => {
+      const t = foco && [...document.querySelectorAll("#v-ajustes h2, #v-ajustes h3, #v-ajustes h4")].find(x => nor(x.textContent).includes(nor(foco)));
+      if (t) {
+        t.scrollIntoView({ block: "center" });
+        t.closest(".card, section")?.classList.add("aj-hit");
+        setTimeout(() => document.querySelector(".aj-hit")?.classList.remove("aj-hit"), 1600);
+      }
+    }, 250);
   };
   q.oninput = () => {
-    const w = nor(q.value).split(/\s+/).filter(Boolean), r = w.length ? INDICE.filter(e => w.every(x => nor(e[0] + " " + e[1]).includes(x))) : [];
+    const w = nor(q.value).split(/\s+/).filter(Boolean),
+      r = w.length ? INDICE.filter(e => w.every(x => nor(e[0] + " " + e[1]).includes(x))) : [];
     res.hidden = !w.length;
-    res.replaceChildren(...(r.length ? r.map(e => el("li", {}, el("button", {type: "button", onclick: () => ir(e)}, el("b", {textContent: e[0]}), el("small", {textContent: ({ap: "Apariencia", pr: "Proceso", en: "Enviar"})[GRP[e[2]]] + " › " + SEC[e[2]]})))) : [el("li", {className: "muted", textContent: "Sin resultados"})]));
+    res.replaceChildren(
+      ...(r.length
+        ? r.map(e =>
+            el(
+              "li",
+              {},
+              el(
+                "button",
+                { type: "button", onclick: () => ir(e) },
+                el("b", { textContent: e[0] }),
+                el("small", { textContent: { ap: "Apariencia", pr: "Proceso", en: "Enviar" }[GRP[e[2]]] + " › " + SEC[e[2]] }),
+              ),
+            ),
+          )
+        : [el("li", { className: "muted", textContent: "Sin resultados" })]),
+    );
   };
-  q.onkeydown = e => { if (e.key === "Escape") { q.value = ""; res.hidden = true; } else if (e.key === "Enter") res.querySelector("button")?.click(); };
+  q.onkeydown = e => {
+    if (e.key === "Escape") {
+      q.value = "";
+      res.hidden = true;
+    } else if (e.key === "Enter") res.querySelector("button")?.click();
+  };
 }

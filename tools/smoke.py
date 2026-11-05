@@ -1,6 +1,7 @@
 """Prueba de humo de una instalación: arranca app.py sin navegador, ping, baja modelos, acta de extremo a extremo y Preguntar.
 Uso (con el python de la instalación): python tools/smoke.py [--min] <carpeta_app> <vídeo>
 --min: solo ping, modelos, transcribir + LLM (acta breve de un clip corto) y una pregunta; chat fijado a Qwen."""
+
 import json, os, subprocess, sys, time, urllib.request
 from pathlib import Path
 
@@ -15,8 +16,12 @@ proc = subprocess.Popen([sys.executable, "-X", "utf8", "app.py"], cwd=app, env=e
 
 
 def call(path, body=None, method=None):
-    req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
-                                 method=method or ("POST" if body is not None else "GET"), headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        base + path,
+        data=json.dumps(body).encode() if body is not None else None,
+        method=method or ("POST" if body is not None else "GET"),
+        headers={"Content-Type": "application/json"},
+    )
     return json.load(urllib.request.urlopen(req, timeout=60))
 
 
@@ -40,7 +45,7 @@ try:
         if lock.exists() and lock.read_text(encoding="utf-8").strip():
             break
         time.sleep(1)
-    base = f"http://127.0.0.1:{lock.read_text(encoding="utf-8").strip()}"
+    base = f"http://127.0.0.1:{lock.read_text(encoding='utf-8').strip()}"
     for _ in range(30):
         try:
             assert call("/api/ping") == "actas"
@@ -48,7 +53,9 @@ try:
         except OSError:
             time.sleep(1)
     print("ping ok", flush=True)
-    call("/api/modelos", {"ids": ["voz", "busq", "peq", "rápida"]} if MIN else {})  # CI: voz, búsqueda, OCR y el 4B (nada se instala solo); completo: los recomendados
+    call(
+        "/api/modelos", {"ids": ["voz", "busq", "peq", "rápida"]} if MIN else {}
+    )  # CI: voz, búsqueda, OCR y el 4B (nada se instala solo); completo: los recomendados
     wait("/api/modelos", "state", "done", "modelos", 3600)
     t0 = time.time()
     call("/api/generar", {"video": video, "nivel": "breve" if MIN else "normal", "asr": "calidad"})
@@ -58,17 +65,39 @@ try:
     print(f"acta ok {acta} ({time.time() - t0:.0f} s)", flush=True)
     if not MIN:
         vtt = app / "work" / "smoke.vtt"  # transcripción importada sin vídeo: sin ASR ni capturas, solo el LLM
-        vtt.write_text("WEBVTT\n\n" + "".join(f"{i}\n00:00:{5 * i:02d}.000 --> 00:00:{5 * i + 4:02d}.000\n<v {n}>{t}</v>\n\n" for i, (n, t) in enumerate(
-            [("Laura", "Buenos días a todos. Hoy revisamos el presupuesto del proyecto."), ("Carlos", "El plan cuesta veinticinco euros al mes."),
-             ("Laura", "Decidimos lanzar la versión nueva el martes."), ("Carlos", "Yo me encargo de enviar el informe final."),
-             ("Laura", "Gracias y hasta la próxima reunión.")]) ), encoding="utf-8")
+        vtt.write_text(
+            "WEBVTT\n\n"
+            + "".join(
+                f"{i}\n00:00:{5 * i:02d}.000 --> 00:00:{5 * i + 4:02d}.000\n<v {n}>{t}</v>\n\n"
+                for i, (n, t) in enumerate(
+                    [
+                        ("Laura", "Buenos días a todos. Hoy revisamos el presupuesto del proyecto."),
+                        ("Carlos", "El plan cuesta veinticinco euros al mes."),
+                        ("Laura", "Decidimos lanzar la versión nueva el martes."),
+                        ("Carlos", "Yo me encargo de enviar el informe final."),
+                        ("Laura", "Gracias y hasta la próxima reunión."),
+                    ]
+                )
+            ),
+            encoding="utf-8",
+        )
         call("/api/generar", {"transcripcion": str(vtt), "nivel": "breve"})
         j2 = wait("/api/job", "state", "done", "acta (transcripción)", 3600)
         h = (app / "work" / j2["result"]["id"] / j2["result"]["acta"] / "index.html").read_text(encoding="utf-8")
         assert "Participantes: Laura, Carlos" in h and "<video" not in h, h[:2000]
         print("acta importada ok", flush=True)
-    r = urllib.request.urlopen(urllib.request.Request(base + "/api/preguntar", data=json.dumps(
-        {"sel": f"{j['result']['id']}|calidad", "q": "¿De qué se habló?"}).encode(), headers={"Content-Type": "application/json"}), timeout=900).read().decode()
+    r = (
+        urllib.request.urlopen(
+            urllib.request.Request(
+                base + "/api/preguntar",
+                data=json.dumps({"sel": f"{j['result']['id']}|calidad", "q": "¿De qué se habló?"}).encode(),
+                headers={"Content-Type": "application/json"},
+            ),
+            timeout=900,
+        )
+        .read()
+        .decode()
+    )
     print("preguntar:", r[:300], flush=True)
     assert '"k": "error"' not in r, r
 finally:

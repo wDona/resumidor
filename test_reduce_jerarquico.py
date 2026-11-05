@@ -1,4 +1,5 @@
 """Reduce jerárquico de documentos enormes (sin LLM real): grupos en orden, marcas conservadas, lo corto no cambia."""
+
 import pipeline
 
 VALID = {"decisiones": [{"t": "00:01", "texto": "Se aprueba X"}], "tareas": []}
@@ -7,8 +8,13 @@ PARTE = "Resumen de la parte. " + "palabra " * 70
 
 def run(n, calls):
     # bloque b = página b; t = b*60 s (marca ficticia, como documentos.py)
-    maps = [{"tema": f"Sección {b}", "puntos": [{"texto": f"Contenido {k} de la página {b} " * 3, "importancia": 3, "t": pipeline.fmt(b * 60 + k)} for k in range(1, 5)]}
-            for b in range(n)]
+    maps = [
+        {
+            "tema": f"Sección {b}",
+            "puntos": [{"texto": f"Contenido {k} de la página {b} " * 3, "importancia": 3, "t": pipeline.fmt(b * 60 + k)} for k in range(1, 5)],
+        }
+        for b in range(n)
+    ]
 
     def chat(system, text, schema, *a):
         calls.append((system, text))
@@ -18,6 +24,7 @@ def run(n, calls):
         if "titulo" in schema["properties"]:
             return {"titulo": "T", "resumen": "R"}
         return {"resumen": PARTE}
+
     return pipeline.reduce_maps(chat, maps, VALID, [b * 60 for b in range(n)], "normal", "español")
 
 
@@ -38,7 +45,9 @@ def test_documento_corto_igual_que_siempre():
     calls = []
     run(5, calls)
     assert not any("tramo consecutivo" in s for s, _ in calls)
-    esperado = "\n\n".join(f"[{pipeline.fmt(b * 60)}] Sección {b}: {pipeline.sentences(PARTE, 525)}" for b in range(5)) + "\n\nDecisiones:\n1. [00:01] Se aprueba X"
+    esperado = (
+        "\n\n".join(f"[{pipeline.fmt(b * 60)}] Sección {b}: {pipeline.sentences(PARTE, 525)}" for b in range(5)) + "\n\nDecisiones:\n1. [00:01] Se aprueba X"
+    )
     assert calls[-1][1] == esperado
 
 

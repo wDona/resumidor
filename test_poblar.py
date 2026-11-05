@@ -1,4 +1,5 @@
 """Pruebas de poblar.py (F3b) con un chat falso de respuesta fija sobre dos reuniones con la transcripción de tests_data/reunion.vtt. Sin LLM."""
+
 import contextlib
 import json
 import os
@@ -17,18 +18,54 @@ from conftest import VTT, _acta
 
 C = "Proyecto Reservas"
 MIDS = ("aaaa1111", "bbbb2222")
-R = {"requisitos": [{"cita": "la aplicación debe permitir pagar con Bizum", "texto": "La aplicación debe permitir pagar con Bizum", "tipo_req": "funcional",
-                     "prioridad": "—", "solicitante": "Elena Ruiz"},
-                    {"cita": "el sistema exportará los informes en PDF", "texto": "Exportar informes en PDF", "tipo_req": "funcional", "prioridad": "—", "solicitante": "—"}],
-     "decisiones": [{"cita": "Decidimos que Carlos confirme con ellos la fecha", "texto": "Carlos confirma con el proveedor la fecha del quince de noviembre", "decisor": "Laura"},
-                    {"cita": "Eso lo dejamos pendiente de decidir", "texto": "Se aplaza decidir quién redacta las preguntas frecuentes", "decisor": "—"},
-                    {"cita": "La próxima reunión será el martes que viene", "texto": "La próxima reunión será el martes", "decisor": "—"}],
-     "interesados": [{"cita": "Elena Ruiz, la directora comercial de Hoteles Sol", "texto": "Elena Ruiz", "rol": "directora comercial",
-                      "organizacion": "Hoteles Sol elena@hotelessol.com"}],
-     "riesgos": [{"cita": "si el proveedor de pagos se retrasa, la beta cerrada no podrá empezar", "texto": "Retraso del proveedor de pagos: la beta cerrada no empieza",
-                  "probabilidad": "—", "impacto": "—", "responsable": "—"},
-                 {"cita": "si el proveedor de pagos se retrasa", "texto": "El retraso costará 40.000 euros", "probabilidad": "alta", "impacto": "—", "responsable": "—"}],
-     "preguntas": [{"cita": "¿quién redacta las preguntas frecuentes para la beta?", "texto": "¿Quién redacta las preguntas frecuentes de la beta?", "dirigida_a": "—"}]}
+R = {
+    "requisitos": [
+        {
+            "cita": "la aplicación debe permitir pagar con Bizum",
+            "texto": "La aplicación debe permitir pagar con Bizum",
+            "tipo_req": "funcional",
+            "prioridad": "—",
+            "solicitante": "Elena Ruiz",
+        },
+        {
+            "cita": "el sistema exportará los informes en PDF",
+            "texto": "Exportar informes en PDF",
+            "tipo_req": "funcional",
+            "prioridad": "—",
+            "solicitante": "—",
+        },
+    ],
+    "decisiones": [
+        {
+            "cita": "Decidimos que Carlos confirme con ellos la fecha",
+            "texto": "Carlos confirma con el proveedor la fecha del quince de noviembre",
+            "decisor": "Laura",
+        },
+        {"cita": "Eso lo dejamos pendiente de decidir", "texto": "Se aplaza decidir quién redacta las preguntas frecuentes", "decisor": "—"},
+        {"cita": "La próxima reunión será el martes que viene", "texto": "La próxima reunión será el martes", "decisor": "—"},
+    ],
+    "interesados": [
+        {
+            "cita": "Elena Ruiz, la directora comercial de Hoteles Sol",
+            "texto": "Elena Ruiz",
+            "rol": "directora comercial",
+            "organizacion": "Hoteles Sol elena@hotelessol.com",
+        }
+    ],
+    "riesgos": [
+        {
+            "cita": "si el proveedor de pagos se retrasa, la beta cerrada no podrá empezar",
+            "texto": "Retraso del proveedor de pagos: la beta cerrada no empieza",
+            "probabilidad": "—",
+            "impacto": "—",
+            "responsable": "—",
+        },
+        {"cita": "si el proveedor de pagos se retrasa", "texto": "El retraso costará 40.000 euros", "probabilidad": "alta", "impacto": "—", "responsable": "—"},
+    ],
+    "preguntas": [
+        {"cita": "¿quién redacta las preguntas frecuentes para la beta?", "texto": "¿Quién redacta las preguntas frecuentes de la beta?", "dirigida_a": "—"}
+    ],
+}
 
 
 def chat(sistema, user, schema, max_tokens, temperature=0.2):
@@ -52,6 +89,7 @@ def cl(tmp_path, monkeypatch):
         for f in (wd / "transcript_imp1.json", wd / "acta_normal_imp1" / "acta.json"):
             os.utime(f, (t, t))
     import app
+
     monkeypatch.setattr(app, "CARPETAS", w / "carpetas.json")
     monkeypatch.setattr(app, "AJUSTES", w / "ajustes.json")
     chat.n = 0
@@ -75,7 +113,9 @@ def test_prompt_y_esquema():
     assert set(esq["properties"]) == set(poblar.VISTAS) and all(f"{v}:" in sis for v in poblar.VISTAS)
     assert "LITERAL" in sis and "pendiente de decidir" in sis and "próxima reunión" in sis and "no es un riesgo" in sis and "Bizum" in sis
     assert "contacto" in sis and not any(k in json.dumps(esq) for k in ("telefono", "correo", "email"))  # D5
-    assert pipeline.gbnf(esq) and sis.format(lang="español").endswith("Términos de este proyecto (escríbelos exactamente así): Bizum.")  # vale para el modelo local
+    assert pipeline.gbnf(esq) and sis.format(lang="español").endswith(
+        "Términos de este proyecto (escríbelos exactamente así): Bizum."
+    )  # vale para el modelo local
     assert set(poblar.prompt(["riesgos"])[1]["properties"]) == {"riesgos"}
 
 
@@ -118,6 +158,7 @@ def test_no_quedan_huerfanas(cl):
     a["decisiones"] = []
     f.write_text(json.dumps(a, ensure_ascii=False), encoding="utf-8")
     import carpetas
+
     registro.sincronizar(C, carpetas.docs(ms(app)))
     assert not any(x["campos"].get("huerfano") for t in poblar.VISTAS.values() for x in de(t[0]))
     assert sum(bool(x["campos"].get("huerfano")) for x in registro.listar(C, "decision")) == 2
@@ -166,8 +207,12 @@ def test_seguidos_no_se_funden(cl):
     """Dos requisitos distintos en segmentos seguidos (02:00 y 02:06) son dos entidades (fallo visto en la pasada real)."""
     _, app = cl
     rq = lambda q, t: {"cita": q, "texto": t, "tipo_req": "—", "prioridad": "—", "solicitante": "—"}
-    r = {"requisitos": [rq("la aplicación debe permitir pagar con Bizum", "La aplicación debe permitir pagar con Bizum"),
-                        rq("la búsqueda tiene que responder en menos de dos segundos", "La búsqueda debe responder en menos de dos segundos")]}
+    r = {
+        "requisitos": [
+            rq("la aplicación debe permitir pagar con Bizum", "La aplicación debe permitir pagar con Bizum"),
+            rq("la búsqueda tiene que responder en menos de dos segundos", "La búsqueda debe responder en menos de dos segundos"),
+        ]
+    }
     info = poblar.poblar(C, ms(app), lambda: contextlib.nullcontext(lambda *a, **k: json.loads(json.dumps(r))), mids=[MIDS[0]], vistas=["requisitos"])
     assert info["creadas"] == {"requisito": 2}
 
@@ -189,8 +234,12 @@ def test_local_una_llamada_por_vista(cl):
 
 def test_interesado_sin_rol_fuera():
     segs = [{"s": 0, "e": 5, "text": "Elena Ruiz, la directora comercial de Hoteles Sol, y Pedro Gil estaban."}]
-    r = {"interesados": [{"cita": "Elena Ruiz, la directora comercial", "texto": "Elena Ruiz", "rol": "—", "organizacion": "Hoteles Sol"},
-                         {"cita": "Elena Ruiz, la directora comercial", "texto": "Elena", "rol": "directora comercial", "organizacion": "—"}]}
+    r = {
+        "interesados": [
+            {"cita": "Elena Ruiz, la directora comercial", "texto": "Elena Ruiz", "rol": "—", "organizacion": "Hoteles Sol"},
+            {"cita": "Elena Ruiz, la directora comercial", "texto": "Elena", "rol": "directora comercial", "organizacion": "—"},
+        ]
+    }
     ok = poblar.comprobar(r, segs, segs[0]["text"], ["interesados"])
     assert [it["texto"] for _, it in ok] == ["Elena"]
 

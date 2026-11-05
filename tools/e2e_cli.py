@@ -1,5 +1,6 @@
 """E2E real: pipeline completo sobre tests_data/reunion.vtt con la CLI `claude` (suscripción del usuario), en un ACTAS_WORK temporal.
 uv run python -X utf8 tools/e2e_cli.py [--plantilla acta|raid|requisitos|comite] [--nivel normal] [--max-llm-calls 40] [--poblar [--derivar]]"""
+
 import argparse
 import json
 import os
@@ -82,11 +83,18 @@ if a.poblar:
     import re
     import poblar
     import registro
-    VERDAD = {"decisiones": {"D1 Carlos confirma la fecha con el proveedor": r"proveedor|quince|15", "D2 campaña de correo en la beta abierta": r"campa[ñn]a|correo"},
-              "riesgos": {"R1 retraso del proveedor -> beta cerrada": r"proveedor|retras"},
-              "preguntas": {"P1 quién redacta las preguntas frecuentes": r"preguntas frecuentes|faq"},
-              "requisitos": {"REQ1 pagar con Bizum": r"bizum", "REQ2 búsqueda < 2 s": r"segundos|búsqueda|busqueda", "REQ3 no guardar datos de pago en el móvil": r"datos de pago|guard"},
-              "interesados": {"INT1 Elena Ruiz (directora comercial, Hoteles Sol)": r"elena", "INT2 Pedro Gómez (resp. seguridad, cliente)": r"pedro"}}
+
+    VERDAD = {
+        "decisiones": {"D1 Carlos confirma la fecha con el proveedor": r"proveedor|quince|15", "D2 campaña de correo en la beta abierta": r"campa[ñn]a|correo"},
+        "riesgos": {"R1 retraso del proveedor -> beta cerrada": r"proveedor|retras"},
+        "preguntas": {"P1 quién redacta las preguntas frecuentes": r"preguntas frecuentes|faq"},
+        "requisitos": {
+            "REQ1 pagar con Bizum": r"bizum",
+            "REQ2 búsqueda < 2 s": r"segundos|búsqueda|busqueda",
+            "REQ3 no guardar datos de pago en el móvil": r"datos de pago|guard",
+        },
+        "interesados": {"INT1 Elena Ruiz (directora comercial, Hoteles Sol)": r"elena", "INT2 Pedro Gómez (resp. seguridad, cliente)": r"pedro"},
+    }
     vistos, crudo = {v: [] for v in poblar.VISTAS}, {v: 0 for v in poblar.VISTAS}
     _comprobar = poblar.comprobar
 
@@ -97,11 +105,14 @@ if a.poblar:
         for v, it in ok:
             vistos[v].append(it)
         return ok
+
     poblar.comprobar = comprobar
     (out.parent / "meta.json").write_text(json.dumps({"carpeta": "E2E", "nombre": "e2e"}), encoding="utf-8")
     n0, c0, t1 = st["n"], st["cost"], time.time()
     info = poblar.poblar("E2E", ms, lambda: nube.backend(cfg))
-    print(f"\nPOBLAR llamadas={st['n'] - n0} tiempo={time.time() - t1:.0f}s coste=US${st['cost'] - c0:.3f} | info: creadas={info['creadas']} citas={info['citas']} descartadas={info['descartadas']}")
+    print(
+        f"\nPOBLAR llamadas={st['n'] - n0} tiempo={time.time() - t1:.0f}s coste=US${st['cost'] - c0:.3f} | info: creadas={info['creadas']} citas={info['citas']} descartadas={info['descartadas']}"
+    )
     print(f"{'vista':12} {'modelo':>6} {'verif':>5} {'TP':>3} {'FP':>3} {'FN':>3}")
     filas = []
     for v, tr in VERDAD.items():
@@ -114,24 +125,38 @@ if a.poblar:
         filas.append((v, its, fp, libres))
     for v, its, fp, libres in filas:
         for it in its:
-            print(f"  {v[:3].upper()} {'FP ' if it in fp else 'ok '} [{P.fmt(it['t'])}] {it['texto']} | " + " · ".join(f"{k}={x}" for k, x in it.items() if k not in ('texto', 'cita', 't') and x) + f" | «{it['cita']}»")
+            print(
+                f"  {v[:3].upper()} {'FP ' if it in fp else 'ok '} [{P.fmt(it['t'])}] {it['texto']} | "
+                + " · ".join(f"{k}={x}" for k, x in it.items() if k not in ("texto", "cita", "t") and x)
+                + f" | «{it['cita']}»"
+            )
         for k in libres:
             print(f"  {v[:3].upper()} FN  {k}")
-    print("registro:", {t: len([x for x in registro.listar("E2E", t) if x["revision"] not in registro.OCULTA]) for t in ("decision", "requisito", "interesado", "riesgo", "pregunta")})
+    print(
+        "registro:",
+        {
+            t: len([x for x in registro.listar("E2E", t) if x["revision"] not in registro.OCULTA])
+            for t in ("decision", "requisito", "interesado", "riesgo", "pregunta")
+        },
+    )
 
 # ---------- --derivar: F5 sobre los requisitos que dejó --poblar; lo inventado (cifras/nombres que no están en el requisito ni su cita) ----------
 if a.poblar and a.derivar:
     import derivar
+
     crudo = {}
     _comp = derivar.comprobar
 
     def comp(r, req, citas):
         crudo[req["codigo"]] = r
         return _comp(r, req, citas)
+
     derivar.comprobar = comp
     n0, c0, t1 = st["n"], st["cost"], time.time()
     info = derivar.derivar("E2E", lambda: nube.backend(cfg))
-    print(f"\nDERIVAR llamadas={st['n'] - n0} tiempo={time.time() - t1:.0f}s coste=US${st['cost'] - c0:.3f} | creadas={info['creadas']} descartadas={info['descartadas']} omitidas={info['omitidas']}")
+    print(
+        f"\nDERIVAR llamadas={st['n'] - n0} tiempo={time.time() - t1:.0f}s coste=US${st['cost'] - c0:.3f} | creadas={info['creadas']} descartadas={info['descartadas']} omitidas={info['omitidas']}"
+    )
     vivos = lambda t: [x for x in registro.listar("E2E", t) if x["revision"] not in registro.OCULTA and x["campos"].get("fuente") == "derivar"]
     for req in registro.listar("E2E", "requisito"):
         if req["revision"] in registro.OCULTA:
@@ -139,14 +164,20 @@ if a.poblar and a.derivar:
         citas = [x["texto"] for x in registro.citas(req["id"])]
         fuente = " ".join([req["titulo"], req["detalle"] or "", *(str(v) for v in req["campos"].values()), *citas])
         r = crudo.get(req["codigo"]) or {}
-        malos = [(k, derivar.inventado([t], fuente)) for h in r.get("historias") or [] for k, t in
-                 [("hu", h.get(x, "")) for x in ("como", "quiero", "para")] + [("crit", c.get(x, "")) for c in h.get("criterios") or [] for x in ("dado", "cuando", "entonces")]] +                 [("preg", derivar.inventado([p], fuente)) for p in r.get("preguntas") or []]
+        malos = [
+            (k, derivar.inventado([t], fuente))
+            for h in r.get("historias") or []
+            for k, t in [("hu", h.get(x, "")) for x in ("como", "quiero", "para")]
+            + [("crit", c.get(x, "")) for c in h.get("criterios") or [] for x in ("dado", "cuando", "entonces")]
+        ] + [("preg", derivar.inventado([p], fuente)) for p in r.get("preguntas") or []]
         malos = [(k, m) for k, m in malos if m]
         rels = lambda t, rel: [x for x in vivos(t) if any(y["b"] == req["id"] and y["tipo"] == rel for y in registro.completas([x])[0]["relaciones"])]
         hs, ps = rels("historia", "deriva_de"), rels("pregunta", "afecta")
         print(f"\n{req['codigo']} {req['titulo']} | solicitante={req['campos'].get('solicitante', '—')} | citas={citas}")
-        print(f"  modelo: {len(r.get('historias') or [])} historias, {sum(len(h.get('criterios') or []) for h in r.get('historias') or [])} criterios, {len(r.get('preguntas') or [])} preguntas"
-              f" | INVENTADO en la respuesta cruda (lo quita el filtro): {malos or 'nada'}")
+        print(
+            f"  modelo: {len(r.get('historias') or [])} historias, {sum(len(h.get('criterios') or []) for h in r.get('historias') or [])} criterios, {len(r.get('preguntas') or [])} preguntas"
+            f" | INVENTADO en la respuesta cruda (lo quita el filtro): {malos or 'nada'}"
+        )
         for h in hs:
             k = h["campos"]
             print(f"  {h['codigo']} Como {k['como']} | quiero {k['quiero']} | para {k['para'] or '—'} | citas heredadas={len(registro.citas(h['id']))}")
@@ -154,6 +185,8 @@ if a.poblar and a.derivar:
                 print(f"     Escenario: {c['escenario']} | Dado {c['dado']} | Cuando {c['cuando']} | Entonces {c['entonces']}")
         for p in ps:
             print(f"  {p['codigo']} ? {p['titulo']}")
-        campos = lambda x: [x["campos"][k] for k in ("como", "quiero", "para")] + [c[k] for c in x["campos"]["criterios"] for k in ("escenario", "dado", "cuando", "entonces")]
+        campos = lambda x: (
+            [x["campos"][k] for k in ("como", "quiero", "para")] + [c[k] for c in x["campos"]["criterios"] for k in ("escenario", "dado", "cuando", "entonces")]
+        )
         sobrevive = [x for x in hs + ps if derivar.inventado(campos(x) if x["tipo"] == "historia" else [x["titulo"]], fuente)]
         print("  inventado que SOBREVIVE al filtro (debe estar vacío):", [x["codigo"] for x in sobrevive])

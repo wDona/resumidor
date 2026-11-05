@@ -4,6 +4,7 @@ el acta), d = redacción (seleccionado pero ausente del acta final), e = present
 Coincidencia: regex del gold sobre texto normalizado, en la ventana del gold ±90 s (claves y e: como score.py).
 Reutiliza las cachés (run() ya hecho): captura maps/red al pasar por render().
 uv run eval/perdidas.py [--tag v2] [--solo larga_cne,real_clickmeeting] [--nivel normal] [-v]   (--tag: sufijo de ACTAS_TAG con que se generó)"""
+
 import json, re, sys
 from pathlib import Path
 
@@ -38,27 +39,51 @@ for gf in sorted((ROOT / "eval" / "gold").glob("*.json")):
     wd = P.WORK / g["hash"]
     acta = json.loads((wd / f"acta_{level}_rápido{'_' + tag if tag else ''}" / "acta.json").read_text(encoding="utf-8"))
     sel = P.select_points(maps, P.LEVELS[level]["keep"], P.LEVELS[level]["pts"], P.LEVELS[level]["pts"], not P.LEVELS[level]["secs"])
-    seltxt = [(t, x) for t, x, _, _ in sel] + [(P.parse_ts(d["t"]), d["texto"]) for d in red["decisiones"]] + \
-             [(P.parse_ts(d["t"]), d["tarea"]) for d in red["tareas"]]
-    content = " \n ".join([acta["resumen"]] + [p["texto"] for p in acta["puntos"]] + [r["texto"] for r in acta["relato"]] +
-                          [s["titulo"] + ". " + s["resumen"] for s in acta["secciones"]] +
-                          [d["texto"] for d in acta["decisiones"]] + [t["tarea"] + " " + t.get("responsable", "") for t in acta["tareas"]])
-    mp = [(P.parse_ts(p["t"]), p["texto"]) for m in maps for p in m["puntos"]] + \
-         [(P.parse_ts(r["t"]), r["texto"]) for m in maps for r in m.get("relato", [])] + \
-         [(P.parse_ts(d["t"]), d["texto"]) for m in maps for d in m["decisiones"]] + \
-         [(P.parse_ts(d["t"]), d["tarea"]) for m in maps for d in m["tareas"]]
+    seltxt = (
+        [(t, x) for t, x, _, _ in sel]
+        + [(P.parse_ts(d["t"]), d["texto"]) for d in red["decisiones"]]
+        + [(P.parse_ts(d["t"]), d["tarea"]) for d in red["tareas"]]
+    )
+    content = " \n ".join(
+        [acta["resumen"]]
+        + [p["texto"] for p in acta["puntos"]]
+        + [r["texto"] for r in acta["relato"]]
+        + [s["titulo"] + ". " + s["resumen"] for s in acta["secciones"]]
+        + [d["texto"] for d in acta["decisiones"]]
+        + [t["tarea"] + " " + t.get("responsable", "") for t in acta["tareas"]]
+    )
+    mp = (
+        [(P.parse_ts(p["t"]), p["texto"]) for m in maps for p in m["puntos"]]
+        + [(P.parse_ts(r["t"]), r["texto"]) for m in maps for r in m.get("relato", [])]
+        + [(P.parse_ts(d["t"]), d["texto"]) for m in maps for d in m["decisiones"]]
+        + [(P.parse_ts(d["t"]), d["tarea"]) for m in maps for d in m["tareas"]]
+    )
     items = [(k, x, tuple(x["t"])) for k in ("decisiones", "tareas") for x in g[k]] + [("claves", x, (x["t"], x["t"])) for x in g["claves"]]
     cnt = dict.fromkeys("abcde", 0)
     for kind, x, (lo, hi) in items:
         rx = lambda txt: any(re.search(r, norm(txt)) for r in ([x["re"]] if isinstance(x["re"], str) else x["re"]))
         inw = lambda lst: [txt for t, txt in lst if lo - W <= t <= hi + W]
-        coarse = rx(content) if kind == "claves" else any(rx(t) for t in inw(
-            [(p["t"], p["texto"]) for p in acta["puntos"]] + [(r["t"], r["texto"]) for r in acta["relato"]]))
-        in_acta = coarse or any(hit(d["texto"], d["t"], x) for d in acta["decisiones"] + [{**t, "texto": t["tarea"]} for t in acta["tareas"]]) \
-            if kind != "claves" else coarse
-        st = ("a" if not rx(" ".join(s["text"] for s in segs if lo - W <= s["s"] <= hi + W)) else
-              "b" if not any(rx(t) for t in inw(mp)) else
-              "e" if in_acta else "d" if any(rx(t) for t in inw(seltxt)) else "c")
+        coarse = (
+            rx(content)
+            if kind == "claves"
+            else any(rx(t) for t in inw([(p["t"], p["texto"]) for p in acta["puntos"]] + [(r["t"], r["texto"]) for r in acta["relato"]]))
+        )
+        in_acta = (
+            coarse or any(hit(d["texto"], d["t"], x) for d in acta["decisiones"] + [{**t, "texto": t["tarea"]} for t in acta["tareas"]])
+            if kind != "claves"
+            else coarse
+        )
+        st = (
+            "a"
+            if not rx(" ".join(s["text"] for s in segs if lo - W <= s["s"] <= hi + W))
+            else "b"
+            if not any(rx(t) for t in inw(mp))
+            else "e"
+            if in_acta
+            else "d"
+            if any(rx(t) for t in inw(seltxt))
+            else "c"
+        )
         cnt[st] += 1
         tot[st] = tot.get(st, 0) + 1
         if st != "e":

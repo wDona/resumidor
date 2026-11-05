@@ -1,5 +1,6 @@
 """Exportar el documento (docx, pdf, md, obsidian, notion, ics, csv, srt/vtt), editarlo conservando el original y estilos de
 organización. Todo sale de los datos estructurados (acta.json), nunca del HTML. Edición: acta_editada.json junto al original."""
+
 import contextlib
 import copy
 import csv
@@ -21,13 +22,30 @@ import pipeline as P
 import plantillas
 
 EDITADA = "acta_editada.json"
-CAMPOS = [("numero", "Nº"), ("tipo", "Tipo de sesión"), ("lugar", "Lugar"), ("hora_inicio", "Hora de inicio"), ("hora_fin", "Hora de fin"),
-          ("convocatoria", "Convocatoria"), ("asistentes", "Asistentes"), ("ausentes", "Ausentes")]
-FORMATOS = {"docx": ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"), "pdf": ("pdf", "application/pdf"),
-            "md": ("md", "text/markdown; charset=utf-8"), "obsidian": ("obsidian.zip", "application/zip"), "notion": ("notion.zip", "application/zip"),
-            "ics": ("ics", "text/calendar; charset=utf-8"), "csv_todoist": ("todoist.csv", "text/csv; charset=utf-8"),
-            "csv_jira": ("jira.csv", "text/csv; charset=utf-8"),
-            "csv_azure": ("azure.csv", "text/csv; charset=utf-8"), "csv_planner": ("planner.csv", "text/csv; charset=utf-8"), "srt": ("srt", "application/x-subrip"), "vtt": ("vtt", "text/vtt; charset=utf-8")}
+CAMPOS = [
+    ("numero", "Nº"),
+    ("tipo", "Tipo de sesión"),
+    ("lugar", "Lugar"),
+    ("hora_inicio", "Hora de inicio"),
+    ("hora_fin", "Hora de fin"),
+    ("convocatoria", "Convocatoria"),
+    ("asistentes", "Asistentes"),
+    ("ausentes", "Ausentes"),
+]
+FORMATOS = {
+    "docx": ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    "pdf": ("pdf", "application/pdf"),
+    "md": ("md", "text/markdown; charset=utf-8"),
+    "obsidian": ("obsidian.zip", "application/zip"),
+    "notion": ("notion.zip", "application/zip"),
+    "ics": ("ics", "text/calendar; charset=utf-8"),
+    "csv_todoist": ("todoist.csv", "text/csv; charset=utf-8"),
+    "csv_jira": ("jira.csv", "text/csv; charset=utf-8"),
+    "csv_azure": ("azure.csv", "text/csv; charset=utf-8"),
+    "csv_planner": ("planner.csv", "text/csv; charset=utf-8"),
+    "srt": ("srt", "application/x-subrip"),
+    "vtt": ("vtt", "text/vtt; charset=utf-8"),
+}
 
 
 class SinNavegador(Exception):
@@ -55,16 +73,26 @@ def carga(mid, ver, anon=False, dudas=False):
         carpeta = ""
     if anon:
         tf = d / "transcript_anonimo.json"
-    c = {"d": d, "mid": d.parent.name, "ver": d.name, "data": data, "tpl": tpl, "editado": ed.is_file() and not anon, "carpeta": carpeta, "anon": anon,
-         "img": "img_anon" if anon else "img",
-         "segs": json.loads(tf.read_text(encoding="utf-8")).get("segments", []) if tf.is_file() else [],
-            "doc": (data.get("documento") or tpl.get("documento") or {}).get("singular", "acta"),
-         "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime)}
+    c = {
+        "d": d,
+        "mid": d.parent.name,
+        "ver": d.name,
+        "data": data,
+        "tpl": tpl,
+        "editado": ed.is_file() and not anon,
+        "carpeta": carpeta,
+        "anon": anon,
+        "img": "img_anon" if anon else "img",
+        "segs": json.loads(tf.read_text(encoding="utf-8")).get("segments", []) if tf.is_file() else [],
+        "doc": (data.get("documento") or tpl.get("documento") or {}).get("singular", "acta"),
+        "fecha": dt.datetime.fromtimestamp((d / "acta.json").stat().st_mtime),
+    }
     if anon:  # título y nombres de fichero neutros: nada del nombre de la reunión ni de la carpeta
         c["data"] = {**data, "titulo": f"Documento anonimizado – {c['fecha']:%Y-%m-%d}"}
         c["carpeta"] = ""
     if dudas:
         import dudas as DU
+
         c["dudas"] = DU.calcular(mid, ver)["dudas"]
     return c
 
@@ -105,8 +133,11 @@ def restaurar(mid, ver):
 
 # ---------- bloques (orden y títulos del perfil) ----------
 def _sub(x):
-    return " · ".join(f"{k.replace('_', ' ').capitalize()}: {v}" for k, v in x.items()
-                      if k not in ("cita", "texto", "importancia", "t") and isinstance(v, str) and v.strip(" —-"))
+    return " · ".join(
+        f"{k.replace('_', ' ').capitalize()}: {v}"
+        for k, v in x.items()
+        if k not in ("cita", "texto", "importancia", "t") and isinstance(v, str) and v.strip(" —-")
+    )
 
 
 def bloques(c):
@@ -121,23 +152,67 @@ def bloques(c):
         elif b == "desarrollo" and D.get("relato"):
             out.append(("parrafos", tit, [{"k": f"relato.{i}.texto", "t": x["t"], "texto": x["texto"]} for i, x in enumerate(D["relato"])]))
         elif b == "decisiones" and D.get("decisiones"):
-            out.append(("lista", tit, [{"k": f"decisiones.{i}.texto", "t": x["t"], "texto": x["texto"], "cita": x.get("cita", "")} for i, x in enumerate(D["decisiones"])]))
+            out.append(
+                (
+                    "lista",
+                    tit,
+                    [{"k": f"decisiones.{i}.texto", "t": x["t"], "texto": x["texto"], "cita": x.get("cita", "")} for i, x in enumerate(D["decisiones"])],
+                )
+            )
         elif b == "tareas" and D.get("tareas"):
-            out.append(("tareas", tit, [{"k": f"tareas.{i}.tarea", "kr": f"tareas.{i}.responsable", "kp": f"tareas.{i}.plazo", "t": x["t"], "texto": x["tarea"],
-                                         "resp": x.get("responsable", ""), "plazo": x.get("plazo", "")} for i, x in enumerate(D["tareas"])]))
+            out.append(
+                (
+                    "tareas",
+                    tit,
+                    [
+                        {
+                            "k": f"tareas.{i}.tarea",
+                            "kr": f"tareas.{i}.responsable",
+                            "kp": f"tareas.{i}.plazo",
+                            "t": x["t"],
+                            "texto": x["tarea"],
+                            "resp": x.get("responsable", ""),
+                            "plazo": x.get("plazo", ""),
+                        }
+                        for i, x in enumerate(D["tareas"])
+                    ],
+                )
+            )
         elif b == "detalle":
             pts = [{"k": f"puntos.{i}.texto", "t": x["t"], "texto": x["texto"]} for i, x in enumerate(D.get("puntos", []))]
             ss = D.get("secciones", [])
             if ss:
-                out.append(("secciones", tit, [{"t": s["t"], "titulo": s["titulo"], "kt": f"secciones.{i}.titulo", "resumen": s["resumen"], "kr": f"secciones.{i}.resumen",
-                                                "puntos": [p for p in pts if (i == 0 or p["t"] >= s["t"]) and (i + 1 == len(ss) or p["t"] < ss[i + 1]["t"])]}
-                                               for i, s in enumerate(ss)]))
+                out.append(
+                    (
+                        "secciones",
+                        tit,
+                        [
+                            {
+                                "t": s["t"],
+                                "titulo": s["titulo"],
+                                "kt": f"secciones.{i}.titulo",
+                                "resumen": s["resumen"],
+                                "kr": f"secciones.{i}.resumen",
+                                "puntos": [p for p in pts if (i == 0 or p["t"] >= s["t"]) and (i + 1 == len(ss) or p["t"] < ss[i + 1]["t"])],
+                            }
+                            for i, s in enumerate(ss)
+                        ],
+                    )
+                )
             elif pts:
                 out.append(("lista", "Puntos clave", pts))
         elif b in sps and sps[b][1]["items"]:
             i, s = sps[b]
-            out.append(("lista", tit, [{"k": f"secciones_plantilla.{i}.items.{j}.texto", "t": x["t"], "texto": x["texto"], "sub": _sub(x), "cita": x.get("cita", "")}
-                                       for j, x in enumerate(s["items"])]))
+            out.append(
+                (
+                    "lista",
+                    tit,
+                    [
+                        {"k": f"secciones_plantilla.{i}.items.{j}.texto", "t": x["t"], "texto": x["texto"], "sub": _sub(x), "cita": x.get("cita", "")}
+                        for j, x in enumerate(s["items"])
+                    ],
+                )
+            )
         elif b == "transcripcion" and c["segs"]:
             out.append(("capturas", "Capturas", [k for k in D.get("capturas", []) if (c["d"] / c["img"] / k["img"]).is_file()]))
             out.append(("trans", tit, c["segs"]))
@@ -151,9 +226,11 @@ def bloques(c):
 
 def _marcar(out, dud):
     """&dudas=1: lo dudoso lleva «⚠ » delante (md, docx, pdf; en HTML además va en <mark> con los motivos)."""
+
     def m(x, kc, campo):
         if x.get(kc) in dud and x.get(campo):
             x[campo] = "⚠ " + x[campo]
+
     for cl, _, its in out:
         for x in its if cl in ("texto", "parrafos", "lista", "tareas", "secciones") else []:
             m(x, "k", "texto")
@@ -184,8 +261,10 @@ table{border-collapse:collapse;width:100%;font-size:15px}td,th{border-top:1px so
 figure{margin:12px 0 16px}img{max-width:100%;border-radius:10px}figcaption{font-size:13px;color:var(--mut)}
 [contenteditable]{outline:1px dashed var(--line);border-radius:3px}[contenteditable]:focus{outline:2px solid var(--acc)}:focus-visible{outline:3px solid #8db4f5;outline-offset:2px}
 mark{background:#ffe58a;color:#000;border-radius:3px;padding:0 2px}@media print{body{max-width:none;padding:0;color:#000;background:#fff}figure,tr{break-inside:avoid}.ts{background:none;padding:0;color:#555}}"""
-JS_EDIT = ("document.querySelectorAll('[data-p]').forEach(e=>e.dataset.o=e.innerText.trim());"
-           "window.cambios=()=>{const o={};document.querySelectorAll('[data-p]').forEach(e=>{const t=e.innerText.trim();if(t!==e.dataset.o)o[e.dataset.p]=t});return o}")
+JS_EDIT = (
+    "document.querySelectorAll('[data-p]').forEach(e=>e.dataset.o=e.innerText.trim());"
+    "window.cambios=()=>{const o={};document.querySelectorAll('[data-p]').forEach(e=>{const t=e.innerText.trim();if(t!==e.dataset.o)o[e.dataset.p]=t});return o}"
+)
 
 
 def cabecera_estilo(est, base=None):
@@ -200,7 +279,11 @@ def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
     """base: URL de la que cuelgan las imágenes (img/…). estilo: color y cabecera/logo del estilo de organización."""
     fm = documentos.etiqueta(c["data"].get("locs"))  # documento: las marcas son su página o sección
     dud = c.get("dudas") or {}
-    ed = lambda k, t: f'<mark data-p="{k}" title="{esc("; ".join(dud[k]))}">{esc(t)}</mark>' if k in dud else f'<span data-p="{k}"{" contenteditable" if editar else ""}>{esc(t)}</span>'
+    ed = lambda k, t: (
+        f'<mark data-p="{k}" title="{esc("; ".join(dud[k]))}">{esc(t)}</mark>'
+        if k in dud
+        else f'<span data-p="{k}"{" contenteditable" if editar else ""}>{esc(t)}</span>'
+    )
     ts = lambda t: f'<span class="ts" data-t="{int(t)}">[{fm(t)}]</span>'
     D, h = c["data"], []
     for cl, tit, its in bloques(c):
@@ -210,33 +293,75 @@ def html_doc(c, editar=False, base=None, imprimir=False, estilo=None):
         elif cl == "parrafos":
             h += [f"<p>{ts(x['t'])}{ed(x['k'], x['texto'])}</p>" for x in its]
         elif cl == "lista":
-            h.append("<ul>" + "".join(f"<li>{ts(x['t'])}{ed(x['k'], x['texto'])}" + (f" <small>— {esc(x['sub'])}</small>" if x.get("sub") else "") + "</li>" for x in its) + "</ul>")
+            h.append(
+                "<ul>"
+                + "".join(f"<li>{ts(x['t'])}{ed(x['k'], x['texto'])}" + (f" <small>— {esc(x['sub'])}</small>" if x.get("sub") else "") + "</li>" for x in its)
+                + "</ul>"
+            )
         elif cl == "tareas":
-            h.append("<table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>" + "".join(
-                f"<tr><td>{ts(x['t'])}{ed(x['k'], x['texto'])}</td><td>{ed(x['kr'], x['resp'])}</td><td>{ed(x['kp'], x['plazo'])}</td></tr>" for x in its) + "</table>")
+            h.append(
+                "<table><tr><th>Tarea</th><th>Responsable</th><th>Plazo</th></tr>"
+                + "".join(
+                    f"<tr><td>{ts(x['t'])}{ed(x['k'], x['texto'])}</td><td>{ed(x['kr'], x['resp'])}</td><td>{ed(x['kp'], x['plazo'])}</td></tr>" for x in its
+                )
+                + "</table>"
+            )
         elif cl == "secciones":
             for s in its:
-                h.append(f"<h3>{ts(s['t'])}{ed(s['kt'], s['titulo'])}</h3><p>{ed(s['kr'], s['resumen'])}</p><ul>" +
-                         "".join(f"<li>{ts(x['t'])}{ed(x['k'], x['texto'])}</li>" for x in s["puntos"]) + "</ul>")
+                h.append(
+                    f"<h3>{ts(s['t'])}{ed(s['kt'], s['titulo'])}</h3><p>{ed(s['kr'], s['resumen'])}</p><ul>"
+                    + "".join(f"<li>{ts(x['t'])}{ed(x['k'], x['texto'])}</li>" for x in s["puntos"])
+                    + "</ul>"
+                )
         elif cl == "capturas":
-            h += [f'<figure><img src="{c["img"]}/{esc(k["img"])}" loading="lazy"><figcaption>{ts(k["t"])}{esc(k.get("titulo") or "Pantalla compartida")}</figcaption></figure>' for k in its]
+            h += [
+                f'<figure><img src="{c["img"]}/{esc(k["img"])}" loading="lazy"><figcaption>{ts(k["t"])}{esc(k.get("titulo") or "Pantalla compartida")}</figcaption></figure>'
+                for k in its
+            ]
         elif cl == "trans":
             h += [f"<p>{ts(s['s'])}" + (f"<b>{esc(s['spk'])}:</b> " if s.get("spk") else "") + f"{esc(s['text'])}</p>" for s in its]
     cab = c["doc"].capitalize()
-    return (f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{esc(cab)} — {esc(D["titulo"])}</title>'
-            + (f'<base href="{esc(base)}">' if base else "") + f"<style>{CSS}{(':root{--acc:' + estilo['color'] + ';--acc-d:' + estilo['color'] + '}') if estilo and estilo.get('color') else ''}</style></head><body>{cabecera_estilo(estilo, base)}<h1>{esc(cab)}: {esc(D['titulo'])}</h1>"
-            f'<p class="meta">Duración {P.fmt(D["duracion"])} · {c["fecha"]:%Y-%m-%d}' + (" · editado" if c["editado"] else "") + (" · " + esc(c["data"]["nube"]) if c["data"].get("nube") else "") + "</p>" + "".join(h)
-            + (f"<script>{JS_EDIT}</script>" if editar else "") + ("<script>onload=()=>print()</script>" if imprimir else "") + "</body></html>")
+    return (
+        f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{esc(cab)} — {esc(D["titulo"])}</title>'
+        + (f'<base href="{esc(base)}">' if base else "")
+        + f"<style>{CSS}{(':root{--acc:' + estilo['color'] + ';--acc-d:' + estilo['color'] + '}') if estilo and estilo.get('color') else ''}</style></head><body>{cabecera_estilo(estilo, base)}<h1>{esc(cab)}: {esc(D['titulo'])}</h1>"
+        f'<p class="meta">Duración {P.fmt(D["duracion"])} · {c["fecha"]:%Y-%m-%d}'
+        + (" · editado" if c["editado"] else "")
+        + (" · " + esc(c["data"]["nube"]) if c["data"].get("nube") else "")
+        + "</p>"
+        + "".join(h)
+        + (f"<script>{JS_EDIT}</script>" if editar else "")
+        + ("<script>onload=()=>print()</script>" if imprimir else "")
+        + "</body></html>"
+    )
 
 
 # ---------- PDF con el navegador instalado ----------
 def navegador():
-    nombres = ["msedge", "microsoft-edge", "microsoft-edge-stable", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "brave-browser", "brave"]
-    ruta = [r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe", r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
-            r"%ProgramFiles%\Google\Chrome\Application\chrome.exe", r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
-            r"%LocalAppData%\Google\Chrome\Application\chrome.exe", r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium", "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"]
+    nombres = [
+        "msedge",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+        "brave-browser",
+        "brave",
+    ]
+    ruta = [
+        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe",
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ]
     return next(filter(None, [shutil.which(n) for n in nombres] + [p for p in map(os.path.expandvars, ruta) if os.path.isfile(p)]), None)
 
 
@@ -252,8 +377,19 @@ def pdf_html(html):
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as t:  # los hijos del navegador pueden retener el perfil en Windows: limpiar nunca es un 500
         f, out = Path(t) / "doc.html", Path(t) / "doc.pdf"
         f.write_text(html, encoding="utf-8")
-        cmd = [exe, "--headless=new", "--disable-gpu", "--no-sandbox", f"--user-data-dir={t}/perfil", "--no-pdf-header-footer", f"--print-to-pdf={out}", f.as_uri()]
-        pr = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # sin tuberías: los hijos del navegador las retienen
+        cmd = [
+            exe,
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            f"--user-data-dir={t}/perfil",
+            "--no-pdf-header-footer",
+            f"--print-to-pdf={out}",
+            f.as_uri(),
+        ]
+        pr = subprocess.Popen(
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )  # sin tuberías: los hijos del navegador las retienen
         try:
             fin, last = time.time() + 90, -1
             while time.time() < fin and pr.poll() is None:
@@ -286,7 +422,7 @@ def _matar(pr):
 # ---------- Markdown / Obsidian / Notion ----------
 def md(c, img=None, links=False):
     """img: carpeta relativa de las capturas (None = sin imágenes). links: [[Persona]] en responsables y hablantes."""
-    pers = (lambda n: f"[[{n}]]" if links and n else n)
+    pers = lambda n: f"[[{n}]]" if links and n else n
     fm = documentos.etiqueta(c["data"].get("locs"))
     ts = lambda t: f"[{fm(t)}] "
     o = [f"# {c['doc'].capitalize()}: {c['data']['titulo']}\n"] + ([f"*{c['data']['nube']}*\n"] if c["data"].get("nube") else [])
@@ -301,7 +437,13 @@ def md(c, img=None, links=False):
         elif cl == "lista":
             o += [f"- {ts(x['t'])}{x['texto']}" + (f" ({x['sub']})" if x.get("sub") else "") for x in its]
         elif cl == "tareas":
-            o += [f"- [ ] {x['texto']}" + (f" — {pers(x['resp'])}" if x["resp"].strip(" —-") else "") + (f" ({x['plazo']})" if x["plazo"].strip(" —-") else "") + f" {ts(x['t']).strip()}" for x in its]
+            o += [
+                f"- [ ] {x['texto']}"
+                + (f" — {pers(x['resp'])}" if x["resp"].strip(" —-") else "")
+                + (f" ({x['plazo']})" if x["plazo"].strip(" —-") else "")
+                + f" {ts(x['t']).strip()}"
+                for x in its
+            ]
         elif cl == "secciones":
             for s in its:
                 o.append(f"\n### {ts(s['t'])}{s['titulo']}\n\n{s['resumen']}\n")
@@ -316,7 +458,9 @@ def md(c, img=None, links=False):
 def trans_md(c):
     """La transcripción como documento Markdown aparte (el acta en .md no la lleva)."""
     fm = documentos.etiqueta(c["data"].get("locs"))
-    return f"# Transcripción: {c['data']['titulo']}\n\n" + "\n".join(f"[{fm(s['s'])}] " + (f"**{s['spk']}:** " if s.get("spk") else "") + s["text"] + "\n" for s in c["segs"])
+    return f"# Transcripción: {c['data']['titulo']}\n\n" + "\n".join(
+        f"[{fm(s['s'])}] " + (f"**{s['spk']}:** " if s.get("spk") else "") + s["text"] + "\n" for s in c["segs"]
+    )
 
 
 def _nombre_arch(s):
@@ -325,9 +469,18 @@ def _nombre_arch(s):
 
 def frontmatter(c):
     pr = sorted({x["resp"] for cl, _, its in bloques(c) if cl == "tareas" for x in its if x["resp"].strip(" —-")})
-    return "\n".join(["---", f"title: {json.dumps(c['data']['titulo'], ensure_ascii=False)}", f"date: {c['fecha']:%Y-%m-%d}", f"tipo: {c['doc']}",
-                      f"duracion: {fm(c['data']['duracion'])}"] + ([f"carpeta: \"[[{c['carpeta']}]]\""] if c["carpeta"] else [])
-                     + (["personas:"] + [f"  - \"[[{p}]]\"" for p in pr] if pr else []) + ["tags: [actas]", "---", ""])
+    return "\n".join(
+        [
+            "---",
+            f"title: {json.dumps(c['data']['titulo'], ensure_ascii=False)}",
+            f"date: {c['fecha']:%Y-%m-%d}",
+            f"tipo: {c['doc']}",
+            f"duracion: {fm(c['data']['duracion'])}",
+        ]
+        + ([f'carpeta: "[[{c["carpeta"]}]]"'] if c["carpeta"] else [])
+        + (["personas:"] + [f'  - "[[{p}]]"' for p in pr] if pr else [])
+        + ["tags: [actas]", "---", ""]
+    )
 
 
 def obsidian_zip(c):
@@ -379,7 +532,11 @@ def tareas(c):
 
 
 def _desc(c, x):
-    return (f"Responsable: {x['resp']}\n" if x["resp"].strip(" —-") else "") + (f"Plazo: {x['plazo']}\n" if x["plazo"].strip(" —-") else "") + f"Minuto {fm(x['t'])} de «{c['data']['titulo']}»"
+    return (
+        (f"Responsable: {x['resp']}\n" if x["resp"].strip(" —-") else "")
+        + (f"Plazo: {x['plazo']}\n" if x["plazo"].strip(" —-") else "")
+        + f"Minuto {fm(x['t'])} de «{c['data']['titulo']}»"
+    )
 
 
 def ics(c, evento=False):
@@ -394,16 +551,29 @@ def ics(c, evento=False):
             else:
                 cur += ch
         return "\r\n ".join(out + [cur])
+
     now, L = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"), ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//actas//ES", "CALSCALE:GREGORIAN"]
     base = f"{c['mid']}-{c['ver']}".replace(" ", "_")
     if evento:
         a = c["fecha"]
-        L += ["BEGIN:VEVENT", f"UID:{base}-evento@actas", f"DTSTAMP:{now}", f"DTSTART:{a:%Y%m%dT%H%M%S}", f"DTEND:{a + dt.timedelta(seconds=c['data']['duracion']):%Y%m%dT%H%M%S}",
-              f"SUMMARY:{esc_(c['data']['titulo'])}", f"DESCRIPTION:{esc_(c['data'].get('resumen', ''))}", "END:VEVENT"]
+        L += [
+            "BEGIN:VEVENT",
+            f"UID:{base}-evento@actas",
+            f"DTSTAMP:{now}",
+            f"DTSTART:{a:%Y%m%dT%H%M%S}",
+            f"DTEND:{a + dt.timedelta(seconds=c['data']['duracion']):%Y%m%dT%H%M%S}",
+            f"SUMMARY:{esc_(c['data']['titulo'])}",
+            f"DESCRIPTION:{esc_(c['data'].get('resumen', ''))}",
+            "END:VEVENT",
+        ]
     for i, x in enumerate(tareas(c)):
         f = fecha(x["plazo"], c["fecha"])
         L += ["BEGIN:VTODO", f"UID:{base}-{i}@actas", f"DTSTAMP:{now}", f"SUMMARY:{esc_(x['texto'])}", f"DESCRIPTION:{esc_(_desc(c, x))}"]
-        L += ([f"DUE;VALUE=DATE:{f:%Y%m%d}"] if f else []) + ([f"CATEGORIES:{esc_(x['resp'])}"] if x["resp"].strip(" —-") else []) + ["STATUS:NEEDS-ACTION", "END:VTODO"]
+        L += (
+            ([f"DUE;VALUE=DATE:{f:%Y%m%d}"] if f else [])
+            + ([f"CATEGORIES:{esc_(x['resp'])}"] if x["resp"].strip(" —-") else [])
+            + ["STATUS:NEEDS-ACTION", "END:VTODO"]
+        )
     return "\r\n".join(fold(l) for l in L + ["END:VCALENDAR", ""])
 
 
@@ -427,24 +597,48 @@ def _csv(cab, filas):
 
 
 def csv_todoist(c):
-    return _csv(["TYPE", "CONTENT", "DESCRIPTION", "PRIORITY", "INDENT", "AUTHOR", "RESPONSIBLE", "DATE", "DATE_LANG", "TIMEZONE"],
-                [["task", x["texto"], _desc(c, x), 4, 1, "", x["resp"].strip(" —-"), (f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else x["plazo"].strip(" —-")), "es", ""]
-                 for x in tareas(c)])
+    return _csv(
+        ["TYPE", "CONTENT", "DESCRIPTION", "PRIORITY", "INDENT", "AUTHOR", "RESPONSIBLE", "DATE", "DATE_LANG", "TIMEZONE"],
+        [
+            [
+                "task",
+                x["texto"],
+                _desc(c, x),
+                4,
+                1,
+                "",
+                x["resp"].strip(" —-"),
+                (f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else x["plazo"].strip(" —-")),
+                "es",
+                "",
+            ]
+            for x in tareas(c)
+        ],
+    )
 
 
 def csv_jira(c):
-    return _csv(["Summary", "Issue Type", "Description", "Assignee", "Due date"],
-                [[x["texto"], "Task", _desc(c, x), x["resp"].strip(" —-"), f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else ""] for x in tareas(c)])
+    return _csv(
+        ["Summary", "Issue Type", "Description", "Assignee", "Due date"],
+        [[x["texto"], "Task", _desc(c, x), x["resp"].strip(" —-"), f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else ""] for x in tareas(c)],
+    )
 
 
 def csv_azure(c):  # ponytail: las tareas no llevan importancia -> Priority vacío
-    return _csv(["Work Item Type", "Title", "Description", "Assigned To", "Tags", "Priority"],
-                [["Task", x["texto"], _desc(c, x), x["resp"].strip(" —-"), c["data"]["titulo"], ""] for x in tareas(c)])
+    return _csv(
+        ["Work Item Type", "Title", "Description", "Assigned To", "Tags", "Priority"],
+        [["Task", x["texto"], _desc(c, x), x["resp"].strip(" —-"), c["data"]["titulo"], ""] for x in tareas(c)],
+    )
 
 
 def csv_planner(c):  # Priority vacío: las tareas no llevan importancia
-    return _csv(["Task Name", "Bucket", "Assigned To", "Start Date", "Due Date", "Priority", "Notes"],
-                [[x["texto"], c["data"]["titulo"], x["resp"].strip(" —-"), "", f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else "", "", _desc(c, x)] for x in tareas(c)])
+    return _csv(
+        ["Task Name", "Bucket", "Assigned To", "Start Date", "Due Date", "Priority", "Notes"],
+        [
+            [x["texto"], c["data"]["titulo"], x["resp"].strip(" —-"), "", f"{f:%Y-%m-%d}" if (f := fecha(x["plazo"], c["fecha"])) else "", "", _desc(c, x)]
+            for x in tareas(c)
+        ],
+    )
 
 
 # ---------- subtítulos ----------
@@ -475,8 +669,9 @@ def cues(segs, hablantes=False, ancho=42, lineas=2):
             if a is not None:
                 out.append([a, b, "\n".join(ls)])
             ls, a, b = [""], None, None
+
         for w, ini, fin in ws:
-            for p in [w[k:k + ancho] for k in range(0, len(w), ancho)]:
+            for p in [w[k : k + ancho] for k in range(0, len(w), ancho)]:
                 if ls[-1] and len(ls[-1]) + 1 + len(p) > ancho:
                     if len(ls) == lineas:
                         vaciar()
@@ -496,7 +691,9 @@ def cues(segs, hablantes=False, ancho=42, lineas=2):
 
 def subtitulos(segs, vtt=False, hablantes=False):
     f = lambda t: f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{int(t % 60):02d}{'.' if vtt else ','}{int(round(t % 1 * 1000)) % 1000:03d}"
-    return ("WEBVTT\n\n" if vtt else "") + "\n".join(f"{'' if vtt else str(i) + chr(10)}{f(a)} --> {f(b)}\n{t}\n" for i, (a, b, t) in enumerate(cues(segs, hablantes), 1))
+    return ("WEBVTT\n\n" if vtt else "") + "\n".join(
+        f"{'' if vtt else str(i) + chr(10)}{f(a)} --> {f(b)}\n{t}\n" for i, (a, b, t) in enumerate(cues(segs, hablantes), 1)
+    )
 
 
 # ---------- estilos de organización ----------
@@ -538,9 +735,17 @@ def estilo_guardar(d):
     color = (d.get("color") or "").strip()
     if color and not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
         raise ValueError("Color: #rrggbb")
-    e = {"id": eid, "nombre": nombre, "logo": prev.get("logo", ""), "base_docx": prev.get("base_docx", ""), "cabecera": str(d.get("cabecera", ""))[:300],
-         "pie": str(d.get("pie", ""))[:300], "color": color, "campos": {k: str((d.get("campos") or {}).get(k, ""))[:500] for k, _ in CAMPOS},
-         "firmas": [{"cargo": str(f.get("cargo", ""))[:80], "nombre": str(f.get("nombre", ""))[:80]} for f in (d.get("firmas") or [])[:8]]}
+    e = {
+        "id": eid,
+        "nombre": nombre,
+        "logo": prev.get("logo", ""),
+        "base_docx": prev.get("base_docx", ""),
+        "cabecera": str(d.get("cabecera", ""))[:300],
+        "pie": str(d.get("pie", ""))[:300],
+        "color": color,
+        "campos": {k: str((d.get("campos") or {}).get(k, ""))[:500] for k, _ in CAMPOS},
+        "firmas": [{"cargo": str(f.get("cargo", ""))[:80], "nombre": str(f.get("nombre", ""))[:80]} for f in (d.get("firmas") or [])[:8]],
+    }
     for k in ("logo", "base_docx"):
         if k in d and not d[k] and e[k]:
             (_est_dir() / e[k]).unlink(missing_ok=True)
@@ -557,10 +762,12 @@ def estilo_fichero(eid, clave, nombre, datos):
         if ext not in (".png", ".jpg", ".jpeg") or len(datos) > 5_000_000:
             raise ValueError("Logo: png o jpg de hasta 5 MB")
         from PIL import Image
+
         Image.open(io.BytesIO(datos)).verify()
         fn = f"{eid}_logo{ext}"
     else:
         from docx import Document
+
         if len(datos) > 20_000_000:
             raise ValueError("Base: .docx de hasta 20 MB")
         try:
@@ -617,6 +824,7 @@ def doc_base(est, ctx=None):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Inches, RGBColor
+
     est = est or {}
     ctx = ctx or {}
     base = _est_dir() / est["base_docx"] if est.get("base_docx") else None
@@ -666,6 +874,7 @@ def doc_base(est, ctx=None):
             txt = "• " + txt
         p.add_run(txt)
         return p
+
     sec = doc.sections[0]
     if est.get("cabecera") or est.get("logo"):
         p = sec.header.paragraphs[0]
@@ -682,6 +891,7 @@ def doc_base(est, ctx=None):
 def docx_bytes(c, est=None):
     from PIL import Image
     from docx.shared import Inches
+
     est = est or {}
     D = c["data"]
     fm = documentos.etiqueta(D.get("locs"))
@@ -756,10 +966,20 @@ def exportar(mid, ver, fmt, estilo=None, hablantes=False, evento=False, anon=Fal
     est = estilo_para(c, estilo) if fmt == "docx" else None
     if fmt in ("srt", "vtt") and not c["segs"]:
         raise ValueError("Sin transcripción")
-    datos = {"docx": lambda: docx_bytes(c, est), "pdf": lambda: pdf_bytes(c), "md": lambda: md(c), "obsidian": lambda: obsidian_zip(c), "notion": lambda: notion_zip(c),
-             "ics": lambda: ics(c, evento), "csv_todoist": lambda: csv_todoist(c), "csv_jira": lambda: csv_jira(c),
-             "csv_azure": lambda: csv_azure(c), "csv_planner": lambda: csv_planner(c),
-             "srt": lambda: subtitulos(c["segs"], False, hablantes), "vtt": lambda: subtitulos(c["segs"], True, hablantes)}[fmt]()
+    datos = {
+        "docx": lambda: docx_bytes(c, est),
+        "pdf": lambda: pdf_bytes(c),
+        "md": lambda: md(c),
+        "obsidian": lambda: obsidian_zip(c),
+        "notion": lambda: notion_zip(c),
+        "ics": lambda: ics(c, evento),
+        "csv_todoist": lambda: csv_todoist(c),
+        "csv_jira": lambda: csv_jira(c),
+        "csv_azure": lambda: csv_azure(c),
+        "csv_planner": lambda: csv_planner(c),
+        "srt": lambda: subtitulos(c["segs"], False, hablantes),
+        "vtt": lambda: subtitulos(c["segs"], True, hablantes),
+    }[fmt]()
     ext, mime = FORMATOS[fmt]
     slug = re.sub(r"[^\w.-]+", "_", c["data"]["titulo"], flags=re.A)[:60].strip("_") or "documento"
     return (datos.encode() if isinstance(datos, str) else datos), f"{slug}.{ext}", mime

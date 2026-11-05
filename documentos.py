@@ -3,6 +3,7 @@ dónde sale cada trozo («p. 12», «§ Diseño › API», «¶ 3», «imagen»,
 letras por segundo (como el habla). Así el map/reduce, la verificación de citas, el RAG, el registro y los ritmos de la ETA
 funcionan sin cambios; al mostrar una cita se enseña su loc en vez del [mm:ss].
 PDF: texto con pypdfium2; las páginas sin capa de texto (escaneadas) se renderizan y pasan por RapidOCR, como las capturas."""
+
 import functools
 import json
 import re
@@ -18,11 +19,21 @@ CORREO = (".eml", ".msg")
 TEXTO = (".pdf", ".md", ".markdown", ".txt", ".docx", ".html", ".htm") + CORREO
 IMAGEN = (".png", ".jpg", ".jpeg", ".webp")
 EXT = TEXTO + IMAGEN
-FORMATO = {".pdf": "PDF", ".md": "Markdown", ".markdown": "Markdown", ".txt": "Texto", ".docx": "DOCX", ".html": "HTML", ".htm": "HTML", ".eml": "Correo (.eml)", ".msg": "Correo de Outlook (.msg)"}
-CPS = 15         # letras por «segundo»: ~2,5 palabras/s, el ritmo del habla (los ritmos medidos del map valen igual)
-TOPE = 59000     # s: las marcas del esquema del map llegan a 999:59; un documento enorme comprime su tiempo ficticio para caber
-TROZO = 300      # letras por segmento (~20 s ficticios: como los del ASR)
-MIN_TXT = 20     # letras/cifras por debajo de las cuales una página del PDF se toma por escaneada (OCR)
+FORMATO = {
+    ".pdf": "PDF",
+    ".md": "Markdown",
+    ".markdown": "Markdown",
+    ".txt": "Texto",
+    ".docx": "DOCX",
+    ".html": "HTML",
+    ".htm": "HTML",
+    ".eml": "Correo (.eml)",
+    ".msg": "Correo de Outlook (.msg)",
+}
+CPS = 15  # letras por «segundo»: ~2,5 palabras/s, el ritmo del habla (los ritmos medidos del map valen igual)
+TOPE = 59000  # s: las marcas del esquema del map llegan a 999:59; un documento enorme comprime su tiempo ficticio para caber
+TROZO = 300  # letras por segmento (~20 s ficticios: como los del ASR)
+MIN_TXT = 20  # letras/cifras por debajo de las cuales una página del PDF se toma por escaneada (OCR)
 
 
 def tipo(path):
@@ -34,6 +45,7 @@ def tipo(path):
 @functools.cache
 def _motor():
     from rapidocr_onnxruntime import RapidOCR
+
     rec = P.model_file(P.OCR_REC)  # None: modelo de serie
     return RapidOCR(intra_op_num_threads=P.PHYS, inter_op_num_threads=1, **({"rec_model_path": str(rec)} if rec else {}))
 
@@ -84,6 +96,7 @@ def secciones(lineas):
         if t := "\n".join(buf).strip():
             out.append((tuple(ruta), t))
         buf.clear()
+
     fence = False
     for l in lineas:
         if l.strip().startswith("```"):
@@ -91,7 +104,7 @@ def secciones(lineas):
             continue
         if not fence and (m := re.match(r"\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", l)):
             corta()
-            ruta[len(m[1]) - 1:] = [_md(m[2]).strip()]
+            ruta[len(m[1]) - 1 :] = [_md(m[2]).strip()]
             buf.append(ruta[-1] + ".")
         else:
             buf.append(l if fence else _md(l))
@@ -130,6 +143,7 @@ def _docx(path):
     """Párrafos y tablas en orden; los estilos de título (Heading N / Title) pasan a encabezados Markdown."""
     import docx
     from docx.table import Table
+
     for b in docx.Document(str(path)).iter_inner_content():
         if isinstance(b, Table):
             yield from (" | ".join(dict.fromkeys(c.text.strip() for c in r.cells)) for r in b.rows)
@@ -149,6 +163,7 @@ def _texto(path):
 
 def _pdf(path, cb):
     import pypdfium2 as pdfium
+
     try:
         pdf = pdfium.PdfDocument(str(path))
     except pdfium.PdfiumError as ex:
@@ -176,6 +191,7 @@ def _partes_imagen(imp):
 @functools.lru_cache(maxsize=4)
 def _correo(path, mtime):
     import correo_entrada
+
     return correo_entrada.leer(path)
 
 
@@ -187,6 +203,7 @@ def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
     """Documento o imagen -> {"language", "segments", "importada"} (lo mismo que una transcripción importada, más tipo y páginas).
     Imagen: OCR + descripción del usuario + descripción con IA si hay `vision` (vision.elegir(); si falla, solo aviso)."""
     import vision as V
+
     p = Path(path)
     ext, extra = p.suffix.lower(), {}
     descripcion = (descripcion or "").strip()
@@ -196,6 +213,7 @@ def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
         partes += pp
     elif ext in IMAGEN:
         from PIL import Image, ImageOps
+
         cb(0.1, "Leyendo el texto de la imagen…")
         with Image.open(p) as im:
             extra = {"descripcion": descripcion, "descripcion_ia": "", "ocr_texto": "\n".join(ocr(ImageOps.exif_transpose(im))), "vision": V.estado(vision)}
@@ -219,17 +237,31 @@ def leer(path, cb=lambda f, m: None, descripcion="", vision=None):
         partes += secciones(_texto(p).split("\n"))
     elif ext in CORREO:  # cuerpo del correo; los adjuntos entran aparte en la cola (app.generar)
         c = correo(p)
-        cab = "\n".join(f"{k}: {v}" for k, v in (("Asunto", c["asunto"]), ("De", c["de"]), ("Fecha", c["fecha"]),
-                                                    ("Adjuntos", ", ".join(a["nombre"] for a in c["adjuntos"]))) if v)
+        cab = "\n".join(
+            f"{k}: {v}"
+            for k, v in (("Asunto", c["asunto"]), ("De", c["de"]), ("Fecha", c["fecha"]), ("Adjuntos", ", ".join(a["nombre"] for a in c["adjuntos"])))
+            if v
+        )
         partes += [("✉ cabecera", cab)] * bool(cab) + [(f"¶ {i}", x) for i, x in enumerate((x for x in re.split(r"\n\s*\n", c["texto"]) if x.strip()), 1)]
     else:
         raise ValueError(f"Formato no admitido: {ext}")
     segs = segmentos(partes)
     if not segs:
         raise RuntimeError("No se ha encontrado texto en el documento" + (": añade una descripción a la imagen" if ext in IMAGEN else ""))
-    return {"language": transcripts.language(segs), "segments": segs,
-            "importada": {"fuente": p.name, "formato": FORMATO.get(ext, "Imagen"), "tipo": tipo(p), "segmentos": len(segs), "hablantes": [],
-                          "desfase": 0, "aviso": None, **extra}}
+    return {
+        "language": transcripts.language(segs),
+        "segments": segs,
+        "importada": {
+            "fuente": p.name,
+            "formato": FORMATO.get(ext, "Imagen"),
+            "tipo": tipo(p),
+            "segmentos": len(segs),
+            "hablantes": [],
+            "desfase": 0,
+            "aviso": None,
+            **extra,
+        },
+    }
 
 
 def reescribir(tf, **campos):
@@ -253,6 +285,7 @@ def etiqueta(locs):
     if not locs:
         return P.fmt
     import bisect
+
     at = [s for s, _ in locs]
     return lambda t: locs[max(0, bisect.bisect_right(at, t + 0.99) - 1)][1]
 
@@ -268,6 +301,7 @@ def acta_tal_cual(wd, titulo=None):
     """«Ya está hecho, no resumir»: el texto del documento, sin LLM, como su única «acta» (acta_normal_<asr>/{index.html, acta.json}),
     para que carpetas, envíos y recetas lo traten como cualquier documento. Los ítems (tareas, decisiones…) los extrae `poblar`, con su loc."""
     import html
+
     wd = Path(wd)
     tf = max(wd.glob("transcript_*.json"), key=lambda f: f.stat().st_mtime)
     tr = json.loads(tf.read_text(encoding="utf-8"))
@@ -281,9 +315,29 @@ def acta_tal_cual(wd, titulo=None):
     out = wd / f"acta_normal_{tf.stem.split('_', 1)[1]}"
     out.mkdir(exist_ok=True)
     cuerpo = "".join(f"<section><h2>{html.escape(l or '')}</h2><p>{html.escape(' '.join(t))}</p></section>" for l, t in grupos)
-    (out / "index.html").write_text(f'<!doctype html><meta charset="utf-8"><title>{html.escape(titulo)}</title><h1>{html.escape(titulo)}</h1>{cuerpo}', encoding="utf-8")
-    (out / "acta.json").write_text(json.dumps({
-        "titulo": titulo, "duracion": round(tr["segments"][-1]["e"]) if tr["segments"] else 0, "nivel": "normal", "tal_cual": True, "fondo": False, "resumen": "",
-        "relato": [{"t": s["s"], "texto": s["text"]} for s in tr["segments"]], "puntos": [], "secciones": [], "decisiones": [], "tareas": [], "capturas": [],
-        "locs": locs(tr["segments"])}, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "index.html").write_text(
+        f'<!doctype html><meta charset="utf-8"><title>{html.escape(titulo)}</title><h1>{html.escape(titulo)}</h1>{cuerpo}', encoding="utf-8"
+    )
+    (out / "acta.json").write_text(
+        json.dumps(
+            {
+                "titulo": titulo,
+                "duracion": round(tr["segments"][-1]["e"]) if tr["segments"] else 0,
+                "nivel": "normal",
+                "tal_cual": True,
+                "fondo": False,
+                "resumen": "",
+                "relato": [{"t": s["s"], "texto": s["text"]} for s in tr["segments"]],
+                "puntos": [],
+                "secciones": [],
+                "decisiones": [],
+                "tareas": [],
+                "capturas": [],
+                "locs": locs(tr["segments"]),
+            },
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
+    )
     return out.name

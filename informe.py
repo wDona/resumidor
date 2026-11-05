@@ -11,6 +11,7 @@ Invariantes:
 - Exportar con borrador=False: KPIs recalculados solo con lo aprobado y fuera las frases que citan algo propuesto. Con borrador=True lo no
   revisado lleva la marca BORRADOR (como export_registro).
 """
+
 import datetime as dt
 import html
 import io
@@ -103,8 +104,15 @@ def kpis(c, desde, hasta, docs=(), solo_aprobados=False):
     ve = [x for x in ab if _limite(x) and _limite(x) < hasta]
     ce = [x for x in ts if (x["estado"] or "").lower() in CERR and desde <= _cierre(x) <= hasta]
     lim = lambda x: (_limite(x) or "") and _limite(x).isoformat()
-    tareas = _bloque(ab + ce, abiertas=len(ab), vencidas=len(ve), cerradas=len(ce), sin_plazo=sum(not _limite(x) for x in ab),
-                     lista_abiertas=[{**R(x), "limite": lim(x), "vencida": x in ve} for x in ab[:15]], lista_cerradas=[R(x) for x in ce[:15]])
+    tareas = _bloque(
+        ab + ce,
+        abiertas=len(ab),
+        vencidas=len(ve),
+        cerradas=len(ce),
+        sin_plazo=sum(not _limite(x) for x in ab),
+        lista_abiertas=[{**R(x), "limite": lim(x), "vencida": x in ve} for x in ab[:15]],
+        lista_cerradas=[R(x) for x in ce[:15]],
+    )
     # riesgos
     rs = [x for x in por.get("riesgo", []) if (x["estado"] or "").lower() not in CERR | FUERA]
     val = []
@@ -136,20 +144,45 @@ def kpis(c, desde, hasta, docs=(), solo_aprobados=False):
     for x in xs:
         if x["mid"] and x["mid"] not in reus:
             reus[x["mid"]] = _alta(x)
-    serie = [{"fecha": f.isoformat(), "mid": m, "doc": nd.get(m, ("", ""))[0], "abiertas": sum(_abierta(x, f) for x in ts)}
-             for m, f in sorted(reus.items(), key=lambda kv: kv[1]) if f and f <= hasta][-12:]
+    serie = [
+        {"fecha": f.isoformat(), "mid": m, "doc": nd.get(m, ("", ""))[0], "abiertas": sum(_abierta(x, f) for x in ts)}
+        for m, f in sorted(reus.items(), key=lambda kv: kv[1])
+        if f and f <= hasta
+    ][-12:]
     rev = {"propuesto": 0, "aprobado": 0, "por_tipo": {}}
     for x in xs:
         if x["revision"] in ("propuesto", "aprobado"):
             rev[x["revision"]] += 1
             rev["por_tipo"].setdefault(x["tipo"], {"propuesto": 0, "aprobado": 0})[x["revision"]] += 1
-    ids = {"tareas_abiertas": ab, "tareas_vencidas": ve, "tareas_cerradas": ce, "riesgos_abiertos": rs, "riesgos_sin_valorar": [r for r in val if r["sev"] is None],
-           "riesgos_altos": [r for r in val if banda(r["sev"]) == "alta"], "decisiones": dec, "preguntas_abiertas": pq, "escalados": es, "requisitos": por.get("requisito", []),
-           "historias": por.get("historia", []), "hitos_vencidos": [h for h in hl if h["vencido"]]}
+    ids = {
+        "tareas_abiertas": ab,
+        "tareas_vencidas": ve,
+        "tareas_cerradas": ce,
+        "riesgos_abiertos": rs,
+        "riesgos_sin_valorar": [r for r in val if r["sev"] is None],
+        "riesgos_altos": [r for r in val if banda(r["sev"]) == "alta"],
+        "decisiones": dec,
+        "preguntas_abiertas": pq,
+        "escalados": es,
+        "requisitos": por.get("requisito", []),
+        "historias": por.get("historia", []),
+        "hitos_vencidos": [h for h in hl if h["vencido"]],
+    }
     ids = {k: [x["id"] for x in v] for k, v in ids.items()}  # ids de entidades del registro (las tareas del acta se sincronizan como entidades tipo tarea)
-    return {"periodo": {"desde": desde.isoformat(), "hasta": hasta.isoformat()}, "ids": ids, "solo_aprobados": solo_aprobados, "tareas": tareas, "riesgos": riesgos,
-            "decisiones": decisiones, "requisitos": _bloque(por.get("requisito", []), **est("requisito")), "historias": _bloque(por.get("historia", []), **est("historia")),
-            "preguntas": preguntas, "hitos": hitos, "serie": serie, "revision": rev}
+    return {
+        "periodo": {"desde": desde.isoformat(), "hasta": hasta.isoformat()},
+        "ids": ids,
+        "solo_aprobados": solo_aprobados,
+        "tareas": tareas,
+        "riesgos": riesgos,
+        "decisiones": decisiones,
+        "requisitos": _bloque(por.get("requisito", []), **est("requisito")),
+        "historias": _bloque(por.get("historia", []), **est("historia")),
+        "preguntas": preguntas,
+        "hitos": hitos,
+        "serie": serie,
+        "revision": rev,
+    }
 
 
 def _cuenta(it):
@@ -182,7 +215,10 @@ def semaforos_sugeridos(k, umbrales=None):
         s["Alcance"] = ("gris", "Sin requisitos, historias ni preguntas abiertas.")
     else:
         txt = f"{k['requisitos']['total']} requisitos, {k['historias']['total']} historias; {p['abiertas']} preguntas abiertas, {p['escalados']} escalados."
-        s["Alcance"] = ("rojo" if p["escalados"] >= u["escalados_rojo"] else "ambar" if p["abiertas"] >= u["preguntas_ambar"] or p["escalados"] else "verde", txt)
+        s["Alcance"] = (
+            "rojo" if p["escalados"] >= u["escalados_rojo"] else "ambar" if p["abiertas"] >= u["preguntas_ambar"] or p["escalados"] else "verde",
+            txt,
+        )
     s["Coste"] = ("gris", "Sin fuente de datos de coste: valóralo a mano.")
     peor = max((s[d][0] for d in s if s[d][0] != "gris"), key=("verde", "ambar", "rojo").index, default="gris")
     s["Global"] = (peor, "Peor color de las dimensiones con datos." if peor != "gris" else "Sin datos suficientes.")
@@ -195,19 +231,31 @@ def _fundir(prev, k, umbrales):
     for d in DIMS:
         p = (prev or {}).get(d) or {}
         man = bool(p.get("manual"))
-        out[d] = {"color": p["color"] if man else sug[d]["color"], "justificacion": p.get("justificacion", "") if man else sug[d]["justificacion"],
-                  "sugerido": sug[d]["color"], "sugerido_just": sug[d]["justificacion"], "manual": man}
+        out[d] = {
+            "color": p["color"] if man else sug[d]["color"],
+            "justificacion": p.get("justificacion", "") if man else sug[d]["justificacion"],
+            "sugerido": sug[d]["color"],
+            "sugerido_just": sug[d]["justificacion"],
+            "manual": man,
+        }
     return out
 
 
 # ---------- narrativa con LLM ----------
-SYS_INF = carpetas.SYS_RED + """
+SYS_INF = (
+    carpetas.SYS_RED
+    + """
 Reglas del informe: escribe directamente los hechos; nada de frases sobre la propia sección o el informe («La sección recoge…», «Este apartado…»). Nunca presentes fechas del registro o de creación como el momento en que ocurrió algo: usa solo fechas que aparezcan en el texto de la fuente (plazos, citas). No infieras nada que la fuente no diga (por ejemplo, no afirmes «sin responsable» si la fuente no lo dice)."""
+)
 
 
 def _txt(r, pref):
-    ex = [f"responsable {r['dueno']}" if r.get("dueno") else "", f"plazo {r['limite']}" if r.get("limite") else "",  # sin la fecha de alta: es del registro, no un hecho dicho
-          f"severidad {r['sev']}" if r.get("sev") else "", "vencida" if r.get("vencida") or r.get("vencido") else ""]
+    ex = [
+        f"responsable {r['dueno']}" if r.get("dueno") else "",
+        f"plazo {r['limite']}" if r.get("limite") else "",  # sin la fecha de alta: es del registro, no un hecho dicho
+        f"severidad {r['sev']}" if r.get("sev") else "",
+        "vencida" if r.get("vencida") or r.get("vencido") else "",
+    ]
     return pref + r["titulo"] + (" (" + ", ".join(e for e in ex if e) + ")" if any(ex) else "")
 
 
@@ -218,11 +266,14 @@ def _fuente(r, pref):
 def fuentes(k):
     """sección -> [(texto, ref)] con lo aprobado y lo propuesto del periodo."""
     t, p = k["tareas"], k["preguntas"]
-    return {"logros": [_fuente(r, "Tarea cerrada: ") for r in t["lista_cerradas"]] + [_fuente(r, "Decisión tomada: ") for r in k["decisiones"]["lista"]],
-            "proximos": [_fuente(r, "Tarea abierta: ") for r in t["lista_abiertas"]] + [_fuente(r, "Hito: ") for r in k["hitos"]["lista"] if not r["vencido"]],
-            "riesgos": [_fuente(r, "Riesgo: ") for r in k["riesgos"]["top"]] + [_fuente(r, "Tarea vencida: ") for r in t["lista_abiertas"] if r["vencida"]],
-            "comite": [_fuente(r, "Pregunta abierta: ") for r in p["lista"]] + [_fuente(r, "Escalado: ") for r in p["lista_escalados"]] +
-                      [_fuente(r, "Riesgo alto: ") for r in k["riesgos"]["top"] if (r["sev"] or 0) >= UMBRALES["sev_rojo"]]}
+    return {
+        "logros": [_fuente(r, "Tarea cerrada: ") for r in t["lista_cerradas"]] + [_fuente(r, "Decisión tomada: ") for r in k["decisiones"]["lista"]],
+        "proximos": [_fuente(r, "Tarea abierta: ") for r in t["lista_abiertas"]] + [_fuente(r, "Hito: ") for r in k["hitos"]["lista"] if not r["vencido"]],
+        "riesgos": [_fuente(r, "Riesgo: ") for r in k["riesgos"]["top"]] + [_fuente(r, "Tarea vencida: ") for r in t["lista_abiertas"] if r["vencida"]],
+        "comite": [_fuente(r, "Pregunta abierta: ") for r in p["lista"]]
+        + [_fuente(r, "Escalado: ") for r in p["lista_escalados"]]
+        + [_fuente(r, "Riesgo alto: ") for r in k["riesgos"]["top"] if (r["sev"] or 0) >= UMBRALES["sev_rojo"]],
+    }
 
 
 def redactar(c, chat, k):
@@ -230,8 +281,17 @@ def redactar(c, chat, k):
     (carpetas._redactar). Sección sin fuentes: vacía (sin llamada)."""
     out = {}
     for s, fu in fuentes(k).items():
-        out[s] = carpetas._redactar(chat, fu[:20], f"Informe de estado del proyecto «{c}» ({k['periodo']['desde']} a {k['periodo']['hasta']}). "
-                                    f"Sección: {SECCIONES[s]}. Cuenta solo lo de esta sección.", SYS_INF) if fu else []
+        out[s] = (
+            carpetas._redactar(
+                chat,
+                fu[:20],
+                f"Informe de estado del proyecto «{c}» ({k['periodo']['desde']} a {k['periodo']['hasta']}). "
+                f"Sección: {SECCIONES[s]}. Cuenta solo lo de esta sección.",
+                SYS_INF,
+            )
+            if fu
+            else []
+        )
     return out
 
 
@@ -266,7 +326,10 @@ def listar(c):
         p = registro.proyecto(c, False, db)
         if not p:
             return []
-        rs = db.execute("SELECT * FROM informe i WHERE proyecto_id=? AND version=(SELECT MAX(version) FROM informe WHERE serie=i.serie) ORDER BY modificado DESC", (p["id"],))
+        rs = db.execute(
+            "SELECT * FROM informe i WHERE proyecto_id=? AND version=(SELECT MAX(version) FROM informe WHERE serie=i.serie) ORDER BY modificado DESC",
+            (p["id"],),
+        )
         return [resumen(_fila(r)) for r in rs]
 
 
@@ -305,21 +368,42 @@ def crear(c, desde=None, hasta=None, titulo=None, docs=(), hoy=None):
     t = time.time()
     with registro._db(escribe=True) as db:
         p = registro.proyecto(c, db=db)["id"]
-        iid = db.execute("INSERT INTO informe(proyecto_id, titulo, desde, hasta, semaforos, contenido, estado, creado, modificado, version) VALUES (?,?,?,?,?,?,?,?,?,1)",
-                         (p, titulo or f"Informe de estado {_d(desde):%d/%m/%Y} – {_d(hasta):%d/%m/%Y}", desde, hasta, json.dumps(sem, ensure_ascii=False),
-                          json.dumps(con, ensure_ascii=False), "borrador", t, t)).lastrowid
+        iid = db.execute(
+            "INSERT INTO informe(proyecto_id, titulo, desde, hasta, semaforos, contenido, estado, creado, modificado, version) VALUES (?,?,?,?,?,?,?,?,?,1)",
+            (
+                p,
+                titulo or f"Informe de estado {_d(desde):%d/%m/%Y} – {_d(hasta):%d/%m/%Y}",
+                desde,
+                hasta,
+                json.dumps(sem, ensure_ascii=False),
+                json.dumps(con, ensure_ascii=False),
+                "borrador",
+                t,
+                t,
+            ),
+        ).lastrowid
         db.execute("UPDATE informe SET serie=? WHERE id=?", (iid, iid))
     return obtener(c, iid)
 
 
 def _escribir(db, x, nueva):
-    vals = (x["titulo"], x["desde"], x["hasta"], json.dumps(x["semaforos"], ensure_ascii=False), json.dumps(x["contenido"], ensure_ascii=False), x["estado"], time.time())
+    vals = (
+        x["titulo"],
+        x["desde"],
+        x["hasta"],
+        json.dumps(x["semaforos"], ensure_ascii=False),
+        json.dumps(x["contenido"], ensure_ascii=False),
+        x["estado"],
+        time.time(),
+    )
     if not nueva:
         db.execute("UPDATE informe SET titulo=?, desde=?, hasta=?, semaforos=?, contenido=?, estado=?, modificado=? WHERE id=?", (*vals, x["id"]))
         return x["id"]
     v = db.execute("SELECT MAX(version) FROM informe WHERE serie=?", (x["serie"],)).fetchone()[0] + 1
-    iid = db.execute("INSERT INTO informe(proyecto_id, titulo, desde, hasta, semaforos, contenido, estado, modificado, creado, serie, version) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                     (x["proyecto_id"], *vals, x["creado"], x["serie"], v)).lastrowid
+    iid = db.execute(
+        "INSERT INTO informe(proyecto_id, titulo, desde, hasta, semaforos, contenido, estado, modificado, creado, serie, version) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (x["proyecto_id"], *vals, x["creado"], x["serie"], v),
+    ).lastrowid
     db.execute("DELETE FROM informe WHERE serie=? AND version<=?", (x["serie"], v - VERSIONES))
     return iid
 
@@ -358,12 +442,27 @@ def editar(c, iid, cm):
                 if falta := next((r["id"] for r in rs if r["id"] not in ents), None):
                     raise KeyError(f"La referencia {falta} no existe en el proyecto")
                 # codigo y título salen del registro y la revisión no se guarda: se consulta al exportar (preparar), nunca se fía de lo que manda el cliente
-                return [{"id": r["id"], "codigo": ents[r["id"]]["codigo"], "titulo": ents[r["id"]]["titulo"], "cita": r["cita"] if isinstance(r.get("cita"), dict) else {}} for r in rs]
-            x["contenido"]["narrativa"] = {**x["contenido"].get("narrativa", {}), **{s: [{"texto": str(f.get("texto") or "") if isinstance(f, dict) else str(f),
-                                           "refs": refs(f)} for f in v] for s, v in n.items()}}
+                return [
+                    {
+                        "id": r["id"],
+                        "codigo": ents[r["id"]]["codigo"],
+                        "titulo": ents[r["id"]]["titulo"],
+                        "cita": r["cita"] if isinstance(r.get("cita"), dict) else {},
+                    }
+                    for r in rs
+                ]
+
+            x["contenido"]["narrativa"] = {
+                **x["contenido"].get("narrativa", {}),
+                **{s: [{"texto": str(f.get("texto") or "") if isinstance(f, dict) else str(f), "refs": refs(f)} for f in v] for s, v in n.items()},
+            }
         sem = x["semaforos"]
         if "umbrales" in cm:
-            if not isinstance(cm["umbrales"], dict) or set(cm["umbrales"]) - set(UMBRALES) or not all(isinstance(v, (int, float)) for v in cm["umbrales"].values()):
+            if (
+                not isinstance(cm["umbrales"], dict)
+                or set(cm["umbrales"]) - set(UMBRALES)
+                or not all(isinstance(v, (int, float)) for v in cm["umbrales"].values())
+            ):
                 raise ValueError("Umbrales no válidos")
             sem["umbrales"] = {**sem.get("umbrales", UMBRALES), **cm["umbrales"]}
         for d, v in (cm.get("semaforos") or {}).items():
@@ -445,10 +544,15 @@ def svg_estados(k):
     y = 14 + len(filas) * 34
     ley, x = [], 0
     for e in est:
-        ley.append(f'<rect x="{x}" y="{y}" width="12" height="12" fill="{col[e]}"/><text x="{x + 16}" y="{y + 11}" font-size="12" fill="currentColor">{_e(e)}</text>')
+        ley.append(
+            f'<rect x="{x}" y="{y}" width="12" height="12" fill="{col[e]}"/><text x="{x + 16}" y="{y + 11}" font-size="12" fill="currentColor">{_e(e)}</text>'
+        )
         x += 24 + 7 * len(e)
-    return (f'<svg viewBox="0 0 {W} {y + 20}" role="img" aria-label="Requisitos e historias por estado" class="inf-svg" xmlns="http://www.w3.org/2000/svg">'
-            + "".join(o + ley) + "</svg>")
+    return (
+        f'<svg viewBox="0 0 {W} {y + 20}" role="img" aria-label="Requisitos e historias por estado" class="inf-svg" xmlns="http://www.w3.org/2000/svg">'
+        + "".join(o + ley)
+        + "</svg>"
+    )
 
 
 ETIQUETAS = {"p": "Probabilidad", "i": "Impacto", "sev": "Severidad"}
@@ -486,8 +590,14 @@ def svg_calor(k):
             tit = f"P{p} × I{i} = {s}: " + ("; ".join(f"{a['codigo']} {a['titulo']}" for a in its) or "sin riesgos")
             ls = [a["codigo"] or "·" for a in its[:3]] + ([f"+{len(its) - 3}"] if len(its) > 3 else [])
             t0 = y + (S - 2) / 2 - 11 * (len(ls) - 1) / 2 + 3.5
-            o.append(f'<g><title>{_e(tit)}</title><rect x="{x}" y="{y}" width="{S - 2}" height="{S - 2}" fill="{f}" fill-opacity="{0.85 if its else 0.18}"/>'
-                     + "".join(f'<text x="{x + S / 2 - 1}" y="{t0 + 11 * j:.1f}" font-size="10" font-weight="700" text-anchor="middle" fill="{"#000" if f == "#f9a825" else "#fff"}">{_e(t)}</text>' for j, t in enumerate(ls)) + "</g>")
+            o.append(
+                f'<g><title>{_e(tit)}</title><rect x="{x}" y="{y}" width="{S - 2}" height="{S - 2}" fill="{f}" fill-opacity="{0.85 if its else 0.18}"/>'
+                + "".join(
+                    f'<text x="{x + S / 2 - 1}" y="{t0 + 11 * j:.1f}" font-size="10" font-weight="700" text-anchor="middle" fill="{"#000" if f == "#f9a825" else "#fff"}">{_e(t)}</text>'
+                    for j, t in enumerate(ls)
+                )
+                + "</g>"
+            )
     o += [f'<text x="{x0 + (i - 1) * S + S / 2 - 1}" y="{5 * S + 14}" font-size="11" text-anchor="middle" fill="currentColor">{i}</text>' for i in range(1, 6)]
     o += [f'<text x="{x0 - 8}" y="{(5 - p) * S + S / 2 + 4}" font-size="11" text-anchor="end" fill="currentColor">{p}</text>' for p in range(1, 6)]
     o.append(f'<text x="{x0 + 5 * S / 2}" y="{5 * S + 30}" font-size="12" text-anchor="middle" fill="currentColor">Impacto</text>')
@@ -495,7 +605,9 @@ def svg_calor(k):
     a, r = UMBRALES["sev_ambar"], UMBRALES["sev_rojo"]
     x = 0
     for col, txt in (("#c62828", f"Alto ≥{r}"), ("#f9a825", f"Medio {a}–{r - 1}"), ("#2e7d32", f"Bajo <{a}")):
-        o.append(f'<rect x="{x}" y="{5 * S + 42}" width="12" height="12" fill="{col}"/><text x="{x + 16}" y="{5 * S + 52}" font-size="11" fill="currentColor">{_e(txt)}</text>')
+        o.append(
+            f'<rect x="{x}" y="{5 * S + 42}" width="12" height="12" fill="{col}"/><text x="{x + 16}" y="{5 * S + 52}" font-size="11" fill="currentColor">{_e(txt)}</text>'
+        )
         x += 24 + 6 * len(txt)
     return f'<svg viewBox="0 0 {x0 + 5 * S + 4} {5 * S + 60}" role="img" aria-label="Mapa de calor de riesgos" class="inf-svg inf-calor" xmlns="http://www.w3.org/2000/svg">{"".join(o)}</svg>'
 
@@ -510,13 +622,19 @@ def svg_linea(k):
     X_ = lambda j: x0 + (W - x0 - 20) * (j / max(1, len(s) - 1) if len(s) > 1 else 0.5)
     Y_ = lambda v: y0 - (y0 - 14) * v / mx
     pts = " ".join(f"{X_(j):.1f},{Y_(p['abiertas']):.1f}" for j, p in enumerate(s))
-    o = [f'<line x1="{x0}" y1="{y0}" x2="{W - 10}" y2="{y0}" stroke="currentColor" stroke-opacity=".3"/>',
-         f'<polyline points="{pts}" fill="none" stroke="#2a6fdb" stroke-width="2.5"/>']
+    o = [
+        f'<line x1="{x0}" y1="{y0}" x2="{W - 10}" y2="{y0}" stroke="currentColor" stroke-opacity=".3"/>',
+        f'<polyline points="{pts}" fill="none" stroke="#2a6fdb" stroke-width="2.5"/>',
+    ]
     for j, p in enumerate(s):
-        o.append(f'<g><title>{_e(p["fecha"])} {_e(p["doc"])}: {p["abiertas"]} abiertas</title><circle cx="{X_(j):.1f}" cy="{Y_(p["abiertas"]):.1f}" r="4.5" fill="#2a6fdb"/>'
-                 f'<text x="{X_(j):.1f}" y="{Y_(p["abiertas"]) - 8:.1f}" font-size="12" text-anchor="middle" fill="currentColor">{p["abiertas"]}</text>'
-                 f'<text x="{X_(j):.1f}" y="{y0 + 16}" font-size="11" text-anchor="middle" fill="currentColor">{_d(p["fecha"]):%d/%m}</text></g>')
-    return f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Tareas abiertas por reunión" class="inf-svg" xmlns="http://www.w3.org/2000/svg">{"".join(o)}</svg>'
+        o.append(
+            f'<g><title>{_e(p["fecha"])} {_e(p["doc"])}: {p["abiertas"]} abiertas</title><circle cx="{X_(j):.1f}" cy="{Y_(p["abiertas"]):.1f}" r="4.5" fill="#2a6fdb"/>'
+            f'<text x="{X_(j):.1f}" y="{Y_(p["abiertas"]) - 8:.1f}" font-size="12" text-anchor="middle" fill="currentColor">{p["abiertas"]}</text>'
+            f'<text x="{X_(j):.1f}" y="{y0 + 16}" font-size="11" text-anchor="middle" fill="currentColor">{_d(p["fecha"]):%d/%m}</text></g>'
+        )
+    return (
+        f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Tareas abiertas por reunión" class="inf-svg" xmlns="http://www.w3.org/2000/svg">{"".join(o)}</svg>'
+    )
 
 
 def graficos(k):
@@ -538,8 +656,14 @@ def preparar(c, x, borrador=True, docs=()):
     """Lo que se exporta: kpis (de la instantánea o, solo aprobados, recalculados), narrativa filtrada, refs numeradas, nº de no revisados."""
     k = x["contenido"]["kpis"] if borrador else kpis(c, x["desde"], x["hasta"], docs, True)
     ents = {e["id"]: e for e in registro.listar(c)}
-    fresca = lambda r: {**r, "revision": ents[r["id"]]["revision"], **{q: ents[r["id"]][q] for q in ("codigo", "titulo")}} if r["id"] in ents else {**r, "revision": "descartado"}
-    ok = lambda r: r["revision"] in ("propuesto", "aprobado") if borrador else r["revision"] == "aprobado"  # solo aprobados: la revisión sale de la BD, no de lo guardado
+    fresca = lambda r: (
+        {**r, "revision": ents[r["id"]]["revision"], **{q: ents[r["id"]][q] for q in ("codigo", "titulo")}}
+        if r["id"] in ents
+        else {**r, "revision": "descartado"}
+    )
+    ok = lambda r: (
+        r["revision"] in ("propuesto", "aprobado") if borrador else r["revision"] == "aprobado"
+    )  # solo aprobados: la revisión sale de la BD, no de lo guardado
     narr = {s: [{**f, "refs": [fresca(r) for r in f.get("refs") or []]} for f in x["contenido"].get("narrativa", {}).get(s, [])] for s in SECCIONES}
     narr = {s: [f for f in fs if all(ok(r) for r in f["refs"])] for s, fs in narr.items()}
     num = _numerar(narr)
@@ -553,25 +677,47 @@ def _frase(f, num):
 
 def _ref_txt(r):
     ci = r.get("cita") or {}
-    return " · ".join(filter(None, [f"{r.get('codigo') or ''} {r.get('titulo') or ''}".strip(), f"{ci.get('doc') or ''} [{X.fm(ci['t'])}]" if ci.get("t") is not None and ci.get("mid") else "",
-                                    f"«{ci['texto']}»" if ci.get("texto") else "", ER.BORR if r.get("revision") == "propuesto" else ""]))
+    return " · ".join(
+        filter(
+            None,
+            [
+                f"{r.get('codigo') or ''} {r.get('titulo') or ''}".strip(),
+                f"{ci.get('doc') or ''} [{X.fm(ci['t'])}]" if ci.get("t") is not None and ci.get("mid") else "",
+                f"«{ci['texto']}»" if ci.get("texto") else "",
+                ER.BORR if r.get("revision") == "propuesto" else "",
+            ],
+        )
+    )
 
 
 def _kpi_filas(k):
     t, r, p = k["tareas"], k["riesgos"], k["preguntas"]
     marca = lambda b: f" (incl. {b['propuestos']} sin revisar)" if b["propuestos"] else ""
-    return [["Tareas abiertas", str(t["abiertas"]) + marca(t)], ["Tareas vencidas", str(t["vencidas"])], ["Tareas cerradas en el periodo", str(t["cerradas"])],
-            ["Riesgos abiertos", f"{r['total']} (alta {r['por_severidad']['alta']}, media {r['por_severidad']['media']}, baja {r['por_severidad']['baja']}, "
-                                 f"sin valorar {r['por_severidad']['sin_valorar']})" + marca(r)],
-            ["Decisiones del periodo", str(k["decisiones"]["n"]) + marca(k["decisiones"])], ["Preguntas abiertas", str(p["abiertas"]) + marca(p)], ["Escalados", str(p["escalados"])],
-            ["Requisitos", f"{k['requisitos']['total']} · " + ", ".join(f"{e} {n}" for e, n in k["requisitos"]["por_estado"].items()) + marca(k["requisitos"])],
-            ["Historias", f"{k['historias']['total']} · " + ", ".join(f"{e} {n}" for e, n in k["historias"]["por_estado"].items()) + marca(k["historias"])],
-            ["Hitos", f"{len(k['hitos']['lista'])} ({k['hitos']['vencidos']} vencidos)"], ["Revisión", f"{k['revision']['aprobado']} aprobados · {k['revision']['propuesto']} propuestos"]]
+    return [
+        ["Tareas abiertas", str(t["abiertas"]) + marca(t)],
+        ["Tareas vencidas", str(t["vencidas"])],
+        ["Tareas cerradas en el periodo", str(t["cerradas"])],
+        [
+            "Riesgos abiertos",
+            f"{r['total']} (alta {r['por_severidad']['alta']}, media {r['por_severidad']['media']}, baja {r['por_severidad']['baja']}, "
+            f"sin valorar {r['por_severidad']['sin_valorar']})" + marca(r),
+        ],
+        ["Decisiones del periodo", str(k["decisiones"]["n"]) + marca(k["decisiones"])],
+        ["Preguntas abiertas", str(p["abiertas"]) + marca(p)],
+        ["Escalados", str(p["escalados"])],
+        ["Requisitos", f"{k['requisitos']['total']} · " + ", ".join(f"{e} {n}" for e, n in k["requisitos"]["por_estado"].items()) + marca(k["requisitos"])],
+        ["Historias", f"{k['historias']['total']} · " + ", ".join(f"{e} {n}" for e, n in k["historias"]["por_estado"].items()) + marca(k["historias"])],
+        ["Hitos", f"{len(k['hitos']['lista'])} ({k['hitos']['vencidos']} vencidos)"],
+        ["Revisión", f"{k['revision']['aprobado']} aprobados · {k['revision']['propuesto']} propuestos"],
+    ]
 
 
 def _top_filas(k):
     v = lambda n: "—" if n is None else str(n)
-    return [[r["codigo"] or "", r["titulo"] + (f" [{ER.BORR}]" if r["revision"] == "propuesto" else ""), v(r["p"]), v(r["i"]), v(r["sev"]), r["dueno"] or ""] for r in k["riesgos"]["top"]]
+    return [
+        [r["codigo"] or "", r["titulo"] + (f" [{ER.BORR}]" if r["revision"] == "propuesto" else ""), v(r["p"]), v(r["i"]), v(r["sev"]), r["dueno"] or ""]
+        for r in k["riesgos"]["top"]
+    ]
 
 
 TOP_CAB = ["Código", "Riesgo", "Probabilidad", "Impacto", "Severidad", "Responsable"]
@@ -587,8 +733,11 @@ def _leyenda():
 
 
 def _cabecera(c, x, P_):
-    return [f"Proyecto: {c or 'Sin carpeta'}", f"Periodo: {_d(x['desde']):%d/%m/%Y} – {_d(x['hasta']):%d/%m/%Y}", f"Estado: {'Final' if x['estado'] == 'final' else 'Borrador'} · versión {x['version']}"], \
-        (f"{ER.BORR.upper()}: incluye {P_['nb']} elementos propuestos aún no revisados." if P_["nb"] else "")
+    return [
+        f"Proyecto: {c or 'Sin carpeta'}",
+        f"Periodo: {_d(x['desde']):%d/%m/%Y} – {_d(x['hasta']):%d/%m/%Y}",
+        f"Estado: {'Final' if x['estado'] == 'final' else 'Borrador'} · versión {x['version']}",
+    ], (f"{ER.BORR.upper()}: incluye {P_['nb']} elementos propuestos aún no revisados." if P_["nb"] else "")
 
 
 def a_md(c, x, P_):
@@ -597,9 +746,13 @@ def a_md(c, x, P_):
     o += ["## Semáforos", "", "| Dimensión | Estado | Justificación |", "|---|---|---|"]
     o += [f"| {d} | {FORMA[s['color']]} {NOMBRE[s['color']]} | {s['justificacion'].replace('|', '/')} |" for d, s in P_["sem"].items()]
     o += ["", "## Indicadores", "", "| Indicador | Valor |", "|---|---|"] + [f"| {a} | {b} |" for a, b in _kpi_filas(P_["k"])]
-    o += ["", "## Riesgos principales (top 5)", "", "| " + " | ".join(TOP_CAB) + " |", "|" + "---|" * len(TOP_CAB)] + ["| " + " | ".join(f) + " |" for f in _top_filas(P_["k"])]
+    o += ["", "## Riesgos principales (top 5)", "", "| " + " | ".join(TOP_CAB) + " |", "|" + "---|" * len(TOP_CAB)] + [
+        "| " + " | ".join(f) + " |" for f in _top_filas(P_["k"])
+    ]
     if mp := _mapa_filas(P_["k"]):
-        o += ["", "## Mapa de riesgos (probabilidad × impacto)", "", _leyenda(), "", "| " + " | ".join(MAPA_CAB) + " |", "|" + "---|" * len(MAPA_CAB)] + ["| " + " | ".join(f) + " |" for f in mp]
+        o += ["", "## Mapa de riesgos (probabilidad × impacto)", "", _leyenda(), "", "| " + " | ".join(MAPA_CAB) + " |", "|" + "---|" * len(MAPA_CAB)] + [
+            "| " + " | ".join(f) + " |" for f in mp
+        ]
     for s, n in SECCIONES.items():
         o += ["", f"## {n}", ""] + ([f"- {_frase(f, P_['num'])}" for f in P_["narr"][s]] or ["—"])
     if x["contenido"].get("notas"):
@@ -613,6 +766,7 @@ def a_docx(c, x, P_, est):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import RGBColor
+
     B = X.doc_base(est, {"{fecha}": f"{dt.date.today():%d/%m/%Y}", "{título}": x["titulo"], "{titulo}": x["titulo"]})
     doc = B.doc
     cab, aviso = _cabecera(c, x, P_)
@@ -639,9 +793,14 @@ def a_docx(c, x, P_, est):
                 for r in cs[1].paragraphs[0].runs:
                     r.bold = True
                     r.font.color.rgb = RGBColor(0, 0, 0) if col == "ambar" else RGBColor(0xFF, 0xFF, 0xFF)
+
     sem = list(P_["sem"].items())
     B.H("Semáforos", 1)
-    tabla(["Dimensión", "Estado", "Justificación"], [[d, f"{FORMA[s['color']]} {NOMBRE[s['color']]}", s["justificacion"]] for d, s in sem], lambda j: sem[j][1]["color"])
+    tabla(
+        ["Dimensión", "Estado", "Justificación"],
+        [[d, f"{FORMA[s['color']]} {NOMBRE[s['color']]}", s["justificacion"]] for d, s in sem],
+        lambda j: sem[j][1]["color"],
+    )
     B.H("Indicadores", 1)
     tabla(["Indicador", "Valor"], _kpi_filas(P_["k"]))
     B.H("Riesgos principales (top 5)", 1)
@@ -666,24 +825,47 @@ def a_docx(c, x, P_, est):
     return b.getvalue()
 
 
-CSS = ("@page{size:A4 landscape;margin:14mm}.aviso{background:#ffe58a;color:#000;padding:8px 12px;border-radius:6px;font-weight:600}"
-       ".sem td.c{font-weight:700;color:#fff;white-space:nowrap}.sem td.ambar{color:#000}.graf{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}"
-       ".graf figure{flex:1 1 300px;margin:0;break-inside:avoid}.inf-svg{width:100%;height:auto;color:var(--ink)}.inf-calor{max-width:340px}.inf-calor-lista{font-size:12px;margin:6px 0 0;padding-left:20px}.borr{color:#b02020;font-weight:700}")
+CSS = (
+    "@page{size:A4 landscape;margin:14mm}.aviso{background:#ffe58a;color:#000;padding:8px 12px;border-radius:6px;font-weight:600}"
+    ".sem td.c{font-weight:700;color:#fff;white-space:nowrap}.sem td.ambar{color:#000}.graf{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}"
+    ".graf figure{flex:1 1 300px;margin:0;break-inside:avoid}.inf-svg{width:100%;height:auto;color:var(--ink)}.inf-calor{max-width:340px}.inf-calor-lista{font-size:12px;margin:6px 0 0;padding-left:20px}.borr{color:#b02020;font-weight:700}"
+)
 
 
 def a_html(c, x, P_, est):
     e = html.escape
     cab, aviso = _cabecera(c, x, P_)
-    tab = lambda cabs, fs: "<table><tr>" + "".join(f"<th>{e(h)}</th>" for h in cabs) + "</tr>" + "".join("<tr>" + "".join(f"<td>{e(v)}</td>" for v in f) + "</tr>" for f in fs) + "</table>"
+    tab = lambda cabs, fs: (
+        "<table><tr>"
+        + "".join(f"<th>{e(h)}</th>" for h in cabs)
+        + "</tr>"
+        + "".join("<tr>" + "".join(f"<td>{e(v)}</td>" for v in f) + "</tr>" for f in fs)
+        + "</table>"
+    )
     g = graficos(P_["k"])
-    h = [f"<h1>{e(x['titulo'])}</h1><p class=meta>{e(' · '.join(cab))}</p>", f"<p class=aviso>{e(aviso)}</p>" if aviso else "",
-         "<h2>Semáforos</h2><table class=sem><tr><th>Dimensión</th><th>Estado</th><th>Justificación</th></tr>" +
-         "".join(f'<tr><td>{d}</td><td class="c {s["color"]}" style="background:#{HEX[s["color"]]}">{FORMA[s["color"]]} {NOMBRE[s["color"]]}</td><td>{e(s["justificacion"])}</td></tr>'
-                 for d, s in P_["sem"].items()) + "</table>",
-         "<h2>Indicadores</h2>" + tab(["Indicador", "Valor"], _kpi_filas(P_["k"])),
-         "<div class=graf>" + "".join(f"<figure>{g[k]}{g.get(k + '_lista', '')}<figcaption>{t}</figcaption></figure>" for k, t in (("estados", "Requisitos e historias por estado"),
-                                                                                                        ("calor", "Riesgos: probabilidad × impacto"), ("linea", "Tareas abiertas por reunión")) if g[k]) + "</div>",
-         "<h2>Riesgos principales (top 5)</h2>" + (tab(TOP_CAB, _top_filas(P_["k"])) if P_["k"]["riesgos"]["top"] else "<p>Sin riesgos abiertos.</p>")]
+    h = [
+        f"<h1>{e(x['titulo'])}</h1><p class=meta>{e(' · '.join(cab))}</p>",
+        f"<p class=aviso>{e(aviso)}</p>" if aviso else "",
+        "<h2>Semáforos</h2><table class=sem><tr><th>Dimensión</th><th>Estado</th><th>Justificación</th></tr>"
+        + "".join(
+            f'<tr><td>{d}</td><td class="c {s["color"]}" style="background:#{HEX[s["color"]]}">{FORMA[s["color"]]} {NOMBRE[s["color"]]}</td><td>{e(s["justificacion"])}</td></tr>'
+            for d, s in P_["sem"].items()
+        )
+        + "</table>",
+        "<h2>Indicadores</h2>" + tab(["Indicador", "Valor"], _kpi_filas(P_["k"])),
+        "<div class=graf>"
+        + "".join(
+            f"<figure>{g[k]}{g.get(k + '_lista', '')}<figcaption>{t}</figcaption></figure>"
+            for k, t in (
+                ("estados", "Requisitos e historias por estado"),
+                ("calor", "Riesgos: probabilidad × impacto"),
+                ("linea", "Tareas abiertas por reunión"),
+            )
+            if g[k]
+        )
+        + "</div>",
+        "<h2>Riesgos principales (top 5)</h2>" + (tab(TOP_CAB, _top_filas(P_["k"])) if P_["k"]["riesgos"]["top"] else "<p>Sin riesgos abiertos.</p>"),
+    ]
     for s, n in SECCIONES.items():
         h.append(f"<h2>{n}</h2><ul>" + ("".join(f"<li>{e(_frase(f, P_['num']))}</li>" for f in P_["narr"][s]) or "<li>—</li>") + "</ul>")
     if x["contenido"].get("notas"):
@@ -691,33 +873,54 @@ def a_html(c, x, P_, est):
     if P_["num"]:
         h.append("<h2>Fuentes</h2><ol class=meta>" + "".join(f"<li value={n}>{e(_ref_txt(r))}</li>" for n, r in P_["num"].values()) + "</ol>")
     col = f":root{{--acc:{est['color']};--acc-d:{est['color']}}}" if est and est.get("color") else ""
-    return (f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{e(x["titulo"])}</title><style>{X.CSS}{CSS}{col}body{{max-width:none}}</style></head>'
-            f'<body>{X.cabecera_estilo(est)}{"".join(h)}</body></html>')
+    return (
+        f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{e(x["titulo"])}</title><style>{X.CSS}{CSS}{col}body{{max-width:none}}</style></head>'
+        f"<body>{X.cabecera_estilo(est)}{''.join(h)}</body></html>"
+    )
 
 
 def a_xlsx(x, P_):
     k = P_["k"]
-    R = lambda r: [r.get("codigo") or "", r.get("titulo") or "", r.get("estado") or "", r.get("dueno") or "", ER.BORR if r.get("revision") == "propuesto" else "Aprobado"]
+    R = lambda r: [
+        r.get("codigo") or "",
+        r.get("titulo") or "",
+        r.get("estado") or "",
+        r.get("dueno") or "",
+        ER.BORR if r.get("revision") == "propuesto" else "Aprobado",
+    ]
     cab = ["Código", "Título", "Estado", "Responsable", "Revisión"]
-    return ER.xlsx({"Semáforos": (["Dimensión", "Color", "Justificación", "Sugerido", "Manual"], [[d, NOMBRE[s["color"]], s["justificacion"], NOMBRE[s["sugerido"]], "sí" if s["manual"] else "no"] for d, s in P_["sem"].items()]),
-                    "Indicadores": (["Indicador", "Valor"], _kpi_filas(k)),
-                    "Riesgos": (TOP_CAB, _top_filas(k)),
-                    "Tareas abiertas": (cab + ["Plazo", "Vencida"], [R(r) + [r["limite"], "sí" if r["vencida"] else ""] for r in k["tareas"]["lista_abiertas"]]),
-                    "Decisiones": (cab + ["Fecha"], [R(r) + [r["fecha"]] for r in k["decisiones"]["lista"]]),
-                    "Narrativa": (["Sección", "Frase"], [[SECCIONES[s], _frase(f, P_["num"])] for s in SECCIONES for f in P_["narr"][s]]),
-                    "Fuentes": (["n", "Fuente"], [[str(n), _ref_txt(r)] for n, r in P_["num"].values()])})
+    return ER.xlsx(
+        {
+            "Semáforos": (
+                ["Dimensión", "Color", "Justificación", "Sugerido", "Manual"],
+                [[d, NOMBRE[s["color"]], s["justificacion"], NOMBRE[s["sugerido"]], "sí" if s["manual"] else "no"] for d, s in P_["sem"].items()],
+            ),
+            "Indicadores": (["Indicador", "Valor"], _kpi_filas(k)),
+            "Riesgos": (TOP_CAB, _top_filas(k)),
+            "Tareas abiertas": (cab + ["Plazo", "Vencida"], [R(r) + [r["limite"], "sí" if r["vencida"] else ""] for r in k["tareas"]["lista_abiertas"]]),
+            "Decisiones": (cab + ["Fecha"], [R(r) + [r["fecha"]] for r in k["decisiones"]["lista"]]),
+            "Narrativa": (["Sección", "Frase"], [[SECCIONES[s], _frase(f, P_["num"])] for s in SECCIONES for f in P_["narr"][s]]),
+            "Fuentes": (["n", "Fuente"], [[str(n), _ref_txt(r)] for n, r in P_["num"].values()]),
+        }
+    )
 
 
 def a_pptx(c, x, P_):
     import pptx_min as PM
+
     cab, aviso = _cabecera(c, x, P_)
     k = P_["k"]
     lis = lambda s: [_frase(f, P_["num"]) for f in P_["narr"][s]] or ["—"]
-    sl = [PM.portada(x["titulo"], cab, aviso),
-          PM.semaforos("Semáforos", [(d, s["color"], HEX[s["color"]], f"{FORMA[s['color']]} {NOMBRE[s['color']]}", s["justificacion"]) for d, s in P_["sem"].items()]),
-          PM.tabla("Indicadores", ["Indicador", "Valor"], _kpi_filas(k)),
-          PM.tabla("Riesgos principales (top 5)", TOP_CAB, _top_filas(k) or [["—"] * len(TOP_CAB)]),
-          PM.lista(SECCIONES["comite"], lis("comite")), PM.lista(SECCIONES["proximos"], lis("proximos"))]
+    sl = [
+        PM.portada(x["titulo"], cab, aviso),
+        PM.semaforos(
+            "Semáforos", [(d, s["color"], HEX[s["color"]], f"{FORMA[s['color']]} {NOMBRE[s['color']]}", s["justificacion"]) for d, s in P_["sem"].items()]
+        ),
+        PM.tabla("Indicadores", ["Indicador", "Valor"], _kpi_filas(k)),
+        PM.tabla("Riesgos principales (top 5)", TOP_CAB, _top_filas(k) or [["—"] * len(TOP_CAB)]),
+        PM.lista(SECCIONES["comite"], lis("comite")),
+        PM.lista(SECCIONES["proximos"], lis("proximos")),
+    ]
     return PM.pptx(sl)
 
 
@@ -731,8 +934,21 @@ def exportar(c, iid, fmt, borrador=True, docs=(), estilo=None):
     if fmt == "md":
         d = a_md(c, x, P_)
     elif fmt == "json":
-        d = json.dumps({"proyecto": c, "informe": resumen(x), "borrador": borrador, "semaforos": P_["sem"], "umbrales": x["semaforos"].get("umbrales"), "kpis": P_["k"],
-                        "narrativa": P_["narr"], "notas": x["contenido"].get("notas", ""), "fuentes": {n: r for n, r in P_["num"].values()}}, ensure_ascii=False, indent=1)
+        d = json.dumps(
+            {
+                "proyecto": c,
+                "informe": resumen(x),
+                "borrador": borrador,
+                "semaforos": P_["sem"],
+                "umbrales": x["semaforos"].get("umbrales"),
+                "kpis": P_["k"],
+                "narrativa": P_["narr"],
+                "notas": x["contenido"].get("notas", ""),
+                "fuentes": {n: r for n, r in P_["num"].values()},
+            },
+            ensure_ascii=False,
+            indent=1,
+        )
     elif fmt == "docx":
         d = a_docx(c, x, P_, est)
     elif fmt == "pdf":

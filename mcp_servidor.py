@@ -1,6 +1,7 @@
 """Servidor MCP (Streamable HTTP, POST /mcp, JSON-RPC 2.0) para que Claude Desktop/Code, Copilot, Cursor u Open WebUI consulten la biblioteca.
 Solo desde este equipo y, si está activado, con token Bearer. Herramientas: buscar, preguntar (modelo local), documento, pendientes, proyectos
 y encolar (solo con el permiso de Ajustes). Ajustes en work/mcp.json. `python app.py --mcp-stdio` es un puente stdio -> /mcp para clientes sin HTTP."""
+
 import asyncio
 import hmac
 import json
@@ -24,18 +25,49 @@ CFG = lambda: P.WORK / "mcp.json"
 DEF = {"activo": False, "token_requerido": True, "token": "", "permitir_encolar": False}
 
 TOOLS = [
-    {"name": "buscar", "description": "Busca en todos los documentos (reuniones, audios, PDF, textos, imágenes) y en tareas/decisiones/riesgos. Devuelve fragmentos con título, minuto [mm:ss] o página y el id del documento.",
-     "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}, "proyecto": {"type": "string", "description": "Proyecto/carpeta (vacío = todos)"},
-                                                     "tipo": {"type": "string", "description": "video|audio|pdf|texto|imagen|voz|pantalla|tarea|decision|riesgo…"}, "limite": {"type": "integer"}}, "required": ["q"]}},
-    {"name": "preguntar", "description": "Responde con citas a una pregunta sobre un proyecto o un documento, con el modelo local.",
-     "inputSchema": {"type": "object", "properties": {"pregunta": {"type": "string"}, "proyecto": {"type": "string"}, "documento": {"type": "string", "description": "id del documento"}}, "required": ["pregunta"]}},
-    {"name": "documento", "description": "Resumen/acta de un documento en Markdown (usa la copia anonimizada si existe).",
-     "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
-    {"name": "pendientes", "description": "Tareas, decisiones y riesgos abiertos de un proyecto.",
-     "inputSchema": {"type": "object", "properties": {"proyecto": {"type": "string"}}, "required": ["proyecto"]}},
+    {
+        "name": "buscar",
+        "description": "Busca en todos los documentos (reuniones, audios, PDF, textos, imágenes) y en tareas/decisiones/riesgos. Devuelve fragmentos con título, minuto [mm:ss] o página y el id del documento.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string"},
+                "proyecto": {"type": "string", "description": "Proyecto/carpeta (vacío = todos)"},
+                "tipo": {"type": "string", "description": "video|audio|pdf|texto|imagen|voz|pantalla|tarea|decision|riesgo…"},
+                "limite": {"type": "integer"},
+            },
+            "required": ["q"],
+        },
+    },
+    {
+        "name": "preguntar",
+        "description": "Responde con citas a una pregunta sobre un proyecto o un documento, con el modelo local.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"pregunta": {"type": "string"}, "proyecto": {"type": "string"}, "documento": {"type": "string", "description": "id del documento"}},
+            "required": ["pregunta"],
+        },
+    },
+    {
+        "name": "documento",
+        "description": "Resumen/acta de un documento en Markdown (usa la copia anonimizada si existe).",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    },
+    {
+        "name": "pendientes",
+        "description": "Tareas, decisiones y riesgos abiertos de un proyecto.",
+        "inputSchema": {"type": "object", "properties": {"proyecto": {"type": "string"}}, "required": ["proyecto"]},
+    },
     {"name": "proyectos", "description": "Lista de proyectos con su número de documentos.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "encolar", "description": "Añade archivos (rutas en el equipo de Actas) a la cola. Solo si el usuario lo permite en Ajustes.",
-     "inputSchema": {"type": "object", "properties": {"rutas": {"type": "array", "items": {"type": "string"}}, "proyecto": {"type": "string"}}, "required": ["rutas"]}},
+    {
+        "name": "encolar",
+        "description": "Añade archivos (rutas en el equipo de Actas) a la cola. Solo si el usuario lo permite en Ajustes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"rutas": {"type": "array", "items": {"type": "string"}}, "proyecto": {"type": "string"}},
+            "required": ["rutas"],
+        },
+    },
 ]
 
 
@@ -76,9 +108,14 @@ def _sel(proyecto, documento):
 
 
 def t_buscar(a):
-    r = A.buscar.buscar(A.meetings(), str(a.get("q") or "").strip()[:300], a.get("proyecto") or None, str(a.get("tipo") or ""), max(1, min(int(a.get("limite") or 10), 50)))
-    out = [f"- {f['titulo']} {('p. ' + str(f['loc'])) if f.get('loc') else '[' + _mm(f.get('t')) + ']'} (doc {f['doc']}, proyecto {f['c'] or '-'}): "
-           + f["snippet"].replace("<mark>", "«").replace("</mark>", "»") for f in r["fragmentos"]]
+    r = A.buscar.buscar(
+        A.meetings(), str(a.get("q") or "").strip()[:300], a.get("proyecto") or None, str(a.get("tipo") or ""), max(1, min(int(a.get("limite") or 10), 50))
+    )
+    out = [
+        f"- {f['titulo']} {('p. ' + str(f['loc'])) if f.get('loc') else '[' + _mm(f.get('t')) + ']'} (doc {f['doc']}, proyecto {f['c'] or '-'}): "
+        + f["snippet"].replace("<mark>", "«").replace("</mark>", "»")
+        for f in r["fragmentos"]
+    ]
     out += [f"- [{e.get('tipo')}] {e.get('titulo') or e.get('texto')} (proyecto {e.get('c') or '-'})" for e in r["elementos"]]
     return "\n".join(out) or "Sin resultados."
 
@@ -96,6 +133,7 @@ def t_preguntar(a):
 
     async def todo():
         return [e async for e in leer()]
+
     for e in asyncio.run(todo()):
         k = e.get("k")
         if k == "frase":
@@ -121,7 +159,13 @@ def t_documento(a):
 def t_pendientes(a):
     c = str(a.get("proyecto") or "")
     xs = carpetas.listar(c, A._ms(c))["items"]
-    return "\n".join(f"- [{x['tipo_ent']}] {x['texto']} (resp: {x['resp'] or '-'}, plazo: {x['plazo'] or '-'}{', VENCIDO' if x['vencido'] else ''}; doc {x['mid'] or '-'})" for x in xs) or "Nada abierto."
+    return (
+        "\n".join(
+            f"- [{x['tipo_ent']}] {x['texto']} (resp: {x['resp'] or '-'}, plazo: {x['plazo'] or '-'}{', VENCIDO' if x['vencido'] else ''}; doc {x['mid'] or '-'})"
+            for x in xs
+        )
+        or "Nada abierto."
+    )
 
 
 def t_proyectos(a):
@@ -158,8 +202,18 @@ def _llamar(p):
     f = FN.get(p.get("name"))
     if not f:
         raise KeyError(p.get("name"))
-    if p.get("name") != "encolar" and ((A._ajustes() or {}).get("anonimizar_defecto") or _carpeta_anon(p.get("arguments") or {})):  # lo que sale hacia otra herramienta (que puede usar la nube) también es «exportar»
-        return {"content": [{"type": "text", "text": "«Anonimizar por defecto» está activo en Actas: no se entrega contenido a herramientas externas. Desactívalo en Ajustes si quieres usarlas."}], "isError": True}
+    if p.get("name") != "encolar" and (
+        (A._ajustes() or {}).get("anonimizar_defecto") or _carpeta_anon(p.get("arguments") or {})
+    ):  # lo que sale hacia otra herramienta (que puede usar la nube) también es «exportar»
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "«Anonimizar por defecto» está activo en Actas: no se entrega contenido a herramientas externas. Desactívalo en Ajustes si quieres usarlas.",
+                }
+            ],
+            "isError": True,
+        }
     try:
         return {"content": [{"type": "text", "text": f(p.get("arguments") or {})}]}
     except HTTPException as e:
@@ -179,8 +233,14 @@ def responder(m):
     ok = lambda r: {"jsonrpc": "2.0", "id": i, "result": r}
     err = lambda c, t: {"jsonrpc": "2.0", "id": i, "error": {"code": c, "message": t}}
     if me == "initialize":
-        return ok({"protocolVersion": PROTO, "capabilities": {"tools": {"listChanged": False}}, "serverInfo": {"name": "actas", "version": "1"},
-                   "instructions": "Biblioteca local de reuniones y documentos: busca, pregunta con citas, lee resúmenes y consulta pendientes."})
+        return ok(
+            {
+                "protocolVersion": PROTO,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "actas", "version": "1"},
+                "instructions": "Biblioteca local de reuniones y documentos: busca, pregunta con citas, lee resúmenes y consulta pendientes.",
+            }
+        )
     if me == "ping":
         return ok({})
     if me == "tools/list":
@@ -199,7 +259,9 @@ async def mcp(r: Request):
     c = cfg()
     if not c["activo"]:
         raise HTTPException(403, "El servidor MCP está desactivado (Ajustes)")
-    if c["token_requerido"] and not (c["token"] and hmac.compare_digest(r.headers.get("authorization", "").encode(), ("Bearer " + c["token"]).encode())):  # sin token guardado: cerrado, no abierto
+    if c["token_requerido"] and not (
+        c["token"] and hmac.compare_digest(r.headers.get("authorization", "").encode(), ("Bearer " + c["token"]).encode())
+    ):  # sin token guardado: cerrado, no abierto
         return JSONResponse({"error": "Token no válido"}, 401, {"WWW-Authenticate": "Bearer"})
     try:
         m = json.loads(await r.body())
@@ -250,10 +312,13 @@ def api_config(r: Request):
     url = f"http://127.0.0.1:{r.url.port or 80}/mcp"
     h = f' --header "Authorization: Bearer {c["token"]}"' if c["token_requerido"] and c["token"] else ""
     app_py = str(Path(getattr(A, "__file__", "app.py")).resolve()) if A else "app.py"
-    return {"activo": c["activo"], "url": url,
-            "claude_desktop": json.dumps({"mcpServers": {"actas": {"command": sys.executable, "args": [app_py, "--mcp-stdio"]}}}, indent=2),
-            "claude_code": f"claude mcp add --transport http actas {url}{h}",
-            "http": {"url": url, "headers": {"Authorization": "Bearer " + c["token"]} if h else {}}}
+    return {
+        "activo": c["activo"],
+        "url": url,
+        "claude_desktop": json.dumps({"mcpServers": {"actas": {"command": sys.executable, "args": [app_py, "--mcp-stdio"]}}}, indent=2),
+        "claude_code": f"claude mcp add --transport http actas {url}{h}",
+        "http": {"url": url, "headers": {"Authorization": "Bearer " + c["token"]} if h else {}},
+    }
 
 
 # ---------- puente stdio ----------
@@ -261,7 +326,11 @@ def stdio(url, entrada=None, salida=None):
     """Lee líneas JSON-RPC de stdin y las reenvía a la instancia en marcha (url = su base); escribe cada respuesta en una línea."""
     entrada, salida = entrada or sys.stdin, salida or sys.stdout
     c = cfg()
-    cab = {"Content-Type": "application/json", "Accept": "application/json", **({"Authorization": "Bearer " + c["token"]} if c["token_requerido"] and c["token"] else {})}
+    cab = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        **({"Authorization": "Bearer " + c["token"]} if c["token_requerido"] and c["token"] else {}),
+    }
     for ln in entrada:
         if not ln.strip():
             continue

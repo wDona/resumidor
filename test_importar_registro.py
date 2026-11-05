@@ -1,4 +1,5 @@
 """Pruebas de importar_registro.py: exportar -> editar celdas -> reimportar (xlsx y csv), deshacer y /api/doc/a-proyecto. Sin LLM."""
+
 import io
 import json
 import re
@@ -46,7 +47,8 @@ def test_roundtrip_xlsx_deshacer(cl):
     r = subir(t, ed, "r.xlsx").json()
     assert [(m["codigo"], m["cambios"]) for m in r["modificados"]] == [
         ("REQ-001", {"Título": ["Pagar con Bizum", "Pagar con Bizum y tarjeta"]}),
-        ("REQ-002", {"Prioridad": ["", "Should"], "Estado": ["abierto", "validado"]})]
+        ("REQ-002", {"Prioridad": ["", "Should"], "Estado": ["abierto", "validado"]}),
+    ]
     ap = t.post("/api/reg/importar/aplicar", json={"token": r["token"], "seleccion": [b["id"]]}).json()
     assert (ap["modificadas"], ap["creadas"]) == (1, 0)
     assert registro.de(C, a["id"])["titulo"] == "Pagar con Bizum" and registro.de(C, b["id"])["prioridad"] == "Should"
@@ -67,7 +69,15 @@ def test_nuevos_desconocidas_csv(cl):
     assert sorted(d["fila"] for d in r["desconocidas"]) == [4, 5, 6] and "REQ-099" in r["desconocidas"][0]["motivo"]
     ap = t.post("/api/reg/importar/aplicar", json={"token": r["token"]}).json()
     n = ap["items"][0]
-    assert (ap["creadas"], n["origen"], n["revision"], n["prioridad"], n["estado"], n["campos"]["tipo_req"], n["citas"]) == (1, "manual", "aprobado", "Should", "borrador", "no funcional", [])
+    assert (ap["creadas"], n["origen"], n["revision"], n["prioridad"], n["estado"], n["campos"]["tipo_req"], n["citas"]) == (
+        1,
+        "manual",
+        "aprobado",
+        "Should",
+        "borrador",
+        "no funcional",
+        [],
+    )
     assert n["campos"]["importado"] is True
     assert t.post("/api/reg/deshacer", json={"c": C}).json()["revertidas"] == 1 and len(registro.listar(C, "requisito")) == 1
     # coma, latin-1 y vista deducida por las columnas
@@ -99,7 +109,11 @@ def test_a_proyecto(cl, monkeypatch):
     assert json.loads((pipeline.WORK / mid / "meta.json").read_text(encoding="utf-8"))["carpeta"] == nueva
     r = t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "copiar"}).json()
     nid = r["mids"][0]
-    assert nid != mid and (pipeline.WORK / mid / "meta.json").exists() and json.loads((pipeline.WORK / nid / "meta.json").read_text(encoding="utf-8"))["carpeta"] == C
+    assert (
+        nid != mid
+        and (pipeline.WORK / mid / "meta.json").exists()
+        and json.loads((pipeline.WORK / nid / "meta.json").read_text(encoding="utf-8"))["carpeta"] == C
+    )
     assert t.post("/api/doc/a-proyecto", json={"mids": ["nope"], "c": C, "modo": "mover"}).status_code == 404
     assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "x"}).status_code == 400
     monkeypatch.setattr(app, "_ajustes", lambda: {"poblar_auto": False})  # respeta poblar_auto
@@ -107,7 +121,6 @@ def test_a_proyecto(cl, monkeypatch):
     monkeypatch.setattr(app, "_ajustes", lambda: {"poblar_auto": True})
     monkeypatch.setattr(app, "_tipo_carpeta", lambda c: "Paciente")  # sensible: nunca
     assert t.post("/api/doc/a-proyecto", json={"mids": [mid], "c": C, "modo": "mover"}).json()["poblando"] == []
-
 
 
 def test_a_proyecto_sin_enviar_no_lanza_recetas(cl, monkeypatch):

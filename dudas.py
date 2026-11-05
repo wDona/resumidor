@@ -1,6 +1,7 @@
 """Confianza: marca lo dudoso de un documento (a posteriori, sin tocar los datos ni los hashes de la caché del acta).
 Resultado en dudas.json junto a la versión, cacheado por hash del contenido: {dudas: {ruta data-p: [motivos]}, segs: {n: [motivos]}}.
 Una ruta editada respecto al original deja de estar marcada (el usuario ya la revisó)."""
+
 import bisect
 import hashlib
 import json
@@ -44,7 +45,7 @@ def asr_dudas(segs):
         if s.get("cr") is not None and s["cr"] > CR:
             m.append(f"texto repetitivo (compresión {s['cr']})")
         for n, w in enumerate(s.get("words") or []):
-            txt = w["w"].strip(" ,.;:¿?¡!()\"«»")
+            txt = w["w"].strip(' ,.;:¿?¡!()"«»')
             if w.get("p", 1) >= PW or not txt:
                 continue
             nm = P.words(txt)
@@ -87,6 +88,7 @@ def analizar(c, fr=None):
     def add(r, m):
         if m not in dudas.setdefault(r, []):
             dudas[r].append(m)
+
     for ruta, txt, t, cita, tipo in _items(c):
         if not (txt or "").strip(" —-"):
             continue
@@ -136,9 +138,12 @@ def analizar(c, fr=None):
 def calcular(mid, ver):
     """Dudas de la versión vigente (cacheadas en dudas.json por contenido). -> {dudas, segs, n, hash}."""
     import privacidad
+
     c = X.carga(mid, ver)
     fr = privacidad.frames(c["d"].parent)
-    h = hashlib.sha1(json.dumps([c["data"], c["segs"], fr and {k: v.get("text") for k, v in fr.items()}], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+    h = hashlib.sha1(
+        json.dumps([c["data"], c["segs"], fr and {k: v.get("text") for k, v in fr.items()}], sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()[:16]
     f = c["d"] / "dudas.json"
     try:
         cache = json.loads(f.read_text(encoding="utf-8"))
@@ -156,15 +161,33 @@ def calcular(mid, ver):
 
 
 def demo():
-    segs = [{"s": 0, "e": 5, "text": "Hola a todos, hablamos con Marlowe sobre el presupuesto de 500 euros", "lp": -1.4,
-             "words": [{"w": "Marlowe", "s": 1, "e": 2, "p": 0.31}, {"w": "500", "s": 3, "e": 4, "p": 0.9}]},
-            {"s": 10, "e": 15, "text": "Javier envia el informe el viernes", "lp": -0.3}]
+    segs = [
+        {
+            "s": 0,
+            "e": 5,
+            "text": "Hola a todos, hablamos con Marlowe sobre el presupuesto de 500 euros",
+            "lp": -1.4,
+            "words": [{"w": "Marlowe", "s": 1, "e": 2, "p": 0.31}, {"w": "500", "s": 3, "e": 4, "p": 0.9}],
+        },
+        {"s": 10, "e": 15, "text": "Javier envia el informe el viernes", "lp": -0.3},
+    ]
     ps, pal = asr_dudas(segs)
     assert 0 in ps and 1 not in ps and "marlowe" in pal, (ps, pal)
-    c = {"segs": segs, "data": {"resumen": "Se habló con Marlowe y se fijó un presupuesto de 700 euros",
-                                "decisiones": [{"t": 0, "texto": "Se aprueba el presupuesto de 500 euros", "cita": "el presupuesto de 500 euros"},
-                                               {"t": 0, "texto": "Se compra una nave", "cita": "compramos una nave grande"}],
-                                "tareas": [], "capturas": []}, "tpl": {"orden": ["resumen", "decisiones"], "titulos": {}, "id": "acta"}, "d": None, "img": "img"}
+    c = {
+        "segs": segs,
+        "data": {
+            "resumen": "Se habló con Marlowe y se fijó un presupuesto de 700 euros",
+            "decisiones": [
+                {"t": 0, "texto": "Se aprueba el presupuesto de 500 euros", "cita": "el presupuesto de 500 euros"},
+                {"t": 0, "texto": "Se compra una nave", "cita": "compramos una nave grande"},
+            ],
+            "tareas": [],
+            "capturas": [],
+        },
+        "tpl": {"orden": ["resumen", "decisiones"], "titulos": {}, "id": "acta"},
+        "d": None,
+        "img": "img",
+    }
     r = analizar(c)["dudas"]
     assert "voz dudosa" in r["resumen"][-1] and any("700" in m for m in r["resumen"]), r
     assert "decisiones.0.texto" not in r or all("cita" not in m for m in r["decisiones.0.texto"]), r

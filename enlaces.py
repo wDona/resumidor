@@ -3,6 +3,7 @@
   - página HTML: texto del artículo -> .md con título, sitio, URL y fecha;
   - lo demás (vídeo/audio de un sitio con extractor propio de yt-dlp, nubes de Microsoft) lo decide app.py con `especifico` / `es_microsoft`.
 Seguridad (SSRF): solo http/https; sin IPs privadas/loopback/link-local salvo `red_local`; se revisa también cada redirección."""
+
 import html as _h
 import html.parser
 import ipaddress
@@ -14,15 +15,25 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-MAX_MB = 500        # tope de descarga de un fichero (el vídeo va por yt-dlp, que no pasa por aquí)
+MAX_MB = 500  # tope de descarga de un fichero (el vídeo va por yt-dlp, que no pasa por aquí)
 MAX_HTML = 5 * 2**20
 TIMEOUT = 30
 UA = "Mozilla/5.0 (compatible; actas)"
 DOC = (".pdf", ".docx", ".md", ".markdown", ".txt", ".html", ".htm", ".png", ".jpg", ".jpeg", ".webp", ".zip", ".eml", ".msg")
 MEDIA = (".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac")
-CT = {"application/pdf": ".pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx", "text/markdown": ".md",
-      "text/plain": ".txt", "application/zip": ".zip", "application/x-zip-compressed": ".zip", "message/rfc822": ".eml", "application/vnd.ms-outlook": ".msg",
-      "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+CT = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "text/markdown": ".md",
+    "text/plain": ".txt",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+    "message/rfc822": ".eml",
+    "application/vnd.ms-outlook": ".msg",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
 MS = re.compile(r"(^|\.)(1drv\.ms|onedrive\.live\.com|sharepoint\.com|teams\.microsoft\.com|microsoftstream\.com)$")
 
 
@@ -89,7 +100,9 @@ def traer(url, dest, cb=lambda f, m: None, red_local=False, max_mb=MAX_MB, timeo
         ext = CT.get(ct) or (ext if ext in DOC + MEDIA else "") or (mimetypes.guess_extension(ct) or "" if ct.startswith(("audio/", "video/")) else "")
         if ext not in DOC + MEDIA and ct in ("text/html", "application/xhtml+xml"):
             ext = ".html"
-        if ext in (".html", ".htm") and (ct in ("text/html", "application/xhtml+xml", "") or not Path(nombre).suffix):  # página, no fichero .html para descargar
+        if ext in (".html", ".htm") and (
+            ct in ("text/html", "application/xhtml+xml", "") or not Path(nombre).suffix
+        ):  # página, no fichero .html para descargar
             raw = r.read(MAX_HTML + 1)[:MAX_HTML]
             cs = r.headers.get_content_charset() or (re.search(rb"charset=[\"']?([\w-]+)", raw[:3000]) or [0, b"utf-8"])[1]
             txt = raw.decode(cs if isinstance(cs, str) else cs.decode(), "replace")
@@ -119,7 +132,30 @@ def traer(url, dest, cb=lambda f, m: None, red_local=False, max_mb=MAX_MB, timeo
 # ---------- artículo de una página ----------
 _SALTA = {"script", "style", "nav", "header", "footer", "aside", "form", "noscript", "svg", "template", "iframe", "button", "select"}
 _VOID = {"br", "img", "hr", "meta", "link", "input", "source", "wbr", "col", "area", "base", "embed", "param", "track"}
-_BLOQ = {"p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "div", "section", "article", "main", "br", "tr", "pre", "blockquote", "ul", "ol", "table", "dd", "dt", "figcaption"}
+_BLOQ = {
+    "p",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "div",
+    "section",
+    "article",
+    "main",
+    "br",
+    "tr",
+    "pre",
+    "blockquote",
+    "ul",
+    "ol",
+    "table",
+    "dd",
+    "dt",
+    "figcaption",
+}
 
 
 class _Art(html.parser.HTMLParser):

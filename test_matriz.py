@@ -1,4 +1,5 @@
 """Escala de la matriz de interesados, mapa de riesgos con códigos e ids de KPIs. Sin LLM ni red."""
+
 import informe
 import registro
 from test_carpetas import C, cl  # noqa: F401
@@ -76,8 +77,16 @@ def test_sin_reescalar_recorta(cl):
 
 def test_export_punto_medio(cl):
     import export_registro as ER
+
     t, _ = cl
-    inter(t, "Alto", 5, 4), inter(t, "Bajo", 1, 2), inter(t, "MedioP", 3.5, 5), inter(t, "MedioI", 5, 3.5), inter(t, "Centro", 3.5, 3.5), inter(t, "Mixto", 6, 1)
+    (
+        inter(t, "Alto", 5, 4),
+        inter(t, "Bajo", 1, 2),
+        inter(t, "MedioP", 3.5, 5),
+        inter(t, "MedioI", 5, 3.5),
+        inter(t, "Centro", 3.5, 3.5),
+        inter(t, "Mixto", 6, 1),
+    )
     m = ER.exportar(C, "interesados", "md")[0].decode()
     assert "Poder 1–6 · Interés 1–6" in m and "0,5" in m
     assert "En el límite entre Gestionar de cerca y Mantener satisfecho: MedioP" in m
@@ -103,10 +112,30 @@ def test_mapa_codigos_leyenda_ids_y_antiguo(reg):
     assert x["r3"]["id"] in ids["riesgos_sin_valorar"] and ids["riesgos_altos"] == [x["r1"]["id"]]
     assert len(ids["riesgos_abiertos"]) == k["riesgos"]["total"] and ids["decisiones"] == [x["d1"]["id"]]
     assert len(ids["requisitos"]) == 2 and len(ids["historias"]) == 1 and len(ids["hitos_vencidos"]) == k["hitos"]["vencidos"]
-    assert set(ids) == {"tareas_abiertas", "tareas_vencidas", "tareas_cerradas", "riesgos_abiertos", "riesgos_sin_valorar", "riesgos_altos", "decisiones",
-                        "preguntas_abiertas", "escalados", "requisitos", "historias", "hitos_vencidos"}
+    assert set(ids) == {
+        "tareas_abiertas",
+        "tareas_vencidas",
+        "tareas_cerradas",
+        "riesgos_abiertos",
+        "riesgos_sin_valorar",
+        "riesgos_altos",
+        "decisiones",
+        "preguntas_abiertas",
+        "escalados",
+        "requisitos",
+        "historias",
+        "hitos_vencidos",
+    }
     # informe guardado antes de estos cambios: sin ids ni sev/dueno en la matriz
-    vie = {**k, "riesgos": {**k["riesgos"], "matriz": [{"p": c["p"], "i": c["i"], "items": [{"codigo": a["codigo"], "titulo": a["titulo"]} for a in c["items"]]} for c in k["riesgos"]["matriz"]]}}
+    vie = {
+        **k,
+        "riesgos": {
+            **k["riesgos"],
+            "matriz": [
+                {"p": c["p"], "i": c["i"], "items": [{"codigo": a["codigo"], "titulo": a["titulo"]} for a in c["items"]]} for c in k["riesgos"]["matriz"]
+            ],
+        },
+    }
     vie.pop("ids")
     g2 = informe.graficos(vie)
     assert "R-001 Retraso del proveedor — P4 × I4 = 16" in g2["calor_lista"]

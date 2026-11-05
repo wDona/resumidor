@@ -23,6 +23,7 @@ Invariantes que no se ven a simple vista:
 - Renombrar sobre una carpeta con datos en el registro: ValueError (no se fusionan ni se pisan). Quitar una carpeta no borra su registro: el
   proyecto queda como «<nombre> [eliminada <fecha>]» con extra.carpeta_eliminada (recuperable renombrándolo).
 """
+
 import contextlib
 import datetime as dt
 import json
@@ -36,17 +37,54 @@ import pipeline as P
 
 LOCK = threading.RLock()
 log = logging.getLogger(__name__)
-TIPOS = {"decision": "D", "tarea": "T", "riesgo": "R", "incidencia": "INC", "supuesto": "S", "dependencia": "DEP", "requisito": "REQ", "historia": "HU",
-         "pregunta": "P", "interesado": "INT", "hito": "H"}  # tipo -> prefijo del código (por proyecto y tipo: R-003)
+TIPOS = {
+    "decision": "D",
+    "tarea": "T",
+    "riesgo": "R",
+    "incidencia": "INC",
+    "supuesto": "S",
+    "dependencia": "DEP",
+    "requisito": "REQ",
+    "historia": "HU",
+    "pregunta": "P",
+    "interesado": "INT",
+    "hito": "H",
+}  # tipo -> prefijo del código (por proyecto y tipo: R-003)
 CONTENIDO = {"titulo", "detalle", "dueno", "prioridad", "fecha_limite"}
 OCULTA = ("descartado", "fusionado")
-ECOLS = ("id", "proyecto_id", "tipo", "codigo", "titulo", "detalle", "estado", "revision", "origen", "dueno", "prioridad", "fecha_limite", "fecha_alta",
-         "fecha_cierre", "campos", "mid", "ver", "ruta", "h", "editado", "sugerencia", "fusionado_en", "orden", "creado", "modificado")
+ECOLS = (
+    "id",
+    "proyecto_id",
+    "tipo",
+    "codigo",
+    "titulo",
+    "detalle",
+    "estado",
+    "revision",
+    "origen",
+    "dueno",
+    "prioridad",
+    "fecha_limite",
+    "fecha_alta",
+    "fecha_cierre",
+    "campos",
+    "mid",
+    "ver",
+    "ruta",
+    "h",
+    "editado",
+    "sugerencia",
+    "fusionado_en",
+    "orden",
+    "creado",
+    "modificado",
+)
 JSONS = {"datos", "ajustes", "glosario", "extra", "campos", "sugerencia", "antes", "despues"}
 PCOLS = ("tipo", "datos", "ajustes", "glosario")  # del expediente, con columna propia; manuales/estados/sugeridos son entidades; el resto, extra
 LEGADO = ("estados_legado", "sugeridos_legado", "migrado_t", "carpeta_eliminada")  # migrado_t: de antes de meta.migrado_t (solo se lee al subir el esquema)
 _lista = lambda xs: ",".join(f"'{x}'" for x in xs)
-ESQUEMA = [f"""
+ESQUEMA = [
+    f"""
 CREATE TABLE proyecto(id INTEGER PRIMARY KEY, carpeta TEXT NOT NULL UNIQUE, tipo TEXT, datos TEXT, ajustes TEXT, glosario TEXT, extra TEXT NOT NULL DEFAULT '{{}}');
 CREATE TABLE entidad(id TEXT PRIMARY KEY, proyecto_id INTEGER NOT NULL REFERENCES proyecto(id) ON DELETE CASCADE,
   tipo TEXT NOT NULL CHECK (tipo IN ({_lista(TIPOS)})), codigo TEXT, titulo TEXT NOT NULL DEFAULT '', detalle TEXT NOT NULL DEFAULT '',
@@ -68,15 +106,18 @@ CREATE TABLE historial(id INTEGER PRIMARY KEY, proyecto_id INTEGER NOT NULL REFE
 CREATE INDEX historial_lote ON historial(proyecto_id, lote);
 CREATE TABLE informe(id INTEGER PRIMARY KEY, proyecto_id INTEGER NOT NULL REFERENCES proyecto(id) ON DELETE CASCADE, titulo TEXT, desde TEXT, hasta TEXT,
   semaforos TEXT, contenido TEXT, estado TEXT NOT NULL DEFAULT 'borrador', creado REAL, modificado REAL);
-""", """
+""",
+    """
 ALTER TABLE informe ADD COLUMN serie INTEGER;
 ALTER TABLE informe ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 CREATE INDEX informe_serie ON informe(proyecto_id, serie, version);
-""", """
+""",
+    """
 ALTER TABLE historial ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
 CREATE TABLE meta(k TEXT PRIMARY KEY, v);
 CREATE TABLE contador(proyecto_id INTEGER NOT NULL REFERENCES proyecto(id) ON DELETE CASCADE, tipo TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(proyecto_id, tipo));
-"""]  # una entrada por versión del esquema (user_version = cuántas se han aplicado); solo se añaden al final
+""",
+]  # una entrada por versión del esquema (user_version = cuántas se han aplicado); solo se añaden al final
 ultima_migracion = None  # informe {antes, despues} de la última migración de expedientes.json en este proceso
 
 
@@ -198,8 +239,11 @@ def proyecto(c, crear=True, db=None):
 def _con_datos(db, pid):
     """¿El proyecto tiene algo que perder? (entidades, informes o algo guardado en el expediente)"""
     p = _fila(db.execute("SELECT * FROM proyecto WHERE id=?", (pid,)).fetchone())
-    return bool(any(p[k] for k in PCOLS) or any(p["extra"].values()) or
-                db.execute("SELECT 1 FROM entidad WHERE proyecto_id=? UNION ALL SELECT 1 FROM informe WHERE proyecto_id=? LIMIT 1", (pid, pid)).fetchone())
+    return bool(
+        any(p[k] for k in PCOLS)
+        or any(p["extra"].values())
+        or db.execute("SELECT 1 FROM entidad WHERE proyecto_id=? UNION ALL SELECT 1 FROM informe WHERE proyecto_id=? LIMIT 1", (pid, pid)).fetchone()
+    )
 
 
 def renombrar(old, new):
@@ -214,8 +258,10 @@ def renombrar(old, new):
             return
         if not new:
             ext = proyecto(old, False, db)["extra"]
-            db.execute("UPDATE proyecto SET carpeta=?, extra=? WHERE id=?", (f"{old} [eliminada {time.strftime('%Y-%m-%d %H:%M')} #{o[0]}]",
-                                                                             _j({**ext, "carpeta_eliminada": {"nombre": old, "t": time.time()}}), o[0]))
+            db.execute(
+                "UPDATE proyecto SET carpeta=?, extra=? WHERE id=?",
+                (f"{old} [eliminada {time.strftime('%Y-%m-%d %H:%M')} #{o[0]}]", _j({**ext, "carpeta_eliminada": {"nombre": old, "t": time.time()}}), o[0]),
+            )
             return
         n = db.execute("SELECT id FROM proyecto WHERE carpeta=?", (new,)).fetchone()
         if n and _con_datos(db, n[0]):
@@ -227,8 +273,10 @@ def renombrar(old, new):
 
 # ---------- entidades ----------
 def _hist(db, pid, eid, accion, antes, despues, lote, auto=False):
-    db.execute("INSERT INTO historial(proyecto_id, entidad_id, t, accion, antes, despues, lote, auto) VALUES (?,?,?,?,?,?,?,?)",
-               (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto)))
+    db.execute(
+        "INSERT INTO historial(proyecto_id, entidad_id, t, accion, antes, despues, lote, auto) VALUES (?,?,?,?,?,?,?,?)",
+        (pid, eid, time.time(), accion, _j(antes), _j(despues), lote or uuid.uuid4().hex[:10], int(auto)),
+    )
 
 
 def _poner(db, eid, cambios):
@@ -244,13 +292,26 @@ def crear(c, tipo, lote=None, db=None, cita=None, auto=False, **f):
     with _db(db, True) as db:
         p = proyecto(c, db=db)["id"]
         pre = TIPOS[tipo] + "-"  # contador que no baja; el MAX cubre los registros de antes de la tabla contador
-        n = max(db.execute("SELECT COALESCE(MAX(n), 0) FROM contador WHERE proyecto_id=? AND tipo=?", (p, tipo)).fetchone()[0],
-                db.execute("SELECT COALESCE(MAX(CAST(substr(codigo, ?) AS INTEGER)), 0) FROM entidad WHERE proyecto_id=? AND tipo=? AND codigo LIKE ?",
-                           (len(pre) + 1, p, tipo, pre + "%")).fetchone()[0])
+        n = max(
+            db.execute("SELECT COALESCE(MAX(n), 0) FROM contador WHERE proyecto_id=? AND tipo=?", (p, tipo)).fetchone()[0],
+            db.execute(
+                "SELECT COALESCE(MAX(CAST(substr(codigo, ?) AS INTEGER)), 0) FROM entidad WHERE proyecto_id=? AND tipo=? AND codigo LIKE ?",
+                (len(pre) + 1, p, tipo, pre + "%"),
+            ).fetchone()[0],
+        )
         db.execute("INSERT INTO contador(proyecto_id, tipo, n) VALUES (?,?,?) ON CONFLICT(proyecto_id, tipo) DO UPDATE SET n=excluded.n", (p, tipo, n + 1))
         t = time.time()
-        x = {"id": uuid.uuid4().hex[:10], "estado": "" if tipo == "decision" else "abierto", "creado": t, "campos": {}, **f,
-             "proyecto_id": p, "tipo": tipo, "codigo": f"{TIPOS[tipo]}-{n + 1:03d}", "modificado": t}
+        x = {
+            "id": uuid.uuid4().hex[:10],
+            "estado": "" if tipo == "decision" else "abierto",
+            "creado": t,
+            "campos": {},
+            **f,
+            "proyecto_id": p,
+            "tipo": tipo,
+            "codigo": f"{TIPOS[tipo]}-{n + 1:03d}",
+            "modificado": t,
+        }
         x.setdefault("fecha_alta", dt.date.fromtimestamp(x["creado"]).isoformat())
         db.execute(f"INSERT INTO entidad({', '.join(x)}) VALUES ({', '.join('?' * len(x))})", [_j(v) if k in JSONS else v for k, v in x.items()])
         if cita:
@@ -263,8 +324,10 @@ def crear(c, tipo, lote=None, db=None, cita=None, auto=False, **f):
 def citar(eid, cita, db=None):
     """Añade una cita {mid, ver, t, texto, verificada} a la entidad; no toca su contenido ni su revisión (poblar: lo mismo dicho en otra reunión)."""
     with _db(db, True) as db:
-        db.execute("INSERT INTO cita(entidad_id, mid, ver, t, texto, verificada) VALUES (?,?,?,?,?,?)",
-                   (eid, cita.get("mid"), cita.get("ver"), cita.get("t"), cita.get("texto"), int(bool(cita.get("verificada")))))
+        db.execute(
+            "INSERT INTO cita(entidad_id, mid, ver, t, texto, verificada) VALUES (?,?,?,?,?,?)",
+            (eid, cita.get("mid"), cita.get("ver"), cita.get("t"), cita.get("texto"), int(bool(cita.get("verificada")))),
+        )
 
 
 def editar(eid, cambios, lote=None, db=None):
@@ -315,16 +378,24 @@ def fusionar(destino, origenes, lote=None):
             hecho["revision"] = x["revision"]
             for r in db.execute("SELECT mid, ver, t, texto, verificada FROM cita WHERE entidad_id=?", (o,)).fetchall():
                 hecho["citas"].append(db.execute("INSERT INTO cita(entidad_id, mid, ver, t, texto, verificada) VALUES (?,?,?,?,?,?)", (destino, *r)).lastrowid)
-            rels = [(destino if a == o else a, destino if b == o else b, t, p) for a, b, t, p in
-                    db.execute("SELECT a, b, tipo, propuesta FROM relacion WHERE (a=? OR b=?) AND tipo!='fusion'", (o, o)).fetchall()] + [(o, destino, "fusion", 0)]
+            rels = [
+                (destino if a == o else a, destino if b == o else b, t, p)
+                for a, b, t, p in db.execute("SELECT a, b, tipo, propuesta FROM relacion WHERE (a=? OR b=?) AND tipo!='fusion'", (o, o)).fetchall()
+            ] + [(o, destino, "fusion", 0)]
             for a, b, t, p in rels:
                 if a != b and db.execute("INSERT OR IGNORE INTO relacion(a, b, tipo, propuesta) VALUES (?,?,?,?)", (a, b, t, p)).rowcount:
                     hecho["rel"].append([a, b, t])
             d = _uno(db, destino)
             rel = {k: x[k] for k in RELLENA if not str(d[k] or "").strip() and str(x[k] or "").strip()}
             rc = {k: v for k, v in x["campos"].items() if k not in NO_RELLENA and v not in ("", None) and d["campos"].get(k) in ("", None)}
-            resto = [s for s in (x["titulo"] if "titulo" not in rel and x["titulo"].strip() != d["titulo"].strip() else "",
-                                 x["detalle"] if "detalle" not in rel and x["detalle"].strip() not in ("", d["detalle"].strip()) else "") if s.strip()]
+            resto = [
+                s
+                for s in (
+                    x["titulo"] if "titulo" not in rel and x["titulo"].strip() != d["titulo"].strip() else "",
+                    x["detalle"] if "detalle" not in rel and x["detalle"].strip() not in ("", d["detalle"].strip()) else "",
+                )
+                if s.strip()
+            ]
             nota = f"Fusionado desde {x['codigo'] or o}: " + " — ".join(s.strip() for s in resto) if resto else ""
             cambios = {**rel, **({"campos": rc} if rc else {})}
             if nota:
@@ -348,10 +419,24 @@ def separar(destino, origen, lote=None):
         x, d = _uno(db, origen), _uno(db, destino)
         if x["revision"] != "fusionado" or x["fusionado_en"] != destino:
             raise ValueError(f"{x['codigo'] or 'Ese elemento'} no está fusionado en {d['codigo'] or 'ese destino'}")
-        f = next((json.loads(r[0]) for r in db.execute("SELECT despues FROM historial WHERE entidad_id=? AND accion='fusionar' ORDER BY id DESC", (destino,))
-                  if json.loads(r[0]).get("origen") == origen), None)
+        f = next(
+            (
+                json.loads(r[0])
+                for r in db.execute("SELECT despues FROM historial WHERE entidad_id=? AND accion='fusionar' ORDER BY id DESC", (destino,))
+                if json.loads(r[0]).get("origen") == origen
+            ),
+            None,
+        )
         if f is None:  # fusión antigua: la revisión previa sale del «editar» que la marcó fusionada
-            prev = next((json.loads(r[0]).get("revision") for r in db.execute("SELECT antes FROM historial WHERE entidad_id=? AND accion='editar' AND despues LIKE '%fusionado%' ORDER BY id DESC", (origen,))), None)
+            prev = next(
+                (
+                    json.loads(r[0]).get("revision")
+                    for r in db.execute(
+                        "SELECT antes FROM historial WHERE entidad_id=? AND accion='editar' AND despues LIKE '%fusionado%' ORDER BY id DESC", (origen,)
+                    )
+                ),
+                None,
+            )
             f = {"revision": prev or "propuesto", "citas": [], "rel": [[origen, destino, "fusion"]], "relleno": {}, "nota": ""}
         cs = [dict(r) for r in db.execute(f"SELECT * FROM cita WHERE id IN ({','.join('?' * len(f['citas']))})", f["citas"])] if f["citas"] else []
         rs = [list(r) for a, b, t in f["rel"] for r in db.execute("SELECT a, b, tipo, propuesta FROM relacion WHERE a=? AND b=? AND tipo=?", (a, b, t))]
@@ -376,9 +461,14 @@ def fusionadas(ids, db=None):
         return {}
     out = {}
     with _db(db) as db:
-        for r in db.execute(f"SELECT e.id, e.codigo, e.titulo, e.modificado, e.fusionado_en, (SELECT COUNT(*) FROM cita WHERE entidad_id=e.id) "
-                            f"FROM entidad e WHERE e.revision='fusionado' AND e.fusionado_en IN ({','.join('?' * len(ids))}) ORDER BY e.modificado", list(ids)):
-            out.setdefault(r[4], []).append({"id": r[0], "codigo": r[1], "titulo": r[2], "fecha": dt.datetime.fromtimestamp(r[3] or 0).strftime("%Y-%m-%d %H:%M"), "citas": r[5]})
+        for r in db.execute(
+            f"SELECT e.id, e.codigo, e.titulo, e.modificado, e.fusionado_en, (SELECT COUNT(*) FROM cita WHERE entidad_id=e.id) "
+            f"FROM entidad e WHERE e.revision='fusionado' AND e.fusionado_en IN ({','.join('?' * len(ids))}) ORDER BY e.modificado",
+            list(ids),
+        ):
+            out.setdefault(r[4], []).append(
+                {"id": r[0], "codigo": r[1], "titulo": r[2], "fecha": dt.datetime.fromtimestamp(r[3] or 0).strftime("%Y-%m-%d %H:%M"), "citas": r[5]}
+            )
     return out
 
 
@@ -412,8 +502,12 @@ def _revertir(db, pid, lote):
         elif h["accion"] == "editar":
             _poner(db, h["entidad_id"], antes)
         elif h["accion"] == "niveles":
-            _extra(db, h["proyecto_id"], matriz_niveles_poder=antes.get("niveles_poder", antes.get("niveles")),
-                   matriz_niveles_interes=antes.get("niveles_interes", antes.get("niveles")))
+            _extra(
+                db,
+                h["proyecto_id"],
+                matriz_niveles_poder=antes.get("niveles_poder", antes.get("niveles")),
+                matriz_niveles_interes=antes.get("niveles_interes", antes.get("niveles")),
+            )
         elif h["accion"] == "fusionar":
             db.executemany("DELETE FROM cita WHERE id=?", [(i,) for i in despues["citas"]])
             db.executemany("DELETE FROM relacion WHERE a=? AND b=? AND tipo=?", despues["rel"])
@@ -436,9 +530,11 @@ def _extra(db, pid, **k):
 
 def niveles_ejes(c, db=None):
     """(huecos de poder, huecos de interés); cae en `matriz_niveles` (antiguo, un solo N) y luego en NIVELES_DEF."""
-    e = ((proyecto(c, False, db) or {}).get("extra") or {})
-    return (int(e.get("matriz_niveles_poder") or e.get("matriz_niveles") or NIVELES_DEF),
-            int(e.get("matriz_niveles_interes") or e.get("matriz_niveles") or NIVELES_DEF))
+    e = (proyecto(c, False, db) or {}).get("extra") or {}
+    return (
+        int(e.get("matriz_niveles_poder") or e.get("matriz_niveles") or NIVELES_DEF),
+        int(e.get("matriz_niveles_interes") or e.get("matriz_niveles") or NIVELES_DEF),
+    )
 
 
 def niveles(c, db=None):
@@ -519,14 +615,36 @@ def citas(eid):
 def _items(d):
     """Ítems seguibles de un documento (carpetas.items_doc) + sus decisiones, con el mismo formato."""
     import carpetas  # importa este módulo: aquí, para no hacer un ciclo al cargar
-    return carpetas.items_doc(d) + [{**carpetas._ref(d, x.get("t")), "fecha_doc": d["fecha"], "id": f"{d['mid']}|{d['ver']}|decisiones.{i}", "tipo": "Decisiones",
-                                     "tipo_ent": "decision", "texto": x["texto"], "resp": "", "plazo": "", "cita": x.get("cita") or "", "h": carpetas._h(d["mid"], x["texto"]),
-                                     "fecha": None} for i, x in enumerate(d["data"].get("decisiones") or []) if str(x.get("texto") or "").strip()]
+
+    return carpetas.items_doc(d) + [
+        {
+            **carpetas._ref(d, x.get("t")),
+            "fecha_doc": d["fecha"],
+            "id": f"{d['mid']}|{d['ver']}|decisiones.{i}",
+            "tipo": "Decisiones",
+            "tipo_ent": "decision",
+            "texto": x["texto"],
+            "resp": "",
+            "plazo": "",
+            "cita": x.get("cita") or "",
+            "h": carpetas._h(d["mid"], x["texto"]),
+            "fecha": None,
+        }
+        for i, x in enumerate(d["data"].get("decisiones") or [])
+        if str(x.get("texto") or "").strip()
+    ]
 
 
 def _del_doc(it):
-    return {"titulo": it["texto"], "dueno": it["resp"], "fecha_limite": it["fecha"], "fecha_alta": it["fecha_doc"], "ver": it["ver"],
-            "ruta": it["id"].split("|", 2)[2], "h": it["h"]}
+    return {
+        "titulo": it["texto"],
+        "dueno": it["resp"],
+        "fecha_limite": it["fecha"],
+        "fecha_alta": it["fecha_doc"],
+        "ver": it["ver"],
+        "ruta": it["id"].split("|", 2)[2],
+        "h": it["h"],
+    }
 
 
 def sincronizar(c, docs):
@@ -550,14 +668,18 @@ def _sincronizar(db, c, its, seco):
     def escribe():
         if seco:
             raise _Cambia
+
     p = proyecto(c, False, db)
     if not p and its:
         escribe()
         p = proyecto(c, db=db)
     if not p:
         return {}
-    ents = [x for x in map(_ent, db.execute("SELECT * FROM entidad WHERE proyecto_id=? AND mid IS NOT NULL ORDER BY creado, rowid", (p["id"],)))
-            if x["campos"].get("fuente") not in ("poblar", "derivar")]  # las de poblar.py/derivar.py no son ítems del acta: ni se emparejan ni quedan huérfanas
+    ents = [
+        x
+        for x in map(_ent, db.execute("SELECT * FROM entidad WHERE proyecto_id=? AND mid IS NOT NULL ORDER BY creado, rowid", (p["id"],)))
+        if x["campos"].get("fuente") not in ("poblar", "derivar")
+    ]  # las de poblar.py/derivar.py no son ítems del acta: ni se emparejan ni quedan huérfanas
     por_ref, por_h, par = {ref(x): x for x in ents}, {}, {}
     for x in ents:
         por_h.setdefault((x["mid"], x["h"]), []).append(x)
@@ -599,10 +721,20 @@ def _sincronizar(db, c, its, seco):
         escribe()
         s = leg.get(it["id"]) or leg_h.get((it["mid"], it["h"])) or {}
         viejo = d["mtime"] <= mig
-        par[it["id"]] = crear(c, it["tipo_ent"], False, db, cita={"mid": it["mid"], "ver": it["ver"], "t": it["t"], "texto": it["cita"]}, **nuevo, mid=it["mid"],
-                              campos={"seccion": it["tipo"], "plazo": it["plazo"], **({"nota": s["nota"]} if s.get("nota") else {})},
-                              **({"estado": s["estado"]} if s.get("estado") else {}), sugerencia=sl.get(it["id"]),
-                              revision="aprobado" if viejo else "propuesto", origen="migrado" if viejo else "reunion")
+        par[it["id"]] = crear(
+            c,
+            it["tipo_ent"],
+            False,
+            db,
+            cita={"mid": it["mid"], "ver": it["ver"], "t": it["t"], "texto": it["cita"]},
+            **nuevo,
+            mid=it["mid"],
+            campos={"seccion": it["tipo"], "plazo": it["plazo"], **({"nota": s["nota"]} if s.get("nota") else {})},
+            **({"estado": s["estado"]} if s.get("estado") else {}),
+            sugerencia=sl.get(it["id"]),
+            revision="aprobado" if viejo else "propuesto",
+            origen="migrado" if viejo else "reunion",
+        )
     for x in ents:
         if x["id"] not in usados and not x["campos"].get("huerfano"):
             escribe()
@@ -627,10 +759,25 @@ def expediente(c, db=None):
         ents = [_ent(r) for r in db.execute("SELECT * FROM entidad WHERE proyecto_id=? ORDER BY creado, rowid", (p["id"],))]
     ext = p["extra"]
     e = {**{k: p[k] for k in PCOLS if p[k] is not None}, **{k: v for k, v in ext.items() if k not in LEGADO}}
-    e["manuales"] = [{"id": x["id"], "texto": x["titulo"], "resp": x["dueno"], "plazo": x["campos"].get("plazo", ""), "creado": x["creado"]}
-                     for x in ents if x["origen"] == "manual" and x["revision"] not in OCULTA]
-    e["estados"] = {**(ext.get("estados_legado") or {}), **{ref(x): {"estado": x["estado"], "t": x["modificado"], "mid": x["mid"] or "", "h": x["h"] or "",
-                                                                     **({"nota": x["campos"]["nota"]} if x["campos"].get("nota") else {})} for x in ents if x["estado"]}}
+    e["manuales"] = [
+        {"id": x["id"], "texto": x["titulo"], "resp": x["dueno"], "plazo": x["campos"].get("plazo", ""), "creado": x["creado"]}
+        for x in ents
+        if x["origen"] == "manual" and x["revision"] not in OCULTA
+    ]
+    e["estados"] = {
+        **(ext.get("estados_legado") or {}),
+        **{
+            ref(x): {
+                "estado": x["estado"],
+                "t": x["modificado"],
+                "mid": x["mid"] or "",
+                "h": x["h"] or "",
+                **({"nota": x["campos"]["nota"]} if x["campos"].get("nota") else {}),
+            }
+            for x in ents
+            if x["estado"]
+        },
+    }
     e["sugeridos"] = {k: v for k, v in {**(ext.get("sugeridos_legado") or {}), **{ref(x): x["sugerencia"] for x in ents}}.items() if v}
     return e
 
@@ -644,7 +791,19 @@ def guardar_expediente(c, antes, e):
         ya = {m["id"] for m in antes["manuales"]}
         for m in e["manuales"]:
             if m["id"] not in ya:
-                crear(c, "tarea", lote, db, id=m["id"], titulo=m["texto"], dueno=m["resp"], campos={"plazo": m["plazo"]}, creado=m["creado"], origen="manual", revision="aprobado")
+                crear(
+                    c,
+                    "tarea",
+                    lote,
+                    db,
+                    id=m["id"],
+                    titulo=m["texto"],
+                    dueno=m["resp"],
+                    campos={"plazo": m["plazo"]},
+                    creado=m["creado"],
+                    origen="manual",
+                    revision="aprobado",
+                )
         for i in ya - {m["id"] for m in e["manuales"]}:
             borrar(i, lote, db)
         ents = {ref(x): x for x in map(_ent, db.execute("SELECT * FROM entidad WHERE proyecto_id=?", (p["id"],)))}
@@ -665,15 +824,25 @@ def guardar_expediente(c, antes, e):
                     v = v or {}
                     nota = {"campos": {"nota": v.get("nota", "")}} if v.get("nota") or x["campos"].get("nota") else {}
                     editar(x["id"], {"estado": v.get("estado", "abierto"), **nota}, lote, db)
-        db.execute("UPDATE proyecto SET tipo=?, datos=?, ajustes=?, glosario=?, extra=? WHERE id=?", (*(_j(e.get(k)) if k != "tipo" else e.get(k) for k in PCOLS), _j(ext), p["id"]))
+        db.execute(
+            "UPDATE proyecto SET tipo=?, datos=?, ajustes=?, glosario=?, extra=? WHERE id=?",
+            (*(_j(e.get(k)) if k != "tipo" else e.get(k) for k in PCOLS), _j(ext), p["id"]),
+        )
 
 
 # ---------- migración desde expedientes.json ----------
 def _cuentas(es):
     """es: [(expediente o extra, manuales, glosario)] -> recuentos para comparar antes/después."""
     n = lambda k: sum(len(x.get(k) or []) for x, _, _ in es)
-    return {"carpetas": len(es), "manuales": sum(m for _, m, _ in es), "estados": n("estados"), "sugeridos": n("sugeridos"), "notas": n("notas"),
-            "eventos": n("eventos"), "glosario": sum(g for _, _, g in es)}
+    return {
+        "carpetas": len(es),
+        "manuales": sum(m for _, m, _ in es),
+        "estados": n("estados"),
+        "sugeridos": n("sugeridos"),
+        "notas": n("notas"),
+        "eventos": n("eventos"),
+        "glosario": sum(g for _, _, g in es),
+    }
 
 
 def migrar_json(db):
@@ -703,11 +872,16 @@ def migrar_json(db):
         resto = {k: v for k, v in e.items() if k not in PCOLS + ("manuales", "estados", "sugeridos")}
         ext = {**resto, "estados_legado": est, "sugeridos_legado": sug}
         if o := proyecto(c, False, db):  # ya tenía registro (migración reintentada tras usar la app): solo se completa lo que falta
-            db.execute("UPDATE proyecto SET tipo=?, datos=?, ajustes=?, glosario=?, extra=? WHERE id=?",
-                       (o["tipo"] or e.get("tipo"), *(_j(o[k] or e.get(k)) for k in PCOLS[1:]), _j({**ext, **{k: v for k, v in o["extra"].items() if v}}), o["id"]))
+            db.execute(
+                "UPDATE proyecto SET tipo=?, datos=?, ajustes=?, glosario=?, extra=? WHERE id=?",
+                (o["tipo"] or e.get("tipo"), *(_j(o[k] or e.get(k)) for k in PCOLS[1:]), _j({**ext, **{k: v for k, v in o["extra"].items() if v}}), o["id"]),
+            )
             om.append({"carpeta": c, "motivo": "ya tenía registro: solo se completó lo que faltaba (fuera de los recuentos)"})
         else:
-            db.execute("INSERT INTO proyecto(carpeta, tipo, datos, ajustes, glosario, extra) VALUES (?,?,?,?,?,?)", (c, e.get("tipo"), *(_j(e.get(k)) for k in PCOLS[1:]), _j(ext)))
+            db.execute(
+                "INSERT INTO proyecto(carpeta, tipo, datos, ajustes, glosario, extra) VALUES (?,?,?,?,?,?)",
+                (c, e.get("tipo"), *(_j(e.get(k)) for k in PCOLS[1:]), _j(ext)),
+            )
             nuevas[c] = e
         for m in mans:
             if not isinstance(m, dict):
@@ -720,21 +894,47 @@ def migrar_json(db):
                 om.append({"carpeta": c, "manual": i, "id": nid, "motivo": "id repetido: id nuevo" if i else "sin id: id nuevo"})
             ids.add(nid)
             s = est.get(i) if isinstance(est.get(i), dict) else {}
-            crear(c, "tarea", False, db, id=nid, titulo=str(m.get("texto") or ""), dueno=str(m.get("resp") or ""), origen="manual", revision="aprobado",
-                  creado=m["creado"] if isinstance(m.get("creado"), (int, float)) else t, estado=str(s.get("estado") or "abierto"), sugerencia=sug.get(i),
-                  campos={"plazo": str(m.get("plazo") or ""), **({"nota": s["nota"]} if s.get("nota") else {})})
+            crear(
+                c,
+                "tarea",
+                False,
+                db,
+                id=nid,
+                titulo=str(m.get("texto") or ""),
+                dueno=str(m.get("resp") or ""),
+                origen="manual",
+                revision="aprobado",
+                creado=m["creado"] if isinstance(m.get("creado"), (int, float)) else t,
+                estado=str(s.get("estado") or "abierto"),
+                sugerencia=sug.get(i),
+                campos={"plazo": str(m.get("plazo") or ""), **({"nota": s["nota"]} if s.get("nota") else {})},
+            )
     ps = {c: proyecto(c, False, db) for c in nuevas}
     man = {c: db.execute("SELECT COUNT(*) FROM entidad WHERE proyecto_id=? AND origen='manual'", (p["id"],)).fetchone()[0] for c, p in ps.items()}
     antes = _cuentas([(e, len(e["manuales"]), len(e.get("glosario") or [])) for e in nuevas.values()])
-    despues = _cuentas([({**p["extra"], "estados": p["extra"].get("estados_legado"), "sugeridos": p["extra"].get("sugeridos_legado")}, man[c], len(p["glosario"] or []))
-                        for c, p in ps.items()])
+    despues = _cuentas(
+        [
+            ({**p["extra"], "estados": p["extra"].get("estados_legado"), "sugeridos": p["extra"].get("sugeridos_legado")}, man[c], len(p["glosario"] or []))
+            for c, p in ps.items()
+        ]
+    )
     if despues != {**antes, "manuales": antes["manuales"] - menos}:
         raise ValueError(f"los recuentos no cuadran: antes={antes} despues={despues} omitidos={om}")
     return {"antes": antes, "despues": despues, "omitidos": om}
 
 
 # ---------- API genérica (/api/reg): serialización, relaciones, pertenencia al proyecto ----------
-EDITABLES = {"titulo", "detalle", "estado", "dueno", "prioridad", "fecha_limite", "fecha_cierre", "fecha_alta", "campos"}  # whitelist de PATCH / revisar.cambios
+EDITABLES = {
+    "titulo",
+    "detalle",
+    "estado",
+    "dueno",
+    "prioridad",
+    "fecha_limite",
+    "fecha_cierre",
+    "fecha_alta",
+    "campos",
+}  # whitelist de PATCH / revisar.cambios
 REL_TIPOS = ("deriva_de", "sustituye", "bloquea", "mitiga", "afecta", "responde", "solicita", "fusion")
 
 
@@ -748,16 +948,27 @@ def completas(xs):
         ci, re_ = {}, {}
         for r in db.execute(f"SELECT entidad_id, mid, ver, t, texto, verificada FROM cita WHERE entidad_id IN ({q}) ORDER BY id", ids):
             ci.setdefault(r[0], []).append({"mid": r[1], "ver": r[2], "t": r[3], "texto": r[4], "verificada": bool(r[5])})
-        for r in db.execute(f"SELECT a, b, tipo, propuesta FROM relacion WHERE (a IN ({q}) OR b IN ({q})) AND propuesta>=0", ids + ids):  # propuesta=-1: propuesta rechazada, no se muestra
+        for r in db.execute(
+            f"SELECT a, b, tipo, propuesta FROM relacion WHERE (a IN ({q}) OR b IN ({q})) AND propuesta>=0", ids + ids
+        ):  # propuesta=-1: propuesta rechazada, no se muestra
             rel = {"a": r[0], "b": r[1], "tipo": r[2], "propuesta": bool(r[3])}
             for k in {r[0], r[1]}:
                 re_.setdefault(k, []).append(rel)
         fu = fusionadas(ids, db)
         dest = {x["fusionado_en"] for x in xs if x["fusionado_en"]}
         cod = {r[0]: r[1] for r in db.execute(f"SELECT id, codigo FROM entidad WHERE id IN ({','.join('?' * len(dest))})", list(dest))} if dest else {}
-    return [{k: x[k] for k in ECOLS if k not in ("proyecto_id", "orden")} | {"editado": bool(x["editado"]), "huerfano": bool(x["campos"].get("huerfano")),
-            "citas": ci.get(x["id"], []), "relaciones": re_.get(x["id"], []), "fusionadas": fu.get(x["id"], []),
-            "fusionado_en_codigo": cod.get(x["fusionado_en"])} for x in xs]
+    return [
+        {k: x[k] for k in ECOLS if k not in ("proyecto_id", "orden")}
+        | {
+            "editado": bool(x["editado"]),
+            "huerfano": bool(x["campos"].get("huerfano")),
+            "citas": ci.get(x["id"], []),
+            "relaciones": re_.get(x["id"], []),
+            "fusionadas": fu.get(x["id"], []),
+            "fusionado_en_codigo": cod.get(x["fusionado_en"]),
+        }
+        for x in xs
+    ]
 
 
 def de(c, eid):
@@ -775,7 +986,10 @@ def relacionar(c, a, b, tipo, propuesta=False):
         raise ValueError("Relación no válida")
     de(c, a), de(c, b)
     with _db(escribe=True) as db:
-        db.execute("INSERT INTO relacion(a, b, tipo, propuesta) VALUES (?,?,?,?) ON CONFLICT(a, b, tipo) DO UPDATE SET propuesta=excluded.propuesta", (a, b, tipo, int(bool(propuesta))))
+        db.execute(
+            "INSERT INTO relacion(a, b, tipo, propuesta) VALUES (?,?,?,?) ON CONFLICT(a, b, tipo) DO UPDATE SET propuesta=excluded.propuesta",
+            (a, b, tipo, int(bool(propuesta))),
+        )
 
 
 def sustituir(c, a, b):
@@ -803,7 +1017,16 @@ def rechazadas(c, tipo="sustituye"):
     """{(a, b)} de propuestas de relación rechazadas por el usuario en el proyecto de c."""
     with _db() as db:
         p = proyecto(c, False, db)
-        return p and {(r[0], r[1]) for r in db.execute("SELECT r.a, r.b FROM relacion r JOIN entidad e ON e.id=r.a WHERE r.propuesta=-1 AND r.tipo=? AND e.proyecto_id=?", (tipo, p["id"]))} or set()
+        return (
+            p
+            and {
+                (r[0], r[1])
+                for r in db.execute(
+                    "SELECT r.a, r.b FROM relacion r JOIN entidad e ON e.id=r.a WHERE r.propuesta=-1 AND r.tipo=? AND e.proyecto_id=?", (tipo, p["id"])
+                )
+            }
+            or set()
+        )
 
 
 def ultimo_lote_ids(c):

@@ -2,6 +2,7 @@
 Config sin secretos en work/destinos.json (destinos, presets, recetas); secretos en el llavero del sistema; historial work/envios.jsonl; idempotencia work/envios_mapa.json.
 Nunca se envía vídeo ni audio. Con anonimización activa (ajuste/carpeta/preset/petición) solo sale la copia anonimizada; si falta, error (nunca en claro).
 Plan = {carpeta, nombre, plantilla?, solo_buscable?, salidas:[{que, como: destino|documento, preset?|destino?, nombre?}]}."""
+
 import csv
 import datetime as dt
 import hashlib
@@ -32,7 +33,14 @@ LOCK = threading.RLock()
 SERV = "actas-destinos"
 QUE = ("documento", "resumen", "tareas", "decisiones", "requisitos", "historias", "riesgos", "interesados", "informe")
 REG = {"tareas": "tarea", "decisiones": "decision", "requisitos": "requisito", "historias": "historia", "riesgos": "riesgo", "interesados": "interesado"}
-TIT = {"tareas": "Tareas", "decisiones": "Decisiones", "requisitos": "Requisitos", "historias": "Historias de usuario", "riesgos": "Riesgos", "interesados": "Interesados"}
+TIT = {
+    "tareas": "Tareas",
+    "decisiones": "Decisiones",
+    "requisitos": "Requisitos",
+    "historias": "Historias de usuario",
+    "riesgos": "Riesgos",
+    "interesados": "Interesados",
+}
 INTERNO = "@proyecto"
 DOCQ = ("documento", "resumen", "transcripcion")
 OWN = ("md", "json", "csv")
@@ -65,6 +73,7 @@ def cfg():
 
 def _kr():
     import keyring
+
     return keyring
 
 
@@ -93,8 +102,19 @@ def _log(e):
 
 
 def _log_error(s, ex, meta=None):
-    e = {"id": uuid.uuid4().hex[:10], "t": time.time(), "preset": s.get("preset"), "destino": s.get("destino") or "", "que": [s["que"]] if s.get("que") else [], "req": None, "items": [], "enlaces": [],
-         "estado": "error", "error": str(ex) or type(ex).__name__, "meta": meta or {}}
+    e = {
+        "id": uuid.uuid4().hex[:10],
+        "t": time.time(),
+        "preset": s.get("preset"),
+        "destino": s.get("destino") or "",
+        "que": [s["que"]] if s.get("que") else [],
+        "req": None,
+        "items": [],
+        "enlaces": [],
+        "estado": "error",
+        "error": str(ex) or type(ex).__name__,
+        "meta": meta or {},
+    }
     _log(e)
     return e
 
@@ -113,7 +133,11 @@ def _ult(mid):
 
 def _docs_de(c):
     """[(mid, ver)] de los documentos con acta de la carpeta c, el más reciente primero."""
-    xs = [(m.parent, max(m.parent.glob("acta_*/acta.json"), key=lambda f: f.stat().st_mtime)) for m in P.WORK.glob("*/meta.json") if _meta(m.parent.name).get("carpeta", "") == c and any(m.parent.glob("acta_*/acta.json"))]
+    xs = [
+        (m.parent, max(m.parent.glob("acta_*/acta.json"), key=lambda f: f.stat().st_mtime))
+        for m in P.WORK.glob("*/meta.json")
+        if _meta(m.parent.name).get("carpeta", "") == c and any(m.parent.glob("acta_*/acta.json"))
+    ]
     return [(d.name, f.parent.name) for d, f in sorted(xs, key=lambda x: -x[1].stat().st_mtime)]
 
 
@@ -149,6 +173,7 @@ def _anonf(mids):
         for tipo, _, _, a, b in reversed(privacidad.detectar_texto(t)):
             t = t[:a] + privacidad.ETIQUETA[tipo] + t[b:]
         return t
+
     return f
 
 
@@ -158,18 +183,35 @@ def _s(v):
 
 def _de_ent(x, q, an, f, base):
     nom = lambda m: privacidad.NEUTRO if an else (_meta(m).get("nombre") or m)
-    org = "; ".join(nom(ci["mid"]) + (f" [{P.fmt(ci['t'])}]" if ci.get("t") is not None else "") + (f" «{f(ci['texto'])}»" if ci.get("texto") else "") for ci in x["citas"][:3])
+    org = "; ".join(
+        nom(ci["mid"]) + (f" [{P.fmt(ci['t'])}]" if ci.get("t") is not None else "") + (f" «{f(ci['texto'])}»" if ci.get("texto") else "")
+        for ci in x["citas"][:3]
+    )
     k = [f"{a}: {_s(b)}" for a, b in (x.get("campos") or {}).items() if b not in ("", None, [], {})]
-    return {"k": "e:" + x["id"], "tipo": q, "codigo": x["codigo"], "titulo": f(x["titulo"]), "cuerpo": f("\n".join(filter(None, [x["detalle"], *k]))), "dueno": f(x["dueno"]),
-            "prioridad": x["prioridad"], "fecha_limite": x["fecha_limite"], "estado": x["estado"], "origen": org,
-            "enlaces": [] if an else [f"{base}/api/vista/{ci['mid']}/{ci['ver']}" for ci in x["citas"][:3] if ci.get("ver")]}
+    return {
+        "k": "e:" + x["id"],
+        "tipo": q,
+        "codigo": x["codigo"],
+        "titulo": f(x["titulo"]),
+        "cuerpo": f("\n".join(filter(None, [x["detalle"], *k]))),
+        "dueno": f(x["dueno"]),
+        "prioridad": x["prioridad"],
+        "fecha_limite": x["fecha_limite"],
+        "estado": x["estado"],
+        "origen": org,
+        "enlaces": [] if an else [f"{base}/api/vista/{ci['mid']}/{ci['ver']}" for ci in x["citas"][:3] if ci.get("ver")],
+    }
 
 
 def _items(q, a, aprob, an, f, base, desde=None):
     """Ítems del registro de la clase `q` (plural); sin registro y con documento explícito: tareas y decisiones del acta (sin aprobar)."""
     xs = []
     if a["c"]:
-        xs = [x for x in registro.completas(registro.listar(a["c"], REG[q])) if x["estado"] not in registro.OCULTA and x["revision"] in (("aprobado",) if aprob else ("aprobado", "propuesto"))]
+        xs = [
+            x
+            for x in registro.completas(registro.listar(a["c"], REG[q]))
+            if x["estado"] not in registro.OCULTA and x["revision"] in (("aprobado",) if aprob else ("aprobado", "propuesto"))
+        ]
         if a["ids"]:
             xs = [x for x in xs if x["id"] in a["ids"]]
         if a["mid"]:
@@ -179,8 +221,22 @@ def _items(q, a, aprob, an, f, base, desde=None):
     if xs or a["ids"] or desde is not None or not (a["mid"] and q in ("tareas", "decisiones")) or aprob:
         return [_de_ent(x, REG[q], an, f, base) for x in xs]
     c = exportar.carga(a["mid"], a["ver"], an)
-    return [{"k": f"a:{a['mid']}:{a['ver']}:{q}.{i}", "tipo": REG[q], "codigo": "", "titulo": f(x.get("tarea") or x["texto"]), "cuerpo": "", "dueno": f(x.get("responsable", "")),
-             "prioridad": "", "fecha_limite": x.get("plazo", ""), "estado": "", "origen": f(x.get("cita", "")), "enlaces": []} for i, x in enumerate(c["data"].get(q, []))]
+    return [
+        {
+            "k": f"a:{a['mid']}:{a['ver']}:{q}.{i}",
+            "tipo": REG[q],
+            "codigo": "",
+            "titulo": f(x.get("tarea") or x["texto"]),
+            "cuerpo": "",
+            "dueno": f(x.get("responsable", "")),
+            "prioridad": "",
+            "fecha_limite": x.get("plazo", ""),
+            "estado": "",
+            "origen": f(x.get("cita", "")),
+            "enlaces": [],
+        }
+        for i, x in enumerate(c["data"].get(q, []))
+    ]
 
 
 def _md_items(secs, vault):
@@ -191,7 +247,11 @@ def _md_items(secs, vault):
             who = x["dueno"] and (f"[[{x['dueno']}]]" if vault else x["dueno"])
             plazo = f" ({x['fecha_limite']})" if x["fecha_limite"] else ""
             cod = f" `{x['codigo']}`" if x["codigo"] else ""
-            o.append((f"- [ ] {x['titulo']}" + (f" — {who}" if who else "") + plazo + cod) if x["tipo"] == "tarea" else f"- **{x['codigo'] or x['tipo']}** {x['titulo']}" + (f" — {who}" if who else "") + plazo)
+            o.append(
+                (f"- [ ] {x['titulo']}" + (f" — {who}" if who else "") + plazo + cod)
+                if x["tipo"] == "tarea"
+                else f"- **{x['codigo'] or x['tipo']}** {x['titulo']}" + (f" — {who}" if who else "") + plazo
+            )
             o += [f"  - {ln}" for ln in x["cuerpo"].splitlines() if ln.strip()]
             o += [f"  - Origen: {x['origen']}"] if x["origen"] else []
             o += [f"  - [Documento de origen]({u})" for u in x["enlaces"][:1]]
@@ -201,6 +261,7 @@ def _md_items(secs, vault):
 def _docs_inf(c):
     try:
         import app
+
         return app._inf_docs(c)
     except Exception:
         return ()
@@ -223,9 +284,15 @@ def _hay_nuevo(c, desde):
 # ---------- generación de ficheros (descargas y adjuntos): exportar.py + export_registro.py + informe.py ----------
 def _mz():
     ER = export_registro
-    return {"documento": (("docx", "pdf", "md", "obsidian", "notion"), ()), "transcripcion": (("srt", "vtt", "md"), ()), "resumen": (("md",), ()),
-            "tareas": (("csv_todoist", "csv_jira", "csv_azure", "csv_planner", "ics") + OWN, OWN), "riesgos": (OWN, OWN), "informe": ((), tuple(informe.EXT)),
-            **{q: (OWN, ER.formatos(q)) for q in ("decisiones", "requisitos", "historias", "interesados")}}
+    return {
+        "documento": (("docx", "pdf", "md", "obsidian", "notion"), ()),
+        "transcripcion": (("srt", "vtt", "md"), ()),
+        "resumen": (("md",), ()),
+        "tareas": (("csv_todoist", "csv_jira", "csv_azure", "csv_planner", "ics") + OWN, OWN),
+        "riesgos": (OWN, OWN),
+        "informe": ((), tuple(informe.EXT)),
+        **{q: (OWN, ER.formatos(q)) for q in ("decisiones", "requisitos", "historias", "interesados")},
+    }
 
 
 def _gen(u, q, fmt, aprob, an, ids, base=""):
@@ -293,6 +360,7 @@ def juntar(que, formatos, docs, cs, cs_docs, aprob=False, anon=None, ids=(), ult
         vistos.add(nom)
         files.append((nom, b))
         return 1
+
     for q in que:
         for fmt in formatos:
             if q not in mz or fmt not in mz[q][0] + mz[q][1]:
@@ -323,7 +391,17 @@ def descargar(d):
         raise ValueError("Elige documentos (docs) o un proyecto (c)")
     if not d.get("que") or not d.get("formatos"):
         raise ValueError("Indica qué (que) y formatos")
-    return juntar(d["que"], d["formatos"], docs, cs, [_meta(x["mid"]).get("carpeta", "") for x in docs], bool(d.get("solo_aprobados")), d.get("anon"), d.get("ids") or [], base=cfg()["url_base"].rstrip("/"))
+    return juntar(
+        d["que"],
+        d["formatos"],
+        docs,
+        cs,
+        [_meta(x["mid"]).get("carpeta", "") for x in docs],
+        bool(d.get("solo_aprobados")),
+        d.get("anon"),
+        d.get("ids") or [],
+        base=cfg()["url_base"].rstrip("/"),
+    )
 
 
 # ---------- páginas ----------
@@ -345,7 +423,11 @@ def _pagina(que, sel, a, o, titulo, an, aprob, base):
     if "documento" in que and c:
         md.append(exportar.md(c, img="adjuntos" if vault else None, links=vault))
         if vault:
-            ficheros += [(f"adjuntos/{k['img']}", (c["d"] / c["img"] / k["img"]).read_bytes()) for k in c["data"].get("capturas", []) if (c["d"] / c["img"] / k["img"]).is_file()]
+            ficheros += [
+                (f"adjuntos/{k['img']}", (c["d"] / c["img"] / k["img"]).read_bytes())
+                for k in c["data"].get("capturas", [])
+                if (c["d"] / c["img"] / k["img"]).is_file()
+            ]
     elif "resumen" in que and c and c["data"].get("resumen"):
         md.append("## Resumen\n\n" + c["data"]["resumen"])
     if sel["secs"]:
@@ -356,18 +438,43 @@ def _pagina(que, sel, a, o, titulo, an, aprob, base):
     omit = []
     if o.get("archivos"):  # otros formatos (docx, pdf, csv_jira, xlsx…) del mismo ámbito, con los mismos generadores que «Descargar»
         ult = [{"mid": a["dm"], "ver": a["dv"]}] if a["dm"] else []
-        extra, omit = juntar(que, [f for f in fmts if f != "md"], [{"mid": a["mid"], "ver": a["ver"]}] if a["mid"] else [], [a["c"]] if a["c"] and not a["mid"] else [], [a["c"]] if a["c"] else [],
-                             aprob, an, a["ids"], ult, base)
+        extra, omit = juntar(
+            que,
+            [f for f in fmts if f != "md"],
+            [{"mid": a["mid"], "ver": a["ver"]}] if a["mid"] else [],
+            [a["c"]] if a["c"] and not a["mid"] else [],
+            [a["c"]] if a["c"] else [],
+            aprob,
+            an,
+            a["ids"],
+            ult,
+            base,
+        )
         ficheros += extra
     if "md" in fmts or not ficheros:
         fr = exportar.frontmatter(c) if vault and "documento" in que and c else _front(titulo)
         ficheros.insert(0, (f"{exportar._nombre_arch(titulo)}.md", (fr + (cuerpo if cuerpo.startswith("#") else f"# {titulo}\n\n{cuerpo}")).encode()))
-    js = {"carpeta": "" if an else a["c"] or "", "documento": {"mid": a["dm"], "ver": a["dv"], "titulo": c["data"]["titulo"]} if c else None, "resumen": c["data"].get("resumen") if c and "resumen" in que else None,
-          "enlace": f"{base}/api/vista/{a['dm']}/{a['dv']}" if a["dm"] and not an else "", "texto": cuerpo,
-          "video": "" if an or not a["dm"] else _meta(a["dm"]).get("url") or next((f"{base}/files/{a['dm']}/{v.name}" for v in (P.WORK / Path(a["dm"]).name).glob("video.*") if _publica(base)), ""),
-          "items": [{k: v for k, v in x.items() if k != "k"} for _, its in sel["secs"] for x in its]}
-    return {"k": f"pag|{a['mid'] or a['c']}|{'+'.join(sorted(que))}", "titulo": titulo, "md": cuerpo or f"# {titulo}", "ficheros": ficheros, "json": js, "omitidos": omit,
-            "h": hashlib.sha1(json.dumps([cuerpo, [(n, hashlib.sha1(b).hexdigest()) for n, b in ficheros]]).encode()).hexdigest()}
+    js = {
+        "carpeta": "" if an else a["c"] or "",
+        "documento": {"mid": a["dm"], "ver": a["dv"], "titulo": c["data"]["titulo"]} if c else None,
+        "resumen": c["data"].get("resumen") if c and "resumen" in que else None,
+        "enlace": f"{base}/api/vista/{a['dm']}/{a['dv']}" if a["dm"] and not an else "",
+        "texto": cuerpo,
+        "video": ""
+        if an or not a["dm"]
+        else _meta(a["dm"]).get("url")
+        or next((f"{base}/files/{a['dm']}/{v.name}" for v in (P.WORK / Path(a["dm"]).name).glob("video.*") if _publica(base)), ""),
+        "items": [{k: v for k, v in x.items() if k != "k"} for _, its in sel["secs"] for x in its],
+    }
+    return {
+        "k": f"pag|{a['mid'] or a['c']}|{'+'.join(sorted(que))}",
+        "titulo": titulo,
+        "md": cuerpo or f"# {titulo}",
+        "ficheros": ficheros,
+        "json": js,
+        "omitidos": omit,
+        "h": hashlib.sha1(json.dumps([cuerpo, [(n, hashlib.sha1(b).hexdigest()) for n, b in ficheros]]).encode()).hexdigest(),
+    }
 
 
 def _doc_escribir(carpeta, titulo, md, mid=None):
@@ -376,23 +483,44 @@ def _doc_escribir(carpeta, titulo, md, mid=None):
     mid = mid or uuid.uuid4().hex[:16]
     wd, ver = P.WORK / Path(mid).name, "acta_normal_impdoc"
     (wd / ver).mkdir(parents=True, exist_ok=True)
-    data = {"titulo": titulo, "duracion": 0, "nivel": "normal", "resumen": md, "relato": [], "puntos": [], "secciones": [], "decisiones": [], "tareas": [], "capturas": [],
-            "plantilla": "Acta de reunión", "secciones_plantilla": []}
+    data = {
+        "titulo": titulo,
+        "duracion": 0,
+        "nivel": "normal",
+        "resumen": md,
+        "relato": [],
+        "puntos": [],
+        "secciones": [],
+        "decisiones": [],
+        "tareas": [],
+        "capturas": [],
+        "plantilla": "Acta de reunión",
+        "secciones_plantilla": [],
+    }
     (wd / ver / "acta.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     if nuevo:
-        (wd / "transcript_impdoc.json").write_text(json.dumps({"language": "es", "segments": [], "solo_acta": True, "importada": {"fuente": titulo}}, ensure_ascii=False), encoding="utf-8")
+        (wd / "transcript_impdoc.json").write_text(
+            json.dumps({"language": "es", "segments": [], "solo_acta": True, "importada": {"fuente": titulo}}, ensure_ascii=False), encoding="utf-8"
+        )
         (wd / "meta.json").write_text(json.dumps({"nombre": titulo, "carpeta": carpeta}, ensure_ascii=False), encoding="utf-8")
     try:
         html = exportar.html_doc(exportar.carga(mid, ver))
     except Exception:
         import html as H
+
         html = f"<!doctype html><meta charset=utf-8><title>{H.escape(titulo)}</title><h1>{H.escape(titulo)}</h1><pre>{H.escape(md)}</pre>"
     (wd / ver / "index.html").write_text(html, encoding="utf-8")
     return mid, f"/files/{mid}/{ver}/index.html"
 
 
-T.TIPOS["proyecto"] = {"nombre": "Documento en proyecto (interno)", "modo": "pagina", "interno": True, "campos": [T.F("carpeta", "Proyecto", req=True, preset=True)], "probar": None,
-                       "crear": lambda c, s, o, x, n=None: _doc_escribir(o["carpeta"], x["titulo"], x["md"], n)}
+T.TIPOS["proyecto"] = {
+    "nombre": "Documento en proyecto (interno)",
+    "modo": "pagina",
+    "interno": True,
+    "campos": [T.F("carpeta", "Proyecto", req=True, preset=True)],
+    "probar": None,
+    "crear": lambda c, s, o, x, n=None: _doc_escribir(o["carpeta"], x["titulo"], x["md"], n),
+}
 T.TIPOS["proyecto"]["actualizar"] = T.TIPOS["proyecto"]["crear"]
 T.SECRETOS["proyecto"] = []
 
@@ -408,24 +536,59 @@ def _mapa(k=None, v=None):
 
 
 def _hash(x):
-    return hashlib.sha1(json.dumps({k: x.get(k, "") for k in ("titulo", "cuerpo", "dueno", "prioridad", "fecha_limite", "estado", "origen", "codigo")}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha1(
+        json.dumps(
+            {k: x.get(k, "") for k in ("titulo", "cuerpo", "dueno", "prioridad", "fecha_limite", "estado", "origen", "codigo")},
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
 
 
 def _pseudo(k, tipo, titulo, cuerpo):
-    return {"k": k, "tipo": tipo, "codigo": "", "titulo": titulo, "cuerpo": cuerpo, "dueno": "", "prioridad": "", "fecha_limite": "", "estado": "", "origen": "", "enlaces": []}
+    return {
+        "k": k,
+        "tipo": tipo,
+        "codigo": "",
+        "titulo": titulo,
+        "cuerpo": cuerpo,
+        "dueno": "",
+        "prioridad": "",
+        "fecha_limite": "",
+        "estado": "",
+        "origen": "",
+        "enlaces": [],
+    }
 
 
 def _envio(req):
     """req = {destino, que, formatos, solo_aprobados, anonimizar, opciones, doc|c|ids, nombre, preset?, desde?, meta?} -> entrada del historial (guardada); None si solo_nuevo y no hay novedades."""
-    e = {"id": uuid.uuid4().hex[:10], "t": time.time(), "preset": req.get("preset"), "destino": req["destino"], "que": list(req["que"]), "req": req, "items": [], "enlaces": [], "estado": "ok", "error": "",
-         "omitidos": [], "meta": req.get("meta") or {}}
+    e = {
+        "id": uuid.uuid4().hex[:10],
+        "t": time.time(),
+        "preset": req.get("preset"),
+        "destino": req["destino"],
+        "que": list(req["que"]),
+        "req": req,
+        "items": [],
+        "enlaces": [],
+        "estado": "ok",
+        "error": "",
+        "omitidos": [],
+        "meta": req.get("meta") or {},
+    }
     try:
         cf = cfg()
         d = {"tipo": "proyecto", "nombre": "Documento en proyecto", "config": {}} if req["destino"] == INTERNO else cf["destinos"].get(req["destino"])
         if not d:
             raise ValueError("Destino no configurado")
         tp = T.TIPOS[d["tipo"]]
-        o = {**d["config"], **{k: v for k, v in (req.get("opciones") or {}).items() if v not in ("", None)}, **({"formatos": req["formatos"]} if req.get("formatos") else {}), "archivos": bool(tp.get("archivos"))}
+        o = {
+            **d["config"],
+            **{k: v for k, v in (req.get("opciones") or {}).items() if v not in ("", None)},
+            **({"formatos": req["formatos"]} if req.get("formatos") else {}),
+            "archivos": bool(tp.get("archivos")),
+        }
         s = {k: _sec_get(req["destino"], k) for k in T.SECRETOS[d["tipo"]]}
         falta = [f["etiqueta"] for f in tp["campos"] if f["req"] and not (s.get(f["id"]) if f["tipo"] == "secreto" else o.get(f["id"]))]
         if falta:
@@ -467,7 +630,9 @@ def _envio(req):
                 pend.append(_pseudo(f"i:{a['c']}", "informe", "Informe de estado " + a["c"], inf))
             pend = [{**x, "h": _hash(x)} for x in pend]
         else:
-            tit = req.get("nombre") or (c["data"]["titulo"] if c else f"{'proyecto' if an else a['c']} – " + ", ".join(que))  # anonimizado: ni el nombre del proyecto
+            tit = req.get("nombre") or (
+                c["data"]["titulo"] if c else f"{'proyecto' if an else a['c']} – " + ", ".join(que)
+            )  # anonimizado: ni el nombre del proyecto
             pg = _pagina(que, sel, a, o, tit, an, aprob, base)
             pend = [pg | ({"k": pg["k"] + f"|{o.get('carpeta')}|{tit}"} if interno else {})]
             e["omitidos"] = pg["omitidos"]
@@ -549,9 +714,15 @@ def programar_desde_plan(plan):
     if not rp or not plan.get("carpeta"):
         return None
     pl = normalizar_plan({k: v for k, v in plan.items() if k != "repetir"})
-    r = _val_receta({"nombre": f"{plan.get('nombre') or plan['carpeta']} · cada {rp.get('cada', 'semana')}", "activa": True,
-                     "cuando": {"tipo": "programado", "carpeta": plan["carpeta"], **{k: rp[k] for k in ("cada", "dia_semana", "dia_mes", "hora") if k in rp}},
-                     "plan": pl, "solo_nuevo": True})
+    r = _val_receta(
+        {
+            "nombre": f"{plan.get('nombre') or plan['carpeta']} · cada {rp.get('cada', 'semana')}",
+            "activa": True,
+            "cuando": {"tipo": "programado", "carpeta": plan["carpeta"], **{k: rp[k] for k in ("cada", "dia_semana", "dia_mes", "hora") if k in rp}},
+            "plan": pl,
+            "solo_nuevo": True,
+        }
+    )
     i = uuid.uuid4().hex[:8]
     with LOCK:
         cf = cfg()
@@ -574,7 +745,15 @@ def ejecutar_plan(plan, doc, desde=None, meta=None):
                 carp = plan.get("carpeta") or doc.get("c") or (_meta(doc["doc"].split("/")[0]).get("carpeta", "") if doc.get("doc") else "")
                 d = {**doc, **ex, "destino": INTERNO, "que": [q], "nombre": s.get("nombre") or f"{nom0} – {q}".strip(" –"), "opciones": {"carpeta": carp}}
             else:
-                d = {**doc, **ex, "preset": s.get("preset"), "destino": s.get("destino"), "que": [s["que"]] if s.get("que") else None, "nombre": s.get("nombre"), "formatos": s.get("formatos")}
+                d = {
+                    **doc,
+                    **ex,
+                    "preset": s.get("preset"),
+                    "destino": s.get("destino"),
+                    "que": [s["que"]] if s.get("que") else None,
+                    "nombre": s.get("nombre"),
+                    "formatos": s.get("formatos"),
+                }
             e = _envio(_pedido(d))
             if e:
                 r.append(e)
@@ -590,11 +769,16 @@ def _tipo_fuente(mid):
         return "audio" if v.suffix.lower() in AUDIO else "video"
     f = next(iter(wd.glob("fuente.*")), None)
     import documentos  # pdf | texto | imagen (mismo criterio que app._kind)
+
     return documentos.tipo(f) if f else "texto"
 
 
 def _coincide(cu, mid, ver):
-    ins = {"carpeta": _meta(mid).get("carpeta", ""), "plantilla": _leer(P.WORK / mid / ver / "acta.json", {}).get("plantilla", ""), "tipo_fuente": _tipo_fuente(mid)}
+    ins = {
+        "carpeta": _meta(mid).get("carpeta", ""),
+        "plantilla": _leer(P.WORK / mid / ver / "acta.json", {}).get("plantilla", ""),
+        "tipo_fuente": _tipo_fuente(mid),
+    }
     return all(str(ins[k]).casefold() == str(v).casefold() for k, v in (cu or {}).items() if k in ins and v)
 
 
@@ -607,7 +791,12 @@ def _auto(mid, ver, plan):
     carp = _meta(mid).get("carpeta", "").casefold()
     for i, r in cfg()["recetas"].items():
         cu = r.get("cuando") or {}
-        if r.get("activa") and cu.get("tipo", "al_terminar") == "al_terminar" and _coincide(cu, mid, ver) and not (plan is not None and cu.get("carpeta") and cu["carpeta"].casefold() == carp):
+        if (
+            r.get("activa")
+            and cu.get("tipo", "al_terminar") == "al_terminar"
+            and _coincide(cu, mid, ver)
+            and not (plan is not None and cu.get("carpeta") and cu["carpeta"].casefold() == carp)
+        ):
             ejecutar_plan(_plan_de(r), {"doc": f"{mid}/{ver}"}, meta={"receta": i})
     if plan and plan.get("salidas"):
         try:
@@ -623,7 +812,12 @@ def plan_defecto(c):
     sal = []
     for i, r in cfg()["recetas"].items():
         cu = r.get("cuando") or {}
-        if r.get("activa") and cu.get("tipo", "al_terminar") == "al_terminar" and cu.get("carpeta", "").casefold() == c.casefold() and not any(cu.get(k) for k in ("plantilla", "tipo_fuente")):
+        if (
+            r.get("activa")
+            and cu.get("tipo", "al_terminar") == "al_terminar"
+            and cu.get("carpeta", "").casefold() == c.casefold()
+            and not any(cu.get(k) for k in ("plantilla", "tipo_fuente"))
+        ):
             sal += [{**z, "receta": i} for z in normalizar_plan(_plan_de(r))["salidas"]]
     return {"carpeta": c, "salidas": sal}
 
@@ -637,6 +831,7 @@ def _hilo(fn, *a):
                 _log_error({}, ex)
             except Exception:
                 pass
+
     threading.Thread(target=run, daemon=True).start()
 
 
@@ -661,7 +856,11 @@ def proximo_tras(cu, ahora):
     base = ahora.replace(hour=h, minute=m, second=0, microsecond=0)
     for n in range(0, 62):
         d = base + dt.timedelta(days=n)
-        if d > ahora and (cu["cada"] == "dia" or (cu["cada"] == "semana" and d.weekday() == int(cu.get("dia_semana", 0))) or (cu["cada"] == "mes" and d.day == int(cu.get("dia_mes", 1)))):
+        if d > ahora and (
+            cu["cada"] == "dia"
+            or (cu["cada"] == "semana" and d.weekday() == int(cu.get("dia_semana", 0)))
+            or (cu["cada"] == "mes" and d.day == int(cu.get("dia_mes", 1)))
+        ):
             return d
     raise ValueError("Programación no válida")
 
@@ -682,8 +881,14 @@ def correr_receta(i, ahora=None, atrasado=False, manual=False):
     desde = (r.get("ultimo_envio") or 0.0) if r.get("solo_nuevo", True) else None
     es = ejecutar_plan(_plan_de(r), {"c": cu.get("carpeta", "")}, desde, {"receta": i, "atrasado": bool(atrasado), "manual": bool(manual)})
     ok = bool(es) and all(e["estado"] == "ok" for e in es)  # «parcial»: no avanza ultimo_envio (los fallidos se reintentan; los ya enviados se omiten por hash)
-    _poner_receta(i, ultimo_intento=ahora.timestamp(), atrasado=bool(atrasado), ultimo_resultado="sin novedades" if not es else "ok" if ok else "error",
-                  **({"ultimo_envio": ahora.timestamp()} if ok else {}), **({} if manual else {"proximo": proximo_tras(cu, ahora).timestamp()}))
+    _poner_receta(
+        i,
+        ultimo_intento=ahora.timestamp(),
+        atrasado=bool(atrasado),
+        ultimo_resultado="sin novedades" if not es else "ok" if ok else "error",
+        **({"ultimo_envio": ahora.timestamp()} if ok else {}),
+        **({} if manual else {"proximo": proximo_tras(cu, ahora).timestamp()}),
+    )
     return es
 
 
@@ -723,6 +928,7 @@ def iniciar():
             except Exception:
                 pass
             _parar.wait(60)
+
     _hilo_plan.append(threading.Thread(target=bucle, daemon=True, name="actas-destinos"))
     _hilo_plan[0].start()
 
@@ -737,12 +943,13 @@ def sugerencias():
         if str(r) not in vistos and r.is_dir():
             vistos.add(str(r))
             out.append({"nombre": n, "ruta": str(r), "tipo": tipo, "formatos": ["docx", "xlsx", "pdf"]})
+
     for env in ("OneDriveCommercial", "OneDriveConsumer", "OneDrive"):
         if os.environ.get(env):
             add(Path(os.environ[env]).name, os.environ[env], "onedrive")
     for p in sorted(h.glob("OneDrive*")):
         add(p.name, p, "onedrive")
-        org = p.name[len("OneDrive - "):] if p.name.startswith("OneDrive - ") else ""
+        org = p.name[len("OneDrive - ") :] if p.name.startswith("OneDrive - ") else ""
         for s in sorted((h / org).glob("* - *")) if org and (h / org).is_dir() else []:  # bibliotecas de SharePoint: <Org>/<Sitio> - <Biblioteca>
             add(s.name, s, "sharepoint")
     for p in sorted((h / "Library" / "CloudStorage").glob("*")) if (h / "Library" / "CloudStorage").is_dir() else []:
@@ -769,8 +976,13 @@ def _publico(i, d):
 @router.get("/api/destinos")
 def api_destinos():
     cf = cfg()
-    return {"tipos": {t: {"nombre": v["nombre"], "modo": v["modo"], "interno": bool(v.get("interno")), "campos": v["campos"]} for t, v in T.TIPOS.items()}, "interno": INTERNO,
-            "que": list(QUE), "destinos": [_publico(i, d) for i, d in cf["destinos"].items()], "url_base": cf["url_base"]}
+    return {
+        "tipos": {t: {"nombre": v["nombre"], "modo": v["modo"], "interno": bool(v.get("interno")), "campos": v["campos"]} for t, v in T.TIPOS.items()},
+        "interno": INTERNO,
+        "que": list(QUE),
+        "destinos": [_publico(i, d) for i, d in cf["destinos"].items()],
+        "url_base": cf["url_base"],
+    }
 
 
 @router.get("/api/destinos/sugerencias")
@@ -788,7 +1000,11 @@ def _guardar_destino(i, tipo, nombre, conf):
         for k in sec:
             if k in conf:
                 _sec_set(i, k, str(conf[k] or "").strip())
-        cf["destinos"][i] = {"tipo": tipo, "nombre": nombre or T.TIPOS[tipo]["nombre"], "config": {**old["config"], **{k: v for k, v in conf.items() if k in campos and k not in sec}}}
+        cf["destinos"][i] = {
+            "tipo": tipo,
+            "nombre": nombre or T.TIPOS[tipo]["nombre"],
+            "config": {**old["config"], **{k: v for k, v in conf.items() if k in campos and k not in sec}},
+        }
         _escribir(CFG(), cf)
         return _publico(i, cf["destinos"][i])
 
@@ -838,8 +1054,11 @@ def api_probar(i: str, d: dict | None = None):
             raise ValueError("Falta configurar: " + ", ".join(falta))
         with T.tls(o):
             r = tp["probar"](o, s) if tp["probar"] else None
-        return {"ok": True, "mensaje": r if isinstance(r, str) else "Conexión correcta" if tp["probar"] else "Configurado (este tipo no tiene prueba sin enviar)",
-                **({"aviso": "Certificado TLS sin verificar"} if o.get("verificar_tls") in (False, "false") else {})}
+        return {
+            "ok": True,
+            "mensaje": r if isinstance(r, str) else "Conexión correcta" if tp["probar"] else "Configurado (este tipo no tiene prueba sin enviar)",
+            **({"aviso": "Certificado TLS sin verificar"} if o.get("verificar_tls") in (False, "false") else {}),
+        }
     except Exception as ex:
         return {"ok": False, "mensaje": str(ex) or type(ex).__name__}
 
@@ -855,7 +1074,10 @@ def _historial():
 
 @router.get("/api/envios")
 def api_envios(limit: int = 100):
-    return [{k: v for k, v in e.items() if k != "req"} | {"reintentable": bool(e.get("req")) and e["estado"] != "ok"} for e in reversed(_historial()[-max(1, limit):])]
+    return [
+        {k: v for k, v in e.items() if k != "req"} | {"reintentable": bool(e.get("req")) and e["estado"] != "ok"}
+        for e in reversed(_historial()[-max(1, limit) :])
+    ]
 
 
 @router.post("/api/envios/{i}/reintentar")
@@ -870,7 +1092,10 @@ def api_reintentar(i: str):
 @router.get("/api/descargar/opciones")
 def api_desc_opciones():
     mz = _mz()
-    return {"que": {q: {"documento": list(v[0]), "proyecto": list(v[1])} for q, v in mz.items()}, "formatos": sorted({f for v in mz.values() for f in v[0] + v[1]})}
+    return {
+        "que": {q: {"documento": list(v[0]), "proyecto": list(v[1])} for q, v in mz.items()},
+        "formatos": sorted({f for v in mz.values() for f in v[0] + v[1]}),
+    }
 
 
 @router.post("/api/descargar")
@@ -880,15 +1105,25 @@ def api_descargar(d: dict):
         raise HTTPException(400, "Nada que descargar: " + "; ".join(omit))
     if len(files) == 1:
         nom, b = files[0]
-        return Response(b, media_type="application/octet-stream", headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nom),
-                                                                          "X-Actas-Omitidos": urllib.parse.quote(json.dumps(omit, ensure_ascii=False))})
+        return Response(
+            b,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(nom),
+                "X-Actas-Omitidos": urllib.parse.quote(json.dumps(omit, ensure_ascii=False)),
+            },
+        )
     z = io.BytesIO()
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
         for nom, b in files:
             zf.writestr(nom, b)
         if omit:
             zf.writestr("LEEME.txt", "No incluido:\n" + "\n".join("- " + x for x in omit))
-    return Response(z.getvalue(), media_type="application/zip", headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote("Actas · descarga.zip")})
+    return Response(
+        z.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote("Actas · descarga.zip")},
+    )
 
 
 def _val_preset(d):
@@ -902,10 +1137,20 @@ def _val_receta(d):
     cf = cfg()
     if any(p not in cf["presets"] for p in d.get("presets", [])):
         raise ValueError("Preset desconocido")
-    cu = {k: v for k, v in (d.get("cuando") or {}).items() if k in ("tipo", "carpeta", "plantilla", "tipo_fuente", "cada", "dia_semana", "dia_mes", "hora") and v not in ("", None)}
+    cu = {
+        k: v
+        for k, v in (d.get("cuando") or {}).items()
+        if k in ("tipo", "carpeta", "plantilla", "tipo_fuente", "cada", "dia_semana", "dia_mes", "hora") and v not in ("", None)
+    }
     cu.setdefault("tipo", "al_terminar")
-    r = {"nombre": d.get("nombre", ""), "activa": bool(d.get("activa", False)), "cuando": cu, "presets": d.get("presets", []), "solo_nuevo": bool(d.get("solo_nuevo", True)),
-         **{k: d[k] for k in ("ultimo_envio", "ultimo_intento", "ultimo_resultado", "atrasado") if k in d}}
+    r = {
+        "nombre": d.get("nombre", ""),
+        "activa": bool(d.get("activa", False)),
+        "cuando": cu,
+        "presets": d.get("presets", []),
+        "solo_nuevo": bool(d.get("solo_nuevo", True)),
+        **{k: d[k] for k in ("ultimo_envio", "ultimo_intento", "ultimo_resultado", "atrasado") if k in d},
+    }
     if cu["tipo"] == "programado":
         if not cu.get("carpeta"):
             raise ValueError("Una receta programada necesita proyecto (cuando.carpeta)")
@@ -942,6 +1187,7 @@ def _crud(coleccion, val, vista=lambda x: x):
 
     def lista(c: str | None = None):
         return [vista({"id": i, **v}) for i, v in cfg()[coleccion].items() if c is None or (v.get("cuando") or {}).get("carpeta", c) == c]
+
     router.get(base)(lista)
 
     def crear(d: dict):
@@ -949,6 +1195,7 @@ def _crud(coleccion, val, vista=lambda x: x):
 
     def editar(i: str, d: dict):
         return _err(poner, i, d, False)
+
     router.post(base)(crear)
     router.patch(base + "/{i}")(editar)
     router.delete(base + "/{i}")(borrar)
@@ -987,7 +1234,9 @@ def api_objetivos():
 
 _crud("objetivos", _val_objetivo)
 _crud("presets", _val_preset)
-_crud("recetas", _val_receta, lambda r: {**r, "proximo_iso": dt.datetime.fromtimestamp(r["proximo"]).isoformat(timespec="minutes") if r.get("proximo") else None})
+_crud(
+    "recetas", _val_receta, lambda r: {**r, "proximo_iso": dt.datetime.fromtimestamp(r["proximo"]).isoformat(timespec="minutes") if r.get("proximo") else None}
+)
 
 
 @router.get("/api/carpetas/{c}/plan_defecto")

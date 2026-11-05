@@ -6,6 +6,7 @@ la imagen en image_url (data: base64). Quién describe, por este orden (elegir()
 3) local: llama-server con Gemma 4 E4B + su mmproj (modelo «vision» del catálogo de Modelos, opcional).
 Sin ninguno: None (la interfaz ve vision: "no_disponible" y sugiere instalarlo). Las capturas del vídeo se describen solo con la opción
 «Describir capturas con IA» (describir_capturas, apagada de serie: cuesta tiempo)."""
+
 import base64
 import contextlib
 import io
@@ -16,10 +17,12 @@ from pathlib import Path
 
 import pipeline as P
 
-PROMPT = ("Describe en español, de forma objetiva y en 120 palabras como mucho, qué muestra esta imagen o captura de pantalla: qué aplicación "
-          "o pantalla es, mensajes de error visibles, gráficos (qué miden y su tendencia), tablas o diagramas. Si salen personas, descríbelas "
-          "sin identificarlas (nunca digas quién es). No copies todo el texto: el texto de la imagen ya se lee aparte. Responde solo con la descripción.")
-LADO = 1280      # px: lado mayor de la imagen que se envía (más no mejora la descripción y encarece)
+PROMPT = (
+    "Describe en español, de forma objetiva y en 120 palabras como mucho, qué muestra esta imagen o captura de pantalla: qué aplicación "
+    "o pantalla es, mensajes de error visibles, gráficos (qué miden y su tendencia), tablas o diagramas. Si salen personas, descríbelas "
+    "sin identificarlas (nunca digas quién es). No copies todo el texto: el texto de la imagen ya se lee aparte. Responde solo con la descripción."
+)
+LADO = 1280  # px: lado mayor de la imagen que se envía (más no mejora la descripción y encarece)
 MAX_TOK = 300
 FALTA = "Para describir imágenes con IA instala el modelo de visión en Modelos (o configura un servidor de visión en Ajustes)."
 
@@ -31,6 +34,7 @@ def es_local(url):
 def _local():
     """(gguf, mmproj) del modelo «vision» si está instalado."""
     import models
+
     fs = models.CAT["vision"][2]
     return tuple(models.M / f[0] for f in fs) if models.instalado("vision") else None
 
@@ -54,6 +58,7 @@ def estado(cfg):
 
 def _jpeg(path):
     from PIL import Image, ImageOps
+
     with Image.open(path) as im:
         im = ImageOps.exif_transpose(im).convert("RGB")
         im.thumbnail((LADO, LADO))
@@ -63,14 +68,24 @@ def _jpeg(path):
 
 
 def cuerpo(path, modelo="", tope="max_tokens"):
-    return {"model": modelo, "temperature": 0.2, tope: MAX_TOK, "messages": [{"role": "user", "content": [
-        {"type": "text", "text": PROMPT}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + _jpeg(path)}}]}]}
+    return {
+        "model": modelo,
+        "temperature": 0.2,
+        tope: MAX_TOK,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": PROMPT}, {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + _jpeg(path)}}],
+            }
+        ],
+    }
 
 
 def _pedir(url, body, cab=None, prov=None, k=""):
     """Única salida a la red (las pruebas la sustituyen). -> texto de la respuesta."""
     if prov:
         import nube
+
         r = nube._post(url, prov, k, body)
     else:
         req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
@@ -91,6 +106,7 @@ def sesion(cfg, threads=P.PHYS, gpu=None):
             proc.wait(10)
         return
     import nube
+
     p = cfg["proveedor"]
     k = nube.clave(p) or ""
     if not k and p != "propio":

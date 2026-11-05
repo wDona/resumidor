@@ -1,5 +1,6 @@
 """Importar de vuelta un .xlsx/.csv exportado (export_registro) a las vistas del registro, y meter documentos ya procesados en un proyecto.
 Rutas: /api/reg/importar/previa, /api/reg/importar/aplicar, /api/doc/a-proyecto. Solo stdlib. app.py llama a montar(). Nunca borra entidades."""
+
 import csv
 import datetime as dt
 import io
@@ -31,14 +32,45 @@ TIPO_REQ = ["funcional", "no funcional", "restricción"]
 CODIGO = {"codigo", "id", "cod", "ref", "referencia", "identificador"}
 # vista -> [(cabecera exportada, destino, alias separados por coma)]; destino: columna de entidad o campos.<clave>
 CAMPOS = {
-    "requisitos": [("Título", "titulo", "nombre,requisito"), ("Detalle", "detalle", "descripcion"), ("Tipo", "campos.tipo_req", ""), ("Prioridad", "prioridad", "moscow"),
-                   ("Estado", "estado", ""), ("Solicitante", "campos.solicitante", "peticionario"), ("Versión", "campos.version", "")],
-    "historias": [("Título", "titulo", "nombre"), ("Como", "campos.como", ""), ("Quiero", "campos.quiero", ""), ("Para", "campos.para", ""), ("Puntos", "campos.puntos", "estimacion"),
-                  ("Épica", "campos.epica", ""), ("Estado", "estado", "")],
-    "interesados": [("Nombre", "titulo", "titulo"), ("Rol", "campos.rol", ""), ("Organización", "campos.organizacion", "empresa"), ("Poder", "campos.poder", ""),
-                    ("Interés", "campos.interes", ""), ("Actitud", "campos.actitud", ""), ("Estrategia", "campos.estrategia", ""), ("Canal", "campos.canal", ""), ("Notas", "detalle", "detalle")],
-    "decisiones": [("Título", "titulo", "nombre"), ("Contexto", "detalle", "detalle"), ("Alternativas", "campos.alternativas", ""), ("Consecuencias", "campos.consecuencias", ""),
-                   ("Decisor", "campos.decisor", ""), ("Fecha", "campos.fecha", ""), ("Estado", "estado", "")]}
+    "requisitos": [
+        ("Título", "titulo", "nombre,requisito"),
+        ("Detalle", "detalle", "descripcion"),
+        ("Tipo", "campos.tipo_req", ""),
+        ("Prioridad", "prioridad", "moscow"),
+        ("Estado", "estado", ""),
+        ("Solicitante", "campos.solicitante", "peticionario"),
+        ("Versión", "campos.version", ""),
+    ],
+    "historias": [
+        ("Título", "titulo", "nombre"),
+        ("Como", "campos.como", ""),
+        ("Quiero", "campos.quiero", ""),
+        ("Para", "campos.para", ""),
+        ("Puntos", "campos.puntos", "estimacion"),
+        ("Épica", "campos.epica", ""),
+        ("Estado", "estado", ""),
+    ],
+    "interesados": [
+        ("Nombre", "titulo", "titulo"),
+        ("Rol", "campos.rol", ""),
+        ("Organización", "campos.organizacion", "empresa"),
+        ("Poder", "campos.poder", ""),
+        ("Interés", "campos.interes", ""),
+        ("Actitud", "campos.actitud", ""),
+        ("Estrategia", "campos.estrategia", ""),
+        ("Canal", "campos.canal", ""),
+        ("Notas", "detalle", "detalle"),
+    ],
+    "decisiones": [
+        ("Título", "titulo", "nombre"),
+        ("Contexto", "detalle", "detalle"),
+        ("Alternativas", "campos.alternativas", ""),
+        ("Consecuencias", "campos.consecuencias", ""),
+        ("Decisor", "campos.decisor", ""),
+        ("Fecha", "campos.fecha", ""),
+        ("Estado", "estado", ""),
+    ],
+}
 IGNORADAS = {"criterios", "origen", "revision", "deriva de", "sustituye a", "sustituida por"}  # las escribe el sistema o no se editan en tabla
 
 
@@ -240,9 +272,15 @@ def analizar(c, vista, nombre, datos):
     cols = {i: mapa[h] for i, h in enumerate(cab) if h in mapa and i != icod}
     if not cols:
         raise HTTPException(400, "No hay ninguna columna reconocida")
-    res = {"vista": vista, "columnas_reconocidas": ([str(filas[0][icod])] if icod is not None else []) + [str(filas[0][i]) for i in cols],
-           "columnas_ignoradas": [str(filas[0][i]) for i, h in enumerate(cab) if i != icod and i not in cols and h and h not in IGNORADAS],
-           "nuevos": [], "modificados": [], "iguales": 0, "desconocidas": []}
+    res = {
+        "vista": vista,
+        "columnas_reconocidas": ([str(filas[0][icod])] if icod is not None else []) + [str(filas[0][i]) for i in cols],
+        "columnas_ignoradas": [str(filas[0][i]) for i, h in enumerate(cab) if i != icod and i not in cols and h and h not in IGNORADAS],
+        "nuevos": [],
+        "modificados": [],
+        "iguales": 0,
+        "desconocidas": [],
+    }
     todas = {x["codigo"].casefold(): x for x in registro.listar(c, tipo)}
     ops, vistos = [], set()
     for n, f in enumerate(filas[1:], 2):  # n = nº de fila (de las no vacías)
@@ -250,7 +288,9 @@ def analizar(c, vista, nombre, datos):
         cod = _texto(cel(icod)) if icod is not None else ""
         x = todas.get(cod.casefold()) if cod else None
         if cod and (not x or x["revision"] in registro.OCULTA):
-            res["desconocidas"].append({"fila": n, "motivo": f"El código {cod} no existe en esta vista del proyecto" if not x else f"{cod} está {x['revision']}: no se importa"})
+            res["desconocidas"].append(
+                {"fila": n, "motivo": f"El código {cod} no existe en esta vista del proyecto" if not x else f"{cod} está {x['revision']}: no se importa"}
+            )
             continue
         if x and x["id"] in vistos:
             res["desconocidas"].append({"fila": n, "motivo": f"Código repetido: {cod}"})
@@ -377,11 +417,15 @@ def a_proyecto(d: dict):
             nid = uuid.uuid4().hex[:16]
             shutil.copytree(wd, W / nid, copy_function=_copia)
             base, usados = A.meta(W / nid).get("nombre") or wd.name, {e["label"].casefold() for e in A.meetings()}
-            nom = next(n for n in (f"{base[:100]} (copia{'' if k == 1 else f' {k}'})" for k in range(1, 1000)) if n.casefold() not in usados)  # set_meta rechaza nombres repetidos
+            nom = next(
+                n for n in (f"{base[:100]} (copia{'' if k == 1 else f' {k}'})" for k in range(1, 1000)) if n.casefold() not in usados
+            )  # set_meta rechaza nombres repetidos
             A.set_meta({"id": nid, "carpeta": c, "nombre": nom})
             nuevos.append(nid)
     pob, enviar = [], bool(d.get("enviar"))  # «enviar también»: las recetas «al terminar» de la carpeta (tras poblar si lo hay)
-    if (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(c).casefold() == "proyecto":  # misma regla que tras generar un acta; las sensibles nunca
+    if (A._ajustes() or A.AJ_DEF).get("poblar_auto", True) and A._tipo_carpeta(
+        c
+    ).casefold() == "proyecto":  # misma regla que tras generar un acta; las sensibles nunca
         pob = [A.start("poblar", {"c": c, "mid": m, "auto": True, **({} if enviar else {"sin_recetas": True})}, c, m)["id"] for m in nuevos]
     elif enviar:
         for m in nuevos:

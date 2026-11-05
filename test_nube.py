@@ -1,5 +1,6 @@
 """Pruebas de nube.py: servidor OpenAI falso local (con y sin json_schema), CLIs falsas en el PATH, llavero en memoria, coste, claves de caché,
 marca en los exports y ocultación. Nunca toca la red real ni las CLIs reales. `uv run pytest test_nube.py`"""
+
 import json
 import os
 import shutil
@@ -129,7 +130,11 @@ def test_sin_json_schema_baja_de_modo(srv, kr):
     r = nube.chat_fn(cfg(srv, "sin-schema"))("sis", "u", SCHEMA, 100)
     assert r["tema"] == "texto"
     ps = [x[3] for x in Falso.log if x[0] == "POST"]
-    assert ps[0]["response_format"]["type"] == "json_schema" and ps[1]["response_format"]["type"] == "json_object" and "esquema JSON" in ps[1]["messages"][0]["content"]
+    assert (
+        ps[0]["response_format"]["type"] == "json_schema"
+        and ps[1]["response_format"]["type"] == "json_object"
+        and "esquema JSON" in ps[1]["messages"][0]["content"]
+    )
     n = len(ps)
     nube.chat_fn(cfg(srv, "sin-schema"))("sis", "u", SCHEMA, 100)  # recuerda el modo: una sola llamada
     assert len([x for x in Falso.log if x[0] == "POST"]) == n + 1
@@ -161,9 +166,11 @@ def test_anonimizar_va_y_vuelve(srv, kr):
 def test_cli_falsas(tmp_path, monkeypatch, kr):
     b = tmp_path / "bin"
     b.mkdir()
-    for n, cuerpo in {"claude": 'import sys,json;e=sys.stdin.read();print(json.dumps({"result":"{\\"tema\\":\\"c\\",\\"n\\":[2],\\"t\\":\\"1:00\\"}","is_error":False}))',
-                      "codex": 'import sys;sys.stdin.read();print("```json\\n{\\"tema\\":\\"x\\",\\"n\\":[1],\\"t\\":\\"0:01\\"}\\n```")',
-                      "gemini": 'import sys;assert "esquema" in sys.stdin.read();print("{\\"tema\\":\\"g\\",\\"n\\":[],\\"t\\":\\"0:02\\"}")'}.items():
+    for n, cuerpo in {
+        "claude": 'import sys,json;e=sys.stdin.read();print(json.dumps({"result":"{\\"tema\\":\\"c\\",\\"n\\":[2],\\"t\\":\\"1:00\\"}","is_error":False}))',
+        "codex": 'import sys;sys.stdin.read();print("```json\\n{\\"tema\\":\\"x\\",\\"n\\":[1],\\"t\\":\\"0:01\\"}\\n```")',
+        "gemini": 'import sys;assert "esquema" in sys.stdin.read();print("{\\"tema\\":\\"g\\",\\"n\\":[],\\"t\\":\\"0:02\\"}")',
+    }.items():
         f = b / n
         f.write_text(f"#!{os.sys.executable}\n{cuerpo}\n", encoding="utf-8")
         f.chmod(f.stat().st_mode | stat.S_IEXEC)
@@ -198,7 +205,10 @@ def test_coste_y_cache(kr):
     assert nube.estimar(60000, {"modelo": "m"})["coste"] == round((e["entrada"] * 1 + e["salida"] * 2) / 1e6, 2)
     a, b = (nube.id_cache(nube.norm({"proveedor": "openai", "modelo": m})) for m in ("x", "y"))
     P = pipeline.prompts()
-    ks = {pipeline.cache_keys(P, m, ["i"], "normal", False)[0] for m in (a, b, "/models/local.gguf", nube.id_cache(nube.norm({"proveedor": "openai", "modelo": "x", "anonimizar": True})))}
+    ks = {
+        pipeline.cache_keys(P, m, ["i"], "normal", False)[0]
+        for m in (a, b, "/models/local.gguf", nube.id_cache(nube.norm({"proveedor": "openai", "modelo": "x", "anonimizar": True})))
+    }
     assert len(ks) == 4
 
 
@@ -207,6 +217,7 @@ def test_oculta(kr):
     assert not nube.permitida(None, aj)[0] and not nube.permitida({"nube_permitida": False}, {"nube_visible": True})[0]
     assert "RGPD" in nube.permitida({"nube_permitida": False})[1] and nube.permitida({"nube_permitida": True}, {"nube_visible": True})[0]
     import app
+
     d = {"nube": {"proveedor": "openai", "modelo": "x"}}
     with pytest.raises(HTTPException) as e:
         app._nube_spec(dict(d), {"nube_permitida": False})
@@ -222,17 +233,21 @@ def test_oculta(kr):
 def test_pipeline_marca_y_exports(srv, kr, tmp_path, monkeypatch):
     """pipeline.run con transcripción importada y el servidor falso: sin GPU, con la marca en acta.json, index.html y los exports."""
     import exportar
+
     vtt = VTT
     c = cfg(srv, "ok")
     out, _, _ = pipeline.run(None, "normal", "rápido", 2, lambda f, m: None, transcript=vtt, nube=c)
     d = json.loads((out / "acta.json").read_text(encoding="utf-8"))
-    assert d["nube"] == "Redactado con Servidor propio / ok (nube)" and "Redactado con Servidor propio / ok (nube)" in (out / "index.html").read_text(encoding="utf-8")
+    assert d["nube"] == "Redactado con Servidor propio / ok (nube)" and "Redactado con Servidor propio / ok (nube)" in (out / "index.html").read_text(
+        encoding="utf-8"
+    )
     assert any(x[0] == "POST" for x in Falso.log) and not list(pipeline.WORK.glob("llama-server*"))
     mid = out.parent
     cc = exportar.carga(mid.name, out.name)
     assert "Redactado con" in exportar.html_doc(cc) and "Redactado con" in exportar.md(cc)
     from docx import Document
     import io
+
     assert any("Redactado con" in p.text for p in Document(io.BytesIO(exportar.docx_bytes(cc))).paragraphs)
     # cache: la misma entrada en local usa otras claves (otro map_*.json)
     assert len(list(mid.glob("map_*.json"))) == 1
@@ -253,8 +268,11 @@ def test_claude_argv_y_utf8(tmp_path, monkeypatch, kr):
     b = tmp_path / "bin"
     b.mkdir()
     f = b / "claude"
-    f.write_text(f"#!{os.sys.executable}\nimport sys,json;sys.stdin.reconfigure(encoding='utf-8');sys.stdout.reconfigure(encoding='utf-8')\n"
-                 "e=sys.stdin.read();print(json.dumps({'result':json.dumps({'tema':' '.join(sys.argv[1:])+'|'+e,'n':[],'t':'0:01'},ensure_ascii=False)}))\n", encoding="utf-8")
+    f.write_text(
+        f"#!{os.sys.executable}\nimport sys,json;sys.stdin.reconfigure(encoding='utf-8');sys.stdout.reconfigure(encoding='utf-8')\n"
+        "e=sys.stdin.read();print(json.dumps({'result':json.dumps({'tema':' '.join(sys.argv[1:])+'|'+e,'n':[],'t':'0:01'},ensure_ascii=False)}))\n",
+        encoding="utf-8",
+    )
     if os.name == "nt":
         (b / "claude.cmd").write_text(f'@"{os.sys.executable}" "{f}" %*\r\n', encoding="utf-8")
     else:

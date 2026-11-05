@@ -1,5 +1,6 @@
 """Transcripciones exportadas (Teams, Zoom, Meet, Otter…: .vtt .srt .txt .docx) -> segmentos {"s","e","text","spk"?} como los del
 ASR, y desfase respecto al vídeo. Solo biblioteca estándar."""
+
 import html
 import re
 import unicodedata
@@ -9,8 +10,8 @@ from math import ceil
 from pathlib import Path
 from statistics import median
 
-MAXSEG = 20   # s: largo máximo de un segmento al fundir cues (el ASR da hasta ~30)
-GAP = 2.0     # s: pausa máxima entre cues del mismo hablante para fundirlos
+MAXSEG = 20  # s: largo máximo de un segmento al fundir cues (el ASR da hasta ~30)
+GAP = 2.0  # s: pausa máxima entre cues del mismo hablante para fundirlos
 T = r"(?:\d{1,2}:)?\d{1,2}:\d{1,2}(?:[.,]\d{1,3})?"  # 0:0:0.0 · 00:01:02.345 · 1:05 · 00:01:02,500
 NO_SPK = {"unknown", "desconocido", "unknown speaker", "orador desconocido", "hablante desconocido", "?"}
 ts = lambda x: sum(float(p.replace(",", ".")) * m for p, m in zip(reversed(x.split(":")), (1, 60, 3600)))
@@ -26,8 +27,13 @@ def speaker(n):
 def name_split(text):
     """«Ana García: texto» -> (nombre, texto). Nombre de 1-5 palabras, <= 40 letras, sin cifras solas ni puntuación de frase."""
     m = re.match(r"([^:：\n]{1,40}?)\s*[:：]\s+(\S.*)$", text, re.S)
-    if m and len(m[1].split()) <= 5 and not re.search(r"[.!?¿¡;]", m[1]) and not re.fullmatch(r"[\d\s:.,]+", m[1]) \
-            and (m[1][0].isupper() or m[1][0] in "+0123456789"):
+    if (
+        m
+        and len(m[1].split()) <= 5
+        and not re.search(r"[.!?¿¡;]", m[1])
+        and not re.fullmatch(r"[\d\s:.,]+", m[1])
+        and (m[1][0].isupper() or m[1][0] in "+0123456789")
+    ):
         return m[1], m[2]
     return None, text
 
@@ -45,7 +51,7 @@ def cues(raw):
         m = i is not None and re.search(rf"({T})\s*-->\s*({T})", lines[i])
         if not m:
             continue
-        body = " ".join(lines[i + 1:])
+        body = " ".join(lines[i + 1 :])
         parts = re.findall(r"<v(?:\.[^\s>]*)?\s+([^>]*)>(.*?)(?:</v>|(?=<v[\s.])|$)", body) or [(None, body)]
         for who, txt in parts:
             if txt := clean(txt):
@@ -60,9 +66,11 @@ def cues(raw):
 
 
 HMS = re.compile(r"(?:(\d+)\s*(?:horas?|hours?)\s+)?(?:(\d+)\s*(?:minutos?|minutes?)\s+)?(\d+)\s*(?:segundos?|seconds?)\b")
-HEAD = (re.compile(rf"^[\[(]\s*({T})\s*[\])]\s*(?:([^:\n]{{1,40}}?)\s*:)?\s*(.*)$"),   # [00:01:02] Ana García: texto
-        re.compile(rf"^({T})\s+([^:\n]{{1,40}}?)\s*:\s*(.*)$"),                          # 00:01:02 Ana García: texto
-        re.compile(rf"^(.{{1,40}}?)\s*[\[(]?\s*({T})\s*[\])]?\s*:?$"))                   # Ana García  0:05 · Ana (00:01:02)
+HEAD = (
+    re.compile(rf"^[\[(]\s*({T})\s*[\])]\s*(?:([^:\n]{{1,40}}?)\s*:)?\s*(.*)$"),  # [00:01:02] Ana García: texto
+    re.compile(rf"^({T})\s+([^:\n]{{1,40}}?)\s*:\s*(.*)$"),  # 00:01:02 Ana García: texto
+    re.compile(rf"^(.{{1,40}}?)\s*[\[(]?\s*({T})\s*[\])]?\s*:?$"),
+)  # Ana García  0:05 · Ana (00:01:02)
 
 
 okname = lambda n: name_split(n + ": x")[0] is not None
@@ -92,8 +100,10 @@ def lines_txt(raw):
 def docx_text(path):
     with zipfile.ZipFile(path) as z:
         xml = z.read("word/document.xml").decode("utf-8")
-    return "\n".join(html.unescape("".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p.replace("<w:tab/>", "<w:t> </w:t>"))))
-                     for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S))
+    return "\n".join(
+        html.unescape("".join(re.findall(r"<w:t(?: [^>]*)?>([^<]*)</w:t>", p.replace("<w:tab/>", "<w:t> </w:t>"))))
+        for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S)
+    )
 
 
 def split_long(s, maxdur=30):
@@ -141,8 +151,7 @@ def parse(path):
         if s["e"] is None or s["e"] < s["s"]:
             s["e"] = nxt["s"] if nxt and nxt["s"] > s["s"] else s["s"] + max(2, len(s["text"].split()) / 2.5)
     segs = merge([x for s in segs for x in split_long(s)])
-    segs = [{"s": round(s["s"], 1), "e": round(s["e"], 1), "text": s["text"], **({"spk": s["spk"]} if s.get("spk") else {})}
-            for s in segs]
+    segs = [{"s": round(s["s"], 1), "e": round(s["e"], 1), "text": s["text"], **({"spk": s["spk"]} if s.get("spk") else {})} for s in segs]
     return {"formato": fmt, "segments": segs, "speakers": list(dict.fromkeys(s["spk"] for s in segs if "spk" in s))}
 
 
@@ -161,7 +170,7 @@ def _tok(segs):
     out = []
     for s in segs:
         ws = re.findall(r"\w+", "".join(c for c in unicodedata.normalize("NFD", s["text"].lower()) if not unicodedata.combining(c)))
-        out += [(w, s["s"] + (s["e"] - s["s"]) * (i + .5) / len(ws)) for i, w in enumerate(ws)]
+        out += [(w, s["s"] + (s["e"] - s["s"]) * (i + 0.5) / len(ws)) for i, w in enumerate(ws)]
     return out
 
 
@@ -188,44 +197,63 @@ def align(sample, segs, lim=600):
 # ---------- prueba ----------
 def _selftest():
     import tempfile
+
     P = lambda name, data: (lambda f: (f.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8")), parse(f))[1])(Path(d) / name)
     with tempfile.TemporaryDirectory() as d:
         # Teams: GUID como id, horas sin relleno, <v>, entidades y etiquetas; hablante desconocido; fusión del mismo hablante
-        teams = ("﻿WEBVTT\r\n\r\n3f2c1a9e-1111-4a2b-9c3d-000000000001/15-0\r\n0:0:1.5 --> 0:0:4.0\r\n"
-                 "<v Ana García>Hola a todos, &amp; bienvenidos.</v>\r\n\r\n3f2c1a9e-1111-4a2b-9c3d-000000000001/16-0\r\n"
-                 "00:00:04.100 --> 00:00:06.000\r\n<v Ana García><i>Empezamos</i> ya.</v>\r\n\r\nNOTE nada\r\n\r\n"
-                 "00:00:30.000 --> 00:00:33.000\r\n<v Unknown>Se oye mal</v>\r\n\r\n00:00:34.000 --> 00:00:36.000\r\n"
-                 "<v Luis Pérez>Vale, lo hago yo.</v>\r\n")
+        teams = (
+            "﻿WEBVTT\r\n\r\n3f2c1a9e-1111-4a2b-9c3d-000000000001/15-0\r\n0:0:1.5 --> 0:0:4.0\r\n"
+            "<v Ana García>Hola a todos, &amp; bienvenidos.</v>\r\n\r\n3f2c1a9e-1111-4a2b-9c3d-000000000001/16-0\r\n"
+            "00:00:04.100 --> 00:00:06.000\r\n<v Ana García><i>Empezamos</i> ya.</v>\r\n\r\nNOTE nada\r\n\r\n"
+            "00:00:30.000 --> 00:00:33.000\r\n<v Unknown>Se oye mal</v>\r\n\r\n00:00:34.000 --> 00:00:36.000\r\n"
+            "<v Luis Pérez>Vale, lo hago yo.</v>\r\n"
+        )
         r = P("t.vtt", teams)
         assert r["formato"] == "WebVTT" and r["speakers"] == ["Ana García", "Luis Pérez"], r
         assert r["segments"][0] == {"s": 1.5, "e": 6.0, "text": "Hola a todos, & bienvenidos. Empezamos ya.", "spk": "Ana García"}, r
         assert "spk" not in r["segments"][1] and r["segments"][2]["spk"] == "Luis Pérez" and len(r["segments"]) == 3, r
         # Zoom: «Nombre: texto» en 2 cues = hablante; «Primero: …» suelto (1 vez) no
-        z = ("WEBVTT\n\n1\n00:00:01.000 --> 00:00:03.000\nMarta Gil: Buenos días.\n\n2\n00:00:20.000 --> 00:00:23.000\n"
-             "Primero: el orden del día.\n\n3\n00:00:50.000 --> 00:00:52.000\nMarta Gil: Seguimos.\n")
+        z = (
+            "WEBVTT\n\n1\n00:00:01.000 --> 00:00:03.000\nMarta Gil: Buenos días.\n\n2\n00:00:20.000 --> 00:00:23.000\n"
+            "Primero: el orden del día.\n\n3\n00:00:50.000 --> 00:00:52.000\nMarta Gil: Seguimos.\n"
+        )
         r = P("z.vtt", z)
         assert [s.get("spk") for s in r["segments"]] == ["Marta Gil", None, "Marta Gil"] and r["segments"][1]["text"].startswith("Primero"), r
         # SRT: coma en los ms, «Nombre:» opcional, sin ids ni fin ordenado
         r = P("s.srt", "1\n00:00:01,200 --> 00:00:02,000\nJosé: Hola\n\n2\n00:01:00,000 --> 00:01:01,500\nJosé: Adiós <b>ya</b>\n")
         assert r["formato"] == "SRT" and r["segments"][1] == {"s": 60.0, "e": 61.5, "text": "Adiós ya", "spk": "José"}, r
         # TXT: [hh:mm:ss] Nombre: · «Nombre  0:05» · «Nombre (00:01:02)», con teléfono y texto en varias líneas; fin = siguiente inicio
-        txt = ("Reunión de equipo\n[00:00:05] Ana García: Hola.\n[00:00:09] Luis: Buenas, ¿qué tal?\nTodo bien.\n"
-               "Ana García  0:20\nVamos con el primer punto.\n+34 600 123 456 (00:00:40)\nNo me oyen\n"
-               "Luis 01:00:02\nFin.\n")
+        txt = (
+            "Reunión de equipo\n[00:00:05] Ana García: Hola.\n[00:00:09] Luis: Buenas, ¿qué tal?\nTodo bien.\n"
+            "Ana García  0:20\nVamos con el primer punto.\n+34 600 123 456 (00:00:40)\nNo me oyen\n"
+            "Luis 01:00:02\nFin.\n"
+        )
         r = P("o.txt", txt)
-        assert [(s["s"], s.get("spk")) for s in r["segments"]] == [(5.0, "Ana García"), (9.0, "Luis"), (20.0, "Ana García"), (40.0, None),
-                                                                (3602.0, "Luis")], r
+        assert [(s["s"], s.get("spk")) for s in r["segments"]] == [(5.0, "Ana García"), (9.0, "Luis"), (20.0, "Ana García"), (40.0, None), (3602.0, "Luis")], r
         assert r["segments"][1]["text"] == "Buenas, ¿qué tal? Todo bien." and r["segments"][0]["e"] == 9.0, r
         # DOCX de Teams: «Nombre   0 minutos 5 segundos» y el texto debajo
         import io
-        body = "".join(f"<w:p><w:r><w:t>{t}</w:t></w:r></w:p>" for t in (
-            "Ana García   0 minutos 5 segundos", "Hola &amp; adiós.", "Luis Pérez   1 minutos 2 segundos", "Vale.", "Ana García   2 minutos 10 segundos", "Sí."))
+
+        body = "".join(
+            f"<w:p><w:r><w:t>{t}</w:t></w:r></w:p>"
+            for t in (
+                "Ana García   0 minutos 5 segundos",
+                "Hola &amp; adiós.",
+                "Luis Pérez   1 minutos 2 segundos",
+                "Vale.",
+                "Ana García   2 minutos 10 segundos",
+                "Sí.",
+            )
+        )
         bio = io.BytesIO()
         with zipfile.ZipFile(bio, "w") as zf:
             zf.writestr("word/document.xml", f'<?xml version="1.0"?><w:document xmlns:w="x"><w:body>{body}</w:body></w:document>')
         r = P("d.docx", bio.getvalue())
         assert r["formato"] == "DOCX" and [(s["s"], s["spk"], s["text"]) for s in r["segments"]] == [
-            (5.0, "Ana García", "Hola & adiós."), (62.0, "Luis Pérez", "Vale."), (130.0, "Ana García", "Sí.")], r
+            (5.0, "Ana García", "Hola & adiós."),
+            (62.0, "Luis Pérez", "Vale."),
+            (130.0, "Ana García", "Sí."),
+        ], r
         try:
             P("x.txt", "nada que ver\n")
             raise SystemExit("debió fallar")
@@ -239,6 +267,7 @@ def _selftest():
     assert language([{"text": "the cat and the dog are in the house"}]) == "en" and language([{"text": "el gato y la casa"}]) == "es"
     # desfase: la muestra (ASR del vídeo) = la transcripción + 7 s; con otro texto, no hay certeza
     import random
+
     rng = random.Random(1)
     vocab = [f"palabra{chr(97 + i // 26)}{chr(97 + i % 26)}" for i in range(300)]
     segs = [{"s": 4.0 * i, "e": 4.0 * i + 3.5, "text": " ".join(rng.choice(vocab) for _ in range(9))} for i in range(200)]

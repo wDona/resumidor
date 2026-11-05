@@ -1,4 +1,5 @@
 """Pruebas de derivar.py (F5) con chat falso: el requisito sale de poblar (test_poblar) sobre tests_data/reunion.vtt. Sin LLM."""
+
 import contextlib
 import json
 import time
@@ -11,14 +12,32 @@ import poblar
 import registro
 from test_poblar import C, cl, correr, ms  # noqa: F401  (cl: fixture)
 
-D = {"historias": [
-    {"como": "Elena Ruiz", "quiero": "pagar con Bizum en la aplicación", "para": "—", "criterios": [
-        {"escenario": "Pago con Bizum", "dado": "Dado que el cliente está pagando", "cuando": "elige Bizum", "entonces": "la aplicación permite pagar con Bizum"},
-        {"escenario": "Importe máximo", "dado": "un pago con Bizum", "cuando": "supera 500 euros", "entonces": "se rechaza"},
-        {"escenario": "Pasarela", "dado": "un pago con Bizum", "cuando": "se confirma", "entonces": "lo procesa Redsys"}]},
-    {"como": "director financiero", "quiero": "cobrar 30 euros de comisión por pago", "para": "—", "criterios": [
-        {"escenario": "Comisión", "dado": "un pago", "cuando": "se cobra", "entonces": "se añade la comisión"}]}],
-     "preguntas": ["¿Qué importe máximo admite el pago con Bizum?", "¿Se cobra la comisión de 2 euros?", "¿Lo valida Redsys?"]}
+D = {
+    "historias": [
+        {
+            "como": "Elena Ruiz",
+            "quiero": "pagar con Bizum en la aplicación",
+            "para": "—",
+            "criterios": [
+                {
+                    "escenario": "Pago con Bizum",
+                    "dado": "Dado que el cliente está pagando",
+                    "cuando": "elige Bizum",
+                    "entonces": "la aplicación permite pagar con Bizum",
+                },
+                {"escenario": "Importe máximo", "dado": "un pago con Bizum", "cuando": "supera 500 euros", "entonces": "se rechaza"},
+                {"escenario": "Pasarela", "dado": "un pago con Bizum", "cuando": "se confirma", "entonces": "lo procesa Redsys"},
+            ],
+        },
+        {
+            "como": "director financiero",
+            "quiero": "cobrar 30 euros de comisión por pago",
+            "para": "—",
+            "criterios": [{"escenario": "Comisión", "dado": "un pago", "cuando": "se cobra", "entonces": "se añade la comisión"}],
+        },
+    ],
+    "preguntas": ["¿Qué importe máximo admite el pago con Bizum?", "¿Se cobra la comisión de 2 euros?", "¿Lo valida Redsys?"],
+}
 
 
 def chat(sistema, user, schema, max_tokens, temperature=0.2):
@@ -65,7 +84,15 @@ def test_deriva_con_cita_relacion_y_preguntas(cl):
     k = h["campos"]
     assert (k["como"], k["quiero"], k["para"], k["epica"], k["puntos"]) == ("Elena Ruiz", "pagar con Bizum en la aplicación", "", "REQ-001", "")
     # el criterio con 500 € y el de Redsys (no se dicen) fuera; «Dado que…» sin la palabra clave
-    assert k["criterios"] == [{"escenario": "Pago con Bizum", "dado": "el cliente está pagando", "cuando": "elige Bizum", "entonces": "la aplicación permite pagar con Bizum", "propuesta": True}]
+    assert k["criterios"] == [
+        {
+            "escenario": "Pago con Bizum",
+            "dado": "el cliente está pagando",
+            "cuando": "elige Bizum",
+            "entonces": "la aplicación permite pagar con Bizum",
+            "propuesta": True,
+        }
+    ]
     # cita heredada (las dos reuniones) y deriva_de
     assert sorted((c["mid"], c["texto"]) for c in registro.citas(h["id"])) == sorted((c["mid"], c["texto"]) for c in registro.citas(req["id"]))
     rel = registro.completas([h])[0]["relaciones"]
@@ -136,6 +163,7 @@ def test_encadenado_tras_poblar_auto(cl, monkeypatch):
     monkeypatch.setattr(app, "start", lambda kind, spec, video, mid="": pedidos.append((kind, spec)))
     monkeypatch.setattr(app, "_llm_ctx", lambda d, mids=(), glos=(): lambda: contextlib.nullcontext(poblar_chat))
     from test_poblar import chat as poblar_chat
+
     poblar_chat.n = 0
     app._poblar_fn({"c": C, "vistas": ["requisitos"], "nube": {"proveedor": "cli:claude"}, "auto": True})(lambda f, m: None)
     req = registro.listar(C, "requisito")[0]
@@ -151,6 +179,7 @@ def test_encadenado_tras_poblar_manual(cl, monkeypatch):
     monkeypatch.setattr(app, "start", lambda kind, spec, video, mid="": pedidos.append((kind, spec)))
     monkeypatch.setattr(app, "_llm_ctx", lambda d, mids=(), glos=(): lambda: contextlib.nullcontext(poblar_chat))
     from test_poblar import chat as poblar_chat
+
     poblar_chat.n = 0
     app._poblar_fn({"c": C, "vistas": ["requisitos"], "gpu": 1})(lambda f, m: None)
     req = registro.listar(C, "requisito")[0]

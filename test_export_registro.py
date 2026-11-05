@@ -1,4 +1,5 @@
 """Pruebas de /api/reg/exportar (export_registro.py) con TestClient sobre la carpeta sintética de test_carpetas. Sin LLM ni red."""
+
 import csv
 import io
 import os
@@ -12,18 +13,32 @@ import exportar
 import registro
 from test_carpetas import C, cl  # noqa: F401
 
-CRIT = [{"escenario": "Reserva válida", "dado": "un socio con sesión", "cuando": "reserva una pista", "entonces": "recibe la confirmación"},
-        {"escenario": "Pista ocupada", "dado": "una pista reservada", "cuando": "otro la reserva", "entonces": "ve un aviso", "propuesta": True}]
+CRIT = [
+    {"escenario": "Reserva válida", "dado": "un socio con sesión", "cuando": "reserva una pista", "entonces": "recibe la confirmación"},
+    {"escenario": "Pista ocupada", "dado": "una pista reservada", "cuando": "otro la reserva", "entonces": "ve un aviso", "propuesta": True},
+]
 
 
 @pytest.fixture()
 def reg(cl):
     t, _ = cl
     mk = lambda tipo, titulo, rev, **f: registro.crear(C, tipo, titulo=titulo, revision=rev, origen="manual", **f)
-    r1 = mk("requisito", "Reservar pistas", "aprobado", detalle="El socio reserva una pista", prioridad="must", campos={"tipo_req": "funcional", "solicitante": "Laura"})
+    r1 = mk(
+        "requisito",
+        "Reservar pistas",
+        "aprobado",
+        detalle="El socio reserva una pista",
+        prioridad="must",
+        campos={"tipo_req": "funcional", "solicitante": "Laura"},
+    )
     mk("requisito", "Pagar online", "propuesto", prioridad="should")
     mk("requisito", "Requisito descartado", "descartado")
-    h1 = mk("historia", "Reservar desde el móvil", "propuesto", campos={"como": "socio", "quiero": "reservar", "para": "jugar", "criterios": CRIT, "puntos": 3, "epica": "Reservas"})
+    h1 = mk(
+        "historia",
+        "Reservar desde el móvil",
+        "propuesto",
+        campos={"como": "socio", "quiero": "reservar", "para": "jugar", "criterios": CRIT, "puntos": 3, "epica": "Reservas"},
+    )
     mk("historia", "Cancelar reserva", "aprobado", campos={"criterios": CRIT[:1]})
     mk("historia", "Historia descartada", "descartado")
     registro.relacionar(C, h1["id"], r1["id"], "deriva_de")
@@ -79,7 +94,12 @@ def test_vacio_con_cabeceras(reg):
 
 
 def test_docx(reg):
-    for vista, cods in (("requisitos", {"REQ-001", "REQ-002"}), ("historias", {"HU-001"}), ("interesados", {"INT-001", "INT-002"}), ("decisiones", {"D-001", "D-002"})):
+    for vista, cods in (
+        ("requisitos", {"REQ-001", "REQ-002"}),
+        ("historias", {"HU-001"}),
+        ("interesados", {"INT-001", "INT-002"}),
+        ("decisiones", {"D-001", "D-002"}),
+    ):
         r = g(reg, vista, "docx")
         assert r.status_code == 200 and "wordprocessingml" in r.headers["content-type"]
         d = Document(io.BytesIO(r.content))
@@ -125,10 +145,16 @@ def test_feature_y_trackers(reg):
     j = g(reg, "historias", "csv_jira")
     assert j.text.startswith("﻿Summary,Issue Type,Description,Priority,Labels") and "\r\n" in j.text and "jira.csv" in j.headers["content-disposition"]
     fj = rows(j)
-    assert fj[0]["Issue Type"] == "Story" and "Scenario: Reserva válida" in fj[0]["Description"] and "borrador" in fj[0]["Labels"] and fj[0]["Story Points"] == "3"
+    assert (
+        fj[0]["Issue Type"] == "Story" and "Scenario: Reserva válida" in fj[0]["Description"] and "borrador" in fj[0]["Labels"] and fj[0]["Story Points"] == "3"
+    )
     az = g(reg, "historias", "csv_azure")
     a = rows(az)
-    assert a[0]["Work Item Type"] == "User Story" and "Given un socio con sesión" in a[0]["Acceptance Criteria"] and az.text.lstrip("﻿").startswith("Work Item Type,Title,Description")
+    assert (
+        a[0]["Work Item Type"] == "User Story"
+        and "Given un socio con sesión" in a[0]["Acceptance Criteria"]
+        and az.text.lstrip("﻿").startswith("Work Item Type,Title,Description")
+    )
     rq = rows(g(reg, "requisitos", "csv_jira"))
     assert [x["Issue Type"] for x in rq] == ["Epic", "Epic"] and rq[0]["Priority"] == "Highest"
     assert [x["Work Item Type"] for x in rows(g(reg, "requisitos", "csv_azure"))] == ["Requirement"] * 2

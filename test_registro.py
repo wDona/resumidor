@@ -1,5 +1,6 @@
 """Pruebas de registro.py (work/registro.db): entidades, historial y deshacer, fusionar, sincronizar con los documentos, migración de
 expedientes.json y escrituras concurrentes. Sin LLM. `uv run pytest test_registro.py`"""
+
 import datetime as dt
 import json
 import sqlite3
@@ -28,7 +29,9 @@ def test_crud_historial_deshacer(work):
     a = registro.crear("P", "riesgo", titulo="Retraso", dueno="Ana")
     b = registro.crear("P", "riesgo", titulo="Otro")
     assert (a["codigo"], b["codigo"], a["revision"], a["estado"], a["editado"]) == ("R-001", "R-002", "propuesto", "abierto", 0)
-    assert registro.crear("P", "requisito", titulo="Login")["codigo"] == "REQ-001" and registro.crear("Q", "riesgo", titulo="x")["codigo"] == "R-001"  # por proyecto y tipo
+    assert (
+        registro.crear("P", "requisito", titulo="Login")["codigo"] == "REQ-001" and registro.crear("Q", "riesgo", titulo="x")["codigo"] == "R-001"
+    )  # por proyecto y tipo
     with pytest.raises(ValueError):
         registro.crear("P", "nada", titulo="x")
     registro.editar(a["id"], {"titulo": "Retraso del proveedor", "campos": {"impacto": 4}}, lote="L1")
@@ -36,7 +39,9 @@ def test_crud_historial_deshacer(work):
     x = {e["id"]: e for e in registro.listar("P", "riesgo")}
     assert x[a["id"]]["editado"] == 1 and x[a["id"]]["campos"] == {"impacto": 4} and x[b["id"]]["revision"] == "descartado"
     assert registro.editar(a["id"], {"estado": "hecho"}, lote="L2")["editado"] == 1  # estado no es contenido, pero no des-edita
-    assert [h["accion"] for h in registro.historial(a["id"])] == ["crear", "editar", "editar"] and registro.historial(a["id"])[1]["antes"]["titulo"] == "Retraso"
+    assert [h["accion"] for h in registro.historial(a["id"])] == ["crear", "editar", "editar"] and registro.historial(a["id"])[1]["antes"][
+        "titulo"
+    ] == "Retraso"
     assert registro.deshacer("P") == 1 and registro.listar("P", id=a["id"])[0]["estado"] == "abierto"
     assert registro.deshacer("P") == 2  # el lote L1 entero
     x = {e["id"]: e for e in registro.listar("P", "riesgo")}
@@ -77,7 +82,14 @@ def test_sincronizar(cl):
     assert n == len(ents) == sum(len(carpetas.items_doc(d)) for d in ds) + 3  # + 3 decisiones
     assert registro.sincronizar(C, ds).keys() == ents.keys() and _n_ent() == n  # idempotente
     x = ents[P0]
-    assert (x["tipo"], x["origen"], x["revision"], x["titulo"], x["dueno"], x["codigo"]) == ("tarea", "reunion", "propuesto", "Arreglar la puerta del garaje", "Javier", "T-001")
+    assert (x["tipo"], x["origen"], x["revision"], x["titulo"], x["dueno"], x["codigo"]) == (
+        "tarea",
+        "reunion",
+        "propuesto",
+        "Arreglar la puerta del garaje",
+        "Javier",
+        "T-001",
+    )
     assert registro.citas(x["id"])[0]["t"] == 100 and {e["tipo"] for e in ents.values()} >= {"tarea", "decision", "incidencia"}
     # documento rehecho (otra versión): mismo texto -> misma entidad, con su estado; sin duplicar
     carpetas.set_estado(C, ms(), P0, "hecho", HOY)
@@ -109,17 +121,29 @@ def test_migracion(cl):
     h = carpetas._h("aaaa1111", "Pedir tres presupuestos de pintura del portal")
     sug = {"tipo": "hecho", "cita": "ya arreglamos la puerta", "t": 90, "mid": "cccc3333", "ver": "x", "doc": "Junta marzo", "fecha": "2026-03-09"}
     viejo = {
-        C: {"tipo": "Comunidad", "datos": [{"k": "Dirección", "v": "C/ Sol 4"}], "glosario": [{"t": "Otys", "orto": "Otis", "def": ""}], "glos_ignorados": ["Pedro Ruiz"],
+        C: {
+            "tipo": "Comunidad",
+            "datos": [{"k": "Dirección", "v": "C/ Sol 4"}],
+            "glosario": [{"t": "Otys", "orto": "Otis", "def": ""}],
+            "glos_ignorados": ["Pedro Ruiz"],
             "ajustes": {"anon": True, "idioma": "en"},
-            "estados": {P0: {"estado": "hecho", "t": 1, "mid": "aaaa1111", "h": "x"},
-                        "aaaa1111|acta_vieja|tareas.1": {"estado": "descartado", "nota": "no hace falta", "t": 2, "mid": "aaaa1111", "h": h},  # por (mid, h)
-                        "m:00000001": {"estado": "hecho", "nota": "Actualizado: «x»", "t": 3, "mid": "", "h": ""}},
-            "manuales": [{"id": "m:00000001", "texto": "Llamar al seguro", "resp": "Ana", "plazo": "15/03/2026", "creado": 1.7e9},
-                         {"id": "m:00000002", "texto": "Renovar el contrato", "resp": "", "plazo": "", "creado": 1.7e9 + 1}],
+            "estados": {
+                P0: {"estado": "hecho", "t": 1, "mid": "aaaa1111", "h": "x"},
+                "aaaa1111|acta_vieja|tareas.1": {"estado": "descartado", "nota": "no hace falta", "t": 2, "mid": "aaaa1111", "h": h},  # por (mid, h)
+                "m:00000001": {"estado": "hecho", "nota": "Actualizado: «x»", "t": 3, "mid": "", "h": ""},
+            },
+            "manuales": [
+                {"id": "m:00000001", "texto": "Llamar al seguro", "resp": "Ana", "plazo": "15/03/2026", "creado": 1.7e9},
+                {"id": "m:00000002", "texto": "Renovar el contrato", "resp": "", "plazo": "", "creado": 1.7e9 + 1},
+            ],
             "sugeridos": {"m:00000002": sug, "bbbb2222|acta_normal_impbbbb|tareas.0": {**sug, "tipo": "actualizado"}},
             "notas": [{"id": "n1", "fecha": "2026-02-01", "texto": "Hablé con el administrador", "t": 5}],
-            "eventos": [{"t": 6, "tipo": "pendiente", "id": P0, "texto": "x", "de": "abierto", "a": "hecho"}], "estado_txt": {"t": 7, "n_docs": 3, "frases": []}, "comparar_txt": {}},
-        "Otra": {"tipo": "", "datos": [], "notas": [], "eventos": []}}
+            "eventos": [{"t": 6, "tipo": "pendiente", "id": P0, "texto": "x", "de": "abierto", "a": "hecho"}],
+            "estado_txt": {"t": 7, "n_docs": 3, "frases": []},
+            "comparar_txt": {},
+        },
+        "Otra": {"tipo": "", "datos": [], "notas": [], "eventos": []},
+    }
     (w / "expedientes.json").write_text(json.dumps(viejo, ensure_ascii=False), encoding="utf-8")
 
     def comprobar():
@@ -127,12 +151,26 @@ def test_migracion(cl):
         assert rep["antes"] == rep["despues"] == {"carpetas": 2, "manuales": 2, "estados": 3, "sugeridos": 2, "notas": 1, "eventos": 1, "glosario": 1}
         assert not (w / "expedientes.json").exists() and (w / "expedientes.json.migrado").is_file()
         e = carpetas.leer(C)
-        assert (e["tipo"], e["datos"], e["ajustes"], e["glosario"], e["glos_ignorados"]) == ("Comunidad", viejo[C]["datos"], {"anon": True, "idioma": "en"}, viejo[C]["glosario"], ["Pedro Ruiz"])
-        assert e["notas"] == viejo[C]["notas"] and e["eventos"] == viejo[C]["eventos"] and e["estado_txt"]["n_docs"] == 3 and carpetas.leer("Otra")["eventos"] == []
+        assert (e["tipo"], e["datos"], e["ajustes"], e["glosario"], e["glos_ignorados"]) == (
+            "Comunidad",
+            viejo[C]["datos"],
+            {"anon": True, "idioma": "en"},
+            viejo[C]["glosario"],
+            ["Pedro Ruiz"],
+        )
+        assert (
+            e["notas"] == viejo[C]["notas"]
+            and e["eventos"] == viejo[C]["eventos"]
+            and e["estado_txt"]["n_docs"] == 3
+            and carpetas.leer("Otra")["eventos"] == []
+        )
         assert [m["id"] for m in e["manuales"]] == ["m:00000001", "m:00000002"]
         ps = {p["texto"]: p for p in carpetas.pendientes(C, ms(), HOY)}
         assert ps["Arreglar la puerta del garaje"]["estado"] == "hecho" and ps["Pedir tres presupuestos de pintura del portal"]["estado"] == "descartado"
-        assert ps["Pedir tres presupuestos de pintura del portal"]["nota"] == "no hace falta" and ps["Enviar el acta de la junta a todos los vecinos"]["sugerido"]["tipo"] == "actualizado"
+        assert (
+            ps["Pedir tres presupuestos de pintura del portal"]["nota"] == "no hace falta"
+            and ps["Enviar el acta de la junta a todos los vecinos"]["sugerido"]["tipo"] == "actualizado"
+        )
         assert ps["Llamar al seguro"]["estado"] == "hecho" and ps["Llamar al seguro"]["manual"] and ps["Llamar al seguro"]["fecha"] == "2026-03-15"
         assert ps["Renovar el contrato"]["sugerido"] == sug and ps["Gotera en el portal"]["estado"] == "abierto"
         ents = registro.listar(C)
@@ -160,6 +198,7 @@ def test_concurrencia(work):
                 carpetas.añadir_nota("P", f"nota {i}.{j}", "2026-01-01")
         except Exception as e:  # noqa: BLE001
             errores.append(e)
+
     hs = [threading.Thread(target=tarea, args=(i,)) for i in range(8)]
     [h.start() for h in hs]
     [h.join() for h in hs]
@@ -182,16 +221,25 @@ def test_migracion_json_corrupto_no_se_pierde(work):
 
 
 def test_migracion_items_mal_formados(work):
-    viejo = {"A": {"manuales": [{"id": "m:1", "texto": None, "resp": None}, "basura", {"texto": "sin id"}, {"id": "m:2", "texto": "dos"}],
-                   "estados": {"m:1": {"estado": "hecho"}}},
-             "B": {"manuales": [{"id": "m:1", "texto": "repetido en otra carpeta"}], "estados": ["no", "es", "objeto"]},
-             "Z": "no es un expediente"}
+    viejo = {
+        "A": {
+            "manuales": [{"id": "m:1", "texto": None, "resp": None}, "basura", {"texto": "sin id"}, {"id": "m:2", "texto": "dos"}],
+            "estados": {"m:1": {"estado": "hecho"}},
+        },
+        "B": {"manuales": [{"id": "m:1", "texto": "repetido en otra carpeta"}], "estados": ["no", "es", "objeto"]},
+        "Z": "no es un expediente",
+    }
     (work / "expedientes.json").write_text(json.dumps(viejo), encoding="utf-8")
     registro.conectar().close()
     rep = registro.ultima_migracion
     assert (work / "expedientes.json.migrado").is_file() and (rep["antes"]["manuales"], rep["despues"]["manuales"]) == (5, 4)
-    assert {o["motivo"] for o in rep["omitidos"]} == {"el expediente no es un objeto", "«estados» con formato no válido", "no es un objeto", "sin id: id nuevo",
-                                                      "id repetido: id nuevo"}
+    assert {o["motivo"] for o in rep["omitidos"]} == {
+        "el expediente no es un objeto",
+        "«estados» con formato no válido",
+        "no es un objeto",
+        "sin id: id nuevo",
+        "id repetido: id nuevo",
+    }
     a = {x["titulo"]: x for x in registro.listar("A", origen="manual")}
     assert set(a) == {"", "sin id", "dos"} and a[""]["id"] == "m:1" and a[""]["estado"] == "hecho" and a["sin id"]["id"].startswith("m:")
     b = registro.listar("B", origen="manual")
@@ -277,6 +325,7 @@ def test_carrera_al_preparar(work):
             errores.append(e)
         finally:
             db.close()
+
     hs = [threading.Thread(target=prep) for _ in range(2)]
     [h.start() for h in hs]
     time.sleep(0.3)  # los dos esperan el cerrojo
@@ -333,12 +382,20 @@ def test_sincronizar_filtra_decisiones_no_firmes(cl):
     n = len(registro.listar(C, "decision"))
     f = pipeline.WORK / "aaaa1111" / "acta_normal_impaaaa" / "acta.json"
     ac = json.loads(f.read_text(encoding="utf-8"))
-    ac["decisiones"] += [{"cita": "x", "texto": "Se aplaza decidir quién redacta las preguntas frecuentes", "t": 200, "b": 0, "n": 1},
-                         {"cita": "x", "texto": "La próxima reunión será el martes", "t": 210, "b": 0, "n": 1},
-                         {"cita": "deberíamos mirarlo", "texto": "Cambiar el proveedor de pagos", "t": 220, "b": 0, "n": 1},
-                         {"cita": "x", "texto": "Se aprueba el calendario de la beta", "t": 230, "b": 0, "n": 1},
-                         {"cita": "x", "texto": "Se aprueba presentar el presupuesto en la próxima reunión", "t": 240, "b": 0, "n": 1}]
+    ac["decisiones"] += [
+        {"cita": "x", "texto": "Se aplaza decidir quién redacta las preguntas frecuentes", "t": 200, "b": 0, "n": 1},
+        {"cita": "x", "texto": "La próxima reunión será el martes", "t": 210, "b": 0, "n": 1},
+        {"cita": "deberíamos mirarlo", "texto": "Cambiar el proveedor de pagos", "t": 220, "b": 0, "n": 1},
+        {"cita": "x", "texto": "Se aprueba el calendario de la beta", "t": 230, "b": 0, "n": 1},
+        {"cita": "x", "texto": "Se aprueba presentar el presupuesto en la próxima reunión", "t": 240, "b": 0, "n": 1},
+    ]
     f.write_text(json.dumps(ac, ensure_ascii=False), encoding="utf-8")
     registro.sincronizar(C, carpetas.docs(ms()))
-    assert [x["titulo"] for x in registro.listar(C, "decision")][n:] == [  # en un acta solo se descarta lo aplazado; próxima reunión / propuestas llegan como propuestos para revisar
-        "La próxima reunión será el martes", "Cambiar el proveedor de pagos", "Se aprueba el calendario de la beta", "Se aprueba presentar el presupuesto en la próxima reunión"]
+    assert [x["titulo"] for x in registro.listar(C, "decision")][
+        n:
+    ] == [  # en un acta solo se descarta lo aplazado; próxima reunión / propuestas llegan como propuestos para revisar
+        "La próxima reunión será el martes",
+        "Cambiar el proveedor de pagos",
+        "Se aprueba el calendario de la beta",
+        "Se aprueba presentar el presupuesto en la próxima reunión",
+    ]

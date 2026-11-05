@@ -1,6 +1,7 @@
 """Anonimizar un documento: detecta datos personales (DNI/NIE/NIF, teléfonos, emails, IBAN, tarjetas, matrículas y personas),
 el usuario revisa la lista y `aplicar` crea una copia derivada (acta_anonima.json, transcript_anonimo.json, img_anon/) junto
 al original; el original y la edición no se tocan. Los exports con anon=1 leen esa copia (exportar.carga(..., anon=True))."""
+
 import hashlib
 import json
 import re
@@ -68,10 +69,27 @@ DETECTORES = [
     ("email", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), None, lambda v: v.lower()),
     ("iban", re.compile(r"(?<![\w])[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]{4}){2,7}(?:[ -]?[A-Z0-9]{1,4})?(?![\w])"), iban_ok, lambda v: re.sub(r"[ -]", "", v).upper()),
     ("tarjeta", re.compile(r"(?<![\d-])(?:\d[ -]?){12,18}\d(?!\d)"), luhn_ok, lambda v: re.sub(r"\D", "", v)),
-    ("dni", re.compile(r"(?<![\w])(?:\d{8}|[XYZxyz]\d{7}|[A-HJNP-SUVWa-hjnp-suvw]\d{7})[ -]?[A-Za-z0-9](?![\w])"), dni_ok, lambda v: re.sub(r"[ -]", "", v).upper()),
-    ("matricula", re.compile(r"(?<![\w-])(?:\d{4}[ -]?[BCDFGHJKLMNPRSTVWXYZ]{3}|[A-Z]{1,2}[ -]?\d{4}[ -]?[A-Z]{1,2})(?![\w-])"), None, lambda v: re.sub(r"[ -]", "", v)),
-    ("telefono", re.compile(r"(?<![\w+.-])(?:(?:\+|00)34[ .-]?)?[6-9]\d{2}[ .-]?\d{3}[ .-]?\d{3}(?![\w])|(?<![\w+.-])(?:(?:\+|00)34[ .-]?)?[6-9]\d{2}[ .-]?\d{2}[ .-]?\d{2}[ .-]?\d{2}(?![\w])"
-                            r"|(?<![\w+.])\+(?!34)\d{1,3}[ .-]?(?:\d[ .-]?){6,11}\d(?![\w])"), tel_ok, lambda v: _digs(v)),
+    (
+        "dni",
+        re.compile(r"(?<![\w])(?:\d{8}|[XYZxyz]\d{7}|[A-HJNP-SUVWa-hjnp-suvw]\d{7})[ -]?[A-Za-z0-9](?![\w])"),
+        dni_ok,
+        lambda v: re.sub(r"[ -]", "", v).upper(),
+    ),
+    (
+        "matricula",
+        re.compile(r"(?<![\w-])(?:\d{4}[ -]?[BCDFGHJKLMNPRSTVWXYZ]{3}|[A-Z]{1,2}[ -]?\d{4}[ -]?[A-Z]{1,2})(?![\w-])"),
+        None,
+        lambda v: re.sub(r"[ -]", "", v),
+    ),
+    (
+        "telefono",
+        re.compile(
+            r"(?<![\w+.-])(?:(?:\+|00)34[ .-]?)?[6-9]\d{2}[ .-]?\d{3}[ .-]?\d{3}(?![\w])|(?<![\w+.-])(?:(?:\+|00)34[ .-]?)?[6-9]\d{2}[ .-]?\d{2}[ .-]?\d{2}[ .-]?\d{2}(?![\w])"
+            r"|(?<![\w+.])\+(?!34)\d{1,3}[ .-]?(?:\d[ .-]?){6,11}\d(?![\w])"
+        ),
+        tel_ok,
+        lambda v: _digs(v),
+    ),
 ]
 ETIQUETA = {"email": "[EMAIL]", "iban": "[IBAN]", "tarjeta": "[TARJETA]", "dni": "[DNI]", "matricula": "[MATRÍCULA]", "telefono": "[TELÉFONO]"}
 
@@ -139,7 +157,9 @@ def _nombres_conocidos(c):
     except (OSError, ValueError, AttributeError):
         pass
     D = c["data"]
-    cand = [x.get("responsable", "") for x in D.get("tareas", [])] + [str(x[k]) for s in D.get("secciones_plantilla", []) for x in s["items"] for k in ("responsable", "persona", "propietario") if x.get(k)]
+    cand = [x.get("responsable", "") for x in D.get("tareas", [])] + [
+        str(x[k]) for s in D.get("secciones_plantilla", []) for x in s["items"] for k in ("responsable", "persona", "propietario") if x.get(k)
+    ]
     for r in cand:
         ns += re.split(r"\s*(?:,|/|;|\by\b|\be\b|&)\s*", r)
     out = []
@@ -156,11 +176,13 @@ def _llm_personas(textos):
     if not modelo:
         return None
     txt = "\n".join(textos)
-    trozos = [txt[i:i + 4000] for i in range(0, len(txt), 4000)]
+    trozos = [txt[i : i + 4000] for i in range(0, len(txt), 4000)]
     if len(trozos) > 8:  # ponytail: como mucho 8 trozos repartidos; mejora: pasadas con más contexto en GPU
         trozos = [trozos[round(i * (len(trozos) - 1) / 7)] for i in range(8)]
-    sis = ("Lista los nombres de persona (nombre propio de personas físicas, con apellidos si aparecen) que aparecen en el texto. "
-           "No incluyas empresas, lugares, productos ni cargos. Copia cada nombre tal cual está escrito; si no hay ninguno, lista vacía.")
+    sis = (
+        "Lista los nombres de persona (nombre propio de personas físicas, con apellidos si aparecen) que aparecen en el texto. "
+        "No incluyas empresas, lugares, productos ni cargos. Copia cada nombre tal cual está escrito; si no hay ninguno, lista vacía."
+    )
     out = []
     with P.llama(P.PHYS, ctx=8192, model=modelo) as chat:
         for tz in trozos:
@@ -179,7 +201,7 @@ def _letra(i):
 
 
 def _ctx(t, a, b, n=35):
-    return ("…" if a > n else "") + t[max(0, a - n):b + n].replace("\n", " ") + ("…" if b + n < len(t) else "")
+    return ("…" if a > n else "") + t[max(0, a - n) : b + n].replace("\n", " ") + ("…" if b + n < len(t) else "")
 
 
 def _reg_persona(nombres):
@@ -235,8 +257,11 @@ def detectar(c, llm=True):
             grupos[("persona", n)] = {"tipo": "persona", "valor": n, "n": cnt, "ejemplos": ej, "sugerido": f"Persona {_letra(k)}", "ia": n not in conocidos}
             k += 1
     fr = frames(c["d"].parent)
-    return {"items": sorted(grupos.values(), key=lambda g: (g["tipo"] == "persona", g["tipo"], -g["n"])), "sin_modelo": sin_modelo,
-            "capturas_sin_cajas": [k["img"] for k in c["data"].get("capturas", []) if fr.get(k["img"], {}).get("text") and "lines" not in fr[k["img"]]]}
+    return {
+        "items": sorted(grupos.values(), key=lambda g: (g["tipo"] == "persona", g["tipo"], -g["n"])),
+        "sin_modelo": sin_modelo,
+        "capturas_sin_cajas": [k["img"] for k in c["data"].get("capturas", []) if fr.get(k["img"], {}).get("text") and "lines" not in fr[k["img"]]],
+    }
 
 
 # ---------- aplicar ----------
@@ -272,6 +297,7 @@ class Sustituidor:
 
 def _desenfocar(img, caja, sus):
     from PIL import ImageFilter
+
     x0, y0, x1, y1 = (int(v) for v in caja)
     r = img.crop((x0, y0, x1, y1)).filter(ImageFilter.GaussianBlur(max(12, (y1 - y0))))
     img.paste(r, (x0, y0))
@@ -280,6 +306,7 @@ def _desenfocar(img, caja, sus):
 def aplicar(c, items):
     """Crea la copia anonimizada junto a la versión. -> resumen {reemplazos, difuminadas, omitidas, motivo}."""
     from PIL import Image
+
     sus = Sustituidor(items)
     d = c["d"]
     cuenta = [0]
@@ -293,6 +320,7 @@ def aplicar(c, items):
         n = sus(t.replace(nom, NEUTRO) if nom else t)
         cuenta[0] += n != t
         return n
+
     data = _mapa(c["data"], f)
     segs = []
     for s in c["segs"]:
@@ -329,7 +357,10 @@ def aplicar(c, items):
     (d / ANON).write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     (d / ANON_TR).write_text(json.dumps({"segments": segs}, ensure_ascii=False), encoding="utf-8")
     res = {"reemplazos": cuenta[0], "difuminadas": borrosas, "omitidas": omitidas}
-    (d / ANON_META).write_text(json.dumps({**res, "items": [i for i in items if i.get("incluir", True)], "ts": int(time.time()), "fuente": fuente(c)}, ensure_ascii=False), encoding="utf-8")
+    (d / ANON_META).write_text(
+        json.dumps({**res, "items": [i for i in items if i.get("incluir", True)], "ts": int(time.time()), "fuente": fuente(c)}, ensure_ascii=False),
+        encoding="utf-8",
+    )
     return res
 
 
@@ -346,8 +377,15 @@ def estado(c):
         m = json.loads((c["d"] / ANON_META).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"existe": False}
-    return {"existe": (c["d"] / ANON).is_file(), "obsoleta": m.get("fuente") != fuente(c), "reemplazos": m["reemplazos"], "difuminadas": m["difuminadas"],
-            "omitidas": m["omitidas"], "items": m["items"], "ts": m["ts"]}
+    return {
+        "existe": (c["d"] / ANON).is_file(),
+        "obsoleta": m.get("fuente") != fuente(c),
+        "reemplazos": m["reemplazos"],
+        "difuminadas": m["difuminadas"],
+        "omitidas": m["omitidas"],
+        "items": m["items"],
+        "ts": m["ts"],
+    }
 
 
 def borrar(d):
@@ -357,11 +395,16 @@ def borrar(d):
 
 
 def demo():
-    assert dni_ok("12345678Z") and not dni_ok("12345678A") and dni_ok("X1234567L") and not dni_ok("X1234567A") and dni_ok("A58818501") and not dni_ok("A58818502")
+    assert (
+        dni_ok("12345678Z") and not dni_ok("12345678A") and dni_ok("X1234567L") and not dni_ok("X1234567A") and dni_ok("A58818501") and not dni_ok("A58818502")
+    )
     assert iban_ok("ES91 2100 0418 4502 0005 1332") and not iban_ok("ES91 2100 0418 4502 0005 1333")
     assert luhn_ok("4539 1488 0343 6467") and not luhn_ok("4539 1488 0343 6468")
     assert tel_ok("612 345 678") and tel_ok("+34 612345678") and tel_ok("+44 20 7946 0958") and not tel_ok("512 345 678") and not tel_ok("612.345.678")
-    r = {(t, k) for t, k, *_ in detectar_texto("Mi DNI 12345678Z, 12345678A no, mail a.b@x.es, tel 612 34 56 78, IBAN ES91 2100 0418 4502 0005 1332, coche 1234 BCD")}
+    r = {
+        (t, k)
+        for t, k, *_ in detectar_texto("Mi DNI 12345678Z, 12345678A no, mail a.b@x.es, tel 612 34 56 78, IBAN ES91 2100 0418 4502 0005 1332, coche 1234 BCD")
+    }
     assert r == {("dni", "12345678Z"), ("email", "a.b@x.es"), ("telefono", "612345678"), ("iban", "ES9121000418450200051332"), ("matricula", "1234BCD")}, r
     s = Sustituidor([{"tipo": "dni", "valor": "12345678Z", "sugerido": "[DNI]"}, {"tipo": "persona", "valor": "Carlos Pérez", "sugerido": "Persona A"}])
     assert s("Carlos Pérez (12345678-z) y Carlos") == "Persona A ([DNI]) y Persona A"

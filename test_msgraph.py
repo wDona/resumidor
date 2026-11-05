@@ -1,4 +1,5 @@
 """msgraph (Graph + device code con urllib simulado), Outlook clásico (PowerShell simulado) y /api/encolar. Sin red ni Outlook reales."""
+
 import io
 import json
 import subprocess
@@ -46,6 +47,7 @@ def red(monkeypatch, tmp_path):
                     raise urllib.error.HTTPError(req.full_url, v[0], "x", {}, io.BytesIO(json.dumps(v[1]).encode()))
                 return Resp(v if isinstance(v, bytes) else json.dumps(v).encode())
         raise AssertionError(f"URL sin simular: {req.get_method()} {req.full_url}")
+
     monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
     R.store = store
     return R
@@ -57,9 +59,19 @@ def con_sesion(red):
 
 
 def test_login_device_code(red):
-    red.rutas += [("POST", "/devicecode", {"device_code": "DC", "user_code": "ABC-123", "verification_uri": "https://microsoft.com/devicelogin", "expires_in": 900, "interval": 5}),
-                  ("POST", "/token", [(400, {"error": "authorization_pending"}), (400, {"error": "slow_down"}), {"access_token": "AT", "refresh_token": "RT2", "expires_in": 3600}]),
-                  ("GET", "/me", {"userPrincipalName": "ana@contoso.com"})]
+    red.rutas += [
+        (
+            "POST",
+            "/devicecode",
+            {"device_code": "DC", "user_code": "ABC-123", "verification_uri": "https://microsoft.com/devicelogin", "expires_in": 900, "interval": 5},
+        ),
+        (
+            "POST",
+            "/token",
+            [(400, {"error": "authorization_pending"}), (400, {"error": "slow_down"}), {"access_token": "AT", "refresh_token": "RT2", "expires_in": 3600}],
+        ),
+        ("GET", "/me", {"userPrincipalName": "ana@contoso.com"}),
+    ]
     app = FastAPI()
     app.include_router(M.router)
     c = TestClient(app)
@@ -122,7 +134,10 @@ def test_subir_simple_y_sesion(red):
     assert M.subir("a b.md", b"hola", "Actas") == ("i1", "https://od/a")
     put = red.log[-1]
     assert put[2]["authorization"] == "Bearer AT" and put[3] == b"hola"
-    red.rutas += [("POST", "/sites/S/drive/root:/g.bin:/createUploadSession", {"uploadUrl": "https://up.example/sess"}), ("PUT", "up.example", [{}, {"id": "i2", "webUrl": "w2"}])]
+    red.rutas += [
+        ("POST", "/sites/S/drive/root:/g.bin:/createUploadSession", {"uploadUrl": "https://up.example/sess"}),
+        ("PUT", "up.example", [{}, {"id": "i2", "webUrl": "w2"}]),
+    ]
     big = b"z" * (M.SIMPLE + 1)
     red.rutas[-1] = ("PUT", "up.example", [{}] * ((len(big) - 1) // M.TROZO) + [{"id": "i2", "webUrl": "w2"}])
     assert M.subir("g.bin", big, sitio="S") == ("i2", "w2")
@@ -134,10 +149,16 @@ def test_subir_simple_y_sesion(red):
 def test_planner_todo_onenote_teams_correo(red):
     con_sesion(red)
     x = {"titulo": "Enviar informe", "codigo": "T-1", "cuerpo": "detalle", "dueno": "Ana", "fecha_limite": "2026-11-20"}
-    red.rutas += [("POST", "/planner/tasks", {"id": "pt"}), ("GET", "/planner/tasks/pt/details", {"@odata.etag": "W/1"}), ("PATCH", "/planner/tasks/pt/details", b""),
-                  ("GET", "/me/todo/lists", {"value": [{"id": "L0", "wellknownListName": "none"}, {"id": "L1", "wellknownListName": "defaultList"}]}),
-                  ("POST", "/me/todo/lists/L1/tasks", {"id": "td"}), ("POST", "/me/onenote/pages", {"id": "pg", "links": {"oneNoteWebUrl": {"href": "https://on/1"}}}),
-                  ("POST", "/teams/E/channels/C/messages", {"id": "m1", "webUrl": "https://t/m"}), ("POST", "/me/sendMail", b"")]
+    red.rutas += [
+        ("POST", "/planner/tasks", {"id": "pt"}),
+        ("GET", "/planner/tasks/pt/details", {"@odata.etag": "W/1"}),
+        ("PATCH", "/planner/tasks/pt/details", b""),
+        ("GET", "/me/todo/lists", {"value": [{"id": "L0", "wellknownListName": "none"}, {"id": "L1", "wellknownListName": "defaultList"}]}),
+        ("POST", "/me/todo/lists/L1/tasks", {"id": "td"}),
+        ("POST", "/me/onenote/pages", {"id": "pg", "links": {"oneNoteWebUrl": {"href": "https://on/1"}}}),
+        ("POST", "/teams/E/channels/C/messages", {"id": "m1", "webUrl": "https://t/m"}),
+        ("POST", "/me/sendMail", b""),
+    ]
     assert M.TIPOS_GRAPH["ms_planner"]["crear"](None, {}, {"plan": "P"}, x)[0] == "pt"
     pl = json.loads(next(a for a in red.log if a[1].endswith("/planner/tasks"))[3])
     assert pl["title"] == "T-1 Enviar informe" and pl["planId"] == "P" and pl["dueDateTime"].startswith("2026-11-20")
@@ -151,7 +172,11 @@ def test_planner_todo_onenote_teams_correo(red):
     assert M.TIPOS_GRAPH["ms_teams"]["crear"](None, {}, {"equipo": "E", "canal": "C"}, {"titulo": "T", "md": "x"}) == ("m1", "https://t/m")
     M.TIPOS_GRAPH["ms_outlook"]["crear"](None, {}, {"para": "a@x.es; b@y.es", "cc": ""}, {"titulo": "Asunto", "md": "cuerpo", "ficheros": [("a.pdf", b"PDF")]})
     m = json.loads(red.log[-1][3])["message"]
-    assert m["subject"] == "Asunto" and [r["emailAddress"]["address"] for r in m["toRecipients"]] == ["a@x.es", "b@y.es"] and m["attachments"][0]["name"] == "a.pdf"
+    assert (
+        m["subject"] == "Asunto"
+        and [r["emailAddress"]["address"] for r in m["toRecipients"]] == ["a@x.es", "b@y.es"]
+        and m["attachments"][0]["name"] == "a.pdf"
+    )
     with pytest.raises(RuntimeError, match="demasiado grandes"):
         M.correo("s", "h", "a@b.c", [("g", b"0" * (M.MAIL_MAX + 1))])
 
@@ -181,10 +206,16 @@ def test_outlook_powershell(monkeypatch):
         spec = json.loads(open(args[-1], encoding="utf-8").read())
         visto.update(args=args, spec=spec, ps=open(args[-2], encoding="utf-8-sig").read(), adj=[open(a, "rb").read() for a in spec["adjuntos"]])
         return subprocess.CompletedProcess(args, visto.get("rc", 0), "", "")
+
     monkeypatch.setattr(subprocess, "run", run)
     correo.abrir_outlook(COR, b"%PDF", "a.pdf")
     assert visto["spec"]["html"] == COR["html"] and visto["spec"]["para"] == "" and visto["adj"] == [b"%PDF"] and visto["args"][0] == "powershell"
-    assert "New-Object -ComObject Outlook.Application" in visto["ps"] and "Asunto" not in visto["ps"] and COR["html"] not in visto["ps"] and ".Display()" in visto["ps"]
+    assert (
+        "New-Object -ComObject Outlook.Application" in visto["ps"]
+        and "Asunto" not in visto["ps"]
+        and COR["html"] not in visto["ps"]
+        and ".Display()" in visto["ps"]
+    )
     correo.abrir_outlook({**COR, "para": "ana@x.es"})
     assert visto["spec"]["para"] == "ana@x.es"
     visto["rc"] = 3
@@ -195,6 +226,7 @@ def test_outlook_powershell(monkeypatch):
 # ---------- /api/encolar ----------
 def test_encolar(monkeypatch, tmp_path):
     import app
+
     llamadas = []
     monkeypatch.setattr(app, "generar", lambda d: llamadas.append(d) or {"id": f"id{len(llamadas)}"})
     (tmp_path / "v.mp4").write_bytes(b"x")

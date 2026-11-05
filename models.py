@@ -1,4 +1,5 @@
 """Modelos que la app baja sola la primera vez (reanudable, con tamaño y SHA256). Mismo código en todos los SO."""
+
 import hashlib, json, os, re, threading, urllib.request
 from pathlib import Path
 
@@ -10,8 +11,12 @@ M = P.ROOT / "models"
 # (ruta en models/, url, sha256 o None, bytes). Sin sha256 (ficheros pequeños no LFS) solo se exige que no esté vacío.
 FILES = [
     (P.LLM[0], P.LLM[1], "298fcb5fe7a77ccc79745ae24751560c5ac56874caff4bb39b1f2055bd72b8bb", 2583221408),
-    ("gemma-4-E4B-it-Q4_0.gguf", HF + "unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
-     "4a403d2e4d80281063e4f517b1c061ded8476b4011a4fc2ba7dbff707075547e", 4836002944),  # chat de Preguntar (rag.GEMMA)
+    (
+        "gemma-4-E4B-it-Q4_0.gguf",
+        HF + "unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+        "4a403d2e4d80281063e4f517b1c061ded8476b4011a4fc2ba7dbff707075547e",
+        4836002944,
+    ),  # chat de Preguntar (rag.GEMMA)
     ("whisper-large-v3-turbo/model.bin", _W + "model.bin", "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da", 1617884929),
     ("whisper-large-v3-turbo/config.json", _W + "config.json", None, 2263),
     ("whisper-large-v3-turbo/preprocessor_config.json", _W + "preprocessor_config.json", None, 340),
@@ -19,7 +24,12 @@ FILES = [
     ("whisper-large-v3-turbo/vocabulary.json", _W + "vocabulary.json", None, 1068114),
     ("gemma-emb/tokenizer.json", _E + "tokenizer.json", "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47", 20323312),
     ("gemma-emb/onnx/model_quantized.onnx", _E + "onnx/model_quantized.onnx", "172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8", 567874),
-    ("gemma-emb/onnx/model_quantized.onnx_data", _E + "onnx/model_quantized.onnx_data", "705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0", 308890624),
+    (
+        "gemma-emb/onnx/model_quantized.onnx_data",
+        _E + "onnx/model_quantized.onnx_data",
+        "705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0",
+        308890624,
+    ),
     (P.OCR_REC[0], P.OCR_REC[1], P.OCR_REC[2], 7_500_000),
     (P.DIAR_EMB[0], P.DIAR_EMB[1], P.DIAR_EMB[2], 27_000_000),
 ]
@@ -32,15 +42,49 @@ CAT = {
     "busq": ("EmbeddingGemma", "Búsqueda: acta (notas de los puntos) y Preguntar", pre("gemma-emb")),
     "peq": ("OCR y hablantes", "Texto de la pantalla y nombres de hablantes (ficheros pequeños)", pre(P.OCR_REC[0], P.DIAR_EMB[0])),
     "rápida": ("Qwen3.5-4B", "Redactor de las actas Rápida y Alta; ligero, vale para cualquier equipo", [FILES[0]]),
-    "alta9": ("Qwen3.5-9B", "Redactor del acta Alta+; más fiel en reuniones largas", [(P.LLM_DE["alta9"], HFU("Qwen3.5-9B-GGUF", P.LLM_DE["alta9"]),
-             "17670346b4260ddcb0173965145155885024f3c9a4a24389a3370751edbcde24", 5379417312)]),
-    "muyalta": ("Gemma 4 26B-A4B", "Redactor del acta Muy alta; modelo grande (MoE), necesita bastante memoria", [(P.LLM_DE["muyalta"],
-                HFU("gemma-4-26B-A4B-it-qat-GGUF", P.LLM_DE["muyalta"]), "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891", 14249047104)]),
-    "maxima": ("Qwen3.6-35B-A3B", "Redactor del acta Máxima; el mayor (MoE), necesita mucha memoria", [(P.LLM_DE["maxima"],
-               HFU("Qwen3.6-35B-A3B-GGUF", P.LLM_DE["maxima"]), "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61", 22134528992)]),
+    "alta9": (
+        "Qwen3.5-9B",
+        "Redactor del acta Alta+; más fiel en reuniones largas",
+        [(P.LLM_DE["alta9"], HFU("Qwen3.5-9B-GGUF", P.LLM_DE["alta9"]), "17670346b4260ddcb0173965145155885024f3c9a4a24389a3370751edbcde24", 5379417312)],
+    ),
+    "muyalta": (
+        "Gemma 4 26B-A4B",
+        "Redactor del acta Muy alta; modelo grande (MoE), necesita bastante memoria",
+        [
+            (
+                P.LLM_DE["muyalta"],
+                HFU("gemma-4-26B-A4B-it-qat-GGUF", P.LLM_DE["muyalta"]),
+                "a7c5bc715f5ff8e99a3e8901ce7d2b42b402c669bf24f7c5250747633d0f5891",
+                14249047104,
+            )
+        ],
+    ),
+    "maxima": (
+        "Qwen3.6-35B-A3B",
+        "Redactor del acta Máxima; el mayor (MoE), necesita mucha memoria",
+        [
+            (
+                P.LLM_DE["maxima"],
+                HFU("Qwen3.6-35B-A3B-GGUF", P.LLM_DE["maxima"]),
+                "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
+                22134528992,
+            )
+        ],
+    ),
     "chat": ("Gemma 4 E4B", "Chat de Preguntar; mejor que el Qwen si hay memoria", [FILES[1]]),
-    "vision": ("Gemma 4 E4B + visión", "Describe imágenes y capturas con IA (opcional; vision.py)", [FILES[1], ("gemma-4-E4B-it-mmproj-F16.gguf",
-               HFU("gemma-4-E4B-it-GGUF", "mmproj-F16.gguf"), "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51", 990372672)]),
+    "vision": (
+        "Gemma 4 E4B + visión",
+        "Describe imágenes y capturas con IA (opcional; vision.py)",
+        [
+            FILES[1],
+            (
+                "gemma-4-E4B-it-mmproj-F16.gguf",
+                HFU("gemma-4-E4B-it-GGUF", "mmproj-F16.gguf"),
+                "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51",
+                990372672,
+            ),
+        ],
+    ),
 }
 LLMS = [i for i in CAT if i in P.NIVELES]  # redactores
 tam = lambda i: sum(f[3] for f in CAT[i][2])
@@ -51,6 +95,7 @@ _lock = threading.Lock()
 def adopt(f):
     """Si el fichero ya está en la caché de Hugging Face (faster-whisper, hf_hub), lo enlaza en models/ sin copiar ni bajar."""
     import os, re
+
     m = re.match(HF + r"([^/]+)/([^/]+)/resolve/main/(.+)$", f[1])
     if not m:
         return
@@ -91,8 +136,10 @@ def recomendados(est=estado):
 
 
 def catalogo():
-    return [{"id": i, "nombre": n, "uso": u, "bytes": tam(i), "instalado": instalado(i), "estado": (e := estado(i))[0], "necesita": round(e[1], 1)}
-            for i, (n, u, f) in CAT.items()]
+    return [
+        {"id": i, "nombre": n, "uso": u, "bytes": tam(i), "instalado": instalado(i), "estado": (e := estado(i))[0], "necesita": round(e[1], 1)}
+        for i, (n, u, f) in CAT.items()
+    ]
 
 
 def missing(ids):
@@ -104,9 +151,16 @@ def faltan(accion, calidad="rápida", video=True, nube=False):
     m = "rápida" if calidad in ("rápida", "alta") else calidad
     llm = lambda: [] if nube or accion == "buscable" or (f := P.acta_model(calidad)) and f.is_file() or m not in CAT else [m]
     hay = any(instalado(i) for i in LLMS) or any(Path(r).is_file() for r in P.OVER.values())
-    rol = lambda r: bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file() or (r == "emb" and os.environ.get("ACTAS_NO_EMBED") == "1")  # rol sustituido por un .gguf propio
+    rol = lambda r: (
+        bool(P.ROLES.get(r)) and Path(P.ROLES[r]).is_file() or (r == "emb" and os.environ.get("ACTAS_NO_EMBED") == "1")
+    )  # rol sustituido por un .gguf propio
     if accion == "preguntar":
-        ids = [i for i in ([] if rol("emb") else ["busq"]) + ([] if nube or rol("chat") or instalado("chat") or hay else ["chat" if P.chat_model()[0] == "gemma" else "rápida"]) if not instalado(i)]
+        ids = [
+            i
+            for i in ([] if rol("emb") else ["busq"])
+            + ([] if nube or rol("chat") or instalado("chat") or hay else ["chat" if P.chat_model()[0] == "gemma" else "rápida"])
+            if not instalado(i)
+        ]
         txt = "Para preguntar necesitas: "
     else:
         ids = [i for i in (["voz", "peq"] * bool(video)) + ([] if rol("emb") else ["busq"]) if not instalado(i)] + llm()
@@ -152,7 +206,7 @@ def run(ids):
         st.update(total=sum(f[3] for f in todo), done=0)
         for f in todo:
             st["msg"] = f"Descargando {Path(f[0]).name}…"
-            st["done"] = st["total"] - sum(g[3] for g in todo[todo.index(f):])  # re-sincroniza con los tamaños nominales
+            st["done"] = st["total"] - sum(g[3] for g in todo[todo.index(f) :])  # re-sincroniza con los tamaños nominales
             fetch(f)
         st.update(state="done", done=st["total"], msg="Listo")
     except Exception as e:
@@ -194,10 +248,21 @@ def escanear(emb=False):
     hub = Path(env.get("HF_HUB_CACHE") or Path(env.get("HF_HOME") or h / ".cache/huggingface") / "hub")
     ollama = [Path(env["OLLAMA_MODELS"])] if env.get("OLLAMA_MODELS") else []
     ollama += [h / ".ollama/models", Path("/usr/share/ollama/.ollama/models")]
-    ap = Path(env.get("APPDATA", h / "AppData/Roaming")); la = Path(env.get("LOCALAPPDATA", h / "AppData/Local")); lib = h / "Library/Application Support"
-    carpetas = [("Esta app", M), ("LM Studio", h / ".lmstudio/models"), ("LM Studio", h / ".cache/lm-studio/models"), ("Hugging Face", hub),
-                ("Jan", h / "jan/models"), ("Jan", ap / "Jan/data/models"), ("Jan", lib / "Jan/data/models"),
-                ("GPT4All", h / ".local/share/nomic.ai/GPT4All"), ("GPT4All", la / "nomic.ai/GPT4All"), ("GPT4All", lib / "nomic.ai/GPT4All")]
+    ap = Path(env.get("APPDATA", h / "AppData/Roaming"))
+    la = Path(env.get("LOCALAPPDATA", h / "AppData/Local"))
+    lib = h / "Library/Application Support"
+    carpetas = [
+        ("Esta app", M),
+        ("LM Studio", h / ".lmstudio/models"),
+        ("LM Studio", h / ".cache/lm-studio/models"),
+        ("Hugging Face", hub),
+        ("Jan", h / "jan/models"),
+        ("Jan", ap / "Jan/data/models"),
+        ("Jan", lib / "Jan/data/models"),
+        ("GPT4All", h / ".local/share/nomic.ai/GPT4All"),
+        ("GPT4All", la / "nomic.ai/GPT4All"),
+        ("GPT4All", lib / "nomic.ai/GPT4All"),
+    ]
     de_serie = {f[0] for _, _, fs in CAT.values() for f in fs}
     vistos, out = set(), []
 
@@ -344,4 +409,5 @@ def hf_bajar(repo, fichero, nivel, nombre="", tam=0):
             st.update(state="done", done=st["total"], msg="Listo")
         except Exception as e:
             st.update(state="error", msg="No se pudo descargar: " + str(e)[:200])
+
     threading.Thread(target=run_, daemon=True).start()

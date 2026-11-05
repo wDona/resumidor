@@ -12,6 +12,7 @@ Invariantes:
   crea; si esa entidad está viva y no tiene cita de esta reunión, recibe la cita. Lo descartado o fusionado no reaparece ni recibe citas.
   Así «Regenerar con IA» solo añade lo nuevo y respeta lo editado/aprobado.
 """
+
 import json
 import re
 import time
@@ -24,39 +25,64 @@ import registro
 
 CITA_MIN = 0.75  # fracción de pares de palabras de la cita que tienen que estar seguidos en la transcripción
 CERCA = (30, 0.6)  # misma reunión, citas a <= 30 s y coseno >= 0.6: lo mismo dicho con otras palabras (p. ej. la decisión del acta)
-SIM_DUP = 0.85     # coseno (carpetas.sim) a partir del cual el texto es el de una entidad existente, venga de donde venga
-N_MAX = 8        # elementos como mucho por vista y bloque
+SIM_DUP = 0.85  # coseno (carpetas.sim) a partir del cual el texto es el de una entidad existente, venga de donde venga
+N_MAX = 8  # elementos como mucho por vista y bloque
 VACIO = re.compile(r"^\s*(—|-|–|n/?a|ninguno|ninguna|no se dice|sin (datos|definir)|desconocid[oa])?\s*\.?\s*$", re.I)
 CONTACTO = re.compile(r"\S+@\S+\.\w+|\+?\d[\d .\-]{7,}\d")  # D5: correos y teléfonos fuera de interesados
 # vista -> (tipo de entidad, descripción para el prompt, campos propios {nombre: tope de caracteres})
 VISTAS = {
-    "requisitos": ("requisito", "necesidades o condiciones que el sistema, producto o servicio DEBE cumplir según lo dicho («la aplicación debe…», "
-                   "«tiene que permitir…», «no puede…», «en menos de N segundos»). NO son requisitos: tareas o encargos de personas (quién hará "
-                   "qué y cuándo), decisiones de calendario o de lanzamiento, problemas actuales sin una condición exigida, ni opiniones. tipo_req: "
-                   "funcional, no funcional o restricción; prioridad: solo si se dice («imprescindible», «deseable»…); solicitante: quien lo pide, "
-                   "solo si se nombra.", {"tipo_req": 20, "prioridad": 30, "solicitante": 60}),
-    "decisiones": ("decision", "solo acuerdos firmes tomados HOY en esta reunión sobre el proyecto («decidimos…», «se aprueba…», «queda "
-                   "acordado…»). NO son decisiones: propuestas o ideas sin aprobar («se propuso…», «deberíamos…»); lo que se deja pendiente, se "
-                   "aplaza o se verá en otra reunión («lo dejamos pendiente de decidir» es una pregunta abierta, no una decisión); la fecha u "
-                   "organización de la próxima reunión; lo leído de un acta o informe anterior. Una decisión puede encargar algo a alguien («decidimos "
-                   "que Ana revise…»): sí es decisión; un encargo o compromiso que nadie decide («me encargo yo de…») no lo es. decisor: quien "
-                   "decide, solo si se dice.", {"decisor": 60}),
-    "interesados": ("interesado", "personas u organizaciones con interés o influencia en el proyecto (cliente, patrocinador, usuarios, "
-                    "proveedores, responsables) de las que se dice su cargo o su organización. Aquí texto = el nombre tal como se dice (persona "
-                    "u organización); rol: cargo o papel que se dice; organizacion: empresa o área que se dice. Solo nombre, rol y organización: "
-                    "nunca teléfonos, correos ni otros datos de contacto o personales. Quien solo participa en la reunión sin que se diga su rol "
-                    "u organización no es un interesado.", {"rol": 60, "organizacion": 60}),
-    "riesgos": ("riesgo", "algo que PUEDE ocurrir en el futuro y perjudicar al proyecto, dicho como riesgo, amenaza o condición («si X se "
-                "retrasa, Y no podrá…», «hay un riesgo…»). Un problema que ya existe hoy no es un riesgo. probabilidad e impacto: solo si se "
-                "dicen con palabras («alta», «bajo»…), nunca los estimes; responsable: quien lo vigila, solo si se dice.",
-                {"probabilidad": 20, "impacto": 20, "responsable": 60}),
-    "preguntas": ("pregunta", "cuestiones que quedan ABIERTAS en la reunión: preguntas sin respuesta y lo que se deja pendiente de decidir o "
-                  "de aclarar («¿quién…?», «eso lo dejamos pendiente»). texto = la cuestión formulada como pregunta. No incluyas las que se "
-                  "responden en la propia reunión. dirigida_a: a quién se dirige, solo si se dice.", {"dirigida_a": 60}),
+    "requisitos": (
+        "requisito",
+        "necesidades o condiciones que el sistema, producto o servicio DEBE cumplir según lo dicho («la aplicación debe…», "
+        "«tiene que permitir…», «no puede…», «en menos de N segundos»). NO son requisitos: tareas o encargos de personas (quién hará "
+        "qué y cuándo), decisiones de calendario o de lanzamiento, problemas actuales sin una condición exigida, ni opiniones. tipo_req: "
+        "funcional, no funcional o restricción; prioridad: solo si se dice («imprescindible», «deseable»…); solicitante: quien lo pide, "
+        "solo si se nombra.",
+        {"tipo_req": 20, "prioridad": 30, "solicitante": 60},
+    ),
+    "decisiones": (
+        "decision",
+        "solo acuerdos firmes tomados HOY en esta reunión sobre el proyecto («decidimos…», «se aprueba…», «queda "
+        "acordado…»). NO son decisiones: propuestas o ideas sin aprobar («se propuso…», «deberíamos…»); lo que se deja pendiente, se "
+        "aplaza o se verá en otra reunión («lo dejamos pendiente de decidir» es una pregunta abierta, no una decisión); la fecha u "
+        "organización de la próxima reunión; lo leído de un acta o informe anterior. Una decisión puede encargar algo a alguien («decidimos "
+        "que Ana revise…»): sí es decisión; un encargo o compromiso que nadie decide («me encargo yo de…») no lo es. decisor: quien "
+        "decide, solo si se dice.",
+        {"decisor": 60},
+    ),
+    "interesados": (
+        "interesado",
+        "personas u organizaciones con interés o influencia en el proyecto (cliente, patrocinador, usuarios, "
+        "proveedores, responsables) de las que se dice su cargo o su organización. Aquí texto = el nombre tal como se dice (persona "
+        "u organización); rol: cargo o papel que se dice; organizacion: empresa o área que se dice. Solo nombre, rol y organización: "
+        "nunca teléfonos, correos ni otros datos de contacto o personales. Quien solo participa en la reunión sin que se diga su rol "
+        "u organización no es un interesado.",
+        {"rol": 60, "organizacion": 60},
+    ),
+    "riesgos": (
+        "riesgo",
+        "algo que PUEDE ocurrir en el futuro y perjudicar al proyecto, dicho como riesgo, amenaza o condición («si X se "
+        "retrasa, Y no podrá…», «hay un riesgo…»). Un problema que ya existe hoy no es un riesgo. probabilidad e impacto: solo si se "
+        "dicen con palabras («alta», «bajo»…), nunca los estimes; responsable: quien lo vigila, solo si se dice.",
+        {"probabilidad": 20, "impacto": 20, "responsable": 60},
+    ),
+    "preguntas": (
+        "pregunta",
+        "cuestiones que quedan ABIERTAS en la reunión: preguntas sin respuesta y lo que se deja pendiente de decidir o "
+        "de aclarar («¿quién…?», «eso lo dejamos pendiente»). texto = la cuestión formulada como pregunta. No incluyas las que se "
+        "responden en la propia reunión. dirigida_a: a quién se dirige, solo si se dice.",
+        {"dirigida_a": 60},
+    ),
 }
 # Opcional (solo si se pide en `vistas`; no entra en la pasada por defecto): tareas de un documento «tal cual» (el acta humana no pasa por el map/reduce)
-EXTRA = {"tareas": ("tarea", "encargos o compromisos de una persona con algo que hacer («Ana enviará…», «me encargo de…», «se encarga Luis de…»). "
-                    "responsable: quien lo hará, solo si se dice; plazo: fecha o plazo, solo si se dice.", {"responsable": 60, "plazo": 40})}
+EXTRA = {
+    "tareas": (
+        "tarea",
+        "encargos o compromisos de una persona con algo que hacer («Ana enviará…», «me encargo de…», «se encarga Luis de…»). "
+        "responsable: quien lo hará, solo si se dice; plazo: fecha o plazo, solo si se dice.",
+        {"responsable": 60, "plazo": 40},
+    )
+}
 TODAS = {**VISTAS, **EXTRA}
 CABECERA = """Extraes los elementos de un proyecto de un fragmento de transcripción automática (con errores) de una reunión, con marcas \
 [mm:ss] y, a veces, «Nombre:» de quien habla. Los revisará una persona: solo lo que se DICE en el fragmento, sin deducir ni completar; no \
@@ -92,8 +118,15 @@ def comprobar(r, segs, texto, vistas):
             cita = re.sub(r"^\s*(\[[\d:]+\]\s*)?([A-ZÁÉÍÓÚÑ][\w .]{0,30}:\s+)?", "", it.get("cita", "")).strip(" «»\"'")
             f, t = P.find_quote(cita, segs, sw) if len(P.words(cita)) >= 3 else (0, 0)
             nums = rag.bad_nums(" ".join(x for k, x in it.items() if k != "cita"), texto)
-            por = ("sin cita en la transcripción" if f < CITA_MIN or not it.get("texto") else f"cifras que no se dicen: {nums}" if nums else
-                   "no es una decisión" if v == "decisiones" and P.no_decision(it["texto"], cita) else "")
+            por = (
+                "sin cita en la transcripción"
+                if f < CITA_MIN or not it.get("texto")
+                else f"cifras que no se dicen: {nums}"
+                if nums
+                else "no es una decisión"
+                if v == "decisiones" and P.no_decision(it["texto"], cita)
+                else ""
+            )
             if por:
                 print(f"  poblar: descartado ({por}): {v} {it.get('texto')}", flush=True)
                 continue
@@ -110,8 +143,17 @@ def _entidad(v, it, d):
     """Elemento verificado -> columnas de registro.crear."""
     tipo, ex = TODAS[v][0], {k: it[k] for k in TODAS[v][2] if it.get(k)}
     h = carpetas._h(d["mid"], it["cita"])
-    f = {"titulo": it["texto"], "mid": d["mid"], "ver": d["ver"], "ruta": f"poblar.{tipo}.{h}", "h": h, "origen": "reunion", "revision": "propuesto",
-         "fecha_alta": d["fecha"], "campos": {"fuente": "poblar", "seccion": v.capitalize(), **ex}}
+    f = {
+        "titulo": it["texto"],
+        "mid": d["mid"],
+        "ver": d["ver"],
+        "ruta": f"poblar.{tipo}.{h}",
+        "h": h,
+        "origen": "reunion",
+        "revision": "propuesto",
+        "fecha_alta": d["fecha"],
+        "campos": {"fuente": "poblar", "seccion": v.capitalize(), **ex},
+    }
     if tipo == "interesado":
         f["detalle"] = ex.get("rol", "")
     if tipo in ("riesgo", "tarea") and ex.get("responsable"):
@@ -141,7 +183,9 @@ def guardar(c, d, items, lote):
     """Elementos verificados de un documento -> registro. -> {creadas: {tipo: n}, citas: n, omitidas: n} (omitidas = ya estaban
     descartadas/fusionadas). Compara con las entidades del proyecto del mismo tipo y con las creadas en esta misma pasada."""
     res = {"creadas": {}, "citas": 0, "omitidas": 0}
-    if ts := [it["texto"] for v, it in items if TODAS[v][0] != "interesado"]:  # embeddings ANTES del cerrojo de escritura: dentro, carpetas.sim tira de su caché
+    if ts := [
+        it["texto"] for v, it in items if TODAS[v][0] != "interesado"
+    ]:  # embeddings ANTES del cerrojo de escritura: dentro, carpetas.sim tira de su caché
         with registro._db() as db:
             q = registro.proyecto(c, False, db)
             ya = [r[0] for r in db.execute("SELECT titulo FROM entidad WHERE proyecto_id=?", (q["id"],))] if q else []
@@ -153,7 +197,11 @@ def guardar(c, d, items, lote):
             pool = [registro._ent(r) for r in db.execute("SELECT * FROM entidad WHERE proyecto_id=? AND tipo=?", (p, tipo))]
             cx = {x["id"]: [tuple(r) for r in db.execute("SELECT mid, t, texto FROM cita WHERE entidad_id=?", (x["id"],))] for x in pool}
             s = carpetas.sim([f["titulo"]], [y["titulo"] for y in pool])[0] if pool and tipo != "interesado" else [0] * len(pool)
-            x = max((y for y, sy in zip(pool, s) if _igual(tipo, f, it["t"], it["cita"], y, cx[y["id"]], sy)), key=lambda y: (y["mid"] == d["mid"], s[pool.index(y)]), default=None)
+            x = max(
+                (y for y, sy in zip(pool, s) if _igual(tipo, f, it["t"], it["cita"], y, cx[y["id"]], sy)),
+                key=lambda y: (y["mid"] == d["mid"], s[pool.index(y)]),
+                default=None,
+            )
             cita = {"mid": d["mid"], "ver": d["ver"], "t": it["t"], "texto": it["cita"], "verificada": True}
             if x is None:
                 x = registro.crear(c, tipo, lote, db, cita=cita, auto=True, **f)
@@ -172,6 +220,7 @@ def poblar(c, ms, chat_ctx, mids=None, vistas=None, glosario=(), cb=lambda f, m:
     """Pasada sobre los documentos de la carpeta c (ms = sus reuniones; mids: solo esas). chat_ctx() da el chat (pipeline.llama o
     nube.backend; local=True si es el modelo local: una llamada por vista). -> resumen de la pasada (también en el expediente: carpetas.leer(c)["poblar"])."""
     import nube
+
     vistas = [v for v in TODAS if v in (vistas or VISTAS)]
     todos = ds = carpetas.docs(ms)
     registro.sincronizar(c, ds)  # las decisiones del acta ya son entidades: poblar no las duplica
@@ -195,7 +244,13 @@ def poblar(c, ms, chat_ctx, mids=None, vistas=None, glosario=(), cb=lambda f, m:
                     k = i * len(ps) + j
                     cb(0.1 + 0.85 * k / total, f"Poblando el proyecto: {d['nombre']} ({k + 1}/{total})…")
                     n[0] += 1
-                    r = chat(sis.format(lang=P.LANG.get(tr["language"], f"el idioma de la reunión ({tr['language']})")), texto, esq, 600 + 350 * len(vs), temperature=0.1)
+                    r = chat(
+                        sis.format(lang=P.LANG.get(tr["language"], f"el idioma de la reunión ({tr['language']})")),
+                        texto,
+                        esq,
+                        600 + 350 * len(vs),
+                        temperature=0.1,
+                    )
                     ok = comprobar(r, segs, texto, vs)
                     tot["descartadas"] += sum(len(r.get(v) or []) for v in vs) - len(ok)
                     g = guardar(c, d, ok, lote)
@@ -204,8 +259,17 @@ def poblar(c, ms, chat_ctx, mids=None, vistas=None, glosario=(), cb=lambda f, m:
                     tot["req_nuevos"] += g.get("ids", [])
                     for t, x in g["creadas"].items():
                         tot["creadas"][t] = tot["creadas"].get(t, 0) + x
-    info = {"t": time.time(), "mids": [d["mid"] for d in ds], "vistas": vistas, **tot, "llamadas": n[0], "segundos": round(time.time() - t0, 1),
-            "coste": round(nube.COSTE[0] - coste0, 4) or None, "tokens": [a - b for a, b in zip(nube.TOK, tok0)], "lote": lote}
+    info = {
+        "t": time.time(),
+        "mids": [d["mid"] for d in ds],
+        "vistas": vistas,
+        **tot,
+        "llamadas": n[0],
+        "segundos": round(time.time() - t0, 1),
+        "coste": round(nube.COSTE[0] - coste0, 4) or None,
+        "tokens": [a - b for a, b in zip(nube.TOK, tok0)],
+        "lote": lote,
+    }
     carpetas.editar(c, lambda e: e.update(poblar=info))
     borrador_informe(c, info, todos)
     return info
@@ -217,4 +281,5 @@ def borrador_informe(c, info, docs=()):
     """F6: el último informe de la carpeta, si es borrador, se pone al día con lo nuevo en la MISMA versión (informe.tras_poblar no lanza).
     docs: los de la carpeta (carpetas.docs), para que los KPIs conserven títulos y series."""
     import informe
+
     return informe.tras_poblar(c, docs)

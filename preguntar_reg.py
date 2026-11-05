@@ -1,5 +1,6 @@
 """F7 · Preguntar sobre todo el proyecto: preguntas de lista («riesgos abiertos», «qué decidimos sobre X», «quiénes son los interesados»)
 contestadas SIN LLM desde las entidades del registro. pregunta() -> None si la pregunta no va de eso (entonces corre la RAG)."""
+
 import re
 
 import carpetas
@@ -13,7 +14,10 @@ TIPOS = {
     "decision": (r"decisi[oó]n(?:es)?|decidimos|decidido|decidieron|acordamos|acordado", "Decisiones"),
     "requisito": (r"requisitos?|requerimientos?", "Requisitos"),
     "historia": (r"historias?(?: de usuario)?", "Historias de usuario"),
-    "pregunta": (r"preguntas? (?:abiertas?|pendientes?|sin (?:responder|resolver)|respondidas?|resueltas?|con respuesta)|dudas?|cuestiones (?:abiertas|pendientes)", "Preguntas"),
+    "pregunta": (
+        r"preguntas? (?:abiertas?|pendientes?|sin (?:responder|resolver)|respondidas?|resueltas?|con respuesta)|dudas?|cuestiones (?:abiertas|pendientes)",
+        "Preguntas",
+    ),
     "interesado": (r"interesados?|stakeholders?|qui[eé]n(?:es)? (?:es|son|era|eran)\b", "Interesados"),
     "hito": (r"hitos?", "Hitos"),
     "incidencia": (r"incidencias?", "Incidencias"),
@@ -24,9 +28,13 @@ ABIERTO = re.compile(r"\b(?:abiert[oa]s?|vigentes?|activ[oa]s?|vivos?|pendientes
 CERRADA = re.compile(r"\b(?:cerrad[oa]s?|resuelt[oa]s?|mitigad[oa]s?|hech[oa]s?|completad[oa]s?|respondid[oa]s?)\b|con respuesta", re.I)
 PRIO = re.compile(r"\b(must|should|could)\b|prioridad (alta|media|baja)|\b(alta|media|baja) prioridad", re.I)
 TEMA = re.compile(r"\b(?:sobre|acerca de|respecto a|en relaci[oó]n (?:a|con)|de|del|para|con|qui[eé]n(?:es)? (?:es|son|era|eran))\s+(.+)", re.I)
-IGN = set(P.words("abiertos abiertas vigentes cerrados cerradas pendientes tenemos hay todos todas proyecto cuantos cuantas cuales que quienes quien son es los las del de la el y en"
-                  " must should could prioridad alta media baja riesgo riesgos decision decisiones decidimos requisito requisitos historia historias hito hitos incidencia incidencias"
-                  " usuario con para interesado interesados stakeholders pregunta preguntas duda dudas cuestiones sobre acerca respecto"))
+IGN = set(
+    P.words(
+        "abiertos abiertas vigentes cerrados cerradas pendientes tenemos hay todos todas proyecto cuantos cuantas cuales que quienes quien son es los las del de la el y en"
+        " must should could prioridad alta media baja riesgo riesgos decision decisiones decidimos requisito requisitos historia historias hito hitos incidencia incidencias"
+        " usuario con para interesado interesados stakeholders pregunta preguntas duda dudas cuestiones sobre acerca respecto"
+    )
+)
 MAX = 40
 
 
@@ -44,7 +52,14 @@ def pregunta(c, q, ms=()):
         return None  # nada en el registro de ese tipo: que decida la RAG
     xs = todas
     fq = " " + " ".join(P.words(q)) + " "
-    resp = next((r for r in sorted({x["dueno"] for x in xs if x["dueno"]}, key=len, reverse=True) if any(f" {' '.join(P.words(w))} " in fq for w in [r, *r.split()] if len(w) > 2)), "")
+    resp = next(
+        (
+            r
+            for r in sorted({x["dueno"] for x in xs if x["dueno"]}, key=len, reverse=True)
+            if any(f" {' '.join(P.words(w))} " in fq for w in [r, *r.split()] if len(w) > 2)
+        ),
+        "",
+    )
     if resp:
         xs = [x for x in xs if resp.casefold() in x["dueno"].casefold()]
     if m := PRIO.search(q):
@@ -69,9 +84,41 @@ def pregunta(c, q, ms=()):
     xs = [xs[i] for i in orden]
     cs = {x["id"]: x["citas"] for x in registro.completas(xs)}
     nm = {m["id"]: m for m in ms}
-    items = [{"codigo": x["codigo"], "texto": x["titulo"], "resp": x["dueno"], "estado": x["estado"], "sin_revisar": x["revision"] == "propuesto", "respuesta": x["campos"].get("respuesta") or "",
-              "citas": [{"mid": ci["mid"], "ver": ci["ver"], "t": ci["t"] or 0, "doc": (nm.get(ci["mid"]) or {}).get("label", ""), "v": (nm.get(ci["mid"]) or {}).get("video")}
-                        for ci in cs[x["id"]][:3] if ci["mid"]]} for x in xs]
+    items = [
+        {
+            "codigo": x["codigo"],
+            "texto": x["titulo"],
+            "resp": x["dueno"],
+            "estado": x["estado"],
+            "sin_revisar": x["revision"] == "propuesto",
+            "respuesta": x["campos"].get("respuesta") or "",
+            "citas": [
+                {
+                    "mid": ci["mid"],
+                    "ver": ci["ver"],
+                    "t": ci["t"] or 0,
+                    "doc": (nm.get(ci["mid"]) or {}).get("label", ""),
+                    "v": (nm.get(ci["mid"]) or {}).get("video"),
+                }
+                for ci in cs[x["id"]][:3]
+                if ci["mid"]
+            ],
+        }
+        for x in xs
+    ]
     tit = " y ".join(TIPOS[t][1] for t in tipos if any(x["tipo"] == t for x in todas))
-    f = [resp and "de " + resp, tema and "sobre «" + tema + "»", PRIO.search(q) and PRIO.search(q).group(0), CERRADA.search(q) and ("respondidas" if tipos == ["pregunta"] else "cerrados") or ABIERTO.search(q) and ("abiertas" if tipos == ["pregunta"] else "abiertos")]
-    return {"titulo": tit + (" (" + ", ".join(filter(None, f)) + ")" if any(f) else ""), "n": len(items), "cuenta": bool(CUENTA.search(q)), "items": items[:MAX]}
+    f = [
+        resp and "de " + resp,
+        tema and "sobre «" + tema + "»",
+        PRIO.search(q) and PRIO.search(q).group(0),
+        CERRADA.search(q)
+        and ("respondidas" if tipos == ["pregunta"] else "cerrados")
+        or ABIERTO.search(q)
+        and ("abiertas" if tipos == ["pregunta"] else "abiertos"),
+    ]
+    return {
+        "titulo": tit + (" (" + ", ".join(filter(None, f)) + ")" if any(f) else ""),
+        "n": len(items),
+        "cuenta": bool(CUENTA.search(q)),
+        "items": items[:MAX],
+    }

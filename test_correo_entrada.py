@@ -1,4 +1,5 @@
 """correo_entrada: .eml real y un .msg sintético construido aquí (escritor CFB mínimo con ministream, propiedades MAPI)."""
+
 import struct
 from email.message import EmailMessage
 
@@ -25,7 +26,7 @@ def cfb(arbol):
         padre["h"] = ids[0] if ids else None
 
     add(arbol, ents[0])
-    sec = lambda b: [b[i:i + 512].ljust(512, b"\0") for i in range(0, len(b), 512)]
+    sec = lambda b: [b[i : i + 512].ljust(512, b"\0") for i in range(0, len(b), 512)]
     mini, minifat = b"", []
     for e in ents[1:]:
         if e["t"] == 2 and len(e["d"]) < 4096:
@@ -41,6 +42,7 @@ def cfb(arbol):
         fat.extend([ini + i + 1 for i in range(len(s) - 1)] + [FIN] * (len(s) > 0))
         secs.extend(s)
         return ini
+
     ents[0]["s"], ents[0]["z"] = put(mini), len(mini)
     mf = put(b"".join(struct.pack("<I", x) for x in minifat)) if minifat else FIN
     for e in ents[1:]:
@@ -70,10 +72,21 @@ def u(t):
 def msg_fixture(html_only=False, grande=False):
     props = b"\0" * 32 + struct.pack("<IIQ", 0x00390040, 6, (1_800_000_000 + 11644473600) * 10_000_000)  # 2027-01-15
     adj = {"__substg1.0_37010102": b"%PDF-" + (b"x" * 5000 if grande else b"1"), "__substg1.0_3707001F": u("acta.pdf")}
-    cuerpo = ({"__substg1.0_10130102": b"<html><head><style>p{}</style></head><body><p>Hola <b>equipo</b></p><ul><li>uno</li></ul></body></html>"} if html_only
-              else {"__substg1.0_1000001F": u("Hola equipo, ñandú.")})
-    return cfb({"__properties_version1.0": props, "__substg1.0_0037001F": u("Reunión del lunes"), "__substg1.0_0C1A001F": u("Ana Pérez"),
-                "__substg1.0_5D01001F": u("ana@ejemplo.es"), **cuerpo, "__attach_version1.0_#00000000": adj})
+    cuerpo = (
+        {"__substg1.0_10130102": b"<html><head><style>p{}</style></head><body><p>Hola <b>equipo</b></p><ul><li>uno</li></ul></body></html>"}
+        if html_only
+        else {"__substg1.0_1000001F": u("Hola equipo, ñandú.")}
+    )
+    return cfb(
+        {
+            "__properties_version1.0": props,
+            "__substg1.0_0037001F": u("Reunión del lunes"),
+            "__substg1.0_0C1A001F": u("Ana Pérez"),
+            "__substg1.0_5D01001F": u("ana@ejemplo.es"),
+            **cuerpo,
+            "__attach_version1.0_#00000000": adj,
+        }
+    )
 
 
 def test_msg_texto_adjunto_fecha(tmp_path):
@@ -119,6 +132,7 @@ def test_outlook_endpoint_motivo_claro(monkeypatch):
     from fastapi.testclient import TestClient
     from pathlib import Path
     import tempfile
+
     d = Path(tempfile.mkdtemp())
     monkeypatch.setattr(app.pipeline, "WORK", d)
     (d / "m1" / "v1" / "correos").mkdir(parents=True)
@@ -128,8 +142,10 @@ def test_outlook_endpoint_motivo_claro(monkeypatch):
     c = TestClient(app.app)
     assert c.post("/api/correo/m1/v1/outlook/0").json() == {"ok": True}
     assert vistos[0][0]["para"] == "a@b.es" and vistos[0][0]["asunto"] == "Hola" and "<p>x</p>" in vistos[0][0]["html"] and vistos[0][1] is None
+
     def no(*a, **k):
         raise RuntimeError("Outlook clásico no está disponible")
+
     monkeypatch.setattr(app.correo, "abrir_outlook", no)
     r = c.post("/api/correo/m1/v1/outlook/0")
     assert r.status_code == 400 and "Outlook" in r.json()["detail"]
@@ -139,6 +155,7 @@ def test_outlook_endpoint_motivo_claro(monkeypatch):
 def test_correo_como_documento_y_adjuntos_a_la_cola(tmp_path, monkeypatch):
     import app
     import documentos
+
     m = EmailMessage()
     m["Subject"], m["From"] = "Comité 28-oct", "Ana <ana@x.es>"
     m.set_content("Primer párrafo con la decisión.\n\nSegundo párrafo: Luis prepara el presupuesto.")

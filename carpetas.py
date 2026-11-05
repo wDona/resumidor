@@ -1,6 +1,7 @@
 """Carpeta = expediente: datos libres, pendientes de todos sus documentos (con estado propio), seguimiento automático,
 línea de tiempo, estado actual, comparar dos documentos y glosario. Todo vive en work/registro.db (registro.py; por nombre de carpeta):
 leer()/editar() siguen dando el expediente como dict; los pendientes son entidades del registro. Los documentos solo se leen. Las rutas HTTP están en app.py; aquí, la lógica (la prueban test_carpetas.py y los documentos de prueba)."""
+
 import calendar
 import copy
 import datetime as dt
@@ -20,20 +21,61 @@ import rag
 import registro
 
 LOCK = registro.LOCK  # el mismo: editar() (leer, cambiar, guardar) y las escrituras del registro no se cruzan
-DEF = {"tipo": "", "datos": [], "glosario": [], "glos_ignorados": [], "ajustes": {"anon": None, "idioma": ""}, "estados": {}, "manuales": [],
-       "sugeridos": {}, "notas": [], "eventos": [], "estado_txt": None, "comparar_txt": {}}
+DEF = {
+    "tipo": "",
+    "datos": [],
+    "glosario": [],
+    "glos_ignorados": [],
+    "ajustes": {"anon": None, "idioma": ""},
+    "estados": {},
+    "manuales": [],
+    "sugeridos": {},
+    "notas": [],
+    "eventos": [],
+    "estado_txt": None,
+    "comparar_txt": {},
+}
 ESTADOS = ("abierto", "hecho", "descartado")
 # etiqueta del tipo de carpeta según el perfil por defecto (los nombres del asistente de uso); sin perfil: el nombre general de ajustes
-TIPO_PERFIL = {"comunidad": "Comunidad", "consulta": "Paciente", "seleccion": "Candidato", "clase": "Asignatura", "obra": "Obra",
-               "periodistica": "Estudio", "cualitativa": "Estudio", "video": "Serie", "comercial": "Cliente",
-               "raid": "Proyecto", "requisitos": "Proyecto", "comite": "Proyecto", "daily": "Proyecto", "retro": "Proyecto"}
-SUGERIDOS = {"comunidad": ["Dirección", "Administrador", "Nº de vecinos"], "cliente": ["Contacto", "Teléfono"], "paciente": ["Referencia interna"],
-             "candidato": ["Referencia interna", "Puesto"], "proyecto": ["Código", "Cliente", "Sponsor", "Jefe de proyecto", "Fase", "Fecha de inicio", "Fecha fin prevista", "Presupuesto"], "asignatura": ["Curso", "Docente"],
-             "obra": ["Dirección", "Promotor"], "estudio": ["Responsable"], "serie": ["Canal"]}
+TIPO_PERFIL = {
+    "comunidad": "Comunidad",
+    "consulta": "Paciente",
+    "seleccion": "Candidato",
+    "clase": "Asignatura",
+    "obra": "Obra",
+    "periodistica": "Estudio",
+    "cualitativa": "Estudio",
+    "video": "Serie",
+    "comercial": "Cliente",
+    "raid": "Proyecto",
+    "requisitos": "Proyecto",
+    "comite": "Proyecto",
+    "daily": "Proyecto",
+    "retro": "Proyecto",
+}
+SUGERIDOS = {
+    "comunidad": ["Dirección", "Administrador", "Nº de vecinos"],
+    "cliente": ["Contacto", "Teléfono"],
+    "paciente": ["Referencia interna"],
+    "candidato": ["Referencia interna", "Puesto"],
+    "proyecto": ["Código", "Cliente", "Sponsor", "Jefe de proyecto", "Fase", "Fecha de inicio", "Fecha fin prevista", "Presupuesto"],
+    "asignatura": ["Curso", "Docente"],
+    "obra": ["Dirección", "Promotor"],
+    "estudio": ["Responsable"],
+    "serie": ["Canal"],
+}
 SENSIBLES = {"paciente", "candidato"}  # solo una referencia interna: nada que identifique a la persona
 # (casi todas son nunca_recortar en su perfil; «incidencias» de la junta de vecinos no, pero también es accionable)
 ACCION = {"compromisos", "pasos", "siguiente", "incidencias", "pendientes", "checklist", "derramas"}  # secciones de otros perfiles que son accionables
-SEGUIBLES = {"tarea", "riesgo", "incidencia", "supuesto", "dependencia", "pregunta", "hito"}  # entidades que van a Pendientes; requisito/historia/interesado/decision tienen su vista
+SEGUIBLES = {
+    "tarea",
+    "riesgo",
+    "incidencia",
+    "supuesto",
+    "dependencia",
+    "pregunta",
+    "hito",
+}  # entidades que van a Pendientes; requisito/historia/interesado/decision tienen su vista
 SUP, IGUAL, CAMB = 0.80, 0.92, 0.65  # coseno: decisión posterior que sustituye a otra · mismo punto sin cambios · mismo punto cambiado
 
 
@@ -98,8 +140,19 @@ def docs(ms):
             tpl = next((t for t in plantillas.todas() if t["nombre"] == data.get("plantilla")), None) or plantillas.get("acta")
         except (OSError, ValueError):
             continue
-        out.append({"mid": m["id"], "ver": d.name, "asr": d.name.split("_")[2], "nombre": m["label"], "mtime": m["mtime"], "data": data, "tpl": tpl,
-                    "sin": m.get("sin"), "fecha": dt.date.fromtimestamp(m["mtime"]).isoformat()})
+        out.append(
+            {
+                "mid": m["id"],
+                "ver": d.name,
+                "asr": d.name.split("_")[2],
+                "nombre": m["label"],
+                "mtime": m["mtime"],
+                "data": data,
+                "tpl": tpl,
+                "sin": m.get("sin"),
+                "fecha": dt.date.fromtimestamp(m["mtime"]).isoformat(),
+            }
+        )
     return sorted(out, key=lambda x: x["mtime"])
 
 
@@ -122,7 +175,9 @@ def plazo_fecha(txt, ref):
         return ref + dt.timedelta(1)
     for i, rx in enumerate(DIAS):
         if re.search(rf"\b{rx}\b", s):
-            return ref + dt.timedelta((i - ref.weekday()) % 7 or 7) + dt.timedelta(7 * bool(re.search(r"semana que viene|pr[oó]xima semana|siguiente semana", s)))
+            return (
+                ref + dt.timedelta((i - ref.weekday()) % 7 or 7) + dt.timedelta(7 * bool(re.search(r"semana que viene|pr[oó]xima semana|siguiente semana", s)))
+            )
     if re.search(r"(fin|final) de mes", s):
         return ref.replace(day=calendar.monthrange(ref.year, ref.month)[1])
     return None
@@ -148,8 +203,22 @@ def items_doc(d):
         if texto:
             resp, plazo = ("" if _vacio(resp) else str(resp).strip()), ("" if _vacio(plazo) else str(plazo).strip())
             f = plazo_fecha(plazo, ref)
-            out.append({**_ref(d, t), "fecha_doc": d["fecha"], "id": f"{d['mid']}|{d['ver']}|{k}", "tipo": tipo, "tipo_ent": ent, "texto": texto, "resp": resp, "plazo": plazo,
-                        "cita": cita or "", "h": _h(d["mid"], texto), "fecha": f and f.isoformat()})  # fecha = fecha límite (la del documento, fecha_doc)
+            out.append(
+                {
+                    **_ref(d, t),
+                    "fecha_doc": d["fecha"],
+                    "id": f"{d['mid']}|{d['ver']}|{k}",
+                    "tipo": tipo,
+                    "tipo_ent": ent,
+                    "texto": texto,
+                    "resp": resp,
+                    "plazo": plazo,
+                    "cita": cita or "",
+                    "h": _h(d["mid"], texto),
+                    "fecha": f and f.isoformat(),
+                }
+            )  # fecha = fecha límite (la del documento, fecha_doc)
+
     for i, x in enumerate(D.get("tareas") or []):
         add(f"tareas.{i}", "Tarea", x.get("tarea"), x.get("responsable"), x.get("plazo"), x.get("t"), x.get("cita"))  # tipo_ent="tarea"
     for si, s in enumerate(D.get("secciones_plantilla") or []):
@@ -176,14 +245,47 @@ def pendientes(c, ms, hoy=None):
             x = ents[it["id"]]
             if x["revision"] not in registro.OCULTA and x["tipo"] in SEGUIBLES:
                 ed = {"texto": x["titulo"], "resp": x["dueno"]} if x["editado"] else {}  # editada a mano: manda la entidad
-                res.append({**it, **ed, "eid": x["id"], "tipo_ent": x["tipo"], "mtime": d["mtime"], "manual": False, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
+                res.append(
+                    {
+                        **it,
+                        **ed,
+                        "eid": x["id"],
+                        "tipo_ent": x["tipo"],
+                        "mtime": d["mtime"],
+                        "manual": False,
+                        "estado": x["estado"],
+                        "nota": x["campos"].get("nota", ""),
+                        "sugerido": x["sugerencia"],
+                    }
+                )
     for x in registro.listar(c, origen="manual"):
         if x["revision"] in registro.OCULTA or x["tipo"] not in SEGUIBLES:
             continue
         pl = x["campos"].get("plazo", "")
         f = plazo_fecha(pl, dt.date.fromtimestamp(x["creado"]))
-        res.append({"id": x["id"], "eid": x["id"], "tipo": "Manual", "tipo_ent": x["tipo"], "texto": x["titulo"], "resp": x["dueno"], "plazo": pl, "t": 0, "cita": "", "mid": "", "ver": "", "doc": "", "h": "",
-                    "fecha": f and f.isoformat(), "mtime": x["creado"], "manual": True, "estado": x["estado"], "nota": x["campos"].get("nota", ""), "sugerido": x["sugerencia"]})
+        res.append(
+            {
+                "id": x["id"],
+                "eid": x["id"],
+                "tipo": "Manual",
+                "tipo_ent": x["tipo"],
+                "texto": x["titulo"],
+                "resp": x["dueno"],
+                "plazo": pl,
+                "t": 0,
+                "cita": "",
+                "mid": "",
+                "ver": "",
+                "doc": "",
+                "h": "",
+                "fecha": f and f.isoformat(),
+                "mtime": x["creado"],
+                "manual": True,
+                "estado": x["estado"],
+                "nota": x["campos"].get("nota", ""),
+                "sugerido": x["sugerencia"],
+            }
+        )
     for p in res:
         dias = (dt.date.fromisoformat(p["fecha"]) - hoy).days if p["fecha"] else None
         p["dias"], p["vencido"] = dias, dias is not None and dias < 0 and p["estado"] == "abierto"
@@ -198,7 +300,12 @@ def listar(c, ms, estado="abierto", resp="", orden="plazo", hoy=None):
     xs = [p for p in ps if estado in ("todos", p["estado"]) and (not resp or resp.casefold() in p["resp"].casefold())]
     xs.sort(key=(lambda p: (p["fecha"] is None, p["fecha"] or "", p["mtime"])) if orden == "plazo" else (lambda p: (p["mtime"], p["t"])))
     cnt = Counter(p["estado"] for p in ps)
-    return {"items": xs, "responsables": resps, "n": {k: cnt.get(k, 0) for k in ESTADOS}, "sugeridos": [p for p in ps if p["sugerido"] and p["estado"] == "abierto"]}
+    return {
+        "items": xs,
+        "responsables": resps,
+        "n": {k: cnt.get(k, 0) for k in ESTADOS},
+        "sugeridos": [p for p in ps if p["sugerido"] and p["estado"] == "abierto"],
+    }
 
 
 def _buscar(c, ms, pid, hoy=None):
@@ -217,6 +324,7 @@ def set_estado(c, ms, pid, estado, hoy=None):
         e["estados"][pid] = {**e["estados"].get(pid, {}), "estado": estado, "t": time.time(), "mid": p["mid"], "h": p["h"]}
         e["sugeridos"].pop(pid, None)
         evento(e, "pendiente", id=pid, texto=p["texto"], de=p["estado"], a=estado)
+
     editar(c, f)
 
 
@@ -227,8 +335,15 @@ def resolver_sugerencia(c, ms, pid, aceptar, hoy=None):
         raise KeyError("No hay sugerencia para ese pendiente")
     if s["tipo"] == "respondida":  # pregunta respondida en otra reunión (responder_preguntas): aceptar guarda la respuesta con su origen y la cierra
         x = next(x for x in registro.listar(c, tipo="pregunta") if registro.ref(x) == pid)
-        cm = {"estado": "hecho", "fecha_cierre": (hoy or dt.date.today()).isoformat(),
-              "campos": {"respuesta": s["respuesta"], "respuesta_de": {k: s.get(k) for k in ("mid", "ver", "t", "doc", "fecha", "cita")}}} if aceptar else {}
+        cm = (
+            {
+                "estado": "hecho",
+                "fecha_cierre": (hoy or dt.date.today()).isoformat(),
+                "campos": {"respuesta": s["respuesta"], "respuesta_de": {k: s.get(k) for k in ("mid", "ver", "t", "doc", "fecha", "cita")}},
+            }
+            if aceptar
+            else {}
+        )
         return registro.editar(x["id"], {**cm, "sugerencia": None}, uuid.uuid4().hex[:10])
     if aceptar and s["tipo"] == "hecho":
         return set_estado(c, ms, pid, "hecho", hoy)
@@ -236,9 +351,16 @@ def resolver_sugerencia(c, ms, pid, aceptar, hoy=None):
         p = _buscar(c, ms, pid, hoy)
 
         def g(e):
-            e["estados"][pid] = {**e["estados"].get(pid, {"estado": p["estado"]}), "nota": "Actualizado: «" + s["cita"] + "»", "t": time.time(), "mid": p["mid"], "h": p["h"]}
+            e["estados"][pid] = {
+                **e["estados"].get(pid, {"estado": p["estado"]}),
+                "nota": "Actualizado: «" + s["cita"] + "»",
+                "t": time.time(),
+                "mid": p["mid"],
+                "h": p["h"],
+            }
             evento(e, "pendiente", id=pid, texto=p["texto"], de="abierto", a="actualizado", cita=s["cita"])
             e["sugeridos"].pop(pid, None)
+
         editar(c, g)
     else:
         editar(c, lambda e: e["sugeridos"].pop(pid, None))
@@ -253,6 +375,7 @@ def añadir_manual(c, texto, resp="", plazo=""):
     def f(e):
         e["manuales"].append(m)
         evento(e, "manual", id=m["id"], texto=texto)
+
     editar(c, f)
     return m
 
@@ -262,6 +385,7 @@ def borrar_manual(c, pid):
         e["manuales"] = [m for m in e["manuales"] if m["id"] != pid]
         e["estados"].pop(pid, None)
         e["sugeridos"].pop(pid, None)
+
     editar(c, f)
 
 
@@ -287,10 +411,26 @@ def linea(c, ms):
     """Documentos, notas del usuario y cambios de estado de pendientes, del más reciente al más antiguo."""
     e, out = leer(c), []
     for d in docs(ms):
-        out.append({**_ref(d), "tipo": "doc", "t": d["mtime"], "titulo": d["data"].get("titulo") or d["nombre"], "resumen": (d["data"].get("resumen") or "")[:240],
-                    "n_pend": len(items_doc(d))})
+        out.append(
+            {
+                **_ref(d),
+                "tipo": "doc",
+                "t": d["mtime"],
+                "titulo": d["data"].get("titulo") or d["nombre"],
+                "resumen": (d["data"].get("resumen") or "")[:240],
+                "n_pend": len(items_doc(d)),
+            }
+        )
     for n in e["notas"]:
-        out.append({"tipo": "nota", "t": dt.datetime.combine(dt.date.fromisoformat(n["fecha"]), dt.time(12)).timestamp(), "fecha": n["fecha"], "id": n["id"], "texto": n["texto"]})
+        out.append(
+            {
+                "tipo": "nota",
+                "t": dt.datetime.combine(dt.date.fromisoformat(n["fecha"]), dt.time(12)).timestamp(),
+                "fecha": n["fecha"],
+                "id": n["id"],
+                "texto": n["texto"],
+            }
+        )
     for v in e["eventos"]:
         out.append({**v, "fecha": dt.date.fromtimestamp(v["t"]).isoformat()})
     return sorted(out, key=lambda x: -x["t"])
@@ -325,7 +465,9 @@ def ortografia(c, texto):
     return texto
 
 
-MESES_DIAS = set("enero febrero marzo abril mayo junio julio agosto septiembre setiembre octubre noviembre diciembre lunes martes miércoles jueves viernes sábado domingo".split())
+MESES_DIAS = set(
+    "enero febrero marzo abril mayo junio julio agosto septiembre setiembre octubre noviembre diciembre lunes martes miércoles jueves viernes sábado domingo".split()
+)
 
 
 def sugerir_glosario(c, ms, minimo=3, n=30):
@@ -344,7 +486,7 @@ def sugerir_glosario(c, ms, minimo=3, n=30):
                 w = m.group(0)
                 if w.casefold() in MESES_DIAS or w.casefold() in rag.STOP or w.casefold() in ya:
                     continue
-                if m.start() == 0 or re.search(r"[.?!¿¡:]\s*$", t[:m.start()]):  # abre frase: la mayúscula no dice nada...
+                if m.start() == 0 or re.search(r"[.?!¿¡:]\s*$", t[: m.start()]):  # abre frase: la mayúscula no dice nada...
                     ini[w] += 1
                 else:
                     cnt[w] += 1
@@ -378,7 +520,12 @@ def _num(t):
 
 # ---------- decisiones vigentes, comparar y estado actual ----------
 def decisiones(ds):
-    return [{"texto": x["texto"], "cita": x.get("cita", ""), "mt": d["mtime"], **_ref(d, x.get("t"))} for d in ds for x in d["data"].get("decisiones") or [] if x.get("texto")]
+    return [
+        {"texto": x["texto"], "cita": x.get("cita", ""), "mt": d["mtime"], **_ref(d, x.get("t"))}
+        for d in ds
+        for x in d["data"].get("decisiones") or []
+        if x.get("texto")
+    ]
 
 
 def vigentes(ds, sup=SUP):
@@ -394,9 +541,11 @@ def vigentes(ds, sup=SUP):
 
 def _items_cmp(d):
     D = d["data"]
-    return {"decisiones": [(x["texto"], "", x.get("t")) for x in D.get("decisiones") or []],
-            "tareas": [(x["tarea"], " · ".join(v for v in (x.get("responsable"), x.get("plazo")) if not _vacio(v)), x.get("t")) for x in D.get("tareas") or []],
-            "puntos": [(x["texto"], "", x.get("t")) for x in D.get("puntos") or []]}
+    return {
+        "decisiones": [(x["texto"], "", x.get("t")) for x in D.get("decisiones") or []],
+        "tareas": [(x["tarea"], " · ".join(v for v in (x.get("responsable"), x.get("plazo")) if not _vacio(v)), x.get("t")) for x in D.get("tareas") or []],
+        "puntos": [(x["texto"], "", x.get("t")) for x in D.get("puntos") or []],
+    }
 
 
 def comparar(a, b):
@@ -414,7 +563,13 @@ def comparar(a, b):
             if s >= IGUAL and _num(A[j][0]) == _num(B[i][0]) and A[j][1].casefold() == B[i][1].casefold():
                 r["igual"] += 1
             else:
-                r["cambiado"].append({"antes": {"texto": A[j][0], "extra": A[j][1], **_ref(a, A[j][2])}, "ahora": {"texto": B[i][0], "extra": B[i][1], **_ref(b, B[i][2])}, "sim": round(float(s), 2)})
+                r["cambiado"].append(
+                    {
+                        "antes": {"texto": A[j][0], "extra": A[j][1], **_ref(a, A[j][2])},
+                        "ahora": {"texto": B[i][0], "extra": B[i][1], **_ref(b, B[i][2])},
+                        "sim": round(float(s), 2),
+                    }
+                )
         r["nuevo"] = [{"texto": x[0], "extra": x[1], **_ref(b, x[2])} for i, x in enumerate(B) if i not in ui]
         r["ya_no"] = [{"texto": x[0], "extra": x[1], **_ref(a, x[2])} for j, x in enumerate(A) if j not in uj]
         out[k] = r
@@ -434,10 +589,15 @@ def estado_actual(c, ms, hoy=None):
     vig, sup = vigentes(ds)
     ab = [p for p in pendientes(c, ms, hoy) if p["estado"] == "abierto"]
     e = leer(c)
-    return {"n_docs": len(ds), "ultimo": _ref(ds[-1]) if ds else None, "decisiones": {"vigentes": vig, "superadas": sup},
-            "pendientes": sorted(ab, key=lambda p: (p["fecha"] is None, p["fecha"] or "")),
-            "cambios": comparar(ds[-2], ds[-1]) if len(ds) > 1 else None, "redaccion": e["estado_txt"],
-            "obsoleta": bool(e["estado_txt"]) and e["estado_txt"].get("n_docs") != len(ds)}
+    return {
+        "n_docs": len(ds),
+        "ultimo": _ref(ds[-1]) if ds else None,
+        "decisiones": {"vigentes": vig, "superadas": sup},
+        "pendientes": sorted(ab, key=lambda p: (p["fecha"] is None, p["fecha"] or "")),
+        "cambios": comparar(ds[-2], ds[-1]) if len(ds) > 1 else None,
+        "redaccion": e["estado_txt"],
+        "obsoleta": bool(e["estado_txt"]) and e["estado_txt"].get("n_docs") != len(ds),
+    }
 
 
 # ---------- redacción con LLM (trabajos en cola) ----------
@@ -465,8 +625,15 @@ def _src(x, pref=""):
 
 def redactar_estado(c, ms, chat, hoy=None):
     est = estado_actual(c, ms, hoy)
-    fu = [_src(x, "Decisión vigente: ") for x in est["decisiones"]["vigentes"]] + [_src(x, "Decisión anterior sustituida: ") for x in est["decisiones"]["superadas"]] + \
-        [_src(p, "Pendiente abierto" + (f" de {p['resp']}" if p["resp"] else "") + (f", plazo {p['plazo']}" if p["plazo"] else "") + ": ") for p in est["pendientes"][:15] if p["mid"]]
+    fu = (
+        [_src(x, "Decisión vigente: ") for x in est["decisiones"]["vigentes"]]
+        + [_src(x, "Decisión anterior sustituida: ") for x in est["decisiones"]["superadas"]]
+        + [
+            _src(p, "Pendiente abierto" + (f" de {p['resp']}" if p["resp"] else "") + (f", plazo {p['plazo']}" if p["plazo"] else "") + ": ")
+            for p in est["pendientes"][:15]
+            if p["mid"]
+        ]
+    )
     cb = est["cambios"] or {}
     fu += [_src(x, "Nuevo en el último documento: ") for k in ("decisiones", "tareas") for x in (cb.get(k) or {}).get("nuevo", [])]
     fu += [_src(x["ahora"], "Cambiado (antes: " + x["antes"]["texto"] + "): ") for k in ("decisiones", "tareas") for x in (cb.get(k) or {}).get("cambiado", [])]
@@ -529,9 +696,16 @@ cita = copia LITERAL (de 5 a 25 palabras) del fragmento que la da; vacía si es 
 def preguntas_abiertas(c, ms, mid, hasta):
     """Preguntas del registro sin responder ni sugerencia, de documentos anteriores a `mid` (o sin documento), en la forma de candidatos_seguimiento."""
     mt = {d["mid"]: d["mtime"] for d in docs(ms)}
-    return [{"texto": x["titulo"], "resp": x["campos"].get("dirigida_a") or "", "eid": x["id"]} for x in registro.listar(c, tipo="pregunta")
-            if x["revision"] not in (*registro.OCULTA, "descartado") and x["estado"] in ("", "abierto", "en curso") and not x["sugerencia"]
-            and not x["campos"].get("respuesta") and x["mid"] != mid and mt.get(x["mid"], 0) <= hasta]
+    return [
+        {"texto": x["titulo"], "resp": x["campos"].get("dirigida_a") or "", "eid": x["id"]}
+        for x in registro.listar(c, tipo="pregunta")
+        if x["revision"] not in (*registro.OCULTA, "descartado")
+        and x["estado"] in ("", "abierto", "en curso")
+        and not x["sugerencia"]
+        and not x["campos"].get("respuesta")
+        and x["mid"] != mid
+        and mt.get(x["mid"], 0) <= hasta
+    ]
 
 
 def responder_preguntas(cand, idx, nuevo, chat, lote=5):
@@ -539,9 +713,11 @@ def responder_preguntas(cand, idx, nuevo, chat, lote=5):
     la cita), la cita literal verificada y su minuto. Nunca la da por respondida: el usuario acepta o rechaza (/api/reg/{eid}/sugerencia)."""
     n = 0
     for b in range(0, len(cand), lote):
-        lot = cand[b:b + lote]
-        user = "\n\n".join(f"Pregunta {k}: «{p['texto']}»\n" + "\n".join(f"  ({P.fmt(idx.segs[i]['s'])}) {idx.segs[i]['text']}" for i in ids)
-                           for k, (p, ids) in enumerate(lot, 1))
+        lot = cand[b : b + lote]
+        user = "\n\n".join(
+            f"Pregunta {k}: «{p['texto']}»\n" + "\n".join(f"  ({P.fmt(idx.segs[i]['s'])}) {idx.segs[i]['text']}" for i in ids)
+            for k, (p, ids) in enumerate(lot, 1)
+        )
         sch = P.obj(r=P.arr(P.obj(n={"enum": list(range(1, len(lot) + 1))}, respondida={"enum": ["si", "no"]}, respuesta=P.S(300), cita=P.S(220)), len(lot), 1))
         for x in chat(SYS_RESP, user, sch, 160 * len(lot) + 40, temperature=0.0)["r"]:
             if x["respondida"] != "si" or not 1 <= x["n"] <= len(lot):
@@ -553,8 +729,22 @@ def responder_preguntas(cand, idx, nuevo, chat, lote=5):
             r = x["respuesta"].strip()
             if not r or rag.verify(r, " ".join(idx.segs[k]["text"] for k in idx.window(j))):
                 r = x["cita"].strip()
-            registro.editar(p["eid"], {"sugerencia": {"tipo": "respondida", "respuesta": r, "cita": x["cita"].strip(), "t": idx.segs[j]["s"], "mid": nuevo["mid"],
-                                                      "ver": nuevo["ver"], "doc": nuevo["nombre"], "fecha": nuevo["fecha"]}}, False)  # sin historial: Ctrl+Z es del usuario
+            registro.editar(
+                p["eid"],
+                {
+                    "sugerencia": {
+                        "tipo": "respondida",
+                        "respuesta": r,
+                        "cita": x["cita"].strip(),
+                        "t": idx.segs[j]["s"],
+                        "mid": nuevo["mid"],
+                        "ver": nuevo["ver"],
+                        "doc": nuevo["nombre"],
+                        "fecha": nuevo["fecha"],
+                    }
+                },
+                False,
+            )  # sin historial: Ctrl+Z es del usuario
             n += 1
     return n
 
@@ -566,8 +756,11 @@ def seguimiento(c, ms, mid, chat_ctx, threads=2, hoy=None, lote=5, idx=None):
     if not nuevo or nuevo["sin"] or not (P.WORK / mid / f"transcript_{nuevo['asr']}.json").is_file():
         return 0
     editar(c, lambda e: [e["sugeridos"].pop(k) for k, v in list(e["sugeridos"].items()) if v.get("mid") == mid])
-    ab = [p for p in pendientes(c, ms, hoy) if p["estado"] == "abierto" and p["mid"] != mid and p["mtime"] <= nuevo["mtime"] and not p["sugerido"]
-          and p["tipo_ent"] != "pregunta"]  # las preguntas van por responder_preguntas (sugieren la respuesta, no «hecho»)
+    ab = [
+        p
+        for p in pendientes(c, ms, hoy)
+        if p["estado"] == "abierto" and p["mid"] != mid and p["mtime"] <= nuevo["mtime"] and not p["sugerido"] and p["tipo_ent"] != "pregunta"
+    ]  # las preguntas van por responder_preguntas (sugieren la respuesta, no «hecho»)
     pq = preguntas_abiertas(c, ms, mid, nuevo["mtime"])
     if not ab and not pq:
         return 0
@@ -579,10 +772,18 @@ def seguimiento(c, ms, mid, chat_ctx, threads=2, hoy=None, lote=5, idx=None):
     with chat_ctx() as chat:
         n += responder_preguntas(cq, idx, nuevo, chat, lote)
         for b in range(0, len(cand), lote):
-            lot = cand[b:b + lote]
-            user = "\n\n".join(f"Pendiente {k}: «{p['texto']}»" + (f" (responsable: {p['resp']})" if p["resp"] else "") + (f" (plazo: {p['plazo']})" if p["plazo"] else "") + "\n" +
-                               "\n".join(f"  ({P.fmt(idx.segs[i]['s'])}) {idx.segs[i]['text']}" for i in ids) for k, (p, ids) in enumerate(lot, 1))
-            sch = P.obj(r=P.arr(P.obj(n={"enum": list(range(1, len(lot) + 1))}, estado={"enum": ["hecho", "actualizado", "ninguno"]}, cita=P.S(220)), len(lot), 1))
+            lot = cand[b : b + lote]
+            user = "\n\n".join(
+                f"Pendiente {k}: «{p['texto']}»"
+                + (f" (responsable: {p['resp']})" if p["resp"] else "")
+                + (f" (plazo: {p['plazo']})" if p["plazo"] else "")
+                + "\n"
+                + "\n".join(f"  ({P.fmt(idx.segs[i]['s'])}) {idx.segs[i]['text']}" for i in ids)
+                for k, (p, ids) in enumerate(lot, 1)
+            )
+            sch = P.obj(
+                r=P.arr(P.obj(n={"enum": list(range(1, len(lot) + 1))}, estado={"enum": ["hecho", "actualizado", "ninguno"]}, cita=P.S(220)), len(lot), 1)
+            )
             for x in chat(SYS_SEG, user, sch, 120 * len(lot) + 40, temperature=0.0)["r"]:
                 if x["estado"] == "ninguno" or not 1 <= x["n"] <= len(lot):
                     continue
@@ -590,19 +791,31 @@ def seguimiento(c, ms, mid, chat_ctx, threads=2, hoy=None, lote=5, idx=None):
                 j = verificar_seguimiento(idx, ids, x["cita"])
                 if j is None:
                     continue  # la cita no es literal del documento nuevo: se descarta
-                s = {"tipo": x["estado"], "cita": x["cita"].strip(), "t": idx.segs[j]["s"], "mid": mid, "ver": nuevo["ver"], "doc": nuevo["nombre"], "fecha": nuevo["fecha"]}
+                s = {
+                    "tipo": x["estado"],
+                    "cita": x["cita"].strip(),
+                    "t": idx.segs[j]["s"],
+                    "mid": mid,
+                    "ver": nuevo["ver"],
+                    "doc": nuevo["nombre"],
+                    "fecha": nuevo["fecha"],
+                }
 
                 def f(e, p=p, s=s):
                     if e["estados"].get(p["id"], {}).get("estado", "abierto") == "abierto":
                         e["sugeridos"][p["id"]] = s
                         evento(e, "sugerido", id=p["id"], texto=p["texto"], a=s["tipo"], cita=s["cita"], doc=s["doc"], mid=mid, t_doc=s["t"])
+
                 editar(c, f)
                 n += 1
     return n
 
 
 # ---------- preguntas sobre pendientes («¿qué tiene pendiente Ana?»): lista determinista, sin LLM ----------
-PEND_Q = re.compile(r"pendientes?\b|por hacer|tiene(?:n)? que|le(?:s)? toca|deb(?:e|en) hacer|to-?do\b|pending|outstanding|à faire|offen\b|(?:qu[eé]|cu[aá]les|what|which|list\w*|lista\w*).{0,30}\b(?:tareas?|tasks?)\b|who has to", re.I)
+PEND_Q = re.compile(
+    r"pendientes?\b|por hacer|tiene(?:n)? que|le(?:s)? toca|deb(?:e|en) hacer|to-?do\b|pending|outstanding|à faire|offen\b|(?:qu[eé]|cu[aá]les|what|which|list\w*|lista\w*).{0,30}\b(?:tareas?|tasks?)\b|who has to",
+    re.I,
+)
 
 
 def pregunta_pendientes(c, ms, q):
@@ -611,7 +824,14 @@ def pregunta_pendientes(c, ms, q):
         return None
     ab = [p for p in pendientes(c, ms) if p["estado"] == "abierto"]
     fq = " " + " ".join(P.words(q)) + " "
-    resp = next((r for r in sorted({p["resp"] for p in ab if p["resp"]}, key=len, reverse=True) if any(f" {' '.join(P.words(w))} " in fq for w in [r, *r.split()] if len(w) > 2)), "")
+    resp = next(
+        (
+            r
+            for r in sorted({p["resp"] for p in ab if p["resp"]}, key=len, reverse=True)
+            if any(f" {' '.join(P.words(w))} " in fq for w in [r, *r.split()] if len(w) > 2)
+        ),
+        "",
+    )
     if resp:
         ab = [p for p in ab if resp.casefold() in p["resp"].casefold()]
     return {"resp": resp, "items": sorted(ab, key=lambda p: (p["fecha"] is None, p["fecha"] or ""))}

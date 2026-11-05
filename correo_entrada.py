@@ -1,5 +1,6 @@
 """Lectura de correos recibidos (.eml y .msg de Outlook), solo stdlib -> {asunto, de, fecha, texto, adjuntos:[{nombre, datos}]}.
 .msg = fichero compuesto OLE/CFB (MS-CFB) con propiedades MAPI (MS-OXMSG): lector mínimo, solo lo necesario (nada de escritura, ni RTF, ni mensajes anidados)."""
+
 import datetime as dt
 import re
 import struct
@@ -42,8 +43,13 @@ def _eml(b):
     if cuerpo is not None:
         texto = cuerpo.get_content()
         texto = html_a_texto(texto) if cuerpo.get_content_subtype() == "html" else texto.strip()
-    adj = [{"nombre": p.get_filename() or "adjunto", "datos": p.get_payload(decode=True) or bytes(p.get_content()) if p.get_content_type() == "message/rfc822" else p.get_payload(decode=True) or b""}
-           for p in m.iter_attachments()]
+    adj = [
+        {
+            "nombre": p.get_filename() or "adjunto",
+            "datos": p.get_payload(decode=True) or bytes(p.get_content()) if p.get_content_type() == "message/rfc822" else p.get_payload(decode=True) or b"",
+        }
+        for p in m.iter_attachments()
+    ]
     try:
         fecha = m["date"].datetime.isoformat() if m["date"] else ""
     except (ValueError, AttributeError):
@@ -79,7 +85,7 @@ class CFB:
             self.minifat = []
             m = self._cadena(mini0)
             self.minifat = list(struct.unpack_from(f"<{len(m) // 4}I", m))
-            self.mini = self._cadena(self.ents[0]["s"])[:self.ents[0]["z"]]
+            self.mini = self._cadena(self.ents[0]["s"])[: self.ents[0]["z"]]
         self.streams = {}
         self._recorre(self.ents[0]["h"], ())
 
@@ -88,7 +94,7 @@ class CFB:
         ln = struct.unpack_from("<H", d, i + 64)[0]
         izq, der, hijo = struct.unpack_from("<III", d, i + 68)
         ini, tam = struct.unpack_from("<IQ", d, i + 116)
-        return {"n": d[i:i + max(ln - 2, 0)].decode("utf-16-le", "replace"), "t": d[i + 66], "i": izq, "d": der, "h": hijo, "s": ini, "z": tam}
+        return {"n": d[i : i + max(ln - 2, 0)].decode("utf-16-le", "replace"), "t": d[i + 66], "i": izq, "d": der, "h": hijo, "s": ini, "z": tam}
 
     def _off(self, s):
         return (s + 1) * self.ss
@@ -97,7 +103,7 @@ class CFB:
         out, vistos = [], set()
         while s < FIN and s not in vistos and self._off(s) < len(self.b):
             vistos.add(s)
-            out.append(self.b[self._off(s):self._off(s) + self.ss])
+            out.append(self.b[self._off(s) : self._off(s) + self.ss])
             s = self.fat[s] if s < len(self.fat) else FIN
         return b"".join(out)
 
@@ -105,12 +111,12 @@ class CFB:
         out, vistos = [], set()
         while s < FIN and s not in vistos and s < len(self.minifat):
             vistos.add(s)
-            out.append(self.mini[s * self.ms:(s + 1) * self.ms])
+            out.append(self.mini[s * self.ms : (s + 1) * self.ms])
             s = self.minifat[s]
         return b"".join(out)
 
     def _datos(self, e):
-        return (self._minicadena(e["s"]) if e["z"] < self.corte else self._cadena(e["s"]))[:e["z"]]
+        return (self._minicadena(e["s"]) if e["z"] < self.corte else self._cadena(e["s"]))[: e["z"]]
 
     def _recorre(self, raiz, ruta):
         pila, hermanos = [raiz], []
@@ -134,7 +140,11 @@ def _filetime(v):
 
 def _prop(s, ruta, tag):
     """Valor de una propiedad de cadena/binaria: stream __substg1.0_<tag><tipo> bajo `ruta` (001F UTF-16, 001E ANSI, 0102 binario)."""
-    for t, f in (("001F", lambda d: d.decode("utf-16-le", "replace").rstrip("\0")), ("001E", lambda d: d.decode("cp1252", "replace").rstrip("\0")), ("0102", bytes)):
+    for t, f in (
+        ("001F", lambda d: d.decode("utf-16-le", "replace").rstrip("\0")),
+        ("001E", lambda d: d.decode("cp1252", "replace").rstrip("\0")),
+        ("0102", bytes),
+    ):
         d = s.get(ruta + (f"__substg1.0_{tag}{t}",))
         if d is not None:
             return f(d)
@@ -160,7 +170,7 @@ def _msg(b):
         cuerpo = html_a_texto(h) if h else ""
     adj = []
     for k in sorted({x[0] for x in s if len(x) == 2 and x[0].startswith("__attach_version1.0_")}):
-        d = (s.get((k, "__substg1.0_37010102")))
+        d = s.get((k, "__substg1.0_37010102"))
         if d is None:
             continue
         adj.append({"nombre": _prop(s, (k,), "3707") or _prop(s, (k,), "3704") or _prop(s, (k,), "3001") or "adjunto", "datos": d})

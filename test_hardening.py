@@ -1,4 +1,5 @@
 """Endurecimiento: validación del registro, rechazo de «sustituye», CSV seguro, PDF sin 500 por limpieza, NO_DECISION, informe. Sin LLM."""
+
 import contextlib
 import os
 import shutil
@@ -80,20 +81,25 @@ def test_pdf_limpieza_no_es_500(monkeypatch):
     class Pr:
         pid, returncode = 1, 0
         poll = wait = lambda s, *a: 0
+
     def popen(cmd, **k):
         next(a for a in cmd if a.startswith("--print-to-pdf=")).split("=", 1)[1].__class__
         from pathlib import Path
+
         Path(next(a for a in cmd if a.startswith("--print-to-pdf=")).split("=", 1)[1]).write_bytes(b"%PDF-1")
         return Pr()
+
     monkeypatch.setattr(exportar, "navegador", lambda: "x")
     monkeypatch.setattr(exportar.subprocess, "Popen", popen)
     monkeypatch.setattr(exportar.subprocess, "run", lambda *a, **k: None)
     real = shutil.rmtree
+
     def rm(p, *a, **k):  # como Windows con el perfil retenido por un hijo del navegador
         if k.get("onexc"):
             k["onexc"](os.unlink, str(p), PermissionError(32, "en uso"))
             return
         raise PermissionError(32, "en uso")
+
     monkeypatch.setattr(shutil, "rmtree", rm)
     assert exportar.pdf_html("<p>x</p>").startswith(b"%PDF")
     monkeypatch.setattr(shutil, "rmtree", real)

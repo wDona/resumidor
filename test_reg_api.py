@@ -1,4 +1,5 @@
 """Pruebas de /api/reg (registro genérico y bandeja) con TestClient sobre la carpeta sintética de test_carpetas. Sin LLM."""
+
 import shutil
 
 import pipeline
@@ -17,9 +18,20 @@ def todos(t, **p):
 def test_crear_listar_filtrar(cl):
     t, _ = cl
     x = t.post("/api/reg", json={"c": C, "tipo": "riesgo", "titulo": "Retraso del proveedor", "dueno": "Ana", "campos": {"impacto": 4}}).json()
-    assert (x["tipo"], x["origen"], x["revision"], x["codigo"], x["editado"], x["huerfano"], x["citas"], x["relaciones"]) == ("riesgo", "manual", "aprobado", "R-001", False, False, [], [])
+    assert (x["tipo"], x["origen"], x["revision"], x["codigo"], x["editado"], x["huerfano"], x["citas"], x["relaciones"]) == (
+        "riesgo",
+        "manual",
+        "aprobado",
+        "R-001",
+        False,
+        False,
+        [],
+        [],
+    )
     r = t.get("/api/reg", params={"c": C}).json()
-    assert x["id"] in ids(r).values() and r["contadores"]["por_tipo"]["riesgo"] == 1 and r["contadores"]["por_revision"]["propuesto"] > 0  # las del acta entran propuestas
+    assert (
+        x["id"] in ids(r).values() and r["contadores"]["por_tipo"]["riesgo"] == 1 and r["contadores"]["por_revision"]["propuesto"] > 0
+    )  # las del acta entran propuestas
     assert todos(t, tipo="riesgo") == [x["id"]]
     assert todos(t, q="PROVEEDOR", dueno="an") == [x["id"]] and todos(t, q="R-001") == [x["id"]]
     dec = t.get("/api/reg", params={"c": C, "tipo": "decision"}).json()["items"]
@@ -71,7 +83,9 @@ def test_relacion(cl):
     a, b = (t.post("/api/reg", json={"c": C, "tipo": "decision", "titulo": n}).json() for n in ("uno", "dos"))
     assert t.post("/api/reg/relacion", json={"c": C, "a": a["id"], "b": b["id"], "tipo": "sustituye"}).json() == {"ok": True}
     assert t.post("/api/reg/relacion", json={"c": C, "a": a["id"], "b": b["id"], "tipo": "nada"}).status_code == 400
-    assert t.get("/api/reg", params={"c": C, "q": "uno"}).json()["items"][0]["relaciones"] == [{"a": a["id"], "b": b["id"], "tipo": "sustituye", "propuesta": False}]
+    assert t.get("/api/reg", params={"c": C, "q": "uno"}).json()["items"][0]["relaciones"] == [
+        {"a": a["id"], "b": b["id"], "tipo": "sustituye", "propuesta": False}
+    ]
     assert t.delete("/api/reg/relacion", params={"c": C, "a": a["id"], "b": b["id"], "tipo": "sustituye"}).json() == {"ok": True}
     assert t.get("/api/reg", params={"c": C, "q": "uno"}).json()["items"][0]["relaciones"] == []
 
@@ -179,6 +193,7 @@ def test_por_tipo_revision(cl):
 def test_forma_que_lee_registro_js(cl):
     """Toda propiedad que registro.js lee de entidades/bandeja/historial existe en las respuestas reales."""
     from pathlib import Path
+
     t, _ = cl
     js = (Path(__file__).parent / "static" / "registro.js").read_text(encoding="utf-8")
     t.post("/api/reg", json={"c": C, "tipo": "riesgo", "titulo": "A"})
@@ -186,14 +201,38 @@ def test_forma_que_lee_registro_js(cl):
     ents = t.get("/api/reg", params={"c": C}).json()
     it = next(i for i in ents["items"] if i["id"] == h)
     b = t.get("/api/reg/bandeja", params={"c": C}).json()
-    usadas = {"id", "codigo", "titulo", "huerfano", "revision", "origen", "editado", "sugerencia", "citas", "mid", "ver", "dueno", "estado", "detalle", "campos"}
-    assert usadas <= set(it) and all(f"it.{k}" in js or f"s.{k}" in js or f"x.{k}" in js or f"h.{k}" in js for k in usadas - {"detalle", "ver", "mid", "estado", "dueno"})
+    usadas = {
+        "id",
+        "codigo",
+        "titulo",
+        "huerfano",
+        "revision",
+        "origen",
+        "editado",
+        "sugerencia",
+        "citas",
+        "mid",
+        "ver",
+        "dueno",
+        "estado",
+        "detalle",
+        "campos",
+    }
+    assert usadas <= set(it) and all(
+        f"it.{k}" in js or f"s.{k}" in js or f"x.{k}" in js or f"h.{k}" in js for k in usadas - {"detalle", "ver", "mid", "estado", "dueno"}
+    )
     assert {"mid", "ver", "t", "texto", "verificada"} <= set(it["citas"][0])
     assert {"tipo", "cita", "mid", "ver", "t"} <= set(it["sugerencia"])
     assert {"propuestos", "sugerencias", "relaciones_propuestas", "huerfanos"} <= set(b)
-    assert {"items", "contadores"} == set(ents) and {"por_tipo", "por_revision", "por_tipo_revision", "huerfanos"} <= set(ents["contadores"]) and {"propuesto", "aprobado", "descartado"} <= set(ents["contadores"]["por_revision"])
+    assert (
+        {"items", "contadores"} == set(ents)
+        and {"por_tipo", "por_revision", "por_tipo_revision", "huerfanos"} <= set(ents["contadores"])
+        and {"propuesto", "aprobado", "descartado"} <= set(ents["contadores"]["por_revision"])
+    )
     t.patch(f"/api/reg/{h}", json={"c": C, "cambios": {"prioridad": "alta"}})
     hs = t.get(f"/api/reg/{h}/historial", params={"c": C}).json()
     assert hs and {"t", "accion", "antes", "despues"} <= set(hs[0]) and 1e9 < hs[0]["t"] < 1e11  # segundos epoch: el JS no los multiplica por 1000 de más
-    assert all(k in js for k in ("a_titulo", "b_titulo", "por_tipo_revision", "contadores", "relaciones_propuestas"))  # por_tipo_revision: el recuento de «Descartadas» del chip, sin abrirlo
+    assert all(
+        k in js for k in ("a_titulo", "b_titulo", "por_tipo_revision", "contadores", "relaciones_propuestas")
+    )  # por_tipo_revision: el recuento de «Descartadas» del chip, sin abrirlo
     assert {"a", "b", "tipo", "a_titulo", "b_titulo"} <= set(b["relaciones_propuestas"][0])

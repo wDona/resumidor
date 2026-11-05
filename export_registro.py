@@ -1,6 +1,7 @@
 """Exportar una vista del registro del proyecto (requisitos, historias, interesados, decisiones) a docx, pdf, xlsx, csv, md, json, feature,
 csv_jira y csv_azure. Todo sale de las entidades (registro.py), nunca del HTML. borrador=True exporta todo lo no descartado y marca
 «BORRADOR – sin revisar» lo propuesto; borrador=False solo lo aprobado. Un modelo neutro (lista de operaciones) alimenta docx, html/pdf y md."""
+
 import datetime as dt
 import html
 import io
@@ -17,16 +18,53 @@ TIPO = {"requisitos": "requisito", "historias": "historia", "interesados": "inte
 BORR = "BORRADOR – sin revisar"
 BASE = ("docx", "pdf", "xlsx", "csv", "md", "json")
 EXTRA = {"historias": ("feature", "csv_jira", "csv_azure"), "requisitos": ("csv_jira", "csv_azure")}
-EXT = {"docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "csv": "csv", "md": "md", "json": "json", "feature": "feature", "csv_jira": "jira.csv", "csv_azure": "azure.csv"}
-MIME = {"docx": X.FORMATOS["docx"][1], "pdf": "application/pdf", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "csv": "text/csv; charset=utf-8", "md": "text/markdown; charset=utf-8", "json": "application/json", "feature": "text/plain; charset=utf-8",
-        "csv_jira": "text/csv; charset=utf-8", "csv_azure": "text/csv; charset=utf-8"}
-COLS = {"requisitos": ["Código", "Título", "Detalle", "Tipo", "Prioridad", "Estado", "Solicitante", "Criterios", "Versión", "Origen", "Revisión"],
-        "historias": ["Código", "Título", "Como", "Quiero", "Para", "Criterios", "Puntos", "Épica", "Estado", "Deriva de", "Origen", "Revisión"],
-        "interesados": ["Código", "Nombre", "Rol", "Organización", "Poder", "Interés", "Actitud", "Estrategia", "Canal", "Notas", "Origen", "Revisión"],
-        "decisiones": ["Código", "Título", "Contexto", "Alternativas", "Consecuencias", "Decisor", "Fecha", "Estado", "Sustituye a", "Sustituida por", "Origen", "Revisión"]}
-CORTAS = {"requisitos": ["Código", "Título", "Tipo", "Prioridad", "Estado", "Revisión"], "historias": ["Código", "Título", "Épica", "Puntos", "Estado", "Revisión"],
-          "interesados": ["Código", "Nombre", "Rol", "Organización", "Poder", "Interés", "Actitud", "Revisión"], "decisiones": []}
+EXT = {
+    "docx": "docx",
+    "pdf": "pdf",
+    "xlsx": "xlsx",
+    "csv": "csv",
+    "md": "md",
+    "json": "json",
+    "feature": "feature",
+    "csv_jira": "jira.csv",
+    "csv_azure": "azure.csv",
+}
+MIME = {
+    "docx": X.FORMATOS["docx"][1],
+    "pdf": "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "csv": "text/csv; charset=utf-8",
+    "md": "text/markdown; charset=utf-8",
+    "json": "application/json",
+    "feature": "text/plain; charset=utf-8",
+    "csv_jira": "text/csv; charset=utf-8",
+    "csv_azure": "text/csv; charset=utf-8",
+}
+COLS = {
+    "requisitos": ["Código", "Título", "Detalle", "Tipo", "Prioridad", "Estado", "Solicitante", "Criterios", "Versión", "Origen", "Revisión"],
+    "historias": ["Código", "Título", "Como", "Quiero", "Para", "Criterios", "Puntos", "Épica", "Estado", "Deriva de", "Origen", "Revisión"],
+    "interesados": ["Código", "Nombre", "Rol", "Organización", "Poder", "Interés", "Actitud", "Estrategia", "Canal", "Notas", "Origen", "Revisión"],
+    "decisiones": [
+        "Código",
+        "Título",
+        "Contexto",
+        "Alternativas",
+        "Consecuencias",
+        "Decisor",
+        "Fecha",
+        "Estado",
+        "Sustituye a",
+        "Sustituida por",
+        "Origen",
+        "Revisión",
+    ],
+}
+CORTAS = {
+    "requisitos": ["Código", "Título", "Tipo", "Prioridad", "Estado", "Revisión"],
+    "historias": ["Código", "Título", "Épica", "Puntos", "Estado", "Revisión"],
+    "interesados": ["Código", "Nombre", "Rol", "Organización", "Poder", "Interés", "Actitud", "Revisión"],
+    "decisiones": [],
+}
 TITULO = {"requisitos": "Requisitos", "historias": "Historias de usuario", "interesados": "Interesados", "decisiones": "Registro de decisiones"}
 
 
@@ -43,7 +81,11 @@ def _origen(x, docs):
     ps = []
     for ci in x["citas"][:3]:
         d = docs.get(ci["mid"])
-        ps.append(" ".join(filter(None, [f"{d[0]} ({d[1]})" if d else "", _t(ci["t"]) if ci.get("t") is not None else "", f"«{ci['texto']}»" if ci.get("texto") else ""])))
+        ps.append(
+            " ".join(
+                filter(None, [f"{d[0]} ({d[1]})" if d else "", _t(ci["t"]) if ci.get("t") is not None else "", f"«{ci['texto']}»" if ci.get("texto") else ""])
+            )
+        )
     return "; ".join(p for p in ps if p) or {"manual": "Manual", "derivado": "Derivado", "migrado": "Migrado"}.get(x["origen"], x["origen"])
 
 
@@ -82,17 +124,56 @@ def cargar(c, vista, borrador=True, docs=()):
         k, rel = x["campos"], x["relaciones"]
         a = lambda tipo: ", ".join(cod.get(r["b"], "") for r in rel if r["tipo"] == tipo and r["a"] == x["id"])
         de = lambda tipo: ", ".join(cod.get(r["a"], "") for r in rel if r["tipo"] == tipo and r["b"] == x["id"])
-        f = {"Código": x["codigo"], "Título": x["titulo"], "Nombre": x["titulo"], "Estado": x["estado"], "Origen": _origen(x, docs), "Revisión": BORR if x["revision"] == "propuesto" else "Aprobado"}
+        f = {
+            "Código": x["codigo"],
+            "Título": x["titulo"],
+            "Nombre": x["titulo"],
+            "Estado": x["estado"],
+            "Origen": _origen(x, docs),
+            "Revisión": BORR if x["revision"] == "propuesto" else "Aprobado",
+        }
         if vista == "requisitos":
-            f |= {"Detalle": x["detalle"], "Tipo": k.get("tipo_req"), "Prioridad": x["prioridad"], "Solicitante": k.get("solicitante"), "Criterios": _crit_txt(x, False), "Versión": k.get("version")}
+            f |= {
+                "Detalle": x["detalle"],
+                "Tipo": k.get("tipo_req"),
+                "Prioridad": x["prioridad"],
+                "Solicitante": k.get("solicitante"),
+                "Criterios": _crit_txt(x, False),
+                "Versión": k.get("version"),
+            }
         elif vista == "historias":
-            f |= {"Como": k.get("como"), "Quiero": k.get("quiero"), "Para": k.get("para"), "Criterios": _crit_txt(x, True), "Puntos": k.get("puntos"), "Épica": k.get("epica"), "Deriva de": a("deriva_de")}
+            f |= {
+                "Como": k.get("como"),
+                "Quiero": k.get("quiero"),
+                "Para": k.get("para"),
+                "Criterios": _crit_txt(x, True),
+                "Puntos": k.get("puntos"),
+                "Épica": k.get("epica"),
+                "Deriva de": a("deriva_de"),
+            }
         elif vista == "interesados":
-            f |= {k2: k.get(k3) for k2, k3 in (("Rol", "rol"), ("Organización", "organizacion"), ("Poder", "poder"), ("Interés", "interes"), ("Actitud", "actitud"),
-                                                ("Estrategia", "estrategia"), ("Canal", "canal"))} | {"Notas": x["detalle"]}
+            f |= {
+                k2: k.get(k3)
+                for k2, k3 in (
+                    ("Rol", "rol"),
+                    ("Organización", "organizacion"),
+                    ("Poder", "poder"),
+                    ("Interés", "interes"),
+                    ("Actitud", "actitud"),
+                    ("Estrategia", "estrategia"),
+                    ("Canal", "canal"),
+                )
+            } | {"Notas": x["detalle"]}
         else:
-            f |= {"Contexto": x["detalle"], "Alternativas": k.get("alternativas"), "Consecuencias": k.get("consecuencias"), "Decisor": k.get("decisor"), "Fecha": k.get("fecha") or x["fecha_alta"],
-                  "Sustituye a": a("sustituye"), "Sustituida por": de("sustituye")}
+            f |= {
+                "Contexto": x["detalle"],
+                "Alternativas": k.get("alternativas"),
+                "Consecuencias": k.get("consecuencias"),
+                "Decisor": k.get("decisor"),
+                "Fecha": k.get("fecha") or x["fecha_alta"],
+                "Sustituye a": a("sustituye"),
+                "Sustituida por": de("sustituye"),
+            }
         filas.append({c2: _s(f.get(c2)) for c2 in COLS[vista]})
     return items, filas
 
@@ -123,8 +204,7 @@ def _cuadrante(items, filas, niv=6, niv_i=None):
         else:
             q[(po > mp, it > mi)].append(nom)
     cel = lambda p, i, lab: f"{lab}\n" + (", ".join(q[(p, i)]) or "—")
-    return [["Interés alto", cel(0, 1, I), cel(1, 1, G)],
-            ["Interés bajo", cel(0, 0, S), cel(1, 0, M)]], sin, lim
+    return [["Interés alto", cel(0, 1, I), cel(1, 1, G)], ["Interés bajo", cel(0, 0, S), cel(1, 0, M)]], sin, lim
 
 
 def modelo(c, vista, items, filas, borrador):
@@ -140,8 +220,11 @@ def modelo(c, vista, items, filas, borrador):
     if vista == "interesados":
         np_, ni = registro.niveles_ejes(c) if c else (registro.NIVELES_DEF,) * 2
         mat, sin, lim = _cuadrante(items, filas, np_, ni)
-        m += [("h", "Matriz poder / interés", False), ("p", f"Escala: Poder 1–{np_} · Interés 1–{ni} (valores intermedios 0,5 = entre casillas)."),
-              ("tabla", ["", "Poder bajo", "Poder alto"], mat)]
+        m += [
+            ("h", "Matriz poder / interés", False),
+            ("p", f"Escala: Poder 1–{np_} · Interés 1–{ni} (valores intermedios 0,5 = entre casillas)."),
+            ("tabla", ["", "Poder bajo", "Poder alto"], mat),
+        ]
         for t in dict.fromkeys(t for t, _ in lim):
             m.append(("p", f"{t}: " + ", ".join(nm for tt, nm in lim if tt == t)))
         m += [("p", "Sin clasificar: " + ", ".join(sin))] if sin else []
@@ -154,12 +237,16 @@ def modelo(c, vista, items, filas, borrador):
         kv = [(k, f[k]) for k in cols if k not in cortas and k not in ("Código", "Título", "Nombre", "Revisión") and f[k].strip()]
         if not cortas or kv:
             nom = f"{f['Código']} — {f.get('Título') or f['Nombre']}" + (f"  [{BORR}]" if f["Revisión"] == BORR else "")
-            m += [("h", nom, vista == "decisiones" and (f["Sustituida por"] != "" or x["estado"].lower().startswith("sustitu"))), ("kv", kv + ([("Revisión", f["Revisión"])] if not cortas else []))]
+            m += [
+                ("h", nom, vista == "decisiones" and (f["Sustituida por"] != "" or x["estado"].lower().startswith("sustitu"))),
+                ("kv", kv + ([("Revisión", f["Revisión"])] if not cortas else [])),
+            ]
     return m
 
 
 def docx(m, est, c):
     from docx.shared import RGBColor
+
     B = X.doc_base(est, {"{fecha}": f"{dt.date.today():%d/%m/%Y}", "{título}": c, "{titulo}": c})
     doc, H = B.doc, B.H
     rojo = lambda r: (setattr(r, "bold", True), setattr(r.font.color, "rgb", RGBColor(0xB0, 0x20, 0x20)))
@@ -216,10 +303,18 @@ def html_(m, est, c):
         elif op[0] == "kv":
             h.append("<dl>" + "".join(f"<dt>{e(k)}</dt><dd>{cel(v)}</dd>" for k, v in op[1]) + "</dl>")
         else:
-            h.append("<table><tr>" + "".join(f"<th>{e(n)}</th>" for n in op[1]) + "</tr>" + "".join("<tr>" + "".join(f"<td>{cel(v)}</td>" for v in f) + "</tr>" for f in op[2]) + "</table>")
-    col = (f":root{{--acc:{est['color']};--acc-d:{est['color']}}}" if est and est.get("color") else "")
-    return (f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{e(m[0][1])}</title><style>{X.CSS}{CSS}{col}</style></head><body>'
-            f'{X.cabecera_estilo(est)}{"".join(h)}</body></html>')
+            h.append(
+                "<table><tr>"
+                + "".join(f"<th>{e(n)}</th>" for n in op[1])
+                + "</tr>"
+                + "".join("<tr>" + "".join(f"<td>{cel(v)}</td>" for v in f) + "</tr>" for f in op[2])
+                + "</table>"
+            )
+    col = f":root{{--acc:{est['color']};--acc-d:{est['color']}}}" if est and est.get("color") else ""
+    return (
+        f'<!doctype html><html lang="es"><head><meta charset="utf-8"><title>{e(m[0][1])}</title><style>{X.CSS}{CSS}{col}</style></head><body>'
+        f"{X.cabecera_estilo(est)}{''.join(h)}</body></html>"
+    )
 
 
 def md(m):
@@ -237,7 +332,9 @@ def md(m):
         elif op[0] == "kv":
             o.append("\n".join(f"- **{k}:** {v.replace(chr(10), '  ' + chr(10) + '  ')}" for k, v in op[1]) + "\n")
         else:
-            o.append("| " + " | ".join(op[1]) + " |\n|" + "---|" * len(op[1]) + "\n" + "\n".join("| " + " | ".join(cel(v) for v in f) + " |" for f in op[2]) + "\n")
+            o.append(
+                "| " + " | ".join(op[1]) + " |\n|" + "---|" * len(op[1]) + "\n" + "\n".join("| " + " | ".join(cel(v) for v in f) + " |" for f in op[2]) + "\n"
+            )
     return "\n".join(o)
 
 
@@ -251,25 +348,60 @@ def xlsx(hojas):
     with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
         for n, (cab, filas) in enumerate(hojas.values(), 1):
             filas = [cab] + [list(f) for f in filas]
-            w = "".join(f'<col min="{i + 1}" max="{i + 1}" width="{min(60, max(8, max(len(max(str(f[i]).splitlines() or [""], key=len)) for f in filas) + 2))}" customWidth="1"/>' for i in range(len(cab)))
-            rows = "".join(f'<row r="{r}">' + "".join(f'<c r="{col(i)}{r}" t="inlineStr" s="{1 if r == 1 else 2}"><is><t xml:space="preserve">{limpia(v)}</t></is></c>' for i, v in enumerate(f)) + "</row>"
-                           for r, f in enumerate(filas, 1))
-            z.writestr(f"xl/worksheets/sheet{n}.xml", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet {ns}><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-                       f'<cols>{w}</cols><sheetData>{rows}</sheetData><autoFilter ref="A1:{col(len(cab) - 1)}{len(filas)}"/></worksheet>')
+            w = "".join(
+                f'<col min="{i + 1}" max="{i + 1}" width="{min(60, max(8, max(len(max(str(f[i]).splitlines() or [""], key=len)) for f in filas) + 2))}" customWidth="1"/>'
+                for i in range(len(cab))
+            )
+            rows = "".join(
+                f'<row r="{r}">'
+                + "".join(
+                    f'<c r="{col(i)}{r}" t="inlineStr" s="{1 if r == 1 else 2}"><is><t xml:space="preserve">{limpia(v)}</t></is></c>' for i, v in enumerate(f)
+                )
+                + "</row>"
+                for r, f in enumerate(filas, 1)
+            )
+            z.writestr(
+                f"xl/worksheets/sheet{n}.xml",
+                f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet {ns}><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+                f'<cols>{w}</cols><sheetData>{rows}</sheetData><autoFilter ref="A1:{col(len(cab) - 1)}{len(filas)}"/></worksheet>',
+            )
             hs.append(n)
         nombres = [re.sub(r"[\[\]:*?/\\]", "_", k)[:31] for k in hojas]
-        z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
-                   '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
-                   + "".join(f'<Override PartName="/xl/worksheets/sheet{n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' for n in hs) + "</Types>")
-        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
-        z.writestr("xl/workbook.xml", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook {ns} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
-                   + "".join(f'<sheet name="{xesc(k)}" sheetId="{n}" r:id="rId{n}"/>' for n, k in zip(hs, nombres)) + "</sheets></workbook>")
-        z.writestr("xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                   + "".join(f'<Relationship Id="rId{n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{n}.xml"/>' for n in hs)
-                   + f'<Relationship Id="rId{len(hs) + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
-        z.writestr("xl/styles.xml", f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet {ns}><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
-                   '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>'
-                   '<cellXfs count="3"><xf/><xf fontId="1" applyFont="1"/><xf applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs></styleSheet>')
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            + "".join(
+                f'<Override PartName="/xl/worksheets/sheet{n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                for n in hs
+            )
+            + "</Types>",
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+        )
+        z.writestr(
+            "xl/workbook.xml",
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook {ns} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+            + "".join(f'<sheet name="{xesc(k)}" sheetId="{n}" r:id="rId{n}"/>' for n, k in zip(hs, nombres))
+            + "</sheets></workbook>",
+        )
+        z.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + "".join(
+                f'<Relationship Id="rId{n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{n}.xml"/>'
+                for n in hs
+            )
+            + f'<Relationship Id="rId{len(hs) + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+        )
+        z.writestr(
+            "xl/styles.xml",
+            f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet {ns}><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+            '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>'
+            '<cellXfs count="3"><xf/><xf fontId="1" applyFont="1"/><xf applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs></styleSheet>',
+        )
     return b.getvalue()
 
 
@@ -301,25 +433,60 @@ def _prio(p):
 
 
 def _gtxt(x):
-    return "\n".join(f"Scenario: {e or 'Escenario'}{' (propuesta)' if p else ''}\n" + "\n".join(f"{kw} {t}" for kw, t in ls) for e, p, ls in _gherkin(x["campos"].get("criterios")))
+    return "\n".join(
+        f"Scenario: {e or 'Escenario'}{' (propuesta)' if p else ''}\n" + "\n".join(f"{kw} {t}" for kw, t in ls)
+        for e, p, ls in _gherkin(x["campos"].get("criterios"))
+    )
 
 
 def csv_tracker(vista, azure, items, filas):
     rows = []
     for x, f in zip(items, filas):
         borr = f["Revisión"] == BORR
-        desc = "\n\n".join(filter(None, [f"[{BORR}]" if borr else "", f["Detalle"] if vista == "requisitos" else f"Como {f['Como']} quiero {f['Quiero']} para {f['Para']}",
-                                         "" if azure or vista == "requisitos" else _gtxt(x), f"Origen: {f['Origen']}"]))
+        desc = "\n\n".join(
+            filter(
+                None,
+                [
+                    f"[{BORR}]" if borr else "",
+                    f["Detalle"] if vista == "requisitos" else f"Como {f['Como']} quiero {f['Quiero']} para {f['Para']}",
+                    "" if azure or vista == "requisitos" else _gtxt(x),
+                    f"Origen: {f['Origen']}",
+                ],
+            )
+        )
         pr = _prio(x["prioridad"])
         tags = [f["Código"]] + (["borrador"] if borr else [])
         if azure:
-            rows.append(["Requirement" if vista == "requisitos" else "User Story", f"{f['Código']} {f['Título']}", desc, _gtxt(x) if vista == "historias" else f["Criterios"], ";".join(tags), pr[1],
-                         f["Puntos"] if vista == "historias" else ""])
+            rows.append(
+                [
+                    "Requirement" if vista == "requisitos" else "User Story",
+                    f"{f['Código']} {f['Título']}",
+                    desc,
+                    _gtxt(x) if vista == "historias" else f["Criterios"],
+                    ";".join(tags),
+                    pr[1],
+                    f["Puntos"] if vista == "historias" else "",
+                ]
+            )
         else:
-            rows.append([f"{f['Código']} {f['Título']}", "Epic" if vista == "requisitos" else "Story", desc, pr[0], " ".join(tags), f["Puntos"] if vista == "historias" else "",
-                         f["Título"] if vista == "requisitos" else "", f["Épica"] if vista == "historias" else ""])
-    return X._csv(["Work Item Type", "Title", "Description", "Acceptance Criteria", "Tags", "Priority", "Story Points"] if azure else
-                  ["Summary", "Issue Type", "Description", "Priority", "Labels", "Story Points", "Epic Name", "Epic Link"], rows)
+            rows.append(
+                [
+                    f"{f['Código']} {f['Título']}",
+                    "Epic" if vista == "requisitos" else "Story",
+                    desc,
+                    pr[0],
+                    " ".join(tags),
+                    f["Puntos"] if vista == "historias" else "",
+                    f["Título"] if vista == "requisitos" else "",
+                    f["Épica"] if vista == "historias" else "",
+                ]
+            )
+    return X._csv(
+        ["Work Item Type", "Title", "Description", "Acceptance Criteria", "Tags", "Priority", "Story Points"]
+        if azure
+        else ["Summary", "Issue Type", "Description", "Priority", "Labels", "Story Points", "Epic Name", "Epic Link"],
+        rows,
+    )
 
 
 # ---------- despacho ----------
@@ -344,10 +511,32 @@ def exportar(c, vista, fmt, borrador=True, docs=(), estilo=None):
     elif fmt == "md":
         d = md(modelo(c, vista, items, filas, borrador))
     elif fmt == "json":
-        d = json.dumps({"proyecto": c, "vista": vista, "generado": dt.datetime.now().isoformat(timespec="seconds"), "borrador": borrador,
-                        "items": [{"codigo": x["codigo"], "titulo": x["titulo"], "detalle": x["detalle"], "estado": x["estado"], "prioridad": x["prioridad"], "revision": x["revision"],
-                                   "borrador": x["revision"] == "propuesto", "campos": x["campos"], "origen": f["Origen"], "citas": x["citas"], "relaciones": x["relaciones"]}
-                                  for x, f in zip(items, filas)]}, ensure_ascii=False, indent=1)
+        d = json.dumps(
+            {
+                "proyecto": c,
+                "vista": vista,
+                "generado": dt.datetime.now().isoformat(timespec="seconds"),
+                "borrador": borrador,
+                "items": [
+                    {
+                        "codigo": x["codigo"],
+                        "titulo": x["titulo"],
+                        "detalle": x["detalle"],
+                        "estado": x["estado"],
+                        "prioridad": x["prioridad"],
+                        "revision": x["revision"],
+                        "borrador": x["revision"] == "propuesto",
+                        "campos": x["campos"],
+                        "origen": f["Origen"],
+                        "citas": x["citas"],
+                        "relaciones": x["relaciones"],
+                    }
+                    for x, f in zip(items, filas)
+                ],
+            },
+            ensure_ascii=False,
+            indent=1,
+        )
     elif fmt == "feature":
         d = feature(c, items, filas, borrador)
     else:

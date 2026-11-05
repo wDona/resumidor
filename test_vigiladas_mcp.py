@@ -1,4 +1,5 @@
 """Carpetas vigiladas (pasadas a mano, sin hilos ni esperas) y servidor MCP (TestClient) sobre la carpeta sintética de test_carpetas."""
+
 import io
 import json
 
@@ -79,7 +80,13 @@ def test_mcp_herramientas(cl):
     t.post("/api/mcp/ajustes", json={"activo": True, "token_requerido": False})
     i = rpc(t, "initialize", {}).json()["result"]
     assert i["protocolVersion"] == "2025-06-18" and "tools" in i["capabilities"]
-    assert [x["name"] for x in rpc(t, "tools/list").json()["result"]["tools"]] == ["buscar", "preguntar", "documento", "pendientes", "proyectos"]  # encolar: con permiso
+    assert [x["name"] for x in rpc(t, "tools/list").json()["result"]["tools"]] == [
+        "buscar",
+        "preguntar",
+        "documento",
+        "pendientes",
+        "proyectos",
+    ]  # encolar: con permiso
     b = texto(t, "buscar", q="ascensor", proyecto=C)
     assert "ascensor" in b and "doc " in b
     assert "aaaa1111" in texto(t, "buscar", q="derrama")
@@ -110,6 +117,7 @@ def test_mcp_stdio(cl, monkeypatch):
 
         def __exit__(s, *a):
             pass
+
     monkeypatch.setattr(mcp_servidor.urllib.request, "urlopen", lambda req, timeout=0: R(t.post("/mcp", content=req.data).content))
     out = io.StringIO()
     mcp_servidor.stdio("http://x", io.StringIO('{"jsonrpc":"2.0","id":7,"method":"ping"}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n'), out)
@@ -118,6 +126,7 @@ def test_mcp_stdio(cl, monkeypatch):
 
 def test_mcp_respeta_anonimizar_por_defecto(monkeypatch):
     import mcp_servidor as M
+
     monkeypatch.setattr(M.A, "_ajustes", lambda: {"anonimizar_defecto": True})
     r = M._llamar({"name": "proyectos", "arguments": {}})
     assert r["isError"] and "Anonimizar" in r["content"][0]["text"]

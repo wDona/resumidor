@@ -1,5 +1,6 @@
 """Pruebas de destinos.py / destinos_tipos.py: servidor HTTP falso local que captura peticiones (webhook, GitHub, Jira, Linear, Notion, Todoist, WebDAV, Slack, Teams,
 Power Automate), carpeta en tmp, planes/recetas (al terminar y programadas con reloj inyectado), descargas y SigV4 con el vector de AWS. Sin red ni llavero real."""
+
 import datetime as dt
 import hashlib
 import hmac
@@ -41,7 +42,9 @@ class Mock:
                 self.send_header("Content-Length", str(len(d)))
                 self.end_headers()
                 self.wfile.write(d)
+
             do_GET = do_POST = do_PUT = do_PATCH = do_MKCOL = do_PROPFIND = go
+
         self.srv = HTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.srv.server_port}"
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
@@ -82,8 +85,12 @@ def mk():
 def E(cl, monkeypatch):  # noqa: F811
     t, app = cl
     mem = {}
-    kr = types.SimpleNamespace(get_password=lambda s, k: mem.get((s, k)), set_password=lambda s, k, v: mem.__setitem__((s, k), v), delete_password=lambda s, k: mem.pop((s, k), None),
-                               errors=types.SimpleNamespace(PasswordDeleteError=KeyError, KeyringError=OSError))
+    kr = types.SimpleNamespace(
+        get_password=lambda s, k: mem.get((s, k)),
+        set_password=lambda s, k, v: mem.__setitem__((s, k), v),
+        delete_password=lambda s, k: mem.pop((s, k), None),
+        errors=types.SimpleNamespace(PasswordDeleteError=KeyError, KeyringError=OSError),
+    )
     monkeypatch.setattr(destinos, "_kr", lambda: kr)
     monkeypatch.setattr(destinos, "_docs_inf", lambda c: ())
     registro.sincronizar(C, TC.carpetas.docs(app._ms(C)))
@@ -103,7 +110,26 @@ def test_secretos_fuera_del_json_y_catalogo(E, mk):
     i = dest(t, "github", token="SECRETO-TK", repo="o/r", url=mk.url)
     assert "SECRETO-TK" not in destinos.CFG().read_text(encoding="utf-8") and mem[(destinos.SERV, f"{i}:token")] == "SECRETO-TK"
     cat = t.get("/api/destinos").json()
-    assert {"github", "gitlab", "gitea", "jira", "linear", "notion", "todoist", "trello", "azure", "webdav", "s3", "sftp", "correo", "slack", "teams", "power_automate", "webhook", "carpeta"} <= set(cat["tipos"])
+    assert {
+        "github",
+        "gitlab",
+        "gitea",
+        "jira",
+        "linear",
+        "notion",
+        "todoist",
+        "trello",
+        "azure",
+        "webdav",
+        "s3",
+        "sftp",
+        "correo",
+        "slack",
+        "teams",
+        "power_automate",
+        "webhook",
+        "carpeta",
+    } <= set(cat["tipos"])
     assert cat["destinos"][0]["secretos"] == {"token": True} and "token" not in cat["destinos"][0]["config"]
     assert any(f["id"] == "verificar_tls" for f in cat["tipos"]["github"]["campos"])
     assert t.post(f"/api/destinos/{i}/probar").json()["ok"]
@@ -149,7 +175,13 @@ def test_webhook_firma_hmac_y_json(E, mk):
     q = mk.reqs[-1]
     assert q["h"]["X-Actas-Signature"] == "sha256=" + hmac.new(b"clave", q["b"], hashlib.sha256).hexdigest() and q["h"]["X-Extra"] == "1"
     j = json.loads(q["b"])
-    assert j["origen"] == "actas" and j["resumen"] and j["items"][0]["tipo"] == "decision" and "Junta" in j["items"][0]["origen"] and j["items"][0]["enlaces"][0].startswith("/api/vista/")
+    assert (
+        j["origen"] == "actas"
+        and j["resumen"]
+        and j["items"][0]["tipo"] == "decision"
+        and "Junta" in j["items"][0]["origen"]
+        and j["items"][0]["enlaces"][0].startswith("/api/vista/")
+    )
     assert enviar(t, i, ["decisiones", "resumen"], doc="aaaa1111")["items"][0]["accion"] == "omitido"
     # la transcripción solo va en lo maquetado (html, docx, pdf) o aparte (srt/vtt): nunca en texto (JSON, Discord, Teams, .md)
     assert enviar(t, i, ["documento"], doc="aaaa1111")["estado"] == "ok"
@@ -162,6 +194,7 @@ def test_webhook_firma_hmac_y_json(E, mk):
     card = json.dumps(json.loads(mk.reqs[-1]["b"]), ensure_ascii=False)
     assert "Junta de enero" in card and "Hoy hablamos del ascensor" not in card and "Ver vídeo" not in card
     import destinos
+
     vid = TC.pipeline.WORK / "aaaa1111" / "video.mp4"
     vid.write_bytes(b"")
     try:  # con grabación: enlace al vídeo al pie de la tarjeta
@@ -175,11 +208,13 @@ def test_webhook_firma_hmac_y_json(E, mk):
         vid.unlink()
         destinos._escribir(destinos.CFG(), {**destinos.cfg(), "url_base": ""})
     import exportar
+
     ver = next(p.name for p in (TC.pipeline.WORK / "aaaa1111").glob("acta_*"))
     c = exportar.carga("aaaa1111", ver, False)
     assert "Buenos días a todos" not in exportar.md(c) and "Buenos días a todos" in exportar.html_doc(c)
     assert "Buenos días a todos" in exportar.exportar("aaaa1111", ver, "vtt")[0].decode()  # aparte, como documento propio
     import destinos
+
     ext, b = destinos._gen({"mid": "aaaa1111", "ver": ver}, "transcripcion", "md", False, False, [])
     assert ext == "md" and "Buenos días a todos" in b.decode() and b.decode().startswith("# Transcripción")
 
@@ -190,7 +225,11 @@ def test_jira_linear_todoist_notion(E, mk):
     r = enviar(t, j, ["decisiones"], doc="bbbb2222")
     assert r["estado"] == "ok" and r["enlaces"][0] == f"{mk.url}/browse/P-1"
     q = next(x for x in mk.reqs if "/rest/api/3/issue" in x["p"])
-    assert q["h"]["Authorization"].startswith("Basic ") and json.loads(q["b"])["fields"]["description"]["type"] == "doc" and json.loads(q["b"])["fields"]["project"] == {"key": "PRJ"}
+    assert (
+        q["h"]["Authorization"].startswith("Basic ")
+        and json.loads(q["b"])["fields"]["description"]["type"] == "doc"
+        and json.loads(q["b"])["fields"]["project"] == {"key": "PRJ"}
+    )
     s = dest(t, "jira", url=mk.url, modo="server", token="pat", proyecto="PRJ")
     enviar(t, s, ["decisiones"], doc="bbbb2222")
     q = [x for x in mk.reqs if "/rest/api/2/issue" in x["p"]][0]
@@ -200,7 +239,10 @@ def test_jira_linear_todoist_notion(E, mk):
     q = [x for x in mk.reqs if x["p"] == "/graphql"][0]
     assert q["h"]["Authorization"] == "lin_key" and json.loads(q["b"])["variables"]["i"]["teamId"] == "TEAM"
     td = dest(t, "todoist", url=mk.url + "/rest/v2", token="td", proyecto="123")
-    assert enviar(t, td, ["tareas"], doc="aaaa1111")["estado"] == "ok" and json.loads([x for x in mk.reqs if x["p"].endswith("/tasks")][0]["b"])["project_id"] == "123"
+    assert (
+        enviar(t, td, ["tareas"], doc="aaaa1111")["estado"] == "ok"
+        and json.loads([x for x in mk.reqs if x["p"].endswith("/tasks")][0]["b"])["project_id"] == "123"
+    )
     nt = dest(t, "notion", url=mk.url, token="nt", padre="PAD")
     assert enviar(t, nt, ["documento"], doc="aaaa1111")["estado"] == "ok"
     q = [x for x in mk.reqs if x["p"] == "/v1/pages"][0]
@@ -209,7 +251,9 @@ def test_jira_linear_todoist_notion(E, mk):
 
 def test_notion_limites_bloques():
     bl = T._bloques("# T\n" + "x" * 4500 + "\n" + "\n".join(f"- [ ] t{i}" for i in range(150)))
-    assert len(bl) == 152 and all(len(r["text"]["content"]) <= 2000 for b in bl for r in b[b["type"]]["rich_text"]) and len(bl[1]["paragraph"]["rich_text"]) == 3
+    assert (
+        len(bl) == 152 and all(len(r["text"]["content"]) <= 2000 for b in bl for r in b[b["type"]]["rich_text"]) and len(bl[1]["paragraph"]["rich_text"]) == 3
+    )
 
 
 def test_webdav_docx_y_carpeta_vault(E, mk, tmp_path):
@@ -240,12 +284,22 @@ def test_slack_y_teams_payloads(E, mk):
     assert r["estado"] == "ok"
     m = json.loads(next(x for x in mk.reqs if x["p"] == "/services/X/Y/Z")["b"])
     tx = json.dumps(m, ensure_ascii=False)
-    assert m["blocks"][0]["type"] == "header" and "☐" in tx and "Arreglar la puerta del garaje" in tx and "*Decisiones*" in tx and all(len(b["text"]["text"]) <= 3000 for b in m["blocks"][1:])
+    assert (
+        m["blocks"][0]["type"] == "header"
+        and "☐" in tx
+        and "Arreglar la puerta del garaje" in tx
+        and "*Decisiones*" in tx
+        and all(len(b["text"]["text"]) <= 3000 for b in m["blocks"][1:])
+    )
     assert any("getUploadURLExternal" in x["p"] for x in mk.reqs) and any("completeUploadExternal" in x["p"] for x in mk.reqs)
     big = {"titulo": "T", "json": {"items": [{"tipo": "tarea", "titulo": f"tarea {i}", "dueno": "A", "fecha_limite": "x", "codigo": ""} for i in range(9000)]}}
     assert len(T.slack_mensajes(big)) > 1 and all(len(x["blocks"]) <= 40 for x in T.slack_mensajes(big))
-    tm = T.teams_payload({"titulo": "T", "json": {"items": [{"tipo": "tarea", "titulo": "y" * 200, "dueno": "A", "fecha_limite": "", "codigo": ""} for i in range(500)]}})
-    assert tm["type"] == "message" and tm["attachments"][0]["contentType"] == "application/vnd.microsoft.card.adaptive" and len(json.dumps(tm).encode()) <= 27500
+    tm = T.teams_payload(
+        {"titulo": "T", "json": {"items": [{"tipo": "tarea", "titulo": "y" * 200, "dueno": "A", "fecha_limite": "", "codigo": ""} for i in range(500)]}}
+    )
+    assert (
+        tm["type"] == "message" and tm["attachments"][0]["contentType"] == "application/vnd.microsoft.card.adaptive" and len(json.dumps(tm).encode()) <= 27500
+    )
     assert tm["attachments"][0]["content"]["body"][-1]["text"].startswith("… ver más")
     tt = dest(t, "teams", webhook=mk.url + "/teams")
     assert enviar(t, tt, ["tareas"], doc="aaaa1111")["estado"] == "ok" and json.loads(mk.reqs[-1]["b"])["attachments"][0]["content"]["type"] == "AdaptiveCard"
@@ -278,12 +332,22 @@ def test_anonimizacion_nunca_en_claro(E, mk):
 
 
 def test_plan_documento_en_proyecto_y_nombre(E):
-    plan = destinos.normalizar_plan({"carpeta": C, "nombre": "Comité 28-oct", "salidas": [{"que": "decisiones", "como": "documento"}, {"que": "tareas", "como": "documento", "nombre": "Pendientes"},
-                                                                                       {"que": "riesgos", "como": "destino", "destino": "nope"}]})
+    plan = destinos.normalizar_plan(
+        {
+            "carpeta": C,
+            "nombre": "Comité 28-oct",
+            "salidas": [
+                {"que": "decisiones", "como": "documento"},
+                {"que": "tareas", "como": "documento", "nombre": "Pendientes"},
+                {"que": "riesgos", "como": "destino", "destino": "nope"},
+            ],
+        }
+    )
     assert plan["salidas"][2]["configurar"] and "configurar" not in plan["salidas"][0]
     es = destinos.ejecutar_plan(plan, {"doc": "bbbb2222"})
     assert [e["estado"] for e in es] == ["ok", "ok", "error"] and "sin destino" in es[2]["error"]
     import app as A
+
     assert {"Comité 28-oct – decisiones", "Pendientes"} <= {m["label"] for m in A.meetings() if m["carpeta"] == C}
     nuevo = next(m for m in A.meetings() if m["label"] == "Pendientes")
     assert nuevo["sin"] and (destinos.P.WORK / nuevo["id"] / "acta_normal_impdoc" / "index.html").is_file()
@@ -297,7 +361,10 @@ def test_recetas_al_terminar_no_rompe(E, mk, monkeypatch):
     monkeypatch.setattr(destinos, "_hilo", lambda fn, *a: fn(*a))
     i = dest(t, "webhook", url=mk.url + "/r")
     p = t.post("/api/presets", json={"nombre": "Decisiones al hook", "destino": i, "que": ["decisiones"]}).json()["id"]
-    rc = t.post("/api/recetas", json={"nombre": "r", "activa": True, "cuando": {"carpeta": C, "plantilla": "Junta de vecinos / comunidad de propietarios"}, "presets": [p]}).json()
+    rc = t.post(
+        "/api/recetas",
+        json={"nombre": "r", "activa": True, "cuando": {"carpeta": C, "plantilla": "Junta de vecinos / comunidad de propietarios"}, "presets": [p]},
+    ).json()
     destinos.tras_documento("aaaa1111", "acta_normal_impaaaa", None, poblando=True)
     assert not mk.reqs  # esperaba a poblar
     destinos.tras_poblar(C, "aaaa1111")
@@ -306,7 +373,9 @@ def test_recetas_al_terminar_no_rompe(E, mk, monkeypatch):
     destinos.tras_documento("aaaa1111", "acta_normal_impaaaa", None)
     assert len(mk.reqs) == 1  # no coincide
     t.patch(f"/api/recetas/{rc['id']}", json={"activa": False})
-    destinos.tras_documento("aaaa1111", "acta_normal_impaaaa", {"salidas": [{"que": "decisiones", "como": "destino", "destino": "nope", "configurar": True}]})  # plan roto: solo historial
+    destinos.tras_documento(
+        "aaaa1111", "acta_normal_impaaaa", {"salidas": [{"que": "decisiones", "como": "destino", "destino": "nope", "configurar": True}]}
+    )  # plan roto: solo historial
     assert t.get("/api/envios").json()[0]["estado"] == "error"
     monkeypatch.setattr(destinos, "_hilo", HILO)  # el hilo de verdad (sin monkeypatch.undo(): devolvería WORK al work/ real)
     monkeypatch.setattr(destinos, "_auto", lambda *a: 1 / 0)
@@ -325,7 +394,15 @@ def test_programada_reloj_inyectado_solo_nuevo_atrasado(E, mk):
     p = t.post("/api/presets", json={"nombre": "dec", "destino": i, "que": ["decisiones"]}).json()["id"]
     ahora = dt.datetime.now().replace(second=0, microsecond=0)
     h = ahora - dt.timedelta(minutes=30)
-    rc = t.post("/api/recetas", json={"nombre": "sem", "activa": True, "cuando": {"tipo": "programado", "carpeta": C, "cada": "dia", "hora": f"{h.hour:02d}:{h.minute:02d}"}, "presets": [p]}).json()
+    rc = t.post(
+        "/api/recetas",
+        json={
+            "nombre": "sem",
+            "activa": True,
+            "cuando": {"tipo": "programado", "carpeta": C, "cada": "dia", "hora": f"{h.hour:02d}:{h.minute:02d}"},
+            "presets": [p],
+        },
+    ).json()
     assert rc["proximo_iso"] and dt.datetime.fromisoformat(rc["proximo_iso"]) > ahora
     assert destinos.tick(ahora) == [] and not mk.reqs  # aún no toca
     futuro = dt.datetime.fromtimestamp(rc["proximo"]) + dt.timedelta(hours=2)  # la app estuvo cerrada: una sola ejecución, «atrasado»
@@ -349,10 +426,23 @@ def test_descargar_zip_unico_y_omitidos(E):
     t, _ = E
     r = t.post("/api/descargar", json={"docs": ["aaaa1111"], "que": ["documento"], "formatos": ["md"]})
     assert r.status_code == 200 and r.content.startswith(b"# ") and "Junta" in r.headers["content-disposition"]
-    r = t.post("/api/descargar", json={"docs": ["aaaa1111", "bbbb2222"], "c": C, "que": ["documento", "tareas", "decisiones", "resumen"], "formatos": ["md", "docx", "xlsx", "csv_jira", "srt"]})
+    r = t.post(
+        "/api/descargar",
+        json={
+            "docs": ["aaaa1111", "bbbb2222"],
+            "c": C,
+            "que": ["documento", "tareas", "decisiones", "resumen"],
+            "formatos": ["md", "docx", "xlsx", "csv_jira", "srt"],
+        },
+    )
     z = zipfile.ZipFile(io.BytesIO(r.content))
     nombres = z.namelist()
-    assert "Junta de enero · documento.docx" in nombres and "Junta de enero · tareas.jira.csv" in nombres and f"{C} · decisiones.xlsx" in nombres and "Junta de febrero · resumen.md" in nombres
+    assert (
+        "Junta de enero · documento.docx" in nombres
+        and "Junta de enero · tareas.jira.csv" in nombres
+        and f"{C} · decisiones.xlsx" in nombres
+        and "Junta de febrero · resumen.md" in nombres
+    )
     assert "LEEME.txt" in nombres and "documento · xlsx: combinación no válida" in z.read("LEEME.txt").decode()
     assert t.post("/api/descargar", json={"docs": ["aaaa1111"], "que": ["documento"], "formatos": ["xlsx"]}).status_code == 400
     o = t.get("/api/descargar/opciones").json()
@@ -372,9 +462,22 @@ def test_descargar_respeta_anonimizacion(E):
 
 def test_sigv4_vector_aws():
     h = {"host": "example.amazonaws.com", "x-amz-date": "20150830T123600Z"}
-    a = T.sigv4("GET", "/", "", h, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "us-east-1", "service", "20150830T123600Z")
-    assert a == ("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, "
-                 "Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31")
+    a = T.sigv4(
+        "GET",
+        "/",
+        "",
+        h,
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "AKIDEXAMPLE",
+        "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+        "us-east-1",
+        "service",
+        "20150830T123600Z",
+    )
+    assert a == (
+        "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, "
+        "Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31"
+    )
 
 
 def test_s3_put_firmado(E, mk):
@@ -383,7 +486,11 @@ def test_s3_put_firmado(E, mk):
     r = enviar(t, s, ["tareas"], doc="aaaa1111")
     assert r["estado"] == "ok"
     q = [x for x in mk.reqs if x["m"] == "PUT"][0]
-    assert q["p"].startswith("/bk/actas/") and q["h"]["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AK/") and "eu-west-1/s3/aws4_request" in q["h"]["Authorization"]
+    assert (
+        q["p"].startswith("/bk/actas/")
+        and q["h"]["Authorization"].startswith("AWS4-HMAC-SHA256 Credential=AK/")
+        and "eu-west-1/s3/aws4_request" in q["h"]["Authorization"]
+    )
     assert t.post(f"/api/destinos/{s}/probar").json()["ok"]
 
 
@@ -394,13 +501,22 @@ def test_sftp_openssh_sin_contrasenas(E, monkeypatch):
     def run(cmd, input=None, **k):
         calls.append((cmd, input))
         return types.SimpleNamespace(returncode=0, stdout="256 SHA256:abc host (ED25519)" if cmd[0] == "ssh-keygen" else "", stderr="")
+
     monkeypatch.setattr(T.subprocess, "run", run)
     monkeypatch.setattr(T.shutil, "which", lambda c: "/usr/bin/" + c)
     s = dest(t, "sftp", host="vps.local", usuario="deploy", puerto=2222, clave="~/.ssh/id", dir="/srv/actas", comando="")
     r = enviar(t, s, ["tareas"], doc="aaaa1111", formatos=["md"])
     assert r["estado"] == "ok" and len(calls) == 1
     cmd, inp = calls[0]
-    assert cmd[0] == "sftp" and "-P" in cmd and "2222" in cmd and "BatchMode=yes" in cmd and "StrictHostKeyChecking=accept-new" in cmd and cmd[-1] == "deploy@vps.local" and "-i" in cmd
+    assert (
+        cmd[0] == "sftp"
+        and "-P" in cmd
+        and "2222" in cmd
+        and "BatchMode=yes" in cmd
+        and "StrictHostKeyChecking=accept-new" in cmd
+        and cmd[-1] == "deploy@vps.local"
+        and "-i" in cmd
+    )
     assert 'put "' in inp and '"/srv/actas/' in inp
     pr = t.post(f"/api/destinos/{s}/probar").json()
     assert pr["ok"] and "SHA256:abc" in pr["mensaje"]
@@ -468,8 +584,14 @@ def test_plan_defecto_carpeta_y_plan_del_trabajo_sustituye(E, mk, monkeypatch):
 
 def test_plan_conserva_formatos_y_repetir_crea_receta(E):
     t, _ = E
-    pl = destinos.normalizar_plan({"carpeta": C, "nombre": "Comité", "repetir": {"cada": "semana", "dia_semana": 0, "hora": "09:00"},
-                                   "salidas": [{"que": "decisiones", "como": "documento", "formatos": ["docx", "pdf"]}]})
+    pl = destinos.normalizar_plan(
+        {
+            "carpeta": C,
+            "nombre": "Comité",
+            "repetir": {"cada": "semana", "dia_semana": 0, "hora": "09:00"},
+            "salidas": [{"que": "decisiones", "como": "documento", "formatos": ["docx", "pdf"]}],
+        }
+    )
     assert pl["salidas"][0]["formatos"] == ["docx", "pdf"] and pl["repetir"]["cada"] == "semana"
     with pytest.raises(ValueError):
         destinos.normalizar_plan({"salidas": [{"que": "tareas", "como": "documento", "formatos": "pdf"}]})

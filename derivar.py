@@ -11,6 +11,7 @@ Invariantes:
 - Nunca pisa ni resucita: lo parecido (carpetas.sim >= SIM_DUP o mismas palabras) a algo ya derivado de ese requisito, en cualquier
   revisión (título actual o campos.clave = el texto con que se derivó, por si se editó), no se crea; lo existente no se toca. Toda la pasada es un lote del historial (Ctrl+Z la deshace).
 """
+
 import re
 import time
 import uuid
@@ -57,8 +58,16 @@ def prompt(req, citas, glosario=(), rol=""):
     if glosario:
         sis += "\nTérminos de este proyecto (escríbelos exactamente así): " + "; ".join(glosario).replace("{", "(").replace("}", ")") + "."
     k = req["campos"]
-    meta = "; ".join(f"{n}: {v}" for n, v in (("tipo", k.get("tipo_req")), ("prioridad", req.get("prioridad") or k.get("prioridad")),
-                                                ("solicitante", k.get("solicitante")), ("rol del solicitante", rol)) if _limpio(v))
+    meta = "; ".join(
+        f"{n}: {v}"
+        for n, v in (
+            ("tipo", k.get("tipo_req")),
+            ("prioridad", req.get("prioridad") or k.get("prioridad")),
+            ("solicitante", k.get("solicitante")),
+            ("rol del solicitante", rol),
+        )
+        if _limpio(v)
+    )
     usr = f"Requisito {req['codigo']}" + (f" ({meta})" if meta else "") + f":\n{req['titulo']}\n" + (f"{req['detalle']}\n" if req.get("detalle") else "")
     return sis, usr + "Citas de la reunión:\n" + ("\n".join(f"«{t}»" for t in citas if t) or "(ninguna)")
 
@@ -67,8 +76,11 @@ def inventado(ts, fuente):
     """Cifras y nombres propios (mayúscula a mitad de frase) de los textos ts que no están en la fuente."""
     fw, out = set(P.words(fuente)), []
     for t in ts:
-        out += rag.bad_nums(t, fuente) + [m.group() for m in PALABRA.finditer(t) if m.group()[0].isupper() and m.start()
-                                          and not re.search(r"[.!?¿¡:«\"]\s*$", t[:m.start()]) and not set(P.words(m.group())) <= fw]
+        out += rag.bad_nums(t, fuente) + [
+            m.group()
+            for m in PALABRA.finditer(t)
+            if m.group()[0].isupper() and m.start() and not re.search(r"[.!?¿¡:«\"]\s*$", t[: m.start()]) and not set(P.words(m.group())) <= fw
+        ]
     return out
 
 
@@ -122,13 +134,35 @@ def titulo_hu(h):
 def guardar(c, req, hs, ps, lote):
     """Historias y preguntas verificadas de un requisito -> registro. -> {creadas: {tipo: n}, omitidas: n}."""
     res = {"creadas": {}, "omitidas": 0}
-    nuevos = [("historia", titulo_hu(h), {"como": h["como"], "quiero": h["quiero"], "para": h["para"], "epica": req["codigo"] or req["campos"].get("tipo_req", ""),
-                                           "puntos": "", "criterios": h["criterios"]}) for h in hs] +              [("pregunta", p, {"dirigida_a": "", "fuente_req": req["codigo"]}) for p in ps]
+    nuevos = [
+        (
+            "historia",
+            titulo_hu(h),
+            {
+                "como": h["como"],
+                "quiero": h["quiero"],
+                "para": h["para"],
+                "epica": req["codigo"] or req["campos"].get("tipo_req", ""),
+                "puntos": "",
+                "criterios": h["criterios"],
+            },
+        )
+        for h in hs
+    ] + [("pregunta", p, {"dirigida_a": "", "fuente_req": req["codigo"]}) for p in ps]
 
     def _ya(db):
-        return {t: [y for x in map(registro._ent, db.execute(
-            "SELECT e.* FROM entidad e JOIN relacion r ON r.a=e.id WHERE r.b=? AND r.tipo=? AND e.tipo=?", (req["id"], rel, t))) for y in {x["titulo"], x["campos"].get("clave") or x["titulo"]}]
-            for t, rel in (("historia", "deriva_de"), ("pregunta", "afecta"))}  # en cualquier revisión: lo descartado no reaparece
+        return {
+            t: [
+                y
+                for x in map(
+                    registro._ent,
+                    db.execute("SELECT e.* FROM entidad e JOIN relacion r ON r.a=e.id WHERE r.b=? AND r.tipo=? AND e.tipo=?", (req["id"], rel, t)),
+                )
+                for y in {x["titulo"], x["campos"].get("clave") or x["titulo"]}
+            ]
+            for t, rel in (("historia", "deriva_de"), ("pregunta", "afecta"))
+        }  # en cualquier revisión: lo descartado no reaparece
+
     with registro._db() as db:  # embeddings ANTES del cerrojo de escritura: dentro, carpetas.sim tira de su caché
         ya0 = _ya(db)
     for t in ya0:
@@ -142,8 +176,18 @@ def guardar(c, req, hs, ps, lote):
                 res["omitidas"] += 1
                 continue
             ya[tipo].append(tit)
-            x = registro.crear(c, tipo, lote, db, auto=True, titulo=tit, origen="derivado", revision="propuesto", estado="backlog" if tipo == "historia" else "abierto",
-                               campos={**campos, "fuente": "derivar", "clave": tit})
+            x = registro.crear(
+                c,
+                tipo,
+                lote,
+                db,
+                auto=True,
+                titulo=tit,
+                origen="derivado",
+                revision="propuesto",
+                estado="backlog" if tipo == "historia" else "abierto",
+                campos={**campos, "fuente": "derivar", "clave": tit},
+            )
             for ci in cis:
                 registro.citar(x["id"], ci, db)
             db.execute("INSERT OR IGNORE INTO relacion(a, b, tipo) VALUES (?,?,?)", (x["id"], req["id"], "deriva_de" if tipo == "historia" else "afecta"))
@@ -162,6 +206,7 @@ def derivar(c, chat_ctx, ids=None, glosario=(), cb=lambda f, m: None):
     """Deriva los requisitos ids de la carpeta c (por defecto, pendientes(c)). chat_ctx() da el chat (pipeline.llama o nube.backend).
     -> resumen (también en el expediente: carpetas.leer(c)["derivar"])."""
     import nube
+
     vivos = {x["id"]: x for x in registro.listar(c, "requisito") if x["revision"] not in registro.OCULTA}
     reqs = [vivos[i] for i in (pendientes(c) if ids is None else ids) if i in vivos]
     t0, n, coste0, tok0, lote = time.time(), 0, nube.COSTE[0], list(nube.TOK), uuid.uuid4().hex[:10]
@@ -182,7 +227,15 @@ def derivar(c, chat_ctx, ids=None, glosario=(), cb=lambda f, m: None):
                 tot["omitidas"] += g["omitidas"]
                 for t, x in g["creadas"].items():
                     tot["creadas"][t] = tot["creadas"].get(t, 0) + x
-    info = {"t": time.time(), "requisitos": [x["codigo"] for x in reqs], **tot, "llamadas": n, "segundos": round(time.time() - t0, 1),
-            "coste": round(nube.COSTE[0] - coste0, 4) or None, "tokens": [a - b for a, b in zip(nube.TOK, tok0)], "lote": lote}  # lote auto: registro.deshacer_pasada
+    info = {
+        "t": time.time(),
+        "requisitos": [x["codigo"] for x in reqs],
+        **tot,
+        "llamadas": n,
+        "segundos": round(time.time() - t0, 1),
+        "coste": round(nube.COSTE[0] - coste0, 4) or None,
+        "tokens": [a - b for a, b in zip(nube.TOK, tok0)],
+        "lote": lote,
+    }  # lote auto: registro.deshacer_pasada
     carpetas.editar(c, lambda e: e.update(derivar=info))
     return info

@@ -1,4 +1,5 @@
 """F7: /api/preguntar contesta sin LLM las preguntas de lista del proyecto desde el registro; si no entiende, corre la RAG."""
+
 import json
 
 import registro
@@ -35,7 +36,10 @@ def test_riesgos_abiertos_y_conteo(cl, monkeypatch):
     r = pregunta(t, "¿Cuántos riesgos abiertos tenemos?")
     assert r["cuenta"] and r["n"] == 2
     assert textos(pregunta(t, "riesgos cerrados")) == ["Sobrecoste del ascensor"]
-    assert textos(pregunta(t, "¿Qué riesgos tiene Ana?")) == ["Retraso del proveedor", "Sobrecoste del ascensor"]  # filtro por responsable (sin filtro de estado)
+    assert textos(pregunta(t, "¿Qué riesgos tiene Ana?")) == [
+        "Retraso del proveedor",
+        "Sobrecoste del ascensor",
+    ]  # filtro por responsable (sin filtro de estado)
     assert textos(pregunta(t, "riesgos abiertos de Ana")) == ["Retraso del proveedor"]
 
 
@@ -96,6 +100,7 @@ def test_sin_intencion_cae_a_la_rag_y_acta_unica_no_cambia(cl, monkeypatch):
     def indice(sel):
         llamadas.append(sel)
         raise RuntimeError("RAG")
+
     monkeypatch.setattr(app, "indice", indice)
     r = pregunta(t, "¿Qué dijo Laura de la puerta del garaje?")  # sin tipo de entidad
     assert llamadas == ["c:" + C] and any(e["k"] == "error" and e["text"] == "RAG" for e in r)

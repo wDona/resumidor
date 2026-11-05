@@ -1,4 +1,5 @@
 """fusionar/separar del registro: relleno de vacíos, nota «Fusionado desde…», deshacer, separar y errores. Sin LLM."""
+
 import pytest
 
 import registro
@@ -10,7 +11,9 @@ cita = lambda t: {"mid": "m1", "ver": "v", "t": t, "texto": f"cita {t}"}
 
 def test_rellena_vacios_y_nota(work):
     d = registro.crear("P", "decision", titulo="Usar Postgres", cita=cita(0))
-    o = registro.crear("P", "decision", titulo="Base de datos: Postgres 16", detalle="Por soporte JSON", dueno="Ana", campos={"alternativas": "MySQL"}, cita=cita(1))
+    o = registro.crear(
+        "P", "decision", titulo="Base de datos: Postgres 16", detalle="Por soporte JSON", dueno="Ana", campos={"alternativas": "MySQL"}, cita=cita(1)
+    )
     x = registro.fusionar(d["id"], [o["id"]])
     assert (x["detalle"], x["dueno"], x["campos"]["alternativas"]) == ("Por soporte JSON\nFusionado desde D-002: Base de datos: Postgres 16", "Ana", "MySQL")
     assert x["titulo"] == "Usar Postgres" and len(registro.citas(d["id"])) == 2

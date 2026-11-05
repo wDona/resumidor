@@ -1,5 +1,6 @@
 """Evalúa rag.py con eval/rag_preguntas.json: recall@8, "No se menciona", trampas, paráfrasis, descartes y latencias.
 uv run eval/rag_score.py [--solo-recuperacion] [--m reunion]   (ACTAS_LLM_URL reutiliza un llama-server ya arrancado)"""
+
 import json, os, statistics, sys, time
 from pathlib import Path
 
@@ -12,7 +13,6 @@ args = sys.argv[1:]
 only = args[args.index("--m") + 1] if "--m" in args else None
 retr_only = "--solo-recuperacion" in args
 threads = int(os.environ.get("ACTAS_THREADS", 2))
-
 
 
 def invented(idx, f):
@@ -60,12 +60,15 @@ try:
         dj = {i for f in frases if f.get("kind") == "dijo" for i in f["refs"]}
         r["ded_mal_citada"] = sum(f.get("kind") == "deduce" and not set(f["refs"]) <= dj for f in frases)  # cita que no respalda
         shown = " ".join(f["frase"] if f["ok"] else f["seg"] for f in frases)  # lo que ve el usuario
-        model = fold(" ".join(f["frase"] for f in frases))                    # lo que escribió el LLM
-        said = fold(" ".join(f["frase"] for f in frases if f["ok"]))           # frases que pasan la verificación
-        r.update(nada=nada, frases=frases,
-                 must_ok=all(any(a in fold(shown) for a in m.split("|")) for m in q.get("must", [])),
-                 raw_inference=any(w in model for w in q.get("forbid", [])),
-                 shown_inference=any(w in said for w in q.get("forbid", [])))
+        model = fold(" ".join(f["frase"] for f in frases))  # lo que escribió el LLM
+        said = fold(" ".join(f["frase"] for f in frases if f["ok"]))  # frases que pasan la verificación
+        r.update(
+            nada=nada,
+            frases=frases,
+            must_ok=all(any(a in fold(shown) for a in m.split("|")) for m in q.get("must", [])),
+            raw_inference=any(w in model for w in q.get("forbid", [])),
+            shown_inference=any(w in said for w in q.get("forbid", [])),
+        )
         if q["type"] == "absent":
             r["ok"] = bool(nada)
         elif q["type"] == "trap":
@@ -79,15 +82,21 @@ try:
             r["ok"] = not nada and any(f["hit"] for f in frases) and r["must_ok"]
         r["inv"] = sum(invented(idx, f) for f in frases)
         rows.append(r)
-        print(f"{'✓' if r['ok'] else '✗'} {q['type'][:5]} {r.get('total')} s  {q['q']}  -> "
-              + (rag.NOT_SAID + f" ({nada})" if nada else " | ".join(
-                  f"[{f['t']}{'' if f['hit'] else '?'}] {f['frase'] if f['ok'] else 'DESCARTADA ' + str(f['faltan'])}"
-                  for f in frases)), flush=True)
+        print(
+            f"{'✓' if r['ok'] else '✗'} {q['type'][:5]} {r.get('total')} s  {q['q']}  -> "
+            + (
+                rag.NOT_SAID + f" ({nada})"
+                if nada
+                else " | ".join(f"[{f['t']}{'' if f['hit'] else '?'}] {f['frase'] if f['ok'] else 'DESCARTADA ' + str(f['faltan'])}" for f in frases)
+            ),
+            flush=True,
+        )
 finally:
     if proc:
         proc.terminate()
 
 import resource
+
 print("RAM pico MB:", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024)
 pct = lambda xs: f"{100 * sum(xs) / len(xs):.0f}% ({sum(xs)}/{len(xs)})" if xs else "–"
 rec = [r["recall"] for r in rows if r.get("recall") is not None]
@@ -101,18 +110,38 @@ ded = [f for r in rows for f in r["frases"] if f.get("kind") == "deduce"]
 by = lambda t: [r["ok"] for r in rows if r["type"] == t]
 fr = [f for r in rows for f in r["frases"]]
 ans = [r for r in rows if r["type"] in ("factual", "paraphrase")]
-print("factual:", pct(by("factual")), "· paráfrasis:", pct(by("paraphrase")), "· trampas:", pct(by("trap")),
-      "· ausentes:", pct(by("absent")))
-print("general:", pct(by("general")), "· propósito:", pct(by("purpose")),
-      "· propósito con deducción marcada y citada:", pct([r["ded"] for r in rows if r["type"] == "purpose"]),
-      "· deducciones con cita que no la respalda:", sum(r.get("ded_mal_citada", 0) for r in rows),
-      "de", len(ded), "· deducciones con base «porque se dijo» verificada (antes de descartar):",
-      pct([True] * sum(r.get("ded_base_ok", 0) for r in rows) + [False] * sum(r.get("ded_n", 0) - r.get("ded_base_ok", 0) for r in rows)), "· deducciones en trampas/ausentes:", sum(f.get("kind") == "deduce" for r in rows if r["type"] in ("trap", "absent") for f in r["frases"]))
+print("factual:", pct(by("factual")), "· paráfrasis:", pct(by("paraphrase")), "· trampas:", pct(by("trap")), "· ausentes:", pct(by("absent")))
+print(
+    "general:",
+    pct(by("general")),
+    "· propósito:",
+    pct(by("purpose")),
+    "· propósito con deducción marcada y citada:",
+    pct([r["ded"] for r in rows if r["type"] == "purpose"]),
+    "· deducciones con cita que no la respalda:",
+    sum(r.get("ded_mal_citada", 0) for r in rows),
+    "de",
+    len(ded),
+    "· deducciones con base «porque se dijo» verificada (antes de descartar):",
+    pct([True] * sum(r.get("ded_base_ok", 0) for r in rows) + [False] * sum(r.get("ded_n", 0) - r.get("ded_base_ok", 0) for r in rows)),
+    "· deducciones en trampas/ausentes:",
+    sum(f.get("kind") == "deduce" for r in rows if r["type"] in ("trap", "absent") for f in r["frases"]),
+)
 en = [r for r in rows if r["m"] == "demo_vscode"]
-print("números inventados en frases mostradas:", sum(r["inv"] for r in rows),
-      "· inglés (demo_vscode):", pct([r["ok"] for r in en]), "frases descartadas:", pct([not f["ok"] for r in en for f in r["frases"]]))
-print("falso 'no se menciona' en respondibles:", pct([bool(r["nada"]) for r in ans]),
-      "· el LLM infirió en trampas (antes de verificar):", pct([r["raw_inference"] for r in rows if r["type"] == "trap"]))
+print(
+    "números inventados en frases mostradas:",
+    sum(r["inv"] for r in rows),
+    "· inglés (demo_vscode):",
+    pct([r["ok"] for r in en]),
+    "frases descartadas:",
+    pct([not f["ok"] for r in en for f in r["frases"]]),
+)
+print(
+    "falso 'no se menciona' en respondibles:",
+    pct([bool(r["nada"]) for r in ans]),
+    "· el LLM infirió en trampas (antes de verificar):",
+    pct([r["raw_inference"] for r in rows if r["type"] == "trap"]),
+)
 print("deducciones mostradas:", len(ded), "· líneas «Se dijo» mostradas:", sum(f.get("kind") == "dijo" for f in fr))
 print("frases descartadas por la verificación:", pct([not f["ok"] for f in fr]))
 for k in ("recuperacion", "juez", "primer_token", "prefill", "gen", "total"):

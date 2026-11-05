@@ -1,6 +1,7 @@
 """Tipos de destino de destinos.py (tabla). Cada tipo: crear/actualizar(conf, secretos, opciones, x[, id_externo]) -> (id, url); probar(opciones, secretos) -> None|str.
 modo "items": un envío por elemento (x: titulo, cuerpo, codigo, dueno, fecha_limite…); modo "pagina": un envío (x: titulo, md, ficheros[(nombre, bytes)], json).
 Solo stdlib. Servidores propios: URL base en cada tipo HTTP + verificación TLS desactivable / CA propia (ver `tls`)."""
+
 import base64
 import contextlib
 import datetime as dt
@@ -83,19 +84,32 @@ U = lambda o, d: (o.get("url") or d).rstrip("/")
 
 # ---------- trackers (un ítem = una incidencia) ----------
 def _gh(c, s, o, x, n=None, api="/repos/{repo}/issues", base="https://api.github.com", pre="token "):
-    r = http("PATCH" if n else "POST", U(o, base) + api.format(repo=o["repo"]) + (f"/{n}" if n else ""), {"Authorization": pre + s["token"], "Accept": "application/vnd.github+json"},
-             {"title": _tit(x), "body": _cuerpo(x), **({"labels": _lista(o.get("etiquetas"))} if o.get("etiquetas") else {})})
+    r = http(
+        "PATCH" if n else "POST",
+        U(o, base) + api.format(repo=o["repo"]) + (f"/{n}" if n else ""),
+        {"Authorization": pre + s["token"], "Accept": "application/vnd.github+json"},
+        {"title": _tit(x), "body": _cuerpo(x), **({"labels": _lista(o.get("etiquetas"))} if o.get("etiquetas") else {})},
+    )
     return str(r["number"]), r["html_url"]
 
 
 def _gitea(c, s, o, x, n=None):  # Gitea/Forgejo: API tipo GitHub bajo /api/v1 (las etiquetas piden ids: no se envían)
-    r = http("PATCH" if n else "POST", f"{o['url'].rstrip('/')}/api/v1/repos/{o['repo']}/issues" + (f"/{n}" if n else ""), {"Authorization": "token " + s["token"]}, {"title": _tit(x), "body": _cuerpo(x)})
+    r = http(
+        "PATCH" if n else "POST",
+        f"{o['url'].rstrip('/')}/api/v1/repos/{o['repo']}/issues" + (f"/{n}" if n else ""),
+        {"Authorization": "token " + s["token"]},
+        {"title": _tit(x), "body": _cuerpo(x)},
+    )
     return str(r["number"]), r["html_url"]
 
 
 def _gl(c, s, o, x, n=None):
-    r = http("PUT" if n else "POST", f"{U(o, 'https://gitlab.com')}/api/v4/projects/{urllib.parse.quote(o['proyecto'], safe='')}/issues" + (f"/{n}" if n else ""), {"PRIVATE-TOKEN": s["token"]},
-             {"title": _tit(x), "description": _cuerpo(x), "labels": ",".join(_lista(o.get("etiquetas")))})
+    r = http(
+        "PUT" if n else "POST",
+        f"{U(o, 'https://gitlab.com')}/api/v4/projects/{urllib.parse.quote(o['proyecto'], safe='')}/issues" + (f"/{n}" if n else ""),
+        {"PRIVATE-TOKEN": s["token"]},
+        {"title": _tit(x), "description": _cuerpo(x), "labels": ",".join(_lista(o.get("etiquetas")))},
+    )
     return str(r["iid"]), r["web_url"]
 
 
@@ -156,9 +170,16 @@ def _trello(c, s, o, x, n=None):
 
 def _azure(c, s, o, x, n=None):
     h = {**_basic("", s["token"]), "Content-Type": "application/json-patch+json"}
-    b = [{"op": "add", "path": "/fields/System.Title", "value": _tit(x)}, {"op": "add", "path": "/fields/System.Description", "value": _cuerpo(x).replace("\n", "<br>")}]
+    b = [
+        {"op": "add", "path": "/fields/System.Title", "value": _tit(x)},
+        {"op": "add", "path": "/fields/System.Description", "value": _cuerpo(x).replace("\n", "<br>")},
+    ]
     q = f"{o['url'].rstrip('/')}/{urllib.parse.quote(o['proyecto'])}/_apis/wit/workitems"
-    r = http("PATCH", f"{q}/{n}?api-version=7.1", h, [{**p, "op": "replace"} for p in b]) if n else http("POST", f"{q}/${urllib.parse.quote(o.get('tipo_item') or 'Task')}?api-version=7.1", h, b)
+    r = (
+        http("PATCH", f"{q}/{n}?api-version=7.1", h, [{**p, "op": "replace"} for p in b])
+        if n
+        else http("POST", f"{q}/${urllib.parse.quote(o.get('tipo_item') or 'Task')}?api-version=7.1", h, b)
+    )
     return str(r["id"]), r.get("_links", {}).get("html", {}).get("href", "")
 
 
@@ -171,9 +192,9 @@ def _bloques(md):
         t, txt = "paragraph", ln
         for p, tt in (("### ", "heading_3"), ("## ", "heading_2"), ("# ", "heading_1"), ("- [ ] ", "to_do"), ("- [x] ", "to_do"), ("- ", "bulleted_list_item")):
             if ln.startswith(p):
-                t, txt = tt, ln[len(p):]
+                t, txt = tt, ln[len(p) :]
                 break
-        b = {"rich_text": [{"type": "text", "text": {"content": txt[i:i + 2000]}} for i in range(0, len(txt), 2000)]}
+        b = {"rich_text": [{"type": "text", "text": {"content": txt[i : i + 2000]}} for i in range(0, len(txt), 2000)]}
         out.append({"object": "block", "type": t, t: b | ({"checked": False} if t == "to_do" else {})})
     return out
 
@@ -183,30 +204,60 @@ def _notion(c, s, o, x, n=None):
     if n:  # ponytail: actualizar = archivar la página anterior y crear otra (no se diferencian bloques)
         http("PATCH", f"{u}/v1/pages/{n}", h, {"archived": True})
     bl = _bloques(x["md"])
-    r = http("POST", f"{u}/v1/pages", h, {"parent": {"page_id": o["padre"]}, "properties": {"title": {"title": [{"type": "text", "text": {"content": x["titulo"][:2000]}}]}}, "children": bl[:100]})
+    r = http(
+        "POST",
+        f"{u}/v1/pages",
+        h,
+        {
+            "parent": {"page_id": o["padre"]},
+            "properties": {"title": {"title": [{"type": "text", "text": {"content": x["titulo"][:2000]}}]}},
+            "children": bl[:100],
+        },
+    )
     for i in range(100, len(bl), 100):
-        http("PATCH", f"{u}/v1/blocks/{r['id']}/children", h, {"children": bl[i:i + 100]})
+        http("PATCH", f"{u}/v1/blocks/{r['id']}/children", h, {"children": bl[i : i + 100]})
     return r["id"], r.get("url", "")
 
 
 def _outline(c, s, o, x, n=None):
     d = {"title": x["titulo"], "text": x["md"]}
-    r = http("POST", o["url"].rstrip("/") + ("/api/documents.update" if n else "/api/documents.create"), _bearer(s["token"]), {**d, **({"id": n} if n else {"collectionId": o["coleccion"], "publish": True})})["data"]
+    r = http(
+        "POST",
+        o["url"].rstrip("/") + ("/api/documents.update" if n else "/api/documents.create"),
+        _bearer(s["token"]),
+        {**d, **({"id": n} if n else {"collectionId": o["coleccion"], "publish": True})},
+    )["data"]
     return r["id"], o["url"].rstrip("/") + r.get("url", "")
 
 
 def _bookstack(c, s, o, x, n=None):
     u = o["url"].rstrip("/")
-    r = http("PUT" if n else "POST", f"{u}/api/pages" + (f"/{n}" if n else ""), {"Authorization": f"Token {o['token_id']}:{s['token_secreto']}"}, {"name": x["titulo"], "markdown": x["md"], **({} if n else {"book_id": int(o["libro"])})})
+    r = http(
+        "PUT" if n else "POST",
+        f"{u}/api/pages" + (f"/{n}" if n else ""),
+        {"Authorization": f"Token {o['token_id']}:{s['token_secreto']}"},
+        {"name": x["titulo"], "markdown": x["md"], **({} if n else {"book_id": int(o["libro"])})},
+    )
     return str(r["id"]), f"{u}/link/{r['id']}"
 
 
 def _paperless(c, s, o, x, n=None):
     nom, b = next(((a, d) for a, d in x["ficheros"] if not a.endswith(".md")), (x["ficheros"][0][0].removesuffix(".md") + ".txt", x["md"].encode()))
     bd, crlf = uuid.uuid4().hex, b"\r\n"
-    body = b"".join(f'--{bd}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in (("title", x["titulo"]),)) + \
-        f'--{bd}\r\nContent-Disposition: form-data; name="document"; filename="{nom}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + b + crlf + f"--{bd}--\r\n".encode()
-    r = http("POST", o["url"].rstrip("/") + "/api/documents/post_document/", {"Authorization": "Token " + s["token"], "Content-Type": "multipart/form-data; boundary=" + bd}, body, raw=True)
+    body = (
+        b"".join(f'--{bd}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in (("title", x["titulo"]),))
+        + f'--{bd}\r\nContent-Disposition: form-data; name="document"; filename="{nom}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode()
+        + b
+        + crlf
+        + f"--{bd}--\r\n".encode()
+    )
+    r = http(
+        "POST",
+        o["url"].rstrip("/") + "/api/documents/post_document/",
+        {"Authorization": "Token " + s["token"], "Content-Type": "multipart/form-data; boundary=" + bd},
+        body,
+        raw=True,
+    )
     return r.decode().strip('"\n'), o["url"].rstrip("/") + "/documents/"
 
 
@@ -248,7 +299,10 @@ def _ok_dir(o):
 
 # ---------- webhooks ----------
 def _webhook(c, s, o, x, n=None):
-    b = {"json": {"titulo": x["titulo"], "enviado": dt.datetime.now().isoformat(timespec="seconds"), "origen": "actas", **x["json"]}, "discord": {"content": f"**{x['titulo']}**\n{x['md']}"[:2000]}}[o.get("mensaje") or "json"]
+    b = {
+        "json": {"titulo": x["titulo"], "enviado": dt.datetime.now().isoformat(timespec="seconds"), "origen": "actas", **x["json"]},
+        "discord": {"content": f"**{x['titulo']}**\n{x['md']}"[:2000]},
+    }[o.get("mensaje") or "json"]
     body = json.dumps(b, ensure_ascii=False).encode()
     h = {"Content-Type": "application/json", **json.loads(s.get("cabeceras") or "{}")}
     if s.get("firma"):
@@ -257,12 +311,24 @@ def _webhook(c, s, o, x, n=None):
     return "", o["url"].split("?")[0]
 
 
-TIPNAME = {"tarea": "Tareas", "decision": "Decisiones", "riesgo": "Riesgos", "requisito": "Requisitos", "historia": "Historias de usuario", "interesado": "Interesados"}
+TIPNAME = {
+    "tarea": "Tareas",
+    "decision": "Decisiones",
+    "riesgo": "Riesgos",
+    "requisito": "Requisitos",
+    "historia": "Historias de usuario",
+    "interesado": "Interesados",
+}
 
 
 def _linea(i, mrk):
-    return ("☐ " if i["tipo"] == "tarea" else "• ") + (f"*{i['codigo']}* " if i.get("codigo") and mrk else f"{i['codigo']} " if i.get("codigo") else "") + i["titulo"] + \
-        (f" — {i['dueno']}" if i.get("dueno") else "") + (f" ({i['fecha_limite']})" if i.get("fecha_limite") else "")
+    return (
+        ("☐ " if i["tipo"] == "tarea" else "• ")
+        + (f"*{i['codigo']}* " if i.get("codigo") and mrk else f"{i['codigo']} " if i.get("codigo") else "")
+        + i["titulo"]
+        + (f" — {i['dueno']}" if i.get("dueno") else "")
+        + (f" ({i['fecha_limite']})" if i.get("fecha_limite") else "")
+    )
 
 
 def _trozos(lineas, n):
@@ -285,7 +351,7 @@ def slack_mensajes(x):
             bl.append(sec((f"*{nom}*\n" if k == 0 else "") + t))
     bl = bl or [sec(t) for t in _trozos(js.get("texto", "").splitlines(), 2900)]
     cab = {"type": "header", "text": {"type": "plain_text", "text": x["titulo"][:150]}}
-    return [{"text": x["titulo"], "blocks": ([cab] if i == 0 else []) + bl[i:i + 39]} for i in range(0, max(len(bl), 1), 39)]
+    return [{"text": x["titulo"], "blocks": ([cab] if i == 0 else []) + bl[i : i + 39]} for i in range(0, max(len(bl), 1), 39)]
 
 
 def _slack(c, s, o, x, n=None):
@@ -295,7 +361,12 @@ def _slack(c, s, o, x, n=None):
     if s.get("bot") and o.get("canal") and fs:  # subida de archivos (API nueva): getUploadURLExternal -> PUT bytes -> completeUploadExternal
         api, h = U(o, "https://slack.com/api"), _bearer(s["bot"])
         for nom, b in fs:
-            r = http("POST", api + "/files.getUploadURLExternal", {**h, "Content-Type": "application/x-www-form-urlencoded"}, urllib.parse.urlencode({"filename": nom, "length": len(b)}).encode())
+            r = http(
+                "POST",
+                api + "/files.getUploadURLExternal",
+                {**h, "Content-Type": "application/x-www-form-urlencoded"},
+                urllib.parse.urlencode({"filename": nom, "length": len(b)}).encode(),
+            )
             if not r.get("ok"):
                 raise RuntimeError("Slack: " + str(r.get("error")))
             http("POST", r["upload_url"], None, b, raw=True)
@@ -317,8 +388,21 @@ def teams_payload(x, limite=27000):
     if len(body) == 1:
         body += [tb(ln) for ln in js.get("texto", "").splitlines() if ln.strip()]
     ac = [{"type": "Action.OpenUrl", "title": "Ver vídeo", "url": js["video"]}] if js.get("video") else []  # al pie: la grabación, si la hay
-    card = lambda b: {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "content": {
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard", "version": "1.4", "body": b, **({"actions": ac} if ac else {})}}]}
+    card = lambda b: {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": b,
+                    **({"actions": ac} if ac else {}),
+                },
+            }
+        ],
+    }
     if len(json.dumps(card(body)).encode()) <= limite:
         return card(body)
     while len(body) > 2 and len(json.dumps(card(body + [tb("… ver más en el documento")])).encode()) > limite:
@@ -344,7 +428,18 @@ def _ssh(o, puerto="-p"):
     kh = P.WORK / "known_hosts"
     if str(o.get("host", "")).startswith("-") or str(o.get("usuario", "")).startswith("-"):  # no es un servidor: sería una opción de ssh
         raise RuntimeError("Servidor o usuario no válido")
-    return ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={kh}", "-o", "ConnectTimeout=15", puerto, str(o.get("puerto") or 22)] + (["-i", str(Path(o["clave"]).expanduser())] if o.get("clave") else [])
+    return [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
+        f"UserKnownHostsFile={kh}",
+        "-o",
+        "ConnectTimeout=15",
+        puerto,
+        str(o.get("puerto") or 22),
+    ] + (["-i", str(Path(o["clave"]).expanduser())] if o.get("clave") else [])
 
 
 def _run(cmd, inp=None):
@@ -412,16 +507,46 @@ def _s3(c, s, o, x, n=None):
     return k, f"{o['endpoint'].rstrip('/')}/{o['bucket']}/{k}"
 
 
-
-PA_SCHEMA = {"type": "object", "properties": {"origen": {"type": "string"}, "proyecto": {"type": "string"}, "documento": {"type": "string"}, "enlace_local": {"type": "string"},
-             "elementos": {"type": "array", "items": {"type": "object", "properties": {k: {"type": "string"} for k in ("tipo", "titulo", "descripcion", "responsable", "fecha", "prioridad", "cita")}}},
-             "archivo": {"type": "object", "properties": {"nombre": {"type": "string"}, "base64": {"type": "string"}}}}}
+PA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "origen": {"type": "string"},
+        "proyecto": {"type": "string"},
+        "documento": {"type": "string"},
+        "enlace_local": {"type": "string"},
+        "elementos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {k: {"type": "string"} for k in ("tipo", "titulo", "descripcion", "responsable", "fecha", "prioridad", "cita")},
+            },
+        },
+        "archivo": {"type": "object", "properties": {"nombre": {"type": "string"}, "base64": {"type": "string"}}},
+    },
+}
 
 
 def pa_payload(o, x):
     js = x["json"]
-    d = {"origen": "actas", "proyecto": js.get("carpeta") or "", "documento": (js.get("documento") or {}).get("titulo") or x["titulo"], "enlace_local": js.get("enlace") or "", "video": js.get("video") or "",
-         "elementos": [{"tipo": i["tipo"], "titulo": i["titulo"], "descripcion": i.get("cuerpo", ""), "responsable": i.get("dueno", ""), "fecha": i.get("fecha_limite", ""), "prioridad": i.get("prioridad", ""), "cita": i.get("origen", "")} for i in js["items"]]}
+    d = {
+        "origen": "actas",
+        "proyecto": js.get("carpeta") or "",
+        "documento": (js.get("documento") or {}).get("titulo") or x["titulo"],
+        "enlace_local": js.get("enlace") or "",
+        "video": js.get("video") or "",
+        "elementos": [
+            {
+                "tipo": i["tipo"],
+                "titulo": i["titulo"],
+                "descripcion": i.get("cuerpo", ""),
+                "responsable": i.get("dueno", ""),
+                "fecha": i.get("fecha_limite", ""),
+                "prioridad": i.get("prioridad", ""),
+                "cita": i.get("origen", ""),
+            }
+            for i in js["items"]
+        ],
+    }
     if o.get("adjuntar") in (True, "true", 1) and x["ficheros"]:
         nom, b = next((f for f in x["ficheros"] if not f[0].endswith(".md")), x["ficheros"][0])
         if len(b) <= 4_000_000:
@@ -436,6 +561,7 @@ def _pa(c, s, o, x, n=None):
 
 def _p_pa(o, s):
     http("POST", s["webhook"], None, {"origen": "actas", "proyecto": "", "documento": "Prueba de Actas", "enlace_local": "", "elementos": []}, raw=True)
+
 
 # ---------- correo ----------
 def _smtp(o, s):
@@ -473,67 +599,315 @@ def F(id, etiqueta, tipo="texto", req=False, preset=False, **k):
     return {"id": id, "etiqueta": etiqueta, "tipo": tipo, "req": req, "preset": preset, **k}
 
 
-FMT = F("formatos", "Documento y formatos", "lista", preset=True, opciones=["md", "docx", "pdf", "obsidian", "notion", "ics", "csv", "xlsx", "json", "srt", "vtt"], defecto=["md"])
+FMT = F(
+    "formatos",
+    "Documento y formatos",
+    "lista",
+    preset=True,
+    opciones=["md", "docx", "pdf", "obsidian", "notion", "ics", "csv", "xlsx", "json", "srt", "vtt"],
+    defecto=["md"],
+)
 TOK = F("token", "Token", "secreto", True)
 URLF = lambda d, req=False: F("url", "URL base (servidor propio: cambia aquí)", "url", req, defecto=d)
 ET = F("etiquetas", "Etiquetas (coma)", preset=True)
-TLS = [F("verificar_tls", "Verificar certificado TLS", "booleano", defecto=True, ayuda="Desactívalo solo para un servidor propio con certificado autofirmado: la conexión deja de comprobar a quién se conecta."),
-       F("ca", "Certificado CA propio (ruta .pem)", "ruta")]
+TLS = [
+    F(
+        "verificar_tls",
+        "Verificar certificado TLS",
+        "booleano",
+        defecto=True,
+        ayuda="Desactívalo solo para un servidor propio con certificado autofirmado: la conexión deja de comprobar a quién se conecta.",
+    ),
+    F("ca", "Certificado CA propio (ruta .pem)", "ruta"),
+]
 _h = lambda url: http("GET", url[0], url[1])
 TIPOS = {
-    "carpeta": {"nombre": "Carpeta local / Obsidian / Logseq", "modo": "pagina", "archivos": True, "crear": _carpeta, "probar": lambda o, s: _ok_dir(o),
-                "campos": [F("ruta", "Carpeta (o bóveda)", "ruta", True), F("subcarpeta", "Subcarpeta", preset=True), F("vault", "Bóveda Obsidian/Logseq (enlaces [[ ]] y adjuntos)", "booleano", preset=True), FMT]},
-    "webhook": {"nombre": "Webhook (n8n, Zapier, Make, Discord…)", "modo": "pagina", "http": True, "crear": _webhook, "probar": None,
-                "campos": [F("url", "URL del webhook", "url", True), F("firma", "Secreto de firma HMAC-SHA256 (cabecera X-Actas-Signature)", "secreto"), F("cabeceras", "Cabeceras (JSON)", "secreto"),
-                           F("mensaje", "Formato", "opcion", preset=True, opciones=["json", "discord"], defecto="json")]},
-    "slack": {"nombre": "Slack", "modo": "pagina", "http": True, "archivos": True, "crear": _slack, "probar": _p_slack,
-              "campos": [F("webhook", "URL del webhook entrante", "secreto", True, ayuda="El webhook solo envía texto (Block Kit). Para adjuntar el PDF/documento añade token de bot y canal."), F("bot", "Token de bot (xoxb-…, opcional: subir archivos)", "secreto"),
-                         F("canal", "ID del canal (con el bot)", preset=True), FMT, URLF("https://slack.com/api")]},
-    "teams": {"nombre": "Microsoft Teams (Workflows)", "modo": "pagina", "http": True, "crear": _teams, "probar": _p_teams,
-              "campos": [F("webhook", "URL del flujo «Cuando se recibe una solicitud de webhook de Teams»", "secreto", True, ayuda="Contenido en línea (tarjeta adaptable, ~28 KB): los webhooks no pueden adjuntar archivos. Los conectores O365 antiguos están retirados.")]},
-    "github": {"nombre": "GitHub Issues", "modo": "items", "http": True, "crear": _gh, "actualizar": _gh, "probar": lambda o, s: http("GET", U(o, "https://api.github.com") + "/user", {"Authorization": "token " + s["token"]}),
-               "campos": [TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True), ET, URLF("https://api.github.com")]},
-    "gitea": {"nombre": "Gitea / Forgejo Issues", "modo": "items", "http": True, "crear": _gitea, "actualizar": _gitea, "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/v1/user", {"Authorization": "token " + s["token"]}),
-              "campos": [URLF("", True), TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True)]},
-    "gitlab": {"nombre": "GitLab Issues (gitlab.com o propio)", "modo": "items", "http": True, "crear": _gl, "actualizar": _gl, "probar": lambda o, s: http("GET", U(o, "https://gitlab.com") + "/api/v4/user", {"PRIVATE-TOKEN": s["token"]}),
-               "campos": [TOK, F("proyecto", "Proyecto (id o ruta)", req=True, preset=True), ET, URLF("https://gitlab.com")]},
-    "jira": {"nombre": "Jira (Cloud, Server o Data Center)", "modo": "items", "http": True, "crear": _jira, "actualizar": _jira, "probar": lambda o, s: http("GET", f"{_jh(o, s)[2]}/rest/api/{_jh(o, s)[0]}/myself", _jh(o, s)[1]),
-             "campos": [F("url", "URL de Jira", "url", True), F("modo", "Tipo", "opcion", True, opciones=["cloud", "server"], defecto="cloud"), F("email", "Correo (Cloud)"), F("token", "Token API (Cloud) o PAT (Server/DC)", "secreto", True),
-                        F("proyecto", "Clave del proyecto", req=True, preset=True), F("tipo_issue", "Tipo de incidencia", preset=True, defecto="Task")]},
-    "linear": {"nombre": "Linear", "modo": "items", "http": True, "crear": _linear, "actualizar": _linear, "probar": lambda o, s: _gql(o, s, "{viewer{id}}", {}),
-               "campos": [F("token", "API key", "secreto", True), F("equipo", "ID del equipo", req=True, preset=True), URLF("https://api.linear.app/graphql")]},
-    "notion": {"nombre": "Notion", "modo": "pagina", "http": True, "crear": _notion, "actualizar": _notion, "probar": lambda o, s: http("GET", U(o, "https://api.notion.com") + "/v1/users/me", {**_bearer(s["token"]), "Notion-Version": "2022-06-28"}),
-               "campos": [F("token", "Token de la integración interna", "secreto", True), F("padre", "ID de la página padre", req=True, preset=True), URLF("https://api.notion.com")]},
-    "outline": {"nombre": "Outline (propio)", "modo": "pagina", "http": True, "crear": _outline, "actualizar": _outline, "probar": lambda o, s: http("POST", o["url"].rstrip("/") + "/api/auth.info", _bearer(s["token"]), {}),
-                "campos": [URLF("", True), TOK, F("coleccion", "ID de la colección", req=True, preset=True)]},
-    "bookstack": {"nombre": "BookStack (propio)", "modo": "pagina", "http": True, "crear": _bookstack, "actualizar": _bookstack, "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/books?count=1", {"Authorization": f"Token {o['token_id']}:{s['token_secreto']}"}),
-                  "campos": [URLF("", True), F("token_id", "Token ID", req=True), F("token_secreto", "Token secreto", "secreto", True), F("libro", "ID del libro", req=True, preset=True)]},
-    "paperless": {"nombre": "Paperless-ngx (propio)", "modo": "pagina", "http": True, "archivos": True, "crear": _paperless, "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/documents/?page_size=1", {"Authorization": "Token " + s["token"]}),
-                  "campos": [URLF("", True), TOK, {**FMT, "defecto": ["pdf"]}]},
-    "todoist": {"nombre": "Todoist", "modo": "items", "http": True, "crear": _todoist, "actualizar": _todoist, "probar": lambda o, s: http("GET", U(o, "https://api.todoist.com/rest/v2") + "/projects", _bearer(s["token"])),
-                "campos": [TOK, F("proyecto", "ID del proyecto", preset=True), ET, URLF("https://api.todoist.com/rest/v2")]},
-    "trello": {"nombre": "Trello", "modo": "items", "http": True, "crear": _trello, "actualizar": _trello, "probar": lambda o, s: http("GET", U(o, "https://api.trello.com/1") + "/members/me", _trh(s)),
-               "campos": [F("clave_api", "API key", "secreto", True), TOK, F("lista", "ID de la lista", req=True, preset=True), URLF("https://api.trello.com/1")]},
-    "azure": {"nombre": "Azure DevOps (nube o Server)", "modo": "items", "http": True, "crear": _azure, "actualizar": _azure, "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/_apis/projects?api-version=7.1", _basic("", s["token"])),
-              "campos": [F("url", "Organización (https://dev.azure.com/org)", "url", True), F("token", "PAT", "secreto", True), F("proyecto", "Proyecto", req=True, preset=True), F("tipo_item", "Tipo de work item", preset=True, defecto="Task")]},
-    "webdav": {"nombre": "WebDAV / Nextcloud", "modo": "pagina", "http": True, "archivos": True, "crear": _dav, "probar": lambda o, s: http("PROPFIND", o["url"], {**_dav_h(o, s), "Depth": "0"}),
-               "campos": [F("url", "URL WebDAV (Nextcloud: …/remote.php/dav/files/USUARIO)", "url", True), F("usuario", "Usuario"), F("clave", "Contraseña / token de app", "secreto"), F("ruta", "Carpeta remota", preset=True), FMT]},
-    "s3": {"nombre": "S3 compatible (AWS, MinIO, Garage, B2, Wasabi, R2)", "modo": "pagina", "http": True, "archivos": True, "crear": _s3, "probar": lambda o, s: _s3req("GET", o, s, "", query="max-keys=0"),
-           "campos": [F("endpoint", "Endpoint (https://s3.amazonaws.com, https://minio.local:9000…)", "url", True), F("region", "Región", defecto="us-east-1"), F("bucket", "Bucket", req=True), F("prefijo", "Prefijo", preset=True),
-                      F("acceso", "Access key", "secreto", True), F("secreto", "Secret key", "secreto", True), FMT]},
-    "sftp": {"nombre": "SFTP / SSH (OpenSSH del sistema)", "modo": "pagina", "archivos": True, "crear": _sftp, "probar": _p_sftp,
-             "campos": [F("host", "Servidor", req=True), F("puerto", "Puerto", "numero", defecto=22), F("usuario", "Usuario", req=True), F("clave", "Ruta de la clave privada (o ssh-agent si vacío)", "ruta", ayuda="Nunca contraseñas: solo clave o agente. La huella del servidor se muestra al probar."),
-                        F("dir", "Carpeta remota", preset=True), F("comando", "Comando tras subir (vacío = desactivado)", preset=True), FMT]},
-    "power_automate": {"nombre": "Power Automate (Microsoft 365)", "modo": "pagina", "http": True, "archivos": True, "crear": _pa, "probar": _p_pa,
-                       "campos": [F("webhook", "URL del desencadenador «Cuando se recibe una solicitud HTTP» / webhook de Teams", "secreto", True,
-                                    ayuda="Desencadenador estándar (no premium). En el flujo usa «Analizar JSON» con este esquema y crea tareas de Planner/To Do, elementos de Lists, páginas de OneNote, archivos de SharePoint o correos de Outlook con tus propios permisos: " + json.dumps(PA_SCHEMA)),
-                                  F("adjuntar", "Adjuntar el documento (base64, máx. 4 MB)", "booleano", preset=True), {**FMT, "opciones": ["pdf", "docx", "md"], "defecto": ["pdf"]}]},
-    "correo": {"nombre": "Correo SMTP", "modo": "pagina", "archivos": True, "crear": _correo, "probar": _p_smtp,
-               "campos": [F("servidor", "Servidor SMTP", req=True), F("puerto", "Puerto", "numero"), F("seguridad", "Seguridad", "opcion", opciones=["starttls", "ssl", "ninguna"], defecto="starttls"), F("usuario", "Usuario"),
-                          F("clave", "Contraseña", "secreto"), F("de", "Remitente", req=True), F("para", "Destinatarios (coma)", req=True, preset=True), FMT]},
+    "carpeta": {
+        "nombre": "Carpeta local / Obsidian / Logseq",
+        "modo": "pagina",
+        "archivos": True,
+        "crear": _carpeta,
+        "probar": lambda o, s: _ok_dir(o),
+        "campos": [
+            F("ruta", "Carpeta (o bóveda)", "ruta", True),
+            F("subcarpeta", "Subcarpeta", preset=True),
+            F("vault", "Bóveda Obsidian/Logseq (enlaces [[ ]] y adjuntos)", "booleano", preset=True),
+            FMT,
+        ],
+    },
+    "webhook": {
+        "nombre": "Webhook (n8n, Zapier, Make, Discord…)",
+        "modo": "pagina",
+        "http": True,
+        "crear": _webhook,
+        "probar": None,
+        "campos": [
+            F("url", "URL del webhook", "url", True),
+            F("firma", "Secreto de firma HMAC-SHA256 (cabecera X-Actas-Signature)", "secreto"),
+            F("cabeceras", "Cabeceras (JSON)", "secreto"),
+            F("mensaje", "Formato", "opcion", preset=True, opciones=["json", "discord"], defecto="json"),
+        ],
+    },
+    "slack": {
+        "nombre": "Slack",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _slack,
+        "probar": _p_slack,
+        "campos": [
+            F(
+                "webhook",
+                "URL del webhook entrante",
+                "secreto",
+                True,
+                ayuda="El webhook solo envía texto (Block Kit). Para adjuntar el PDF/documento añade token de bot y canal.",
+            ),
+            F("bot", "Token de bot (xoxb-…, opcional: subir archivos)", "secreto"),
+            F("canal", "ID del canal (con el bot)", preset=True),
+            FMT,
+            URLF("https://slack.com/api"),
+        ],
+    },
+    "teams": {
+        "nombre": "Microsoft Teams (Workflows)",
+        "modo": "pagina",
+        "http": True,
+        "crear": _teams,
+        "probar": _p_teams,
+        "campos": [
+            F(
+                "webhook",
+                "URL del flujo «Cuando se recibe una solicitud de webhook de Teams»",
+                "secreto",
+                True,
+                ayuda="Contenido en línea (tarjeta adaptable, ~28 KB): los webhooks no pueden adjuntar archivos. Los conectores O365 antiguos están retirados.",
+            )
+        ],
+    },
+    "github": {
+        "nombre": "GitHub Issues",
+        "modo": "items",
+        "http": True,
+        "crear": _gh,
+        "actualizar": _gh,
+        "probar": lambda o, s: http("GET", U(o, "https://api.github.com") + "/user", {"Authorization": "token " + s["token"]}),
+        "campos": [TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True), ET, URLF("https://api.github.com")],
+    },
+    "gitea": {
+        "nombre": "Gitea / Forgejo Issues",
+        "modo": "items",
+        "http": True,
+        "crear": _gitea,
+        "actualizar": _gitea,
+        "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/v1/user", {"Authorization": "token " + s["token"]}),
+        "campos": [URLF("", True), TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True)],
+    },
+    "gitlab": {
+        "nombre": "GitLab Issues (gitlab.com o propio)",
+        "modo": "items",
+        "http": True,
+        "crear": _gl,
+        "actualizar": _gl,
+        "probar": lambda o, s: http("GET", U(o, "https://gitlab.com") + "/api/v4/user", {"PRIVATE-TOKEN": s["token"]}),
+        "campos": [TOK, F("proyecto", "Proyecto (id o ruta)", req=True, preset=True), ET, URLF("https://gitlab.com")],
+    },
+    "jira": {
+        "nombre": "Jira (Cloud, Server o Data Center)",
+        "modo": "items",
+        "http": True,
+        "crear": _jira,
+        "actualizar": _jira,
+        "probar": lambda o, s: http("GET", f"{_jh(o, s)[2]}/rest/api/{_jh(o, s)[0]}/myself", _jh(o, s)[1]),
+        "campos": [
+            F("url", "URL de Jira", "url", True),
+            F("modo", "Tipo", "opcion", True, opciones=["cloud", "server"], defecto="cloud"),
+            F("email", "Correo (Cloud)"),
+            F("token", "Token API (Cloud) o PAT (Server/DC)", "secreto", True),
+            F("proyecto", "Clave del proyecto", req=True, preset=True),
+            F("tipo_issue", "Tipo de incidencia", preset=True, defecto="Task"),
+        ],
+    },
+    "linear": {
+        "nombre": "Linear",
+        "modo": "items",
+        "http": True,
+        "crear": _linear,
+        "actualizar": _linear,
+        "probar": lambda o, s: _gql(o, s, "{viewer{id}}", {}),
+        "campos": [F("token", "API key", "secreto", True), F("equipo", "ID del equipo", req=True, preset=True), URLF("https://api.linear.app/graphql")],
+    },
+    "notion": {
+        "nombre": "Notion",
+        "modo": "pagina",
+        "http": True,
+        "crear": _notion,
+        "actualizar": _notion,
+        "probar": lambda o, s: http("GET", U(o, "https://api.notion.com") + "/v1/users/me", {**_bearer(s["token"]), "Notion-Version": "2022-06-28"}),
+        "campos": [
+            F("token", "Token de la integración interna", "secreto", True),
+            F("padre", "ID de la página padre", req=True, preset=True),
+            URLF("https://api.notion.com"),
+        ],
+    },
+    "outline": {
+        "nombre": "Outline (propio)",
+        "modo": "pagina",
+        "http": True,
+        "crear": _outline,
+        "actualizar": _outline,
+        "probar": lambda o, s: http("POST", o["url"].rstrip("/") + "/api/auth.info", _bearer(s["token"]), {}),
+        "campos": [URLF("", True), TOK, F("coleccion", "ID de la colección", req=True, preset=True)],
+    },
+    "bookstack": {
+        "nombre": "BookStack (propio)",
+        "modo": "pagina",
+        "http": True,
+        "crear": _bookstack,
+        "actualizar": _bookstack,
+        "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/books?count=1", {"Authorization": f"Token {o['token_id']}:{s['token_secreto']}"}),
+        "campos": [
+            URLF("", True),
+            F("token_id", "Token ID", req=True),
+            F("token_secreto", "Token secreto", "secreto", True),
+            F("libro", "ID del libro", req=True, preset=True),
+        ],
+    },
+    "paperless": {
+        "nombre": "Paperless-ngx (propio)",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _paperless,
+        "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/documents/?page_size=1", {"Authorization": "Token " + s["token"]}),
+        "campos": [URLF("", True), TOK, {**FMT, "defecto": ["pdf"]}],
+    },
+    "todoist": {
+        "nombre": "Todoist",
+        "modo": "items",
+        "http": True,
+        "crear": _todoist,
+        "actualizar": _todoist,
+        "probar": lambda o, s: http("GET", U(o, "https://api.todoist.com/rest/v2") + "/projects", _bearer(s["token"])),
+        "campos": [TOK, F("proyecto", "ID del proyecto", preset=True), ET, URLF("https://api.todoist.com/rest/v2")],
+    },
+    "trello": {
+        "nombre": "Trello",
+        "modo": "items",
+        "http": True,
+        "crear": _trello,
+        "actualizar": _trello,
+        "probar": lambda o, s: http("GET", U(o, "https://api.trello.com/1") + "/members/me", _trh(s)),
+        "campos": [F("clave_api", "API key", "secreto", True), TOK, F("lista", "ID de la lista", req=True, preset=True), URLF("https://api.trello.com/1")],
+    },
+    "azure": {
+        "nombre": "Azure DevOps (nube o Server)",
+        "modo": "items",
+        "http": True,
+        "crear": _azure,
+        "actualizar": _azure,
+        "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/_apis/projects?api-version=7.1", _basic("", s["token"])),
+        "campos": [
+            F("url", "Organización (https://dev.azure.com/org)", "url", True),
+            F("token", "PAT", "secreto", True),
+            F("proyecto", "Proyecto", req=True, preset=True),
+            F("tipo_item", "Tipo de work item", preset=True, defecto="Task"),
+        ],
+    },
+    "webdav": {
+        "nombre": "WebDAV / Nextcloud",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _dav,
+        "probar": lambda o, s: http("PROPFIND", o["url"], {**_dav_h(o, s), "Depth": "0"}),
+        "campos": [
+            F("url", "URL WebDAV (Nextcloud: …/remote.php/dav/files/USUARIO)", "url", True),
+            F("usuario", "Usuario"),
+            F("clave", "Contraseña / token de app", "secreto"),
+            F("ruta", "Carpeta remota", preset=True),
+            FMT,
+        ],
+    },
+    "s3": {
+        "nombre": "S3 compatible (AWS, MinIO, Garage, B2, Wasabi, R2)",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _s3,
+        "probar": lambda o, s: _s3req("GET", o, s, "", query="max-keys=0"),
+        "campos": [
+            F("endpoint", "Endpoint (https://s3.amazonaws.com, https://minio.local:9000…)", "url", True),
+            F("region", "Región", defecto="us-east-1"),
+            F("bucket", "Bucket", req=True),
+            F("prefijo", "Prefijo", preset=True),
+            F("acceso", "Access key", "secreto", True),
+            F("secreto", "Secret key", "secreto", True),
+            FMT,
+        ],
+    },
+    "sftp": {
+        "nombre": "SFTP / SSH (OpenSSH del sistema)",
+        "modo": "pagina",
+        "archivos": True,
+        "crear": _sftp,
+        "probar": _p_sftp,
+        "campos": [
+            F("host", "Servidor", req=True),
+            F("puerto", "Puerto", "numero", defecto=22),
+            F("usuario", "Usuario", req=True),
+            F(
+                "clave",
+                "Ruta de la clave privada (o ssh-agent si vacío)",
+                "ruta",
+                ayuda="Nunca contraseñas: solo clave o agente. La huella del servidor se muestra al probar.",
+            ),
+            F("dir", "Carpeta remota", preset=True),
+            F("comando", "Comando tras subir (vacío = desactivado)", preset=True),
+            FMT,
+        ],
+    },
+    "power_automate": {
+        "nombre": "Power Automate (Microsoft 365)",
+        "modo": "pagina",
+        "http": True,
+        "archivos": True,
+        "crear": _pa,
+        "probar": _p_pa,
+        "campos": [
+            F(
+                "webhook",
+                "URL del desencadenador «Cuando se recibe una solicitud HTTP» / webhook de Teams",
+                "secreto",
+                True,
+                ayuda="Desencadenador estándar (no premium). En el flujo usa «Analizar JSON» con este esquema y crea tareas de Planner/To Do, elementos de Lists, páginas de OneNote, archivos de SharePoint o correos de Outlook con tus propios permisos: "
+                + json.dumps(PA_SCHEMA),
+            ),
+            F("adjuntar", "Adjuntar el documento (base64, máx. 4 MB)", "booleano", preset=True),
+            {**FMT, "opciones": ["pdf", "docx", "md"], "defecto": ["pdf"]},
+        ],
+    },
+    "correo": {
+        "nombre": "Correo SMTP",
+        "modo": "pagina",
+        "archivos": True,
+        "crear": _correo,
+        "probar": _p_smtp,
+        "campos": [
+            F("servidor", "Servidor SMTP", req=True),
+            F("puerto", "Puerto", "numero"),
+            F("seguridad", "Seguridad", "opcion", opciones=["starttls", "ssl", "ninguna"], defecto="starttls"),
+            F("usuario", "Usuario"),
+            F("clave", "Contraseña", "secreto"),
+            F("de", "Remitente", req=True),
+            F("para", "Destinatarios (coma)", req=True, preset=True),
+            FMT,
+        ],
+    },
 }
 
 import msgraph  # noqa: E402  Microsoft 365 por Graph (requiere «Iniciar sesión con Microsoft»)
+
 TIPOS.update(msgraph.TIPOS_GRAPH)
 for _t in TIPOS.values():
     if _t.pop("http", False):

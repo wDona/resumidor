@@ -1,4 +1,5 @@
 """F6 informe.py: KPIs con fechas fijas, semáforos, redacción con chat falso, versiones, API y exportaciones. Sin LLM ni red."""
+
 import io
 import json
 import os
@@ -18,15 +19,17 @@ D, H = "2026-03-01", "2026-03-31"
 @pytest.fixture()
 def reg(cl):
     t, _ = cl
-    mk = lambda tipo, titulo, rev="aprobado", **f: registro.crear(C, tipo, titulo=titulo, revision=rev, origen="manual", fecha_alta=f.pop("alta", "2026-03-02"), **f)
+    mk = lambda tipo, titulo, rev="aprobado", **f: registro.crear(
+        C, tipo, titulo=titulo, revision=rev, origen="manual", fecha_alta=f.pop("alta", "2026-03-02"), **f
+    )
     x = {}
-    x["t1"] = mk("tarea", "Enviar presupuesto", fecha_limite="2026-03-10", dueno="Ana")                       # vencida
-    x["t2"] = mk("tarea", "Revisar contrato", "propuesto", fecha_limite="2026-04-15")                         # abierta, no vencida
-    x["t3"] = mk("tarea", "Pintar fachada", estado="hecho", fecha_cierre="2026-03-20")                        # cerrada en el periodo
+    x["t1"] = mk("tarea", "Enviar presupuesto", fecha_limite="2026-03-10", dueno="Ana")  # vencida
+    x["t2"] = mk("tarea", "Revisar contrato", "propuesto", fecha_limite="2026-04-15")  # abierta, no vencida
+    x["t3"] = mk("tarea", "Pintar fachada", estado="hecho", fecha_cierre="2026-03-20")  # cerrada en el periodo
     x["t4"] = mk("tarea", "Tarea vieja cerrada", estado="hecho", fecha_cierre="2026-01-20", alta="2026-01-02")  # cerrada antes
     x["t5"] = mk("tarea", "Descartada", "descartado", fecha_limite="2026-03-03")
     x["r1"] = mk("riesgo", "Retraso del proveedor", campos={"probabilidad": "alta", "impacto": "alto"}, dueno="Luis")  # 16
-    x["r2"] = mk("riesgo", "Lluvias", "propuesto", campos={"probabilidad": "media", "impacto": "baja"})             # 6
+    x["r2"] = mk("riesgo", "Lluvias", "propuesto", campos={"probabilidad": "media", "impacto": "baja"})  # 6
     x["r3"] = mk("riesgo", "Sin valorar", campos={"probabilidad": "—"})
     x["d1"] = mk("decision", "Usar teja árabe", alta="2026-03-05")
     x["d2"] = mk("decision", "Decisión de febrero", alta="2026-02-05")
@@ -44,17 +47,30 @@ def test_kpis(reg):
     assert t["lista_abiertas"][0]["titulo"] == "Enviar presupuesto" and t["lista_abiertas"][0]["vencida"]
     r = k["riesgos"]
     assert r["total"] == 3 and r["por_severidad"] == {"alta": 1, "media": 1, "baja": 0, "sin_valorar": 1}
-    assert [x["sev"] for x in r["top"]] == [16, 6, None] and {"p": 4, "i": 4, "items": [{"id": x["r1"]["id"], "codigo": "R-001", "titulo": "Retraso del proveedor", "sev": 16, "dueno": "Luis"}]} in r["matriz"]
+    assert [x["sev"] for x in r["top"]] == [16, 6, None] and {
+        "p": 4,
+        "i": 4,
+        "items": [{"id": x["r1"]["id"], "codigo": "R-001", "titulo": "Retraso del proveedor", "sev": 16, "dueno": "Luis"}],
+    } in r["matriz"]
     assert k["decisiones"]["n"] == 1 and k["preguntas"]["abiertas"] == 1 and k["preguntas"]["propuestos"] == 1
     assert k["requisitos"]["por_estado"] == {"abierto": 1, "hecho": 1} and k["historias"]["por_estado"] == {"sin estado": 1}
     assert k["hitos"]["vencidos"] == 1 and k["revision"]["propuesto"] == 4
-    se = informe.kpis(C, D, H, docs=[{"mid": "m1", "nombre": "R1", "fecha": "2026-03-09", "data": {}}, {"mid": "m2", "nombre": "R2", "fecha": "2026-03-25", "data": {}}])["serie"]
+    se = informe.kpis(
+        C, D, H, docs=[{"mid": "m1", "nombre": "R1", "fecha": "2026-03-09", "data": {}}, {"mid": "m2", "nombre": "R2", "fecha": "2026-03-25", "data": {}}]
+    )["serie"]
     assert [(p["doc"], p["abiertas"]) for p in se] == [("R1", 3), ("R2", 2)] and informe.svg_linea({"serie": se}).count("<circle") == 2
     ap = informe.kpis(C, D, H, solo_aprobados=True)
     assert ap["tareas"]["abiertas"] == 1 and ap["riesgos"]["total"] == 2 and ap["revision"]["propuesto"] == 0
     with pytest.raises(ValueError):
         informe.kpis(C, H, D)
-    assert informe.nivel("Muy alta") == 4 and informe.nivel("media") == 3 and informe.nivel("baja") == 2 and informe.nivel("4") == 4 and informe.nivel("9") is None and informe.nivel("quizá") is None
+    assert (
+        informe.nivel("Muy alta") == 4
+        and informe.nivel("media") == 3
+        and informe.nivel("baja") == 2
+        and informe.nivel("4") == 4
+        and informe.nivel("9") is None
+        and informe.nivel("quizá") is None
+    )
 
 
 def test_semaforos(reg):
@@ -74,6 +90,7 @@ def chat_falso(llamadas):
         if "Logros" in user:
             return {"frases": ["Se pintó la fachada [1].", "Se ahorraron 5000 euros [1].", "Frase sin fuente.", "Se decidió la teja árabe [2][99]."]}
         return {"frases": ["Hay que cerrar lo pendiente [1]."]}
+
     return chat
 
 
@@ -91,9 +108,23 @@ def test_versiones_y_edicion(reg):
     t, x = reg
     i = informe.crear(C, D, H)
     assert i["version"] == 1 and i["serie"] == i["id"] and i["semaforos"]["items"]["Riesgos"]["color"] == "rojo"
-    e = informe.editar(C, i["id"], {"semaforos": {"Coste": {"color": "verde", "justificacion": "En presupuesto"}}, "notas": "ojo", "estado": "final",
-                                    "narrativa": {"logros": [{"texto": "A mano", "refs": []}]}})
-    assert e["semaforos"]["items"]["Coste"] == {"color": "verde", "justificacion": "En presupuesto", "sugerido": "gris", "sugerido_just": e["semaforos"]["items"]["Coste"]["sugerido_just"], "manual": True}
+    e = informe.editar(
+        C,
+        i["id"],
+        {
+            "semaforos": {"Coste": {"color": "verde", "justificacion": "En presupuesto"}},
+            "notas": "ojo",
+            "estado": "final",
+            "narrativa": {"logros": [{"texto": "A mano", "refs": []}]},
+        },
+    )
+    assert e["semaforos"]["items"]["Coste"] == {
+        "color": "verde",
+        "justificacion": "En presupuesto",
+        "sugerido": "gris",
+        "sugerido_just": e["semaforos"]["items"]["Coste"]["sugerido_just"],
+        "manual": True,
+    }
     assert e["contenido"]["notas"] == "ojo" and e["version"] == 1
     registro.editar(x["r1"]["id"], {"estado": "cerrado"})
     r = informe.recalcular(C, i["id"])
@@ -138,8 +169,15 @@ def test_api(reg):
 def test_exportar(reg):
     t, x = reg
     i = t.post("/api/reg/informes", json={"c": C, "desde": D, "hasta": H}).json()["id"]
-    nar = {"logros": [{"texto": "Se pintó", "refs": [{"id": x["t3"]["id"], "codigo": "T-003", "titulo": "Pintar fachada", "revision": "aprobado", "cita": None}]}],
-           "comite": [{"texto": "Decidir firma", "refs": [{"id": x["q1"]["id"], "codigo": "P-001", "titulo": "¿Quién firma el acta?", "revision": "propuesto", "cita": None}]}]}
+    nar = {
+        "logros": [{"texto": "Se pintó", "refs": [{"id": x["t3"]["id"], "codigo": "T-003", "titulo": "Pintar fachada", "revision": "aprobado", "cita": None}]}],
+        "comite": [
+            {
+                "texto": "Decidir firma",
+                "refs": [{"id": x["q1"]["id"], "codigo": "P-001", "titulo": "¿Quién firma el acta?", "revision": "propuesto", "cita": None}],
+            }
+        ],
+    }
     t.patch(f"/api/reg/informes/{i}", json={"c": C, "cambios": {"narrativa": nar}})
     g = lambda fmt, b=1: t.get(f"/api/reg/informes/{i}/exportar", params={"c": C, "fmt": fmt, "borrador": b})
     m = g("md").text
@@ -160,6 +198,7 @@ def test_exportar(reg):
     assert len(sl) == 6 and "Retraso del proveedor" in z.read("ppt/slides/slide4.xml").decode() and "Decidir firma" in z.read("ppt/slides/slide5.xml").decode()
     try:
         import pptx
+
         assert len(pptx.Presentation(io.BytesIO(g("pptx").content)).slides) == 6
     except ImportError:
         pass
@@ -174,6 +213,7 @@ def test_exportar(reg):
 
 def test_gancho_poblar(reg):
     import poblar
+
     assert poblar.borrador_informe(C, {}) is None
     i = informe.crear(C, D, H)
     x = poblar.borrador_informe(C, {})

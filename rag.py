@@ -2,6 +2,7 @@
 fusionados por RRF; el LLM solo elige tramos y escribe una frase en estilo indirecto con sus palabras; el código
 comprueba que cada palabra de contenido de la frase está en el tramo citado (o sus vecinos) y si no, la cambia por la
 cita literal. Cada pregunta es independiente: ni historial ni caché de prompt."""
+
 import json, os, re, unicodedata, socket, subprocess, sys, time, urllib.request
 from collections import Counter
 from decimal import Decimal
@@ -21,21 +22,33 @@ MAX_LINES = 2  # con 3 líneas el LLM rellena con paráfrasis que la verificaci�
 CTX_WORDS = 20  # palabras de contexto de cada vecino ±1 que se enseñan al LLM junto a cada fragmento
 NOT_SAID = "No se menciona en la reunión."
 # idioma de la PREGUNTA (el de la respuesta): palabras funcionales de cada idioma; gana el que más acierta, y el español en los empates
-LANG_W = {l: set(w.split()) for l, w in {
-    "es": "el la los las de del que qué quién quiénes cómo cuándo dónde cuánto cuántos por para con una un es son fue se su sus y en al lo le les más pero está hay sobre tiene dijo dijeron",
-    "en": "the what who when where why how did does do is are was were of to and in on for with about has have had which that this they their it be been will would said say",
-    "fr": "le la les des du de que qui quoi quand où pourquoi comment est sont était et en pour avec sur une un dans ce cette il elle ils ont dit",
-    "de": "der die das und ist sind war was wer wann wo warum wie nicht mit für auf von zu ein eine den dem hat haben wurde gesagt",
-    "pt": "o os as do da dos das que quem quando onde porque como foi são com para uma um em no na é não tem disse",
-    "it": "il lo gli dei del della che chi quando dove perché come è sono era con per una un nel nella non ha detto"}.items()}
-IDI_NOMBRE = {"es": "español", "en": "inglés (English)", "fr": "francés (français)", "de": "alemán (Deutsch)", "pt": "portugués (português)", "it": "italiano (italiano)"}
+LANG_W = {
+    l: set(w.split())
+    for l, w in {
+        "es": "el la los las de del que qué quién quiénes cómo cuándo dónde cuánto cuántos por para con una un es son fue se su sus y en al lo le les más pero está hay sobre tiene dijo dijeron",
+        "en": "the what who when where why how did does do is are was were of to and in on for with about has have had which that this they their it be been will would said say",
+        "fr": "le la les des du de que qui quoi quand où pourquoi comment est sont était et en pour avec sur une un dans ce cette il elle ils ont dit",
+        "de": "der die das und ist sind war was wer wann wo warum wie nicht mit für auf von zu ein eine den dem hat haben wurde gesagt",
+        "pt": "o os as do da dos das que quem quando onde porque como foi são com para uma um em no na é não tem disse",
+        "it": "il lo gli dei del della che chi quando dove perché come è sono era con per una un nel nella non ha detto",
+    }.items()
+}
+IDI_NOMBRE = {
+    "es": "español",
+    "en": "inglés (English)",
+    "fr": "francés (français)",
+    "de": "alemán (Deutsch)",
+    "pt": "portugués (português)",
+    "it": "italiano (italiano)",
+}
 FRASES = {  # idioma de la pregunta -> (se dijo, se deduce, probablemente, porque se dijo, no se menciona)
     "es": ("Se dijo que", "Se deduce que", "Probablemente", "porque se dijo que", NOT_SAID),
     "en": ("It was said that", "It follows that", "Probably", "because it was said that", "Not mentioned in the meeting."),
     "fr": ("Il a été dit que", "On en déduit que", "Probablement", "car il a été dit que", "Ce n'est pas mentionné dans la réunion."),
     "de": ("Es wurde gesagt, dass", "Daraus folgt, dass", "Wahrscheinlich", "weil gesagt wurde, dass", "Das wird in der Besprechung nicht erwähnt."),
     "pt": ("Foi dito que", "Deduz-se que", "Provavelmente", "porque foi dito que", "Não é mencionado na reunião."),
-    "it": ("Si è detto che", "Se ne deduce che", "Probabilmente", "perché si è detto che", "Non viene menzionato nella riunione.")}
+    "it": ("Si è detto che", "Se ne deduce che", "Probabilmente", "perché si è detto che", "Non viene menzionato nella riunione."),
+}
 
 
 def lang_q(q):
@@ -47,6 +60,8 @@ def lang_q(q):
 
 def no_dice(q):
     return FRASES.get(lang_q(q), FRASES["en"])[4]
+
+
 GEMMA = "gemma-4-E4B-it-Q4_0.gguf"
 
 
@@ -71,7 +86,9 @@ def chat_model():
 def interp():
     return chat_model().name == GEMMA  # estilo interpretativo solo con gemma; un modelo propio usa el estilo literal
 
-STOP = set("""a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
+
+STOP = set(
+    """a al algo algun alguna alguno algunos algunas ante antes aqui asi aun bajo bien cada como con contra cual
 cuales cuando de del desde donde dos el ella ellas ello ellos en entre era eran es esa esas ese eso esos esta estas este
 esto estos fue fueron ha han hasta hay la las le les lo los mas me mi mis mucho muchos muy nada ni nos nosotros o os otra
 otras otro otros para pero poco por porque pues que quien quienes se sea segun ser si sido sin sobre solo su sus tal
@@ -80,14 +97,23 @@ digamos fijense aca alli ahi decir dice dijo dicen dijeron dicho menciona mencio
 explico indica indico senala senalo afirma afirmo habla hablo cuenta conto comentaron explicaron senalaron mencionaron
 pantalla mostro muestra muestran mostraron puede pueden podemos puedo podria poder tiene tienen tengo tenemos tener
 hace hacen hacer hago hecho va van vamos voy ir esta estan estoy estamos estar estaba son soy somos eres hubo habia
-haber he hemos sera seran estara estaran habra""".split())
-NUM = dict(zip("""cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis
-diecisiete dieciocho diecinueve veinte""".split(), map(str, range(21))))
-NUM.update(treinta="30", cuarenta="40", cincuenta="50", sesenta="60", setenta="70", ochenta="80", noventa="90",
-           cien="100", ciento="100", mil="1000")
+haber he hemos sera seran estara estaran habra""".split()
+)
+NUM = dict(
+    zip(
+        """cero uno dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis
+diecisiete dieciocho diecinueve veinte""".split(),
+        map(str, range(21)),
+    )
+)
+NUM.update(treinta="30", cuarenta="40", cincuenta="50", sesenta="60", setenta="70", ochenta="80", noventa="90", cien="100", ciento="100", mil="1000")
 NEG = {"no", "ni", "nunca", "sin", "ningun", "ninguna", "ninguno"}
-SUF = sorted("""arian erian irian aria eria iria rian ria ian aban aran eran ara era ira an en ia amientos imientos amiento imiento aciones uciones acion ucion mente ables ibles able ible ando iendo
-ados idos adas idas ado ido ada ida ar er ir es os as a o e s""".split(), key=len, reverse=True)
+SUF = sorted(
+    """arian erian irian aria eria iria rian ria ian aban aran eran ara era ira an en ia amientos imientos amiento imiento aciones uciones acion ucion mente ables ibles able ible ando iendo
+ados idos adas idas ado ido ada ida ar er ir es os as a o e s""".split(),
+    key=len,
+    reverse=True,
+)
 
 
 def stem(w):
@@ -97,16 +123,18 @@ def stem(w):
         return w
     for s in SUF:
         if w.endswith(s) and len(w) - len(s) >= 3:
-            return w[:-len(s)]
+            return w[: -len(s)]
     return w
 
 
 # Valoraciones que casi nunca se dicen tal cual: se busca también el dato del que saldrían («¿es caro?» -> el precio).
 # El LLM no ve esta expansión, solo la recuperación.
-EXPAND = {("caro", "cara", "barato", "barata", "costoso", "economico", "precio", "cuesta", "vale"): "precio cuesta vale dólares pagar plan",
-          ("antiguo", "antigua", "viejo", "vieja", "nuevo", "nueva", "moderno", "reciente"): "año fecha creado",
-          ("largo", "larga", "corto", "corta", "dura", "duracion"): "duración horas minutos tiempo",
-          ("grande", "pequeno", "pequena", "enorme"): "tamaño número cantidad"}
+EXPAND = {
+    ("caro", "cara", "barato", "barata", "costoso", "economico", "precio", "cuesta", "vale"): "precio cuesta vale dólares pagar plan",
+    ("antiguo", "antigua", "viejo", "vieja", "nuevo", "nueva", "moderno", "reciente"): "año fecha creado",
+    ("largo", "larga", "corto", "corta", "dura", "duracion"): "duración horas minutos tiempo",
+    ("grande", "pequeno", "pequena", "enorme"): "tamaño número cantidad",
+}
 
 
 def expand(q):
@@ -124,32 +152,41 @@ DEF_Q = re.compile(r"\bqu[eé] (es|son|significa|signific[oa]n)\b|\ben qu[eé] c
 
 # Preguntas generales («¿de qué va la reunión?») -> se responden con el acta breve; de propósito («¿para qué sirve X?») ->
 # deducción marcada a partir de las funciones que se mostraron o dijeron.
-GEN_Q = re.compile(r"\bde qu[eé] (va|trata|tratan|se habl[oó]|hablan?)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo|llamada|encuentro)\b|"
-                   r"\b(resum[ei]|resumen)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo)\b|\bde qu[eé] (va|trata) (esto|todo)\b", re.I)
-PURP_Q = re.compile(r"\bpara qu[eé] (sirve|sirven|se usa|se utiliza|es)\b|\bde qu[eé] (va|trata) (el|la|este|esta|ese|esa)\b|\bqu[eé] (hace|permite) (el|la|este|esta)\b", re.I)
+GEN_Q = re.compile(
+    r"\bde qu[eé] (va|trata|tratan|se habl[oó]|hablan?)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo|llamada|encuentro)\b|"
+    r"\b(resum[ei]|resumen)\b.*\b(reuni[oó]n|sesi[oó]n|charla|webinar|v[ií]deo)\b|\bde qu[eé] (va|trata) (esto|todo)\b",
+    re.I,
+)
+PURP_Q = re.compile(
+    r"\bpara qu[eé] (sirve|sirven|se usa|se utiliza|es)\b|\bde qu[eé] (va|trata) (el|la|este|esta|ese|esa)\b|\bqu[eé] (hace|permite) (el|la|este|esta)\b", re.I
+)
 needs_ctx = lambda q: bool(DEF_Q.search(q) or (interp() and PURP_Q.search(q)))
 
 
 def terms(text):
     ws = P.words(text)
     # además, pares pegados: el ASR dice «click meeting» y la pregunta (o la pantalla) «clickmeeting»
-    return [stem(w) for w in ws if w not in STOP or w in NUM] + \
-           [a + b for a, b in zip(ws, ws[1:]) if a not in STOP and b not in STOP and len(a) > 2 and len(b) > 2]
+    return [stem(w) for w in ws if w not in STOP or w in NUM] + [
+        a + b for a, b in zip(ws, ws[1:]) if a not in STOP and b not in STOP and len(a) > 2 and len(b) > 2
+    ]
 
 
 # ---------- índice ----------
 def units(wd, quality="rápido"):
     """Tramos de voz de ~15 s (marcas del ASR) y, aparte, el texto de cada pantalla compartida en trozos de 60 palabras."""
     tr = json.loads((Path(wd) / f"transcript_{quality}.json").read_text(encoding="utf-8"))
-    segs = [{"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk"), "loc": x.get("loc")} for x in P.merge_segs(tr["segments"])]  # loc: página/sección de un documento
+    segs = [
+        {"s": x["s"], "e": x["e"], "text": x["text"].strip(), "kind": "voz", "spk": x.get("spk"), "loc": x.get("loc")} for x in P.merge_segs(tr["segments"])
+    ]  # loc: página/sección de un documento
     kf = Path(wd) / "frames.json"
     for k in P.screens(json.loads(P.leer_texto(kf))) if kf.exists() else []:
         # sin URLs ni tokens kilométricos (barra de direcciones): solo meten ruido en BM25 y en el embedding
-        w = [x for x in k["text"].replace(" | ", " · ").split() if len(x) < 25 and "/" not in x and "=" not in x] \
-            if k["screen"] else []
-        segs += [{"s": k["t"], "e": k["t"], "text": " ".join(w[i:i + 60]), "kind": "pantalla"} for i in range(0, len(w), 60)]
+        w = [x for x in k["text"].replace(" | ", " · ").split() if len(x) < 25 and "/" not in x and "=" not in x] if k["screen"] else []
+        segs += [{"s": k["t"], "e": k["t"], "text": " ".join(w[i : i + 60]), "kind": "pantalla"} for i in range(0, len(w), 60)]
     ci = Path(wd) / "capturas_ia.json"  # capturas descritas con IA (vision.py): también se puede preguntar por lo que se veía
-    segs += [{"s": x["t"], "e": x["t"], "text": x["texto"], "kind": "pantalla"} for x in (json.loads(ci.read_text(encoding="utf-8")).values() if ci.exists() else [])]
+    segs += [
+        {"s": x["t"], "e": x["t"], "text": x["texto"], "kind": "pantalla"} for x in (json.loads(ci.read_text(encoding="utf-8")).values() if ci.exists() else [])
+    ]
     return segs
 
 
@@ -165,8 +202,14 @@ def emb_id():
 
 
 # prefijos de consulta/documento según la familia del GGUF (por el nombre del fichero); sin coincidencia: sin prefijo
-PREF = [("nomic", "search_query: ", "search_document: "), ("embeddinggemma", QP, DP), ("bge-m3", "", ""), ("bge", "Represent this sentence for searching relevant passages: ", ""),
-        ("e5", "query: ", "passage: "), ("gte", "", "")]
+PREF = [
+    ("nomic", "search_query: ", "search_document: "),
+    ("embeddinggemma", QP, DP),
+    ("bge-m3", "", ""),
+    ("bge", "Represent this sentence for searching relevant passages: ", ""),
+    ("e5", "query: ", "passage: "),
+    ("gte", "", ""),
+]
 _es = {}  # servidor llama-server --embedding en marcha: {"id", "url", "proc"}
 
 
@@ -191,7 +234,7 @@ def embed_gguf(texts, query, threads):
     qp, dp = next(((q, d) for k, q, d in PREF if k in name), ("", ""))
     url, out = emb_server(threads), []
     for b in range(0, len(texts), 16):
-        body = json.dumps({"input": [(qp if query else dp) + t for t in texts[b:b + 16]]}).encode()
+        body = json.dumps({"input": [(qp if query else dp) + t for t in texts[b : b + 16]]}).encode()
         r = json.loads(urllib.request.urlopen(urllib.request.Request(url + "/v1/embeddings", body, {"Content-Type": "application/json"}), timeout=600).read())
         out += [d["embedding"] for d in sorted(r["data"], key=lambda d: d["index"])]
     v = np.array(out, np.float32).reshape(len(texts), -1)
@@ -201,12 +244,19 @@ def embed_gguf(texts, query, threads):
 def no_embed():
     """ACTAS_NO_EMBED=1 y sin el ONNX de EmbeddingGemma utilizable (fichero o onnxruntime/tokenizers ausentes): vectores léxicos, sin descargas ni modelos."""
     import importlib.util as iu
-    return os.environ.get("ACTAS_NO_EMBED") == "1" and not ((P.ROOT / "models" / "gemma-emb" / ONNX).is_file() and (P.ROOT / "models" / "gemma-emb" / (ONNX + "_data")).is_file() and iu.find_spec("onnxruntime") and iu.find_spec("tokenizers"))
+
+    return os.environ.get("ACTAS_NO_EMBED") == "1" and not (
+        (P.ROOT / "models" / "gemma-emb" / ONNX).is_file()
+        and (P.ROOT / "models" / "gemma-emb" / (ONNX + "_data")).is_file()
+        and iu.find_spec("onnxruntime")
+        and iu.find_spec("tokenizers")
+    )
 
 
 def embed_lex(texts, dim=1024):
     """Vectores por hashing de palabras con raíz (sin las vacías), normalizados: coseno = solapamiento léxico. Sin semántica (sinónimos): solo para ir sin modelo."""
     import zlib
+
     out = np.zeros((len(texts), dim), np.float32)
     for i, t in enumerate(texts):
         for w in P.words(t):
@@ -229,6 +279,7 @@ def embed(texts, query=False, threads=2, std=False):
             import onnxruntime as ort
             from huggingface_hub import hf_hub_download
             from tokenizers import Tokenizer
+
             d = P.ROOT / "models" / "gemma-emb"
             get = lambda f: str(d / f) if (d / f).is_file() else hf_hub_download(REPO, f, local_dir=d)  # local (models.py) o Hugging Face
             tok = Tokenizer.from_file(get("tokenizer.json"))
@@ -246,7 +297,7 @@ def embed(texts, query=False, threads=2, std=False):
     order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
     out = np.zeros((len(texts), 768), np.float32)
     for b in range(0, len(order), 16):  # lotes de longitud parecida: poco relleno
-        ids = order[b:b + 16]
+        ids = order[b : b + 16]
         tok.enable_padding()
         enc = tok.encode_batch([(QP if query else DP) + texts[i] for i in ids])
         feed = {"input_ids": np.array([e.ids for e in enc], np.int64), "attention_mask": np.array([e.attention_mask for e in enc], np.int64)}
@@ -260,6 +311,7 @@ class Index:
         self.segs = units(wd, quality)
         texts = [s["text"] for s in self.segs]
         import hashlib
+
         lex = "lex" if emb_id() == ONNX and (no_embed() or _enc is False) else ""  # léxico (1024-d) y ONNX (768-d) nunca comparten fichero
         h = hashlib.sha1("\0".join([emb_id() + lex, *texts]).encode()).hexdigest()[:8]  # la clave incluye el modelo de embeddings: cambiarlo reindexa
         f = Path(wd) / f"rag_{quality}_{h}.npy"
@@ -280,7 +332,10 @@ class Index:
 
     def acta(self):
         """(resumen, [(t, texto)...]) del acta breve (o la más corta que haya) de esta reunión; (None, []) si no hay."""
-        fs = sorted(self.wd.glob("acta_*/acta.json"), key=lambda f: ("_p-" in f.parent.name or "_i-" in f.parent.name, "breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name))
+        fs = sorted(
+            self.wd.glob("acta_*/acta.json"),
+            key=lambda f: ("_p-" in f.parent.name or "_i-" in f.parent.name, "breve" not in f.parent.name, "alta" in f.parent.name, f.parent.name),
+        )
         try:
             a = json.loads(fs[0].read_text(encoding="utf-8"))
         except (IndexError, ValueError):
@@ -314,7 +369,7 @@ class Index:
                 if sc[i] > 0:
                     rrf[int(i)] += 1 / (RRF_K + r + 1)
         if WHY.search(q0):  # «¿por qué…?»: tercera lista con los tramos que dan una razón (porque, motivo…), por parecido denso
-            for r, i in enumerate([i for i in np.argsort(-dense)[:4 * POOL] if REASON & set(P.words(self.segs[i]["text"]))][:POOL]):
+            for r, i in enumerate([i for i in np.argsort(-dense)[: 4 * POOL] if REASON & set(P.words(self.segs[i]["text"]))][:POOL]):
                 rrf[int(i)] += 2 / (RRF_K + r + 1)  # doble peso: es lo que pide la pregunta
         top = rrf.most_common()
         rel = {i: sc / top[0][1] for i, sc in top}
@@ -341,18 +396,19 @@ class Index:
             return t
         w, qs = t.split(), {stem(x) for x in P.words(q) if x not in STOP}
         c = next((k for k, x in enumerate(w) if qs & {stem(y) for y in P.words(x)}), 0)
-        return ("… " if c > 8 else "") + " ".join(w[max(0, c - 8):c + 17]) + (" …" if c + 17 < len(w) else "")
+        return ("… " if c > 8 else "") + " ".join(w[max(0, c - 8) : c + 17]) + (" …" if c + 17 < len(w) else "")
 
     def window(self, i):
         """El tramo y sus vecinos ±1 de voz (contexto al desplegar y margen de la verificación)."""
         if self.segs[i]["kind"] != "voz":
             return [i]
         j = self.voz.index(i)
-        return self.voz[max(0, j - 1):j + 2]
+        return self.voz[max(0, j - 1) : j + 2]
 
 
 class Multi(Index):
     """Varias reuniones (una carpeta) como un solo índice: mismo search/MMR sobre todos los tramos; cada tramo lleva su reunión (m)."""
+
     multi, topk = True, 12
 
     def __init__(self, parts, extra=()):  # parts: [(nombre, url del vídeo, Index)]; extra: tramos «registro» {s, text, m: reunión o None}
@@ -404,7 +460,7 @@ def verify(frase, allowed_text):
     bad = [w for w in dict.fromkeys(fw) if keep(w) and stem(w) not in ok]
     # cifra que en el original siempre va negada («ya no vale 25 sino 30») y en la frase no: dato invertido.
     # ponytail: solo cifras y negación a <= 3 palabras; un análisis sintáctico cubriría el resto
-    neg = lambda ws, k: any(x in NEG for x in ws[max(0, k - 3):k])
+    neg = lambda ws, k: any(x in NEG for x in ws[max(0, k - 3) : k])
     for k, w in enumerate(fw):
         occ = [j for j, x in enumerate(src) if stem(x) == stem(w)] if stem(w).isdigit() else []
         if occ and all(neg(src, j) for j in occ) and not neg(fw, k):
@@ -414,8 +470,11 @@ def verify(frase, allowed_text):
 
 NUMRE = r"\d+(?:[.,]\d+)*"
 MULT = {"mil": 1000, "k": 1000, "millon": 10**6, "millones": 10**6}
-ESP = {**{k: int(v) for k, v in NUM.items() if k != "mil"}, **{f"veinti{w}": 20 + i for i, w in enumerate("uno dos tres cuatro cinco seis siete ocho nueve".split(), 1)},
-       **{k: v for k, v in zip("doscientos trescientos cuatrocientos quinientos seiscientos setecientos ochocientos novecientos".split(), range(200, 1000, 100))}}
+ESP = {
+    **{k: int(v) for k, v in NUM.items() if k != "mil"},
+    **{f"veinti{w}": 20 + i for i, w in enumerate("uno dos tres cuatro cinco seis siete ocho nueve".split(), 1)},
+    **{k: v for k, v in zip("doscientos trescientos cuatrocientos quinientos seiscientos setecientos ochocientos novecientos".split(), range(200, 1000, 100))},
+}
 
 
 def _dec(x):
@@ -509,8 +568,7 @@ NINGUNO"""
 
 def grammar(n):
     ids = " | ".join(f'"{i}"' for i in range(1, n + 1))
-    return (f'root ::= "NINGUNO" | line{{1,{MAX_LINES}}}\nline ::= "[" id "] Se dijo que " txt "\\n"\n'
-            f'id ::= {ids}\ntxt ::= [^\\n\\[\\]]{{3,220}}')
+    return f'root ::= "NINGUNO" | line{{1,{MAX_LINES}}}\nline ::= "[" id "] Se dijo que " txt "\\n"\nid ::= {ids}\ntxt ::= [^\\n\\[\\]]{{3,220}}'
 
 
 def prompt(idx, ids, q):
@@ -520,10 +578,15 @@ def prompt(idx, ids, q):
             return ""
         a = [j for j in w if j < i]
         b = [j for j in w if j > i]
-        return " ‖ " + " ".join(([" ".join(idx.segs[a[0]]["text"].split()[-CTX_WORDS:])] if a else [])
-                               + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else []))
-    rows = [f"[{n}] ({idx.names[idx.segs[i]['m']] + ', ' if idx.multi else ''}{P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ', registro del proyecto' if idx.segs[i]['kind'] == 'registro' else ''}) "
-            f"{idx.segs[i]['text']}{ctx(i)}" for n, i in enumerate(ids, 1)]
+        return " ‖ " + " ".join(
+            ([" ".join(idx.segs[a[0]]["text"].split()[-CTX_WORDS:])] if a else []) + ([" ".join(idx.segs[b[0]]["text"].split()[:CTX_WORDS])] if b else [])
+        )
+
+    rows = [
+        f"[{n}] ({idx.names[idx.segs[i]['m']] + ', ' if idx.multi else ''}{P.fmt(idx.segs[i]['s'])}{', texto en pantalla' if idx.segs[i]['kind'] == 'pantalla' else ', registro del proyecto' if idx.segs[i]['kind'] == 'registro' else ''}) "
+        f"{idx.segs[i]['text']}{ctx(i)}"
+        for n, i in enumerate(ids, 1)
+    ]
     nota = " (tras «‖», contexto: final del fragmento anterior y principio del siguiente)" if needs_ctx(q) else ""
     if WHY.search(q):
         nota += " (la pregunta pide una RAZÓN: usa los fragmentos que la den; los que solo dicen el resultado o repiten que ya se explicó, no sirven)"
@@ -536,22 +599,29 @@ def server(threads, ctx=None, gpu=None):
         return os.environ["ACTAS_LLM_URL"], None
     P.WORK.mkdir(exist_ok=True)
     _gpu_chat[0] = gpu
-    return P.launch(chat_model(), ctx or (6144 if interp() else 4096), threads, ["-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none"],
-                    "llama-server-rag.log", gpu)
+    return P.launch(
+        chat_model(), ctx or (6144 if interp() else 4096), threads, ["-cram", "0", "-ctxcp", "0", "-rea", "off", "-lm", "none"], "llama-server-rag.log", gpu
+    )
 
 
 def stream(url, user, n, system=SYSTEM, gram=None, max_tokens=80 * MAX_LINES):
     """Genera los trozos de texto del LLM; el último elemento es el dict de tiempos de llama-server."""
     if isinstance(url, dict):  # modelo en la nube (nube.py): una llamada, el texto entero y sin tiempos; la verificación posterior es la de siempre
         import nube
+
         yield nube.texto(url, system, user, max_tokens) + "\n"
         yield {}
         return
-    body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "temperature": 0, "max_tokens": max_tokens, "grammar": gram or grammar(n), "stream": True,
-            "cache_prompt": False, "chat_template_kwargs": {"enable_thinking": False}}
-    req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(),
-                                 {"Content-Type": "application/json"})
+    body = {
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "grammar": gram or grammar(n),
+        "stream": True,
+        "cache_prompt": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    req = urllib.request.Request(url + "/v1/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
     for retry in (True, False):
         timings, n = {}, 0
         try:
@@ -599,8 +669,12 @@ def answer(idx, q, url):
     buf, n_out, t1, first, seen = "", 0, time.time(), None, set()
     for ch in stream(url, prompt(idx, order, q), len(order), system=SYSTEM + (SYSTEM_M if idx.multi else "")):
         if isinstance(ch, dict):
-            st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
-                      prompt_tok=ch.get("prompt_n"), gen_tok=ch.get("predicted_n"))
+            st.update(
+                prefill=round(ch.get("prompt_ms", 0) / 1000, 2),
+                gen=round(ch.get("predicted_ms", 0) / 1000, 2),
+                prompt_tok=ch.get("prompt_n"),
+                gen_tok=ch.get("predicted_n"),
+            )
             break
         first = first or round(time.time() - t1, 2)
         buf += ch
@@ -659,8 +733,7 @@ preguntado; NO si la cita solo describe hechos y la conclusión da una opinión,
 def judge(url, q, items):
     """items: [(tipo, frase, texto citado)] -> [bool]: el mismo gemma revisa en UNA llamada si cada frase está respaldada por su
     cita y responde a la pregunta (SI/NO por gramática). ponytail: un solo voto de un modelo de 4B; no es una prueba formal."""
-    user = f"Pregunta: {q}\n\n" + "\n\n".join(
-        f"{k}. {t.upper()}: {f}\n   Fragmento: {x[:700]}" for k, (t, f, x) in enumerate(items, 1))
+    user = f"Pregunta: {q}\n\n" + "\n\n".join(f"{k}. {t.upper()}: {f}\n   Fragmento: {x[:700]}" for k, (t, f, x) in enumerate(items, 1))
     gram = "root ::= " + " ".join(f'"{k}: " yn "\\n"' for k in range(1, len(items) + 1)) + '\nyn ::= "SI" | "NO"'
     out = "".join(c for c in stream(url, user, 0, system=SYSTEM_J, gram=gram, max_tokens=8 * len(items) + 8) if isinstance(c, str))
     return [bool(re.search(rf"^{k}: SI", out, re.M)) for k in range(1, len(items) + 1)]
@@ -673,24 +746,34 @@ def grammar_i(n, general=False, quote=False, ql="es", trad=False):
         return f'root ::= g{{2,3}}\ng ::= refs " " txt "\\n"\n{refs}\n{txt}'
     dq = ' " «" q "»"' + (' " (" tr ")"' if trad else "") if quote else ""
     f = FRASES[ql]  # prefijos en el idioma de la pregunta (la gramática los fija: el parseo y la verificación no cambian)
-    return (f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " {f[0]} " txt{dq} "\\n"\n'
-            f'e ::= refs " " ("{f[1]}" | "{f[2]}") " " dtxt ", {f[3]} «" q "»\\n"\n{refs}\n{txt}' + ('\ntr ::= [^\\n\\[\\]«»()]{3,200}' if trad else ""))
+    return (
+        f'root ::= "NINGUNO" | d{{1,3}} e{{0,1}}\nd ::= refs " {f[0]} " txt{dq} "\\n"\n'
+        f'e ::= refs " " ("{f[1]}" | "{f[2]}") " " dtxt ", {f[3]} «" q "»\\n"\n{refs}\n{txt}' + ("\ntr ::= [^\\n\\[\\]«»()]{3,200}" if trad else "")
+    )
 
 
 DIJO = {f[0] for f in FRASES.values()}
-LINE_I = re.compile(r"^((?:\[\d+\])+) (" + "|".join(re.escape(p) for p in sorted({x for f in FRASES.values() for x in f[:3]}, key=len, reverse=True)) + r")? ?(.+)")
+LINE_I = re.compile(
+    r"^((?:\[\d+\])+) (" + "|".join(re.escape(p) for p in sorted({x for f in FRASES.values() for x in f[:3]}, key=len, reverse=True)) + r")? ?(.+)"
+)
 
 
 def system_i(ql, es, trad, multi):
     """Prompt del estilo interpretativo para la pregunta (idioma ql): fragmentos en español y pregunta en español = el de siempre."""
     f, s = FRASES[ql], SYSTEM_I
     if ql != "es":
-        s = s.replace("Se dijo que", f[0]).replace("Se deduce que", f[1]).replace("porque se dijo que", f[3]) + f"\nEscribe la respuesta en {IDI_NOMBRE[ql]}, sea cual sea el idioma de los fragmentos."
+        s = (
+            s.replace("Se dijo que", f[0]).replace("Se deduce que", f[1]).replace("porque se dijo que", f[3])
+            + f"\nEscribe la respuesta en {IDI_NOMBRE[ql]}, sea cual sea el idioma de los fragmentos."
+        )
     if not es:
-        s += (f"\nLos fragmentos están en otro idioma que la pregunta: tras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del "
-              f"fragmento, en su idioma original) entre «», y justo después su traducción entre paréntesis, así: [n] {f[0]} <frase> «<cita original>» (<traducción de la cita>). "
-              f"La cita de «{f[3]}» también va tal cual, en el idioma del fragmento." if trad else
-              f"\nTras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del fragmento) entre «»; la cita de «{f[3]}» también va tal cual.")
+        s += (
+            f"\nLos fragmentos están en otro idioma que la pregunta: tras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del "
+            f"fragmento, en su idioma original) entre «», y justo después su traducción entre paréntesis, así: [n] {f[0]} <frase> «<cita original>» (<traducción de la cita>). "
+            f"La cita de «{f[3]}» también va tal cual, en el idioma del fragmento."
+            if trad
+            else f"\nTras cada «{f[0]} <frase>» añade la cita literal (de 5 a 20 palabras copiadas EXACTAS del fragmento) entre «»; la cita de «{f[3]}» también va tal cual."
+        )
     return s + (SYSTEM_M if multi else "")
 
 
@@ -711,14 +794,12 @@ def answer_i(idx, q, url):
     if general:  # momentos del acta (como mucho 24, repartidos) -> tramo de voz donde ocurren
         rel = rel if len(rel) <= 24 else [rel[round(k * (len(rel) - 1) / 23)] for k in range(24)]
         order = [idx.seg_at(t) for t, _ in rel]
-        user = (f"Resumen del acta: {resumen}\n\nMomentos:\n" + "\n".join(f"[{n}] ({P.fmt(t)}) {x}" for n, (t, x) in enumerate(rel, 1))
-                + f"\n\nPregunta: {q}")
+        user = f"Resumen del acta: {resumen}\n\nMomentos:\n" + "\n".join(f"[{n}] ({P.fmt(t)}) {x}" for n, (t, x) in enumerate(rel, 1)) + f"\n\nPregunta: {q}"
         allowed = " ".join([resumen or ""] + [x for _, x in rel])
         args = dict(system=SYSTEM_G, gram=grammar_i(len(rel), True), max_tokens=330)
         yield "candidatos", order
         if resumen:  # lo primero, el resumen global del propio acta (ya revisado): los momentos sueltos no dicen «de qué va»
-            n_out0 = {"i": order[0], "refs": [order[0]], "kind": "resumen", "frase": resumen.strip(), "ok": True, "faltan": [],
-                      "cita": idx.cita(order[0], q)}
+            n_out0 = {"i": order[0], "refs": [order[0]], "kind": "resumen", "frase": resumen.strip(), "ok": True, "faltan": [], "cita": idx.cita(order[0], q)}
     else:
         yield "candidatos", ids
         if cos < MIN_COS:
@@ -740,10 +821,15 @@ def answer_i(idx, q, url):
             return verify(frase, text_of(js))
         m = QUOTE.search(frase)
         return [] if m and quote_ok(m[1], text_of(js)) else ["cita"]
+
     for ch in stream(url, user, len(order), **args):
         if isinstance(ch, dict):
-            st.update(prefill=round(ch.get("prompt_ms", 0) / 1000, 2), gen=round(ch.get("predicted_ms", 0) / 1000, 2),
-                      prompt_tok=ch.get("prompt_n"), gen_tok=ch.get("predicted_n"))
+            st.update(
+                prefill=round(ch.get("prompt_ms", 0) / 1000, 2),
+                gen=round(ch.get("predicted_ms", 0) / 1000, 2),
+                prompt_tok=ch.get("prompt_n"),
+                gen_tok=ch.get("predicted_n"),
+            )
             break
         first = first or round(time.time() - t1, 2)
         buf += ch
@@ -787,8 +873,7 @@ def answer_i(idx, q, url):
                 miss = bad_nums(frase, allowed or text_of(refs))
                 if miss:
                     continue
-            ev = {"i": refs[0], "refs": refs, "kind": kind, "frase": frase, "ok": not miss, "faltan": miss,
-                  "cita": idx.cita(refs[0], q)}
+            ev = {"i": refs[0], "refs": refs, "kind": kind, "frase": frase, "ok": not miss, "faltan": miss, "cita": idx.cita(refs[0], q)}
             if general:
                 n_out += 1
                 yield "frase", ev
@@ -844,8 +929,17 @@ def _selftest():
     assert verify("Se dijo que el plan vale 25 dólares.", "el plan valía 30 dólares") == ["25"]
     assert bad_nums("Se dijo que son 75,75 dólares", "cuesta 34,75 dólares") == ["75,75"]
     # idioma de la pregunta: la respuesta va en él; en duda, español
-    assert [lang_q(q) for q in ("¿Qué dijo Ana sobre el presupuesto?", "What did Ana say about the budget?", "Quand a eu lieu la réunion ?", "Wer hat das gesagt?",
-                                "presupuesto", "O que foi dito sobre o prazo?")] == ["es", "en", "fr", "de", "es", "pt"]
+    assert [
+        lang_q(q)
+        for q in (
+            "¿Qué dijo Ana sobre el presupuesto?",
+            "What did Ana say about the budget?",
+            "Quand a eu lieu la réunion ?",
+            "Wer hat das gesagt?",
+            "presupuesto",
+            "O que foi dito sobre o prazo?",
+        )
+    ] == ["es", "en", "fr", "de", "es", "pt"]
     assert no_dice("Who left early?").startswith("Not mentioned") and no_dice("¿Quién se fue?") == NOT_SAID
     for ql in FRASES:  # la gramática por idioma sigue pareciendo la de siempre en español, y la línea de cada idioma se reconoce
         g = grammar_i(3, quote=True, ql=ql, trad=ql != "es")
@@ -855,19 +949,34 @@ def _selftest():
     assert grammar_i(3, quote=False) == grammar_i(3, quote=False, ql="es")
     assert bad_nums("son 34.75 y 1000", "cuesta 34,75 y 1.000") == []
     assert bad_nums("son 75", "cuesta 34,75") == ["75"]
-    for fr, tx in [("30.000 euros", "unos treinta mil euros"), ("30.000", "30 mil"), ("2,5 millones", "dos millones y medio 2.500.000"), ("1.500", "mil quinientos"),
-                   ("30 mil", "30.000"), ("3k", "3000"), ("35", "treinta y cinco"), ("20 %", "veinte por ciento"), ("2.000.000", "dos millones"), ("21", "veintiuno")]:
+    for fr, tx in [
+        ("30.000 euros", "unos treinta mil euros"),
+        ("30.000", "30 mil"),
+        ("2,5 millones", "dos millones y medio 2.500.000"),
+        ("1.500", "mil quinientos"),
+        ("30 mil", "30.000"),
+        ("3k", "3000"),
+        ("35", "treinta y cinco"),
+        ("20 %", "veinte por ciento"),
+        ("2.000.000", "dos millones"),
+        ("21", "veintiuno"),
+    ]:
         assert bad_nums(fr, tx) == [], (fr, tx)
     assert bad_nums("30.000", "treinta") == ["30.000"] and bad_nums("35", "treinta y cinco mil") == ["35"] and bad_nums("30 mil", "30") == ["30 mil"]
-    assert quote_ok("Lo que haría en MI ordenador", "dice: lo que haría, en mi ordenador, sería") and not quote_ok("lo que haré en mi ordenador", "lo que haría en mi ordenador")
+    assert quote_ok("Lo que haría en MI ordenador", "dice: lo que haría, en mi ordenador, sería") and not quote_ok(
+        "lo que haré en mi ordenador", "lo que haría en mi ordenador"
+    )
     assert quote_ok("lo que haría … sería presentarme", "lo que haría en mi ordenador sería presentarme") and not quote_ok("hola mundo", "hola mundo")
     g = grammar(3)
     assert '"1" | "2" | "3"' in g and "NINGUNO" in g
     e = os.environ.pop("ACTAS_CHAT", None)  # regla del chat con RAM/VRAM falsas
     assert P.chat_model(ram=8, vram_mb=0)[0] == "qwen" and P.chat_model(ram=16, vram_mb=0)[0] == "gemma" and P.chat_model(ram=8, vram_mb=8000)[0] == "gemma"
-    os.environ["ACTAS_CHAT"] = "qwen"; assert P.chat_model(ram=64, vram_mb=0)[0] == "qwen"
-    os.environ["ACTAS_CHAT"] = "gemma"; assert P.chat_model(ram=4, vram_mb=0)[0] == "gemma"
-    os.environ.pop("ACTAS_CHAT"); e and os.environ.__setitem__("ACTAS_CHAT", e)
+    os.environ["ACTAS_CHAT"] = "qwen"
+    assert P.chat_model(ram=64, vram_mb=0)[0] == "qwen"
+    os.environ["ACTAS_CHAT"] = "gemma"
+    assert P.chat_model(ram=4, vram_mb=0)[0] == "gemma"
+    os.environ.pop("ACTAS_CHAT")
+    e and os.environ.__setitem__("ACTAS_CHAT", e)
     print("selftest ok")
 
 
@@ -886,8 +995,10 @@ if __name__ == "__main__":
                     print(f"  cand [{P.fmt(idx.segs[i]['s'])}] {idx.segs[i]['text'][:110]}")
             elif kind == "frase":
                 s = idx.segs[v["i"]]
-                print(f"[{', '.join(P.fmt(idx.segs[j]['s']) for j in v.get('refs', [v['i']]))}] {v['frase'] if v['ok'] else 'Se dijo: «' + v['cita'] + '»'}"
-                      + ("" if v["ok"] else f"  (frase descartada: {v['faltan']})"))
+                print(
+                    f"[{', '.join(P.fmt(idx.segs[j]['s']) for j in v.get('refs', [v['i']]))}] {v['frase'] if v['ok'] else 'Se dijo: «' + v['cita'] + '»'}"
+                    + ("" if v["ok"] else f"  (frase descartada: {v['faltan']})")
+                )
             elif kind == "nada":
                 print(NOT_SAID, f"({v})")
             else:
