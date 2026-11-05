@@ -223,7 +223,7 @@ def _hay_nuevo(c, desde):
 # ---------- generación de ficheros (descargas y adjuntos): exportar.py + export_registro.py + informe.py ----------
 def _mz():
     ER = export_registro
-    return {"documento": (("docx", "pdf", "md", "obsidian", "notion"), ()), "transcripcion": (("srt", "vtt"), ()), "resumen": (("md",), ()),
+    return {"documento": (("docx", "pdf", "md", "obsidian", "notion"), ()), "transcripcion": (("srt", "vtt", "md"), ()), "resumen": (("md",), ()),
             "tareas": (("csv_todoist", "csv_jira", "csv_azure", "csv_planner", "ics") + OWN, OWN), "riesgos": (OWN, OWN), "informe": ((), tuple(informe.EXT)),
             **{q: (OWN, ER.formatos(q)) for q in ("decisiones", "requisitos", "historias", "interesados")}}
 
@@ -231,6 +231,11 @@ def _mz():
 def _gen(u, q, fmt, aprob, an, ids, base=""):
     """u = {mid, ver, c} (unidad documento) | {c} (unidad proyecto) -> (extensión, bytes)."""
     mid = u.get("mid")
+    if mid and q == "transcripcion" and fmt == "md":
+        c = exportar.carga(mid, u["ver"], an)
+        if not c["segs"]:
+            raise ValueError("Sin transcripción")
+        return "md", exportar.trans_md(c).encode()
     if mid and (q in ("documento", "transcripcion") or (q == "tareas" and fmt not in OWN)):
         return exportar.FORMATOS[fmt][0], exportar.exportar(mid, u["ver"], fmt, anon=an)[0]
     if mid and q == "resumen":
@@ -322,6 +327,12 @@ def descargar(d):
 
 
 # ---------- páginas ----------
+def _publica(base):
+    """¿La url_base se abre desde otro equipo? Vacía o localhost: un enlace a /files/… solo funcionaría aquí."""
+    h = urllib.parse.urlsplit(base).hostname or ""
+    return bool(h) and h not in ("localhost", "::1") and not h.startswith("127.")
+
+
 def _front(titulo):
     return "\n".join(["---", f"title: {json.dumps(titulo, ensure_ascii=False)}", f"date: {dt.date.today()}", "tipo: seleccion", "tags: [actas]", "---", ""])
 
@@ -353,6 +364,7 @@ def _pagina(que, sel, a, o, titulo, an, aprob, base):
         ficheros.insert(0, (f"{exportar._nombre_arch(titulo)}.md", (fr + (cuerpo if cuerpo.startswith("#") else f"# {titulo}\n\n{cuerpo}")).encode()))
     js = {"carpeta": "" if an else a["c"] or "", "documento": {"mid": a["dm"], "ver": a["dv"], "titulo": c["data"]["titulo"]} if c else None, "resumen": c["data"].get("resumen") if c and "resumen" in que else None,
           "enlace": f"{base}/api/vista/{a['dm']}/{a['dv']}" if a["dm"] and not an else "", "texto": cuerpo,
+          "video": "" if an or not a["dm"] else _meta(a["dm"]).get("url") or next((f"{base}/files/{a['dm']}/{v.name}" for v in (P.WORK / Path(a["dm"]).name).glob("video.*") if _publica(base)), ""),
           "items": [{k: v for k, v in x.items() if k != "k"} for _, its in sel["secs"] for x in its]}
     return {"k": f"pag|{a['mid'] or a['c']}|{'+'.join(sorted(que))}", "titulo": titulo, "md": cuerpo or f"# {titulo}", "ficheros": ficheros, "json": js, "omitidos": omit,
             "h": hashlib.sha1(json.dumps([cuerpo, [(n, hashlib.sha1(b).hexdigest()) for n, b in ficheros]]).encode()).hexdigest()}
@@ -467,7 +479,7 @@ def _envio(req):
                 try:
                     key = f"{req['destino']}|{ak}|{x['k']}"
                     m = _mapa(key)
-                    if m and m["h"] == x["h"]:
+                    if m and m["h"] == x["h"] and not req.get("reenviar"):  # mismo contenido ya enviado; «reenviar» lo fuerza
                         r |= {"accion": "omitido", "id": m["id"], "url": m["url"]}
                     else:
                         if m and tp.get("actualizar"):
@@ -506,7 +518,7 @@ def _pedido(d, cf=None):
         raise ValueError("Destino no configurado")
     if set(p["que"]) - set(QUE):
         raise ValueError("Elementos no válidos: " + ", ".join(sorted(set(p["que"]) - set(QUE))))
-    return {**p, **{k: d[k] for k in ("doc", "c", "ids", "desde", "meta") if k in d}, "preset": d.get("preset")}
+    return {**p, **{k: d[k] for k in ("doc", "c", "ids", "desde", "meta", "reenviar") if k in d}, "preset": d.get("preset")}
 
 
 # ---------- planes y recetas ----------

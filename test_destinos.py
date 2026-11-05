@@ -160,12 +160,28 @@ def test_webhook_firma_hmac_y_json(E, mk):
     tt = dest(t, "teams", webhook=mk.url + "/teams-doc")
     assert enviar(t, tt, ["documento"], doc="aaaa1111")["estado"] == "ok"
     card = json.dumps(json.loads(mk.reqs[-1]["b"]), ensure_ascii=False)
-    assert "Junta de enero" in card and "Hoy hablamos del ascensor" not in card
+    assert "Junta de enero" in card and "Hoy hablamos del ascensor" not in card and "Ver vídeo" not in card
+    import destinos
+    vid = TC.pipeline.WORK / "aaaa1111" / "video.mp4"
+    vid.write_bytes(b"")
+    try:  # con grabación: enlace al vídeo al pie de la tarjeta
+        assert enviar(t, dest(t, "teams", webhook=mk.url + "/teams-loc"), ["documento"], doc="aaaa1111")["estado"] == "ok"
+        assert "actions" not in json.loads(mk.reqs[-1]["b"])["attachments"][0]["content"]  # sin url_base pública: el enlace solo abriría aquí
+        destinos._escribir(destinos.CFG(), {**destinos.cfg(), "url_base": "https://actas.example.com/"})
+        assert enviar(t, dest(t, "teams", webhook=mk.url + "/teams-vid"), ["documento"], doc="aaaa1111")["estado"] == "ok"
+        ac = json.loads(mk.reqs[-1]["b"])["attachments"][0]["content"]["actions"]
+        assert ac[0]["title"] == "Ver vídeo" and ac[0]["url"] == "https://actas.example.com/files/aaaa1111/video.mp4"
+    finally:
+        vid.unlink()
+        destinos._escribir(destinos.CFG(), {**destinos.cfg(), "url_base": ""})
     import exportar
     ver = next(p.name for p in (TC.pipeline.WORK / "aaaa1111").glob("acta_*"))
     c = exportar.carga("aaaa1111", ver, False)
     assert "Buenos días a todos" not in exportar.md(c) and "Buenos días a todos" in exportar.html_doc(c)
     assert "Buenos días a todos" in exportar.exportar("aaaa1111", ver, "vtt")[0].decode()  # aparte, como documento propio
+    import destinos
+    ext, b = destinos._gen({"mid": "aaaa1111", "ver": ver}, "transcripcion", "md", False, False, [])
+    assert ext == "md" and "Buenos días a todos" in b.decode() and b.decode().startswith("# Transcripción")
 
 
 def test_jira_linear_todoist_notion(E, mk):

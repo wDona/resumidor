@@ -58,6 +58,7 @@ TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 AUDIO = (".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
 IDLE_JOB = 180  # ídem con un trabajo en marcha (recarga o vuelta de la pestaña)
+PUERTO = 47320  # puerto por defecto de la app local
 app = FastAPI()
 app.include_router(destinos.router)
 app.router.on_startup.append(destinos.iniciar)  # planificador de envíos programados (un hilo)
@@ -797,8 +798,8 @@ def importar(d: dict):
         (wd / f"transcript_zip{h[15:21]}.json").write_text(json.dumps({"segments": [], "language": "es", "solo_acta": True}), encoding="utf-8")
     for v in wd.glob("video.*"):
         pipeline.put_file(v, out / v.name)
-    nombre = re.sub(r"( \(con (vídeo|audio)\))?\.zip$", "", zp.name) if not acta.get("titulo") else acta["titulo"]
-    (wd / "meta.json").write_text(json.dumps({**meta(wd), "nombre": nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False), encoding="utf-8")
+    nombre = {"nombre": acta["titulo"]} if acta.get("titulo") else {}  # nunca el nombre del .zip
+    (wd / "meta.json").write_text(json.dumps({**meta(wd), **nombre, **({"carpeta": carp} if carp else {})}, ensure_ascii=False), encoding="utf-8")
     if carp and tr and tr.get("segments") and (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp).casefold() == "proyecto":
         start("poblar", {"c": carp, "mid": wd.name, "auto": True}, carp, wd.name)  # como un documento nuevo del proyecto
     return {"id": wd.name}
@@ -982,14 +983,15 @@ def meta(wd):
 
 
 def resumen(wd):
-    """(nº de actas, duración en s) de una reunión: la duración sale del acta.json de la primera acta que la tenga."""
-    ds = [d for d in wd.glob("acta_*_*") if (d / "index.html").exists()]
+    """(nº de actas, duración en s, título generado) de una reunión, sacados del acta más reciente que se pueda leer (la editada si existe)."""
+    ds = sorted((d for d in wd.glob("acta_*_*") if (d / "index.html").exists()), key=lambda d: d.stat().st_mtime, reverse=True)
     for d in ds:
         try:
-            return len(ds), json.loads((d / "acta.json").read_text(encoding="utf-8")).get("duracion") or 0
+            a = json.loads((d / (exportar.EDITADA if (d / exportar.EDITADA).is_file() else "acta.json")).read_text(encoding="utf-8"))
+            return len(ds), a.get("duracion") or 0, (a.get("titulo") or "").strip()
         except (OSError, ValueError):
             pass
-    return len(ds), 0
+    return len(ds), 0, ""
 
 
 def _kind(wd, v=None, exacto=False):
@@ -1009,10 +1011,12 @@ def meetings():
         tj = json.loads(tf.read_text(encoding="utf-8")) if asr.startswith(("imp", "zip")) else {}
         imp = tj.get("importada")
         mt = meta(tf.parent)
-        base = mt.get("nombre") or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
+        n_actas, dur, tit = res.setdefault(tf.parent.name, resumen(tf.parent))
+        # el nombre del archivo solo mientras no haya acta con título generado
+        base = mt.get("nombre") or tit or (v.resolve().name if v else imp["fuente"] if imp else tf.parent.name)
         out.append({"sel": f"{tf.parent.name}|{asr}", "id": tf.parent.name, "asr": asr, "mtime": int(tf.stat().st_mtime),
                     "label": base, "nombre": mt.get("nombre", ""), "carpeta": mt.get("carpeta", ""), "sin": bool(tj.get("solo_acta")),
-                    **dict(zip(("actas", "dur"), res.setdefault(tf.parent.name, resumen(tf.parent)))),
+                    "actas": n_actas, "dur": dur,
                     "name": base + (" (transcripción importada)" if imp and v else "" if asr.split("-")[0] == "rápido" or imp or asr.startswith("zip") else " (calidad)"),
                     "video": f"/files/{tf.parent.name}/{v.name}" if v else None, "kind": _kind(tf.parent, v)})
     seen = {}  # dos reuniones no se llaman igual: la más antigua se queda el nombre, las demás llevan « (2)», « (3)»…
@@ -2513,10 +2517,15 @@ if __name__ == "__main__":
         sys.exit()
     if os.environ.get("ACTAS_PORT"):  # puerto fijo (pruebas); uvicorn lo abre con SO_REUSEADDR
         port = int(os.environ["ACTAS_PORT"])
-    else:
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            port = s.getsockname()[1]
+    else:  # siempre el mismo (marcadores y localStorage sobreviven al reinicio); si está ocupado, uno libre cualquiera
+        for p in (PUERTO, 0):
+            with socket.socket() as s:
+                try:
+                    s.bind(("127.0.0.1", p))
+                except OSError:
+                    continue
+                port = s.getsockname()[1]
+                break
     procs.cleanup_stale()
     LOCK.write_text(str(port), encoding="utf-8")
     atexit.register(lambda: LOCK.unlink(missing_ok=True))

@@ -284,11 +284,7 @@ def _matar(pr):
 
 
 # ---------- Markdown / Obsidian / Notion ----------
-def _fila(pers, x):
-    return f"{x['texto']}" + (f" ({x['sub']})" if x.get("sub") else "")
-
-
-def md(c, img=None, links=False, plano=True):
+def md(c, img=None, links=False):
     """img: carpeta relativa de las capturas (None = sin imágenes). links: [[Persona]] en responsables y hablantes."""
     pers = (lambda n: f"[[{n}]]" if links and n else n)
     fm = documentos.etiqueta(c["data"].get("locs"))
@@ -303,7 +299,7 @@ def md(c, img=None, links=False, plano=True):
         elif cl == "parrafos":
             o += [f"{ts(x['t'])}{x['texto']}\n" for x in its]
         elif cl == "lista":
-            o += [f"- {ts(x['t'])}{_fila(pers, x)}" for x in its]
+            o += [f"- {ts(x['t'])}{x['texto']}" + (f" ({x['sub']})" if x.get("sub") else "") for x in its]
         elif cl == "tareas":
             o += [f"- [ ] {x['texto']}" + (f" — {pers(x['resp'])}" if x["resp"].strip(" —-") else "") + (f" ({x['plazo']})" if x["plazo"].strip(" —-") else "") + f" {ts(x['t']).strip()}" for x in its]
         elif cl == "secciones":
@@ -315,6 +311,12 @@ def md(c, img=None, links=False, plano=True):
         elif cl == "trans":
             o += [f"{ts(s['s'])}" + (f"**{pers(s['spk'])}:** " if s.get("spk") else "") + s["text"] + "\n" for s in its]
     return "\n".join(o) + "\n"
+
+
+def trans_md(c):
+    """La transcripción como documento Markdown aparte (el acta en .md no la lleva)."""
+    fm = documentos.etiqueta(c["data"].get("locs"))
+    return f"# Transcripción: {c['data']['titulo']}\n\n" + "\n".join(f"[{fm(s['s'])}] " + (f"**{s['spk']}:** " if s.get("spk") else "") + s["text"] + "\n" for s in c["segs"])
 
 
 def _nombre_arch(s):
@@ -660,7 +662,7 @@ def doc_base(est, ctx=None):
 
     def li(txt):
         p = estilo(doc.add_paragraph(), "List Bullet")
-        if p.style.name != "List Bullet":
+        if not p.style or p.style.name != "List Bullet":  # plantilla sin ese estilo: viñeta a mano
             txt = "• " + txt
         p.add_run(txt)
         return p

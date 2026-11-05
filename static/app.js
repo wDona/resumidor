@@ -203,6 +203,8 @@ const ACT = ["pendiente", "marcha"], KIND = {acta: "Generar documento", fondo: "
 let cola = {n: 0, items: []}, vistos = new Set(), colaKey = null;  // null: la cola aún no se ha pintado (también vacía)
 const nombreDe = e => (e.mid && todas.find(m => m.id === e.mid)?.label) || e.video;
 const minutos = s => s > 90 ? "unos " + Math.round(s / 60) + " min" : "unos " + s + " s";
+const lleva = e => e?.t0 ? Math.max(0, Math.round(Date.now() / 1000 - e.t0)) : null;  // en el portátil lento: se ve que avanza aunque aún no haya ETA
+const durac = s => s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round(s % 3600 / 60) + " min" : s >= 60 ? Math.round(s / 60) + " min" : s + " s";
 const titCola = e => (e.kind === "acta" ? "Generar " + (e.doc || "documento") : KIND[e.kind]) + " · " + nombreDe(e);
 async function sondear() {
   const c = await api("/api/cola").catch(() => null); if (!c) return;
@@ -221,6 +223,7 @@ function pintarPill() {
   $("b-cola").style.setProperty("--p", r ? r.frac : 0); $("b-cola").classList.toggle("on", n > 0);  // anillo de progreso
   $("cola-txt").textContent = n ? " · " + (r ? "1 de " + n : n + " en espera") + (r && r.eta != null ? " · " + minutos(r.eta) : "") : "";
   $("b-cola").setAttribute("aria-label", "Cola de trabajos" + (n ? ", " + n : ""));
+  $("b-cola").title = r ? (r.msg || "En marcha") + (lleva(r) != null ? " · lleva " + durac(lleva(r)) : "") : "Cola de trabajos";
   if (vistaAct === "home") { const c = document.querySelector("#side [data-cola]"); if (c) c.textContent = n || ""; }
 }
 function pintarCola(k) {
@@ -259,7 +262,7 @@ function pintarCola(k) {
   const r = cola.items.find(e => e.state === "marcha");
   if (r && $("q-eta")) {
     $("q-msg").textContent = r.msg; if ($("q-bar")) $("q-bar").style.width = Math.round(r.frac * 100) + "%"; pintarFases(r);
-    $("q-eta").textContent = (r.eta != null ? "Quedan " + minutos(r.eta) : "En marcha") + " · " + Math.round(r.frac * 100) + " %";
+    $("q-eta").textContent = (r.eta != null ? "Quedan " + minutos(r.eta) : "En marcha") + " · " + Math.round(r.frac * 100) + " %" + (lleva(r) != null ? " · lleva " + durac(lleva(r)) : "");
   }
   const ep = $("en-proc-bar"); if (r && ep) { ep.style.width = Math.round(r.frac * 100) + "%"; $("en-proc-eta").textContent = r.msg + (r.eta != null ? " · quedan " + minutos(r.eta) : ""); }
 }

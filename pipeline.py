@@ -2453,7 +2453,7 @@ def run(video, level="normal", quality="rápido", threads=PHYS, cb=lambda f, m: 
     except (OSError, ValueError):
         nombre = None
     op = tpl.get("opciones", {})
-    for k in render(out, nombre or red.get("titulo") or stem, dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
+    for k in render(out, nombre or red.get("titulo") or "Reunión " + time.strftime("%Y-%m-%d"), dur, idioma or tr["language"], red, maps, kfs if op.get("capturas", True) else [],
                     starts, tr["segments"], level, video.suffix if video else None, names, imp, audio, P, op.get("marcas", True),
                     ({"plantilla": tpl["nombre"], "documento": tpl.get("documento")} if tpl["id"] != "acta" else {}) |
                     ({"idioma": idioma} if idioma else {}) | ({"nube": NB.marca(nube)} if nube else {}) | ({"notas_usuario": filas} if filas else {}) |

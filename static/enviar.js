@@ -540,15 +540,32 @@ function itemsEnvio(ctx) {
   items.sort((a, b) => pin.has(b.k) - pin.has(a.k));
   return {items, pin, ult};
 }
-async function envia(it, sel) {
+const errDe = r => r.items?.find(x => x.error)?.error || r.error || r.estado;
+const yaEnviado = r => r.estado === "ok" && r.items?.length && r.items.every(x => x.accion === "omitido");
+async function envia(it, sel, reenviar = false) {
   localStorage.setItem("env.ultimo", JSON.stringify(it.k));
-  if (sel.docs) {  // varios documentos: un envío por documento
-    let ok = 0, err = ""; for (const x of sel.docs) { const r = await send("POST", "/api/enviar", {...it.body, doc: x}); if (r.estado === "ok") ok++; else err ||= r.estado + (r.items?.find(y => y.error)?.error ? " — " + r.items.find(y => y.error).error : ""); }
-    toast("Enviados " + ok + " de " + sel.docs.length + " a " + it.t + (sel.omitidos ? " · " + sel.omitidos + " solo buscable(s) sin enviar" : "") + (err ? " · " + err : ""), !!err);
-    return;
+  const extra = reenviar ? {reenviar: true} : {};
+  if (sel.c != null && !sel.docs && it.k.startsWith("d:")) {  // proyecto a un destino suelto: todos sus documentos, no solo el último
+    const ids = [...new Set((await api("/api/meetings")).filter(m => (m.carpeta || "") === sel.c).map(m => m.id))];
+    if (ids.length > 1) sel = {...sel, docs: ids};
   }
-  const r = await send("POST", "/api/enviar", {...it.body, ...sel});
-  toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + (r.items?.find(x => x.error)?.error ? " — " + r.items.find(x => x.error).error : ""), r.estado !== "ok");
+  if (sel.docs) {  // varios documentos: un envío por documento, con progreso y la lista de los que fallan
+    let ok = 0, igual = 0; const mal = [], n = sel.docs.length;
+    for (const [i, x] of sel.docs.entries()) {
+      toast("Enviando " + (i + 1) + " de " + n + " a " + it.t + "…");
+      try {
+        const r = await send("POST", "/api/enviar", {...it.body, doc: x, ...extra});
+        if (yaEnviado(r)) igual++; else if (r.estado === "ok") ok++; else mal.push((r.items?.[0]?.titulo || x) + ": " + errDe(r));
+      } catch (e) { mal.push(x + ": " + e.message); }
+    }
+    const msg = "Enviados " + ok + " de " + n + " a " + it.t + (igual ? " · " + igual + " sin cambios" : "") + (sel.omitidos ? " · " + sel.omitidos + " solo buscable(s) sin enviar" : "")
+      + (mal.length ? " · fallaron " + mal.length + ": " + mal.join("; ") : "");
+    if (igual && !mal.length) return toast(msg, false, {txt: "Reenviar todo", fn: () => envia(it, sel, true).catch(fail)});
+    return toast(msg, !!mal.length);
+  }
+  const r = await send("POST", "/api/enviar", {...it.body, ...sel, ...extra});
+  if (yaEnviado(r)) return toast("Ya enviado a " + it.t + ", sin cambios", false, {txt: "Reenviar", fn: () => envia(it, sel, true).catch(fail)});
+  toast(r.estado === "ok" ? "Enviado a " + it.t : "Envío: " + r.estado + " — " + ((r.items || []).filter(x => x.error).map(x => x.titulo + ": " + x.error).join("; ") || errDe(r)), r.estado !== "ok");
 }
 async function enviar(sel) {
   let ctx;
@@ -568,9 +585,10 @@ function split(host, sel, {label = "Enviar", cls = "pri"} = {}) {
     main.disabled = true;
     try { const {items} = itemsEnvio(await datos()); if (!items.length) return enviar(sel); await envia(items[0], sel); } catch (x) { fail(x); } finally { main.disabled = false; }
   }), arrow = btn("▾", cls + " env-sp-a", async e => {
+    const a = e.currentTarget;  // tras el await, currentTarget ya es null
     try {
       const {items, pin} = itemsEnvio(await datos());
-      menu(e.currentTarget, [...items.map(it => [(pin.has(it.k) ? "★ " : "") + it.t + " " + it.s, () => envia(it, sel)]), ["Más opciones…", () => enviar(sel)]]);
+      menu(a, [...items.map(it => [(pin.has(it.k) ? "★ " : "") + it.t + " " + it.s, () => envia(it, sel)]), ["Más opciones…", () => enviar(sel)]]);
     } catch (x) { fail(x); }
   }, {"aria-haspopup": "menu", "aria-label": "Elegir a dónde enviar", title: "Elegir a dónde enviar"});
   main.title = "Enviar al destino fijado o al último usado";

@@ -316,8 +316,9 @@ def teams_payload(x, limite=27000):
             body += [tb(nom, weight="Bolder", spacing="Medium")] + [tb(_linea(i, False), spacing="Small") for i in its]
     if len(body) == 1:
         body += [tb(ln) for ln in js.get("texto", "").splitlines() if ln.strip()]
+    ac = [{"type": "Action.OpenUrl", "title": "Ver vídeo", "url": js["video"]}] if js.get("video") else []  # al pie: la grabación, si la hay
     card = lambda b: {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "content": {
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard", "version": "1.4", "body": b}}]}
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard", "version": "1.4", "body": b, **({"actions": ac} if ac else {})}}]}
     if len(json.dumps(card(body)).encode()) <= limite:
         return card(body)
     while len(body) > 2 and len(json.dumps(card(body + [tb("… ver más en el documento")])).encode()) > limite:
@@ -419,7 +420,7 @@ PA_SCHEMA = {"type": "object", "properties": {"origen": {"type": "string"}, "pro
 
 def pa_payload(o, x):
     js = x["json"]
-    d = {"origen": "actas", "proyecto": js.get("carpeta") or "", "documento": (js.get("documento") or {}).get("titulo") or x["titulo"], "enlace_local": js.get("enlace") or "",
+    d = {"origen": "actas", "proyecto": js.get("carpeta") or "", "documento": (js.get("documento") or {}).get("titulo") or x["titulo"], "enlace_local": js.get("enlace") or "", "video": js.get("video") or "",
          "elementos": [{"tipo": i["tipo"], "titulo": i["titulo"], "descripcion": i.get("cuerpo", ""), "responsable": i.get("dueno", ""), "fecha": i.get("fecha_limite", ""), "prioridad": i.get("prioridad", ""), "cita": i.get("origen", "")} for i in js["items"]]}
     if o.get("adjuntar") in (True, "true", 1) and x["ficheros"]:
         nom, b = next((f for f in x["ficheros"] if not f[0].endswith(".md")), x["ficheros"][0])
