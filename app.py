@@ -48,6 +48,7 @@ import preguntar_reg
 import privacidad
 import procs
 import registro
+import servidor
 import rag
 import transcripts
 import vision
@@ -218,6 +219,7 @@ atexit.register(lambda: grabar.activa() and grabar.activa().parar())  # queda en
 
 # ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
 def start(kind, spec, video, mid=""):
+    servidor.ia_local()  # todo trabajo de la cola usa modelos locales (S3: los de la nube)
     with jlock:
         e = {"id": uuid.uuid4().hex[:8], "kind": kind, "spec": spec, "video": video, "mid": mid, "state": "pendiente", "t": time.time()}
         cola.append(e)
@@ -232,6 +234,7 @@ aux = {"on": False, "espera": 0}  # tarea suelta con LLM (anonimizar, correo): e
 @contextlib.contextmanager
 def gpu_exclusiva():
     """Espera a que no haya trabajo en marcha, para el LLM del chat y retiene la GPU (un solo modelo a la vez); al salir reanuda la cola."""
+    servidor.ia_local()
     with jlock:
         aux["espera"] += 1
     try:
@@ -1319,7 +1322,11 @@ def _ajustes():
 @app.get("/api/ajustes")
 def get_ajustes():
     a = _ajustes()
-    return {**(a or AJ_DEF), "existe": a is not None}
+    n = registro.USUARIO.get()
+    yo = (
+        {"yo": {"nombre": n, "correo": ""}, "admin": bool(servidor.usuarios().get(n, {}).get("admin"))} if servidor.ACTIVO else {}
+    )  # en el servidor «Tú» es quien ha entrado
+    return {**(a or AJ_DEF), "existe": a is not None, **yo, "servidor": servidor.ACTIVO}
 
 
 @app.post("/api/ajustes")
@@ -1352,7 +1359,7 @@ def post_ajustes(d: dict):
         a["nombres"] = {**a["nombres"], **{k: str(v).strip()[:40] for k, v in d["nombres"].items() if k in AJ_DEF["nombres"] and str(v).strip()}}
     pipeline.WORK.mkdir(exist_ok=True)
     AJUSTES.write_text(json.dumps(a, ensure_ascii=False, indent=1), encoding="utf-8")
-    return {**a, "existe": True}
+    return get_ajustes()
 
 
 CARPETAS = pipeline.WORK / "carpetas.json"  # carpetas creadas aunque aún no tengan reuniones
@@ -1562,9 +1569,9 @@ def meeting(mid: str):
 @app.get("/files/{mid}/{path:path}")
 def files(mid: str, path: str):
     """work/<hash>/...: FileResponse sirve Range (el <video> puede saltar) y sigue enlaces simbólicos (vídeo en otro disco)."""
-    parts = Path(mid, path).parts
-    f = pipeline.WORK.joinpath(*parts)
-    if ".." in parts or not f.is_file():
+    base = os.path.normpath(pipeline.WORK / mid)
+    f = os.path.normpath(os.path.join(base, path))  # sin resolver enlaces (el vídeo puede estar en otro disco), pero nunca fuera de la reunión
+    if not re.fullmatch(r"[\w-]+", mid) or not f.startswith(base + os.sep) or not os.path.isfile(f):
         raise HTTPException(404)
     return FileResponse(f)
 
@@ -2978,6 +2985,7 @@ vigiladas.configurar(lambda r, c, p: _encolar(r, c, plan=p), (*MEDIA, *TR_EXT, *
 app.router.on_startup.append(vigiladas.iniciar)
 app.router.routes.extend(vigiladas.router.routes + mcp_servidor.router.routes)
 app.router.routes.extend(msgraph.router.routes)  # (include_router rompe test_urls_js_tienen_ruta: _IncludedRouter no tiene .path)
+servidor.montar(app)
 app.mount("/", StaticFiles(directory=STATIC, html=True))
 
 
@@ -2995,7 +3003,17 @@ if __name__ == "__main__":
         if not (url := vivo()):
             sys.exit("Actas no está en marcha: ábrela primero.")
         sys.exit(mcp_servidor.stdio(url))
-    pipeline.WORK.mkdir(exist_ok=True)
+    pipeline.WORK.mkdir(parents=True, exist_ok=True)
+    if servidor.ACTIVO:  # Coolify/Docker: toda la red, sin navegador, sin apagarse por inactividad, sin lock de instancia
+        uvicorn.run(
+            app,
+            host=os.environ.get("ACTAS_HOST", "0.0.0.0"),
+            port=int(os.environ.get("ACTAS_PORT", 8000)),
+            log_level="info",
+            proxy_headers=True,
+            forwarded_allow_ips="*",
+        )
+        sys.exit()
     if sys.stdout is None:  # pythonw (Windows, sin consola): uvicorn y print necesitan un destino
         sys.stdout = sys.stderr = open(pipeline.WORK / "app.log", "a", encoding="utf-8")
     enc = None

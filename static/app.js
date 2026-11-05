@@ -10,6 +10,11 @@ const det = (j, st) => {
 };
 const api = (url, opt) =>
   fetch(url, opt).then(async r => {
+    if (r.status === 401 && r.headers.get("content-type")?.includes("json")) {
+      const j = await r.json().catch(() => ({}));
+      if (j.detail === "Inicia sesión") location.replace("/login.html"); // modo servidor: la sesión caducó
+      throw new Error(det(j, r.statusText));
+    }
     if (!r.ok) throw new Error(det(await r.json().catch(() => ({})), r.statusText));
     return r.json();
   });

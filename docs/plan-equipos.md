@@ -63,9 +63,23 @@ Estado: propuesta, sin desarrollar. Base: v0.11.0 (rama `rediseno`).
 - Exportar e importar plantillas, recetas, destinos (sin secretos) y el glosario como un `.actas-equipo.json`, para que todo el equipo use los mismos formatos.
 - *Hecho cuando:* un miembro nuevo se configura importando un fichero.
 
-### A7. (Solo si A2 se queda corto) Modo servidor
-- La misma app con `--servidor`: escucha en la red interna, login con Microsoft (Entra ID) y SQLite o Postgres compartido.
-- Hace falta repasar la seguridad (hoy hay rutas sin autenticación porque solo escucha en localhost). Es un proyecto aparte; no se empieza sin medir el uso de A2.
+### A7. Modo servidor (aprobado el 2026-11-05, para desplegar en Coolify)
+Decisiones:
+- **Despliegue:** imagen Docker para Coolify; los datos van en un volumen (`/data`). `ACTAS_SERVIDOR=1` activa el modo.
+- **Login:** usuario y contraseña propios (sin Entra ID). El primer administrador se crea con variables de entorno; él da de alta al resto. El autor del historial es el usuario que ha entrado.
+- **IA:** ninguna local en el servidor; solo la de la nube (proveedores con API, nunca CLIs). Las reuniones se procesan en el escritorio y llegan ya hechas.
+- **Permisos:** todos ven todo (un equipo, un espacio). Permisos por proyecto, más adelante si hace falta.
+- **Escritorio:** sigue existiendo. Envía fácil al servidor: URL y token en Ajustes, y «Enviar al servidor» en cada proyecto (registro de ida y vuelta, y reuniones como zip de acta).
+
+Seguridad (lo que el modo servidor cierra):
+- Todas las rutas piden sesión (cookie HttpOnly, SameSite=Lax) o token (escritorio), salvo el login.
+- Se bloquean las rutas que leen o escriben rutas del disco del servidor, abren diálogos, graban, vigilan carpetas, descargan o usan modelos locales, y las CLIs de IA.
+- Se bloquean los destinos que ejecutan comandos o escriben en carpetas del servidor (carpeta, sftp con comando).
+- Los secretos van a un fichero del volumen con permisos 600 (no hay llavero del sistema en el contenedor).
+- Un test enumera todas las rutas: una ruta nueva debe declararse permitida o bloqueada en el servidor.
+- Riesgo aceptado: los webhooks y destinos HTTP los configura cualquier usuario con sesión (SSRF hacia la red interna); son miembros del equipo.
+
+Fases: S1 servidor con login y bloqueos + Dockerfile; S2 envío desde el escritorio; S3 IA en la nube en el servidor.
 
 ---
 
@@ -120,7 +134,7 @@ Lo que necesitan es distinto. Les importa menos el acta y más capturar **ideas,
 | 3 | A2 proyecto compartido por carpeta, A5 Planner de ida y vuelta | medio | A1 |
 | 4 | A4 avisos, B3 embudo y votación (ICE) | medio | A1, A2 (votación multi-máquina) |
 | 5 | B4 memoria entre proyectos, B5 portafolio, ida y vuelta con Jira y Azure | medio | B1, A5 |
-| 6 | A7 modo servidor (solo si hace falta) | grande | métricas de A2 |
+| 6 | A7 modo servidor (Coolify): S1 login y bloqueos, S2 envío desde escritorio, S3 IA en la nube | grande | A2 |
 
 ## Decisiones tomadas (2026-11-05)
 
@@ -145,5 +159,5 @@ Lo que necesitan es distinto. Les importa menos el acta y más capturar **ideas,
 
 - **Conflictos de sincronización** (A2): por eso eventos que solo se añaden, y nunca SQLite compartido.
 - **Privacidad:** compartir actas expone lo dicho. Se mantienen la anonimización y los tipos sensibles, y se avisa al compartir.
-- **Alcance:** el modo servidor (A7) es otro producto; no entra sin evidencias.
+- **Alcance:** el modo servidor (A7) se aprobó el 2026-11-05 para desplegar en Coolify (ver A7).
 - **Rendimiento en portátiles:** los extractores nuevos (B1) solo con IA en la nube o bajo demanda, nunca automáticos en local.

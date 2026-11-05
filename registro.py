@@ -25,6 +25,7 @@ Invariantes que no se ven a simple vista:
 """
 
 import contextlib
+import contextvars
 import datetime as dt
 import json
 import logging
@@ -307,8 +308,13 @@ def renombrar(old, new):
 
 
 # ---------- entidades ----------
+USUARIO = contextvars.ContextVar("usuario", default=None)  # modo servidor: quien ha iniciado sesión (servidor.filtro)
+
+
 def autor():
-    """Quien usa la app (Ajustes → «Tú»): «Nombre <correo>», o None si no se ha configurado."""
+    """Quien usa la app: en el servidor, el usuario de la sesión; si no, Ajustes → «Tú»: «Nombre <correo>», o None si no se ha configurado."""
+    if USUARIO.get():
+        return USUARIO.get()
     try:
         yo = json.loads((P.WORK / "ajustes.json").read_text(encoding="utf-8")).get("yo") or {}
     except (OSError, ValueError):

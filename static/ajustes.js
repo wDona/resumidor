@@ -468,6 +468,83 @@ const cardYo = () => {
     el("small", { textContent: "Aparece en el historial de cada cambio que hagas en un " + nm("carpeta").toLowerCase() + ". Se queda en este equipo." }),
   );
 };
+// Modo servidor (servidor.py): la cuenta con la que has entrado y, si eres administrador, los usuarios
+const cardCuenta = () => {
+  const actual = el("input", { type: "password", autocomplete: "current-password", ariaLabel: "Contraseña actual" }),
+    nueva = el("input", { type: "password", autocomplete: "new-password", ariaLabel: "Contraseña nueva (10 o más)" }),
+    tok = el("code");
+  return card(
+    "Tu cuenta",
+    el("p", { textContent: "Has entrado como " + (AJ.yo?.nombre || "—") + ". Tu nombre sale en el historial de cada cambio." }),
+    el(
+      "div",
+      { className: "row wrap" },
+      el("button", { className: "sec", textContent: "Salir", onclick: fallo(async () => (await post("/api/logout"), location.replace("/login.html"))) }),
+    ),
+    el(
+      "div",
+      { className: "cols" },
+      el("div", { className: "field" }, el("label", { textContent: "Contraseña actual" }), actual),
+      el("div", { className: "field" }, el("label", { textContent: "Contraseña nueva" }), nueva),
+    ),
+    el("button", {
+      className: "sec",
+      textContent: "Cambiar contraseña",
+      onclick: fallo(async () => {
+        await post("/api/cuenta/clave", { actual: actual.value, nueva: nueva.value });
+        actual.value = nueva.value = "";
+        aviso("Contraseña cambiada");
+      }),
+    }),
+    el("p", {
+      className: "muted",
+      textContent: "Token para la app de escritorio («Enviar al servidor»): se enseña una sola vez; generar otro anula el anterior.",
+    }),
+    el("button", { className: "sec", textContent: "Generar token", onclick: fallo(async () => (tok.textContent = (await post("/api/cuenta/token")).token)) }),
+    tok,
+  );
+};
+const cardUsuarios = () => {
+  const lista = el("ul"),
+    n = el("input", { ariaLabel: "Usuario", placeholder: "Usuario" }),
+    c = el("input", { type: "password", autocomplete: "new-password", ariaLabel: "Contraseña", placeholder: "Contraseña (10 o más)" }),
+    adm = el("input", { type: "checkbox" });
+  const pinta = us =>
+    lista.replaceChildren(
+      ...us.map(u =>
+        el(
+          "li",
+          {},
+          u.nombre + (u.admin ? " (administrador)" : "") + " ",
+          el("button", {
+            className: "link",
+            textContent: "Quitar",
+            onclick: fallo(async () => confirm("¿Quitar a " + u.nombre + "?") && pinta(await post("/api/usuarios/borrar", { nombre: u.nombre }))),
+          }),
+        ),
+      ),
+    );
+  api("/api/usuarios").then(pinta, () => lista.replaceChildren());
+  return card(
+    "Usuarios",
+    lista,
+    el(
+      "div",
+      { className: "row wrap" },
+      n,
+      c,
+      el("label", { className: "check" }, adm, "Administrador"),
+      el("button", {
+        className: "sec",
+        textContent: "Dar de alta o cambiar contraseña",
+        onclick: fallo(async () => {
+          pinta(await post("/api/usuarios", { nombre: n.value, clave: c.value, admin: adm.checked }));
+          n.value = c.value = "";
+        }),
+      }),
+    ),
+  );
+};
 // Configuración de equipo (.actas-equipo.json): plantillas, estilos, perfiles de uso, presets y nombres; sin destinos ni secretos
 const cardEquipo = () => {
   const inp = el("input", {
@@ -526,25 +603,29 @@ const cardEquipo = () => {
       el("button", { className: "sec", textContent: "Importar configuración…", onclick: () => inp.click() }),
       inp,
     ),
-    el("p", {
-      className: "muted",
-      textContent: "¿Alguien ha compartido un proyecto en OneDrive o SharePoint? Elige su carpeta sincronizada para trabajar en él.",
-    }),
-    el(
-      "div",
-      { className: "row wrap" },
-      el("button", {
-        className: "sec",
-        textContent: "Unirse a un proyecto compartido…",
-        onclick: fallo(async () => {
-          const r = await post("/api/pick", { tipo: "carpeta" });
-          if (!r.path) return;
-          const u = await post("/api/compartir/unirse", { ruta: r.path });
-          aviso("Te has unido a «" + u.c + "»: " + u.recibidos + " elementos recibidos");
-          location.hash = "#/p/" + encodeURIComponent(u.c);
-        }),
-      }),
-    ),
+    ...(AJ.servidor
+      ? []
+      : [
+          el("p", {
+            className: "muted",
+            textContent: "¿Alguien ha compartido un proyecto en OneDrive o SharePoint? Elige su carpeta sincronizada para trabajar en él.",
+          }),
+          el(
+            "div",
+            { className: "row wrap" },
+            el("button", {
+              className: "sec",
+              textContent: "Unirse a un proyecto compartido…",
+              onclick: fallo(async () => {
+                const r = await post("/api/pick", { tipo: "carpeta" });
+                if (!r.path) return;
+                const u = await post("/api/compartir/unirse", { ruta: r.path });
+                aviso("Te has unido a «" + u.c + "»: " + u.recibidos + " elementos recibidos");
+                location.hash = "#/p/" + encodeURIComponent(u.c);
+              }),
+            }),
+          ),
+        ]),
   );
 };
 function pintarAjustes() {
@@ -555,7 +636,7 @@ function pintarAjustes() {
       .then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes())
       .catch(() => {});
   $("aj-general").replaceChildren(
-    cardYo(),
+    ...(AJ.servidor ? [cardCuenta(), ...(AJ.admin ? [cardUsuarios()] : [])] : [cardYo()]),
     cardEquipo(),
     tarjetaApariencia(),
     cardNombres(),

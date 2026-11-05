@@ -26,6 +26,7 @@ import informe
 import pipeline as P
 import privacidad
 import registro
+import servidor
 import destinos_tipos as T
 
 router = APIRouter()
@@ -582,6 +583,7 @@ def _envio(req):
         d = {"tipo": "proyecto", "nombre": "Documento en proyecto", "config": {}} if req["destino"] == INTERNO else cf["destinos"].get(req["destino"])
         if not d:
             raise ValueError("Destino no configurado")
+        servidor.destino_permitido(d["tipo"])
         tp = T.TIPOS[d["tipo"]]
         o = {
             **d["config"],
@@ -1073,6 +1075,7 @@ def api_sugerencias():
 
 
 def _guardar_destino(i, tipo, nombre, conf):
+    servidor.destino_permitido(tipo)
     if tipo not in T.TIPOS or T.TIPOS[tipo].get("interno"):
         raise ValueError("Tipo de destino desconocido")
     sec, campos = T.SECRETOS[tipo], {f["id"] for f in T.TIPOS[tipo]["campos"]}
@@ -1127,6 +1130,10 @@ def api_probar(i: str, d: dict | None = None):
     x = cfg()["destinos"].get(i)
     if not x:
         raise HTTPException(404, "No existe")
+    try:
+        servidor.destino_permitido(x["tipo"])
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
     tp = T.TIPOS[x["tipo"]]
     s = {k: _sec_get(i, k) for k in T.SECRETOS[x["tipo"]]}
     o = {**x["config"], **((d or {}).get("opciones") or {})}

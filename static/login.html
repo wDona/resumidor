@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entrar · Actas</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: light-dark(#f5f6f8, #14161a);
+      }
+      form {
+        width: min(340px, 90vw);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 28px;
+        border-radius: 12px;
+        background: light-dark(#fff, #1d2026);
+        border: 1px solid light-dark(#d9dde3, #2c313a);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.4rem;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.9rem;
+      }
+      input {
+        font: inherit;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid light-dark(#c4cad3, #3a404b);
+        background: transparent;
+      }
+      button {
+        font: inherit;
+        padding: 9px;
+        border: 0;
+        border-radius: 8px;
+        background: light-dark(#1d5fd1, #6ea3ff);
+        color: light-dark(#fff, #0b1220);
+        cursor: pointer;
+      }
+      #err {
+        min-height: 1.2em;
+        margin: 0;
+        color: light-dark(#b42318, #ff8a80);
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="f">
+      <h1>Actas</h1>
+      <label>Usuario <input id="n" autocomplete="username" required autofocus /></label>
+      <label>Contraseña <input id="c" type="password" autocomplete="current-password" required /></label>
+      <p id="err" role="alert"></p>
+      <button>Entrar</button>
+    </form>
+    <script>
+      document.getElementById("f").onsubmit = async ev => {
+        ev.preventDefault();
+        const err = document.getElementById("err");
+        err.textContent = "";
+        const r = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nombre: document.getElementById("n").value, clave: document.getElementById("c").value }),
+        });
+        if (r.ok) location.replace("/");
+        else err.textContent = (await r.json().catch(() => ({}))).detail || "No se pudo entrar";
+      };
+    </script>
+  </body>
+</html>

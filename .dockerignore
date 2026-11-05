@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+work
+uploads
+models
+bin
+samples
+eval
+tests_data
+installer
+graft
+tools
+docs
+*.log
+test_*.py
