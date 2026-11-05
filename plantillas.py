@@ -17,7 +17,22 @@ CAMPO = re.compile(r"[a-z0-9_]{1,30}")
 NOTAS = [{"nombre": "Importante", "seccion": None, "atajo": "Ctrl+1"}, {"nombre": "Revisar", "seccion": None, "atajo": "Ctrl+2"}]
 
 
-SEGUIR = ("tarea", "riesgo", "incidencia", "supuesto", "dependencia", "pregunta", "requisito", "decision", "interesado", "hito")  # seguimiento entre reuniones
+SEGUIR = (
+    "tarea",
+    "riesgo",
+    "incidencia",
+    "supuesto",
+    "dependencia",
+    "pregunta",
+    "requisito",
+    "decision",
+    "interesado",
+    "hito",
+    "idea",
+    "hipotesis",
+    "experimento",
+    "insight",
+)  # seguimiento entre reuniones
 
 
 def sec(id, nombre, descripcion, campos=(), nunca=False, seguir=None):
@@ -439,6 +454,7 @@ SERIE = [
                 "cada idea propuesta: qué problema resuelve y qué se propone, con quién la propone solo si se dice.",
                 ("problema", "autor", "tema"),
                 True,
+                "idea",
             ),
             sec("apoyos", "Más apoyadas", "ideas que reciben votos, apoyo explícito o se eligen para seguir, con el motivo si se dice.", ("motivo",)),
             sec("descartes", "Descartadas", "ideas que se descartan en la sesión y por qué, solo si se dice.", ("motivo",)),
@@ -469,7 +485,7 @@ SERIE = [
                 True,
             ),
             sec("citas", "Citas literales", "frases literales del usuario que ilustran una necesidad o un dolor.", ("tema",)),
-            sec("insights", "Insights", "aprendizajes que el equipo saca explícitamente en la entrevista; no deduzcas los tuyos.", ()),
+            sec("insights", "Insights", "aprendizajes que el equipo saca explícitamente en la entrevista; no deduzcas los tuyos.", (), False, "insight"),
             sec("preguntas", "Preguntas abiertas", "lo que queda por validar o preguntar a otros usuarios.", (), False, "pregunta"),
         ],
         que="Lo que el usuario hace y siente, no lo que opina el entrevistador; contradicciones entre lo que dice y lo que hace.",

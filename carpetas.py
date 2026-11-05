@@ -52,6 +52,9 @@ TIPO_PERFIL = {
     "comite": "Proyecto",
     "daily": "Proyecto",
     "retro": "Proyecto",
+    "ideacion": "Innovación",
+    "entrevista-usuario": "Innovación",
+    "demo": "Innovación",
 }
 SUGERIDOS = {
     "comunidad": ["Dirección", "Administrador", "Nº de vecinos"],
@@ -63,6 +66,7 @@ SUGERIDOS = {
     "obra": ["Dirección", "Promotor"],
     "estudio": ["Responsable"],
     "serie": ["Canal"],
+    "innovación": ["Reto", "Sponsor", "Fase", "Presupuesto"],  # Horizonte (H1/H2/H3) solo si el proyecto lo añade
 }
 SENSIBLES = {"paciente", "candidato"}  # solo una referencia interna: nada que identifique a la persona
 # (casi todas son nunca_recortar en su perfil; «incidencias» de la junta de vecinos no, pero también es accionable)

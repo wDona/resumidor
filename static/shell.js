@@ -14,6 +14,10 @@ const TIPO_T = {
   riesgo: "Riesgo",
   pregunta: "Pregunta",
   hito: "Hito",
+  idea: "Idea",
+  hipotesis: "Hipótesis",
+  experimento: "Experimento",
+  insight: "Aprendizaje",
 };
 const TIPO_TAB = {
   tarea: "pendientes",
@@ -24,6 +28,10 @@ const TIPO_TAB = {
   riesgo: "riesgos",
   pregunta: "preguntas",
   hito: "hitos",
+  idea: "ideas",
+  hipotesis: "hipotesis",
+  experimento: "experimentos",
+  insight: "aprendizajes",
 };
 const editable = t => !!t?.closest?.("input, textarea, select, [contenteditable=true]");
 const sinEnviar = () => aviso("El módulo de envío no está disponible");
@@ -2028,6 +2036,12 @@ const hechoDeshacer = (c, p, luego, txt = "Hecho") =>
       await luego();
     }),
   });
+// «Asignado a mí» (Ajustes › Tú): el responsable es tu nombre, tu nombre de pila o tu nombre completo empieza por él
+const esMio = r => {
+  const n = (AJ.yo?.nombre || "").trim().toLowerCase();
+  r = (r || "").trim().toLowerCase();
+  return !!n && !!r && (r === n || n.startsWith(r + " ") || r.startsWith(n + " "));
+};
 const PEND = { c: "*", resp: "", g: "" },
   PEND_G = [
     ["venc", "Vencidas"],
@@ -2076,8 +2090,8 @@ async function pintarPendPag() {
   const resps = [...new Set(todos.map(p => p.resp).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     projs = [...new Set(todos.map(p => p.c))];
   if (PEND.c !== "*" && !projs.includes(PEND.c)) PEND.c = "*";
-  if (PEND.resp && !resps.includes(PEND.resp)) PEND.resp = "";
-  const base = todos.filter(p => (PEND.c === "*" || p.c === PEND.c) && (!PEND.resp || p.resp === PEND.resp)),
+  if (PEND.resp && PEND.resp !== ":yo:" && !resps.includes(PEND.resp)) PEND.resp = "";
+  const base = todos.filter(p => (PEND.c === "*" || p.c === PEND.c) && (!PEND.resp || (PEND.resp === ":yo:" ? esMio(p.resp) : p.resp === PEND.resp))),
     its = base.filter(p => !PEND.g || pendG(p) === PEND.g);
   const chip = (v, t, n) =>
     el(
@@ -2123,7 +2137,16 @@ async function pintarPendPag() {
     ...(projs.length > 1
       ? [sel(cap(nm("carpeta")), PEND.c, [["*", "Todos los " + pl(nm("carpeta").toLowerCase())], ...projs.map(c => [c, c || sinC()])], v => (PEND.c = v))]
       : []),
-    ...(resps.length ? [sel("Responsable", PEND.resp, [["", "Cualquier responsable"], ...resps.map(r => [r, r])], v => (PEND.resp = v))] : []),
+    ...(resps.length
+      ? [
+          sel(
+            "Responsable",
+            PEND.resp,
+            [["", "Cualquier responsable"], ...(AJ.yo?.nombre ? [[":yo:", "Asignado a mí"]] : []), ...resps.map(r => [r, r])],
+            v => (PEND.resp = v),
+          ),
+        ]
+      : []),
   );
   const fila = p => {
     const chk = el("input", {
@@ -2496,7 +2519,17 @@ function aProyecto(mids) {
   const suya = mids.length === 1 && (todas.find(m => m.id === mids[0]) || BIB.ms.find(m => m.id === mids[0]))?.carpeta;
   if (suya && carpetas.includes(suya)) s.value = suya; // ya está en un proyecto: por defecto, sacar a ese mismo
   // «Qué sacar»: la IA lee la reunión y propone solo eso (queda en «Por revisar»); nada marcado = como siempre
-  const QS = { decisiones: "Decisiones", riesgos: "Riesgos", requisitos: "Requisitos", preguntas: "Preguntas abiertas", interesados: "Interesados" };
+  const QS = {
+    tareas: "Tareas",
+    decisiones: "Decisiones",
+    riesgos: "Riesgos",
+    requisitos: "Requisitos",
+    preguntas: "Preguntas abiertas",
+    interesados: "Interesados",
+    ideas: "Ideas",
+    hipotesis: "Hipótesis",
+    insights: "Aprendizajes",
+  };
   const qs = Object.entries(QS).map(([v, t]) => [v, el("input", { type: "checkbox", value: v })]);
   const nl = el("div"),
     nh = el("div");

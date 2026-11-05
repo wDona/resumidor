@@ -28,6 +28,7 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
@@ -49,6 +50,10 @@ TIPOS = {
     "pregunta": "P",
     "interesado": "INT",
     "hito": "H",
+    "idea": "IDEA",
+    "hipotesis": "HIP",
+    "experimento": "EXP",
+    "insight": "INS",
 }  # tipo -> prefijo del código (por proyecto y tipo: R-003)
 CONTENIDO = {"titulo", "detalle", "dueno", "prioridad", "fecha_limite"}
 OCULTA = ("descartado", "fusionado")
@@ -120,7 +125,24 @@ CREATE TABLE contador(proyecto_id INTEGER NOT NULL REFERENCES proyecto(id) ON DE
     """
 ALTER TABLE historial ADD COLUMN autor TEXT;
 """,
+    lambda db: _sin_check_tipo(db),
 ]  # una entrada por versión del esquema (user_version = cuántas se han aplicado); solo se añaden al final
+
+
+def _sin_check_tipo(db):
+    """Quita el CHECK de entidad.tipo (lo valida crear(); así un tipo nuevo no pide rehacer la tabla). Procedimiento de
+    https://sqlite.org/lang_altertable.html#otheralter para cambiar solo un CHECK: editar el SQL guardado y subir schema_version."""
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entidad'").fetchone()[0]
+    nuevo = re.sub(r"tipo TEXT NOT NULL CHECK \(tipo IN \([^)]*\)\)", "tipo TEXT NOT NULL", sql, count=1)
+    if nuevo == sql:
+        return
+    v = db.execute("PRAGMA schema_version").fetchone()[0]
+    db.execute("PRAGMA writable_schema=ON")
+    db.execute("UPDATE sqlite_master SET sql=? WHERE type='table' AND name='entidad'", (nuevo,))
+    db.execute(f"PRAGMA schema_version={v + 1}")
+    db.execute("PRAGMA writable_schema=OFF")
+
+
 ultima_migracion = None  # informe {antes, despues} de la última migración de expedientes.json en este proceso
 
 
@@ -154,9 +176,13 @@ def _preparar(db):
     try:
         db.execute("BEGIN IMMEDIATE")
         v0 = db.execute("PRAGMA user_version").fetchone()[0]  # releída con el cerrojo: otro proceso puede haberla subido ya
-        for s in "".join(ESQUEMA[v0:]).split(";"):  # una transacción para todo el esquema (executescript haría COMMIT)
-            if s.strip():
-                db.execute(s)
+        for paso in ESQUEMA[v0:]:  # una transacción para todo el esquema (executescript haría COMMIT)
+            if callable(paso):
+                paso(db)
+                continue
+            for s in paso.split(";"):
+                if s.strip():
+                    db.execute(s)
         if 0 < v0 < 3:  # registro de antes de meta.migrado_t: la de su migración (la misma en todos los proyectos) o 0
             db.execute("INSERT OR IGNORE INTO meta(k, v) SELECT 'migrado_t', COALESCE(MAX(json_extract(extra, '$.migrado_t')), 0) FROM proyecto")
         elif v0 == 0 and not _json().is_file():

@@ -90,6 +90,10 @@ const SEGUIR = [
   ["decision", "decisión"],
   ["interesado", "interesado"],
   ["hito", "hito"],
+  ["idea", "idea"],
+  ["hipotesis", "hipótesis"],
+  ["experimento", "experimento"],
+  ["insight", "aprendizaje"],
 ];
 
 function pintarEd(t = plantDe(pSel)) {

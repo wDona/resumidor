@@ -21,6 +21,10 @@ TIPOS = {
     "interesado": (r"interesados?|stakeholders?|qui[eé]n(?:es)? (?:es|son|era|eran)\b", "Interesados"),
     "hito": (r"hitos?", "Hitos"),
     "incidencia": (r"incidencias?", "Incidencias"),
+    "idea": (r"ideas?", "Ideas"),
+    "hipotesis": (r"hip[oó]tesis", "Hipótesis"),
+    "experimento": (r"experimentos?", "Experimentos"),
+    "insight": (r"aprendizajes?|insights?", "Aprendizajes"),
 }
 CERRADO = {"hecho", "cerrado", "cerrada", "resuelto", "resuelta", "mitigado", "mitigada", "sustituida", "completado", "completada", "descartado"}
 CUENTA = re.compile(r"\bcu[aá]nt[oa]s\b|\bn[uú]mero de\b|\bhow many\b", re.I)

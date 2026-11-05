@@ -14,6 +14,10 @@ const REG_TIPOS = {
   dependencia: "Dependencias",
   pregunta: "Preguntas",
   hito: "Hitos",
+  idea: "Ideas",
+  hipotesis: "Hipótesis",
+  experimento: "Experimentos",
+  insight: "Aprendizajes",
 };
 const REG_ESTADOS = ["abierto", "en curso", "hecho", "bloqueado", "descartado"],
   REG_PRIO = ["alta", "media", "baja"];
@@ -53,6 +57,33 @@ const REG_COLS = {
     { k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS },
     { k: "fecha_alta", label: "Fecha", tipo: "fecha" },
   ],
+  // innovación (docs/plan-equipos.md, B1)
+  idea: [
+    REG_COD,
+    { k: "titulo", label: "Idea", tipo: "area" },
+    { k: "campos.problema", label: "Problema", tipo: "area" },
+    { k: "estado", label: "Estado", tipo: "select", opciones: ["nueva", "en evaluación", "en experimento", "escalada", "descartada"] },
+    { k: "campos.autor", label: "Autor" },
+  ],
+  hipotesis: [
+    REG_COD,
+    { k: "titulo", label: "Creemos que…", tipo: "area" },
+    { k: "campos.metrica", label: "Medido por" },
+    { k: "campos.exito", label: "Éxito si" },
+    { k: "estado", label: "Estado", tipo: "select", opciones: REG_ESTADOS },
+  ],
+  experimento: [
+    REG_COD,
+    { k: "titulo", label: "Experimento", tipo: "area" },
+    { k: "campos.hipotesis", label: "Hipótesis" },
+    { k: "campos.metrica", label: "Métrica" },
+    { k: "campos.umbral", label: "Umbral" },
+    { k: "fecha_limite", label: "Fin", tipo: "fecha" },
+    { k: "campos.resultado", label: "Resultado", tipo: "area" },
+    { k: "estado", label: "Decisión", tipo: "select", opciones: ["diseño", "en curso", "terminado", "pivotar", "perseverar", "matar"] },
+    { k: "dueno", label: "Responsable" },
+  ],
+  insight: [REG_COD, { k: "titulo", label: "Aprendizaje", tipo: "area" }, { k: "campos.quien", label: "Quién lo aporta" }],
 };
 const REG_DEF = [
   REG_COD,
@@ -76,7 +107,7 @@ const regEnCampo = () => {
 let REG_ACTIVA = null; // tabla que recibe los atajos de teclado (la última tocada)
 // tras aprobar/descartar/fusionar/deshacer: refresca el contador de la pestaña «Revisión (n)» (carpeta.js)
 const regContadores = c => {
-  if (typeof fCargaReg === "function") fCargaReg(c, fReg.proyecto ? "Proyecto" : "");
+  if (typeof fCargaReg === "function") fCargaReg(c, fReg.tipo);
 };
 
 // ---- fusionar / separar (compartido por la tabla genérica, decisiones, requisitos e interesados) ----

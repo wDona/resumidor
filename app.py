@@ -1955,6 +1955,8 @@ ESTADOS_TIPO = {  # estados admitidos por tipo (permisivo: los de la UI genéric
     "requisito": _EST_GEN + ["borrador", "validado", "aprobado", "rechazado", "implementado"],
     "historia": _EST_GEN + ["backlog", "preparada", "hecha"],
     "decision": _EST_GEN + ["revocada"],
+    "idea": _EST_GEN + ["nueva", "en evaluación", "en experimento", "escalada", "descartada"],
+    "experimento": _EST_GEN + ["diseño", "terminado", "pivotar", "perseverar", "matar"],
 }
 RESERVADAS = ("fuente", "huerfano", "clave")  # claves de `campos` que gestiona el sistema
 
@@ -2071,6 +2073,33 @@ def reg_miembros(c: str):
         if len(n) >= 2 and not re.fullmatch(r"(?i)hablante \d+|speaker \d+", n):
             out.setdefault(n.casefold(), n)
     return sorted(out.values(), key=str.casefold)
+
+
+@app.get("/api/reg/equipo")
+def reg_equipo(c: str):
+    """Carga por persona (A3): tareas abiertas y vencidas, decisiones de los últimos 30 días (decisor) y preguntas abiertas dirigidas a cada uno."""
+    c = _c({"c": c})
+    por, hace = {}, time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
+
+    def suma(nombre, k):
+        nombre = str(nombre or "").strip()
+        if nombre:
+            p = por.setdefault(nombre.casefold(), {"nombre": nombre, "abiertas": 0, "vencidas": 0, "decisiones": 0, "preguntas": 0})
+            p[k] += 1
+
+    for p in carpetas.listar(c, _ms(c), "abierto")["items"]:
+        suma(p["resp"], "abiertas")
+        if p.get("vencido"):
+            suma(p["resp"], "vencidas")
+    for x in registro.listar(c):
+        if x["revision"] in registro.OCULTA:
+            continue
+        cm = x.get("campos") or {}
+        if x["tipo"] == "decision" and (x.get("fecha_alta") or "") >= hace:
+            suma(cm.get("decisor") or x["dueno"], "decisiones")
+        elif x["tipo"] == "pregunta" and x["estado"] in ("", "abierto", "en curso"):
+            suma(cm.get("dirigida_a"), "preguntas")
+    return sorted(por.values(), key=lambda p: (-p["vencidas"], -p["abiertas"], p["nombre"].casefold()))
 
 
 @app.post("/api/reg")

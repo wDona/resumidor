@@ -46,3 +46,51 @@ def test_configuracion_de_equipo_ida_y_vuelta(cl):
 def test_plantillas_de_innovacion():
     for i in ("ideacion", "entrevista-usuario", "demo"):
         assert plantillas.validar(plantillas.SERIE_ID[i])["secciones"]
+
+
+# ---- fase 2: B1 innovación y A3 vista de equipo ----
+def test_entidades_de_innovacion_y_equipo(cl):
+    t, _ = cl
+    t.post("/api/ajustes", json={"yo": {"nombre": "Ana Pérez", "correo": ""}})
+    for tipo, tit, est in (
+        ("idea", "Pago con un clic", "nueva"),
+        ("hipotesis", "Creemos que…", ""),
+        ("experimento", "Test A/B", "matar"),
+        ("insight", "Odian rellenar", ""),
+    ):
+        r = t.post("/api/reg", json={"c": C, "tipo": tipo, "titulo": tit, **({"estado": est} if est else {})})
+        assert r.status_code == 200, r.text
+    ids = {x["tipo"]: x["codigo"] for x in t.get("/api/reg", params={"c": C}).json()["items"]}
+    assert ids["idea"] == "IDEA-001" and ids["insight"] == "INS-001"
+    t.post("/api/reg", json={"c": C, "tipo": "tarea", "titulo": "Llamar", "dueno": "Ana", "fecha_limite": "2020-01-01"})
+    t.post("/api/reg", json={"c": C, "tipo": "pregunta", "titulo": "¿Precio?", "campos": {"dirigida_a": "Luis"}})
+    eq = {p["nombre"]: p for p in t.get("/api/reg/equipo", params={"c": C}).json()}
+    assert eq["Luis"]["preguntas"] == 1
+
+
+def test_migracion_quita_check_de_tipo(tmp_path, monkeypatch):
+    import sqlite3
+
+    import registro
+
+    monkeypatch.setattr(pipeline, "WORK", tmp_path)
+    db = registro.conectar()
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE name='entidad'").fetchone()[0]
+    assert "CHECK (tipo IN" not in sql
+    db.close()
+    # una base antigua (CHECK con la lista vieja, esquema 4) se pone al día sin perder filas
+    viejo = tmp_path / "v"
+    viejo.mkdir()
+    d = sqlite3.connect(viejo / "registro.db")
+    d.executescript(registro.ESQUEMA[0].replace(f"CHECK (tipo IN ({registro._lista(registro.TIPOS)}))", "CHECK (tipo IN ('tarea'))"))
+    d.executescript("".join(registro.ESQUEMA[1:4]) + "PRAGMA user_version=4;")
+    d.execute("INSERT INTO proyecto(carpeta) VALUES ('X')")
+    d.execute("INSERT INTO entidad(id, proyecto_id, tipo, titulo) VALUES ('a', 1, 'tarea', 'T')")
+    d.commit()
+    d.close()
+    monkeypatch.setattr(pipeline, "WORK", viejo)
+    registro._revisado.discard(str(viejo))
+    db = registro.conectar()
+    assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    db.execute("INSERT INTO entidad(id, proyecto_id, tipo, titulo) VALUES ('b', 1, 'idea', 'I')")
+    assert db.execute("SELECT count(*) FROM entidad").fetchone()[0] == 2

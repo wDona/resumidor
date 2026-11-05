@@ -26,12 +26,18 @@ const FREG = {
     riesgos: "riesgo",
     preguntas: "pregunta",
     hitos: "hito",
+    ideas: "idea",
+    hipotesis: "hipotesis",
+    experimentos: "experimento",
+    aprendizajes: "insight",
   },
   FVISTAS = {};
-const FCTX = new Set(["riesgos", "preguntas", "hitos"]); // pestañas contextuales: solo se ven mientras están abiertas (se llega desde el informe)
-let fReg = { rev: 0, tipos: {}, proyecto: false }; // contadores del registro de la carpeta abierta (para mostrar/ocultar pestañas)
+const FCTX = new Set(["riesgos", "preguntas", "hitos"]);
+const FINNOV = new Set(["ideas", "hipotesis", "experimentos", "aprendizajes"]); // fijas solo en carpetas de tipo «Innovación» // pestañas contextuales: solo se ven mientras están abiertas (se llega desde el informe)
+let fReg = { rev: 0, tipos: {}, proyecto: false, tipo: "" }; // contadores del registro de la carpeta abierta (para mostrar/ocultar pestañas)
 // las de FCTX (riesgos, preguntas, hitos) solo con contenido o abiertas; el resto de tipos, también en carpetas de tipo «Proyecto»
-const fTabVisible = k => (FREG[k] ? k === ftab || (fReg.proyecto && !FCTX.has(k)) || !!fReg.tipos[FREG[k]] : true);
+const fFija = k => (FINNOV.has(k) ? fReg.tipo === "Innovación" : fReg.proyecto && !FCTX.has(k)); // pestaña que se ve aunque esté vacía
+const fTabVisible = k => (FREG[k] ? k === ftab || fFija(k) || !!fReg.tipos[FREG[k]] : true);
 // ---- navegación con foco: fIr(pestaña, {ids, filtro, etiqueta}) abre la pestaña y la vista destino consume el foco UNA vez (fTomaFoco):
 // filtra a esos ids si sabe, hace scroll al primero y lo resalta (~2 s). Sin ids (informes antiguos): solo abre la pestaña.
 let fFoco = null;
@@ -70,9 +76,14 @@ const fTabTxt = (k, t) => (k === "revision" ? t + " (" + fReg.rev + ")" : t);
 async function fCargaReg(c, tipoCarpeta) {
   try {
     const r = await api("/api/reg?" + new URLSearchParams({ c }));
-    fReg = { rev: r.contadores?.por_revision?.propuesto || 0, tipos: r.contadores?.por_tipo || {}, proyecto: tipoCarpeta === "Proyecto" };
+    fReg = {
+      rev: r.contadores?.por_revision?.propuesto || 0,
+      tipos: r.contadores?.por_tipo || {},
+      proyecto: tipoCarpeta === "Proyecto",
+      tipo: tipoCarpeta || "",
+    };
   } catch {
-    fReg = { rev: 0, tipos: {}, proyecto: tipoCarpeta === "Proyecto" };
+    fReg = { rev: 0, tipos: {}, proyecto: tipoCarpeta === "Proyecto", tipo: tipoCarpeta || "" };
   }
   pintaTabs();
 }
@@ -170,8 +181,12 @@ const FEXT = [
   ["riesgos", "Riesgos"],
   ["preguntas", "Preguntas"],
   ["hitos", "Hitos"],
+  ["ideas", "Ideas"],
+  ["hipotesis", "Hipótesis"],
+  ["experimentos", "Experimentos"],
+  ["aprendizajes", "Aprendizajes"],
 ];
-const FMAS = { linea: "Línea de tiempo", comparar: "Comparar", ajustes: "Ajustes del proyecto" };
+const FMAS = { equipo: "Equipo", linea: "Línea de tiempo", comparar: "Comparar", ajustes: "Ajustes del proyecto" };
 let fCnt = {},
   fPend = 0,
   fUltExt = lsGet("fext", "pendientes"),
@@ -199,7 +214,7 @@ function pintaTabs() {
     }; // tic: el número cambió
   // «Por revisar» solo como segmento activo: fuera de él ya lo anuncia el aviso «N por revisar · Revisar»
   const segs = [["revision", "Por revisar"], ...FEXT].filter(
-    ([k]) => k === ftab || (k !== "revision" && fTabVisible(k) && (fN(k) || k === "pendientes" || (fReg.proyecto && !FCTX.has(k)))),
+    ([k]) => k === ftab || (k !== "revision" && fTabVisible(k) && (fN(k) || k === "pendientes" || fFija(k))),
   );
   const nExt = segs.reduce((a, [k]) => a + (k === "revision" ? 0 : fN(k)), 0);
   $("f-tabs").replaceChildren(
@@ -332,6 +347,11 @@ async function fRender() {
         riesgos: tVista,
         preguntas: tVista,
         hitos: tVista,
+        ideas: tVista,
+        hipotesis: tVista,
+        experimentos: tVista,
+        aprendizajes: tVista,
+        equipo: tEquipo,
         informe: tVista,
         pendientes: tPendientes,
         linea: tLinea,
@@ -780,6 +800,7 @@ async function tPendientes(c, e) {
       },
     },
     new Option("Todos", ""),
+    ...(AJ.yo?.nombre ? [new Option("Asignado a mí", AJ.yo.nombre.trim().split(/\s+/)[0])] : []), // el servidor filtra por «contiene»
     ...r.responsables.map(x => new Option(x, x)),
   );
   sel.value = fpen.resp;
@@ -987,6 +1008,65 @@ function filaPend(c, p) {
     el("span", { className: "pf" + (p.pronto && !p.vencido ? " w" : ""), title: p.pronto && !p.vencido ? "Vence pronto" : "" }, ...plazo),
     el("span", { className: "po" }, p.manual ? "Manual" : fLink(p)),
   );
+}
+
+// ---- Equipo: carga por persona (tareas abiertas y vencidas, decisiones recientes, preguntas que se le dirigen) ----
+async function tEquipo(c) {
+  const ps = await api("/api/reg/equipo?c=" + encodeURIComponent(c));
+  if (!ps.length)
+    return [
+      el("p", { className: "vacio", textContent: "Aún no hay tareas, decisiones ni preguntas con responsable en este " + nm("carpeta").toLowerCase() + "." }),
+    ];
+  const n = (v, t, cls = "") =>
+    el("td", { className: "num" + (v && cls ? " " + cls : "") }, v ? String(v) : "—", el("span", { className: "sr", textContent: " " + t }));
+  return [
+    el(
+      "div",
+      { className: "tabla" },
+      el(
+        "table",
+        { className: "f-equipo" },
+        el(
+          "thead",
+          {},
+          el(
+            "tr",
+            {},
+            ...["Persona", "Tareas abiertas", "Vencidas", "Decisiones (30 días)", "Preguntas abiertas"].map(t => el("th", { scope: "col", textContent: t })),
+          ),
+        ),
+        el(
+          "tbody",
+          {},
+          ...ps.map(p =>
+            el(
+              "tr",
+              {},
+              el(
+                "td",
+                {},
+                el("button", {
+                  className: "link",
+                  textContent: p.nombre + (esMio(p.nombre) ? " (tú)" : ""),
+                  title: "Ver sus tareas",
+                  onclick: () => {
+                    fpen.resp = p.nombre;
+                    fpen.estado = "abierto";
+                    fIr("pendientes");
+                  },
+                }),
+              ),
+              n(p.abiertas, "tareas abiertas"),
+              n(p.vencidas, "vencidas", "err"),
+              n(p.decisiones, "decisiones"),
+              n(p.preguntas, "preguntas"),
+            ),
+          ),
+        ),
+      ),
+    ),
+    el("p", { className: "muted", textContent: "Pulsa un nombre para ver sus tareas. El responsable se cambia en Tareas." }),
+  ];
 }
 
 // ---- Línea de tiempo ----
@@ -1349,7 +1429,9 @@ async function tAjustes(c, e) {
       el(
         "datalist",
         { id: "dl-tipos" },
-        ...["Proyecto", "Comunidad", "Cliente", "Paciente", "Asignatura", "Obra", "Estudio", "Serie", "Candidato"].map(v => el("option", { value: v })),
+        ...["Proyecto", "Innovación", "Comunidad", "Cliente", "Paciente", "Asignatura", "Obra", "Estudio", "Serie", "Candidato"].map(v =>
+          el("option", { value: v }),
+        ),
       ),
       el(
         "div",
@@ -1416,7 +1498,7 @@ function fRegenerar(c, vistas) {
 }
 async function tRevision(c) {
   const w = el("div");
-  registroBandeja(w, c, () => fCargaReg(c, fReg.proyecto ? "Proyecto" : ""));
+  registroBandeja(w, c, () => fCargaReg(c, fReg.tipo));
   return [fRegenerar(c), w];
 }
 // placeholder genérico: tabla editable del tipo; cada vista de F4 lo sustituye con FVISTAS[clave]

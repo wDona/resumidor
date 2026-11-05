@@ -81,7 +81,26 @@ EXTRA = {
         "encargos o compromisos de una persona con algo que hacer («Ana enviará…», «me encargo de…», «se encarga Luis de…»). "
         "responsable: quien lo hará, solo si se dice; plazo: fecha o plazo, solo si se dice.",
         {"responsable": 60, "plazo": 40},
-    )
+    ),
+    # proyectos de innovación (docs/plan-equipos.md, B1): solo bajo demanda desde «Qué sacar»
+    "ideas": (
+        "idea",
+        "ideas o propuestas nuevas que alguien plantea en la sesión («¿y si…?», «se me ocurre…», «podríamos probar…»), aunque no se "
+        "aprueben. texto = la idea en una frase; problema: qué problema resuelve, solo si se dice; autor: quien la propone, solo si se dice.",
+        {"problema": 160, "autor": 60},
+    ),
+    "hipotesis": (
+        "hipotesis",
+        "suposiciones que el equipo quiere comprobar («creemos que…», «suponemos que los usuarios…», «habría que validar si…»). "
+        "texto = «Creemos que…» en una frase; metrica: cómo se mediría, solo si se dice; exito: el umbral de éxito, solo si se dice.",
+        {"metrica": 120, "exito": 120},
+    ),
+    "insights": (
+        "insight",
+        "aprendizajes o descubrimientos sobre usuarios, clientes o el mercado que salen en la sesión (una necesidad, un dolor, un "
+        "comportamiento, un resultado de una prueba). texto = el aprendizaje en una frase; quien: quién lo aporta, solo si se dice.",
+        {"quien": 60},
+    ),
 }
 TODAS = {**VISTAS, **EXTRA}
 CABECERA = """Extraes los elementos de un proyecto de un fragmento de transcripción automática (con errores) de una reunión, con marcas \
