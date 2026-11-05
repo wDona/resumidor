@@ -205,3 +205,23 @@ def test_escritorio_y_servidor(cl, tmp_path, monkeypatch):
     assert next(y for y in x if y["id"] == eid)["dueno"] == "Luis"
     assert t.get(f"/api/reg/{eid}/historial", params={"c": C}).json()[-1]["autor"] == "Luis"
     assert pipeline.WORK == wa
+
+
+# ---- S3: en el servidor solo IA en la nube (proveedores con API, nunca CLIs) ----
+def test_solo_nube_en_el_servidor(sv, monkeypatch):
+    import pipeline
+
+    _, app = sv
+    servidor.ia_local({"proveedor": "openai", "modelo": "x"})  # nube con API: pasa
+    for n in (None, {}, {"proveedor": "cli:claude"}):
+        with pytest.raises(HTTPException):
+            servidor.ia_local(n)
+    with pytest.raises(HTTPException) as ex:
+        app._nube_spec({"nube": {"proveedor": "cli:claude"}})
+    assert ex.value.status_code == 400 and "CLI" in ex.value.detail
+    monkeypatch.setenv("ACTAS_SERVIDOR", "1")  # y abajo, aunque algo se escape: ningún modelo local arranca
+    with pytest.raises(RuntimeError):
+        pipeline.launch("m.gguf", 4096, 1, [], "x.log")
+    import nube
+
+    assert nube.detectar_clis() == []

@@ -290,10 +290,11 @@ class LlaveroFichero(KeyringBackend):
             self._escribir(d)
 
 
-def ia_local():
-    """El servidor no usa IA local (start() y gpu_exclusiva() de app.py lo comprueban)."""
-    if ACTIVO:
-        raise HTTPException(409, "En el servidor no hay IA local: procesa en el escritorio y envía el resultado")
+def ia_local(nube=None):
+    """El servidor no usa IA local (start() y gpu_exclusiva() de app.py lo comprueban): solo trabajos con un proveedor de la nube con API,
+    nunca una CLI (ejecuta programas). pipeline.sin_ia_local() lo cierra también abajo, al lanzar un modelo."""
+    if ACTIVO and not (isinstance(nube, dict) and nube.get("proveedor") and not str(nube["proveedor"]).startswith("cli:")):
+        raise HTTPException(409, "En el servidor no hay IA local: elige un modelo en la nube (Ajustes › Modelos en la nube) o procesa en el escritorio")
 
 
 def destino_permitido(tipo):

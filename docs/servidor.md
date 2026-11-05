@@ -18,7 +18,7 @@ Opcionales: `ACTAS_PORT` (8000), `ACTAS_HOST` (0.0.0.0), `ACTAS_NO_EMBED=0` para
 
 - Todo pide sesión (o el token personal del escritorio). La sesión dura dos semanas; reiniciar el servidor obliga a entrar de nuevo.
 - Todos ven todos los proyectos. El historial guarda quién hizo cada cambio.
-- **Sin IA local:** procesar reuniones, Preguntar con LLM, poblar o redactar responden «En el servidor no hay IA local». Las reuniones se procesan en el escritorio.
+- **Sin IA local; sí en la nube:** el servidor nunca arranca modelos locales ni CLIs de IA. Preguntar, «Regenerar con IA», derivar, redactar informes, buscar a fondo y describir capturas funcionan si eliges un proveedor de la nube con clave (enlace «Modelos en la nube» en Preguntar o al añadir). La clave se guarda en el volumen (ver abajo). Las reuniones se transcriben y procesan en el escritorio.
 - **Bloqueado en el servidor:** elegir ficheros o carpetas del disco, subir vídeos, grabar, carpetas vigiladas, modelos, compartir por OneDrive, descargas, MCP y Outlook. Los destinos «Carpeta» y «SFTP» tampoco (escriben en el disco del servidor o ejecutan comandos).
 - Los secretos (claves de la nube, tokens de Jira, Planner…) se guardan en `/data/secretos.json` con permisos 600, en claro dentro del volumen: protege el volumen y sus copias.
 - Cualquier usuario puede configurar webhooks y destinos HTTP; pueden llegar a la red interna del servidor. Da de alta solo a gente del equipo.

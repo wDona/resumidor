@@ -335,6 +335,7 @@ let tabAj = "general";
 function abrirAjustes(t = "general", sub) {
   const antes = vistaAct === "ajustes" ? tabAj : null;
   tabAj = t === "perfiles" ? "avanzado" : TABS.includes(t) ? t : "general";
+  if (AJ.servidor && tabAj === "modelos") tabAj = "plantillas"; // el servidor no tiene modelos locales: solo la nube (panel en Nuevo y Preguntar)
   const h = "#/ajustes/" + tabAj;
   if (location.hash !== h) history.pushState(null, "", h);
   vista("ajustes");
@@ -345,7 +346,7 @@ function abrirAjustes(t = "general", sub) {
     a.setAttribute("aria-selected", on);
     on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current");
   });
-  const hs = TABS.filter(x => GRP[x] === g); // secciones del grupo
+  const hs = TABS.filter(x => GRP[x] === g && !(AJ.servidor && x === "modelos")); // secciones del grupo
   $("aj-sub").hidden = hs.length < 2;
   $("aj-sub").replaceChildren(
     ...hs.map(x =>

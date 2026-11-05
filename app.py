@@ -107,6 +107,8 @@ def _nube_spec(d, tpl=None):
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     p = cfg["proveedor"]
+    if servidor.ACTIVO and p.startswith("cli:"):
+        raise HTTPException(400, "En el servidor no hay CLIs de IA: usa un proveedor con clave")
     if p not in nube.estado()["confirmado"]:
         raise HTTPException(409, {"msg": "Confirma antes el envío de texto a este proveedor", "confirmar": p})
     if p.startswith("cli:"):
@@ -219,7 +221,7 @@ atexit.register(lambda: grabar.activa() and grabar.activa().parar())  # queda en
 
 # ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
 def start(kind, spec, video, mid=""):
-    servidor.ia_local()  # todo trabajo de la cola usa modelos locales (S3: los de la nube)
+    servidor.ia_local(spec.get("nube") if isinstance(spec, dict) else None)  # en el servidor, solo trabajos en la nube
     with jlock:
         e = {"id": uuid.uuid4().hex[:8], "kind": kind, "spec": spec, "video": video, "mid": mid, "state": "pendiente", "t": time.time()}
         cola.append(e)

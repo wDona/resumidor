@@ -195,6 +195,8 @@ def permitida(plantilla=None, ajustes=None):
 
 
 def detectar_clis():
+    if os.environ.get("ACTAS_SERVIDOR") == "1":  # el servidor no ejecuta programas de IA (servidor.py)
+        return []
     return [{"id": "cli:" + c, "nombre": n[0], "ruta": cli_ruta(c), "sugeridos": CLI_MODELO[c][1]} for c, n in CLIS.items() if cli_ruta(c)]
 
 
