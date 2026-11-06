@@ -648,7 +648,10 @@ def _acta_fn(d):
                 raise
             except Exception as ex:
                 print("describir capturas:", ex, flush=True)
-        if carp0 and not reuse and not bus:  # seguimiento: ¿el documento nuevo cierra o cambia pendientes abiertos de la carpeta? (propone; nunca cierra)
+        ped = _pedidas(d, tc)
+        if (
+            carp0 and not reuse and not bus and ped is None
+        ):  # seguimiento: ¿el documento nuevo cierra o cambia pendientes abiertos de la carpeta? (propone; nunca cierra)
             cb(0.99, "Revisando los pendientes de la carpeta…")
             try:
                 carpetas.seguimiento(carp0, _ms(carp0), wd.name, _llm_ctx(d, [m["id"] for m in _ms(carp0)], carpetas.terminos_prompt(carp0)), THREADS)
@@ -659,8 +662,7 @@ def _acta_fn(d):
         pob = bool(
             carp0
             and (tc or not bus)
-            and (_ajustes() or AJ_DEF).get("poblar_auto", True)
-            and _tipo_carpeta(carp0).casefold() == "proyecto"
+            and (ped if ped is not None else (_ajustes() or AJ_DEF).get("poblar_auto", True) and _tipo_carpeta(carp0).casefold() == "proyecto")
             and not (d.get("nube") and not nube.permitida(_tpl_de(wd.name), _ajustes())[0])
         )  # F3b: solo carpetas «Proyecto» (nunca sensibles): la IA puebla las vistas del proyecto (trabajo aparte en la cola, tras este)
         if pob:
@@ -671,7 +673,7 @@ def _acta_fn(d):
                     "c": carp0,
                     "mid": wd.name,
                     "auto": True,
-                    **({"vistas": [*poblar.VISTAS, "tareas"]} if tc else {}),
+                    **({"vistas": ped} if ped else {"vistas": [*poblar.VISTAS, "tareas"]} if tc else {}),
                     **({"plan": d["plan"]} if d.get("plan") is not None else {}),
                 },
                 carp0,
@@ -684,6 +686,16 @@ def _acta_fn(d):
         return {"id": wd.name, "acta": ver if tc else None if bus else out.name}
 
     return fn
+
+
+def _pedidas(d, tc):
+    """Servidor con un plan de «Qué sacar»: solo las vistas que se piden (cada pasada gasta nube); [] = ninguna. None = como siempre."""
+    sal = (d.get("plan") or {}).get("salidas")
+    if not servidor.ACTIVO or not sal:
+        return None
+    return [
+        q for q in dict.fromkeys(str(x.get("que") or "") for x in sal) if q in poblar.TODAS and (q != "tareas" or tc)
+    ]  # sin tal_cual, las tareas salen del acta
 
 
 def _tipo_carpeta(c):
@@ -2992,16 +3004,20 @@ def _encolar(rutas, c="", recursivo=False, plan=None):
 
 @app.post("/api/subir")
 def subir(d: dict, request: Request):
-    """{c, nombre, base64, resumir?, perfil?, nube?}: añade un documento (agentes y servidor de equipo, donde no hay rutas del disco).
-    Sin resumir solo se lee e indexa (sin IA); con resumir se hace también el resumen (en el servidor, con nube). -> {id del trabajo}."""
+    """{c, nombre, base64, resumir?, tal_cual?, plan?, perfil?, nube?}: añade un documento (agentes y servidor de equipo, sin rutas del
+    disco). Sin resumir ni tal_cual solo se lee e indexa (sin IA); resumir hace el resumen; tal_cual guarda el documento como está y
+    solo extrae; plan: las salidas de «Qué sacar» (en el servidor, solo esas). Con IA, en el servidor, pide nube. -> {id del trabajo}."""
     c = _c(d)
     nombre = Path(str(d.get("nombre") or "")).name.strip()[:120]
     ok = documentos.TEXTO + (documentos.IMAGEN if d.get("nube") or not servidor.ACTIVO else ())  # imágenes: describirlas pide IA
     if Path(nombre).suffix.lower() not in ok:
         raise HTTPException(400, "Formato no admitido: " + ", ".join(sorted({e.lstrip(".") for e in ok})))
+    ia, tc = bool(d.get("resumir") or d.get("tal_cual")), bool(d.get("tal_cual")) and Path(nombre).suffix.lower() in documentos.TEXTO
     ps = agentes.permisos(request)
-    if d.get("resumir") and ps is not None and "ia" not in ps:
+    if ia and ps is not None and "ia" not in ps:
         raise HTTPException(403, "Este agente no tiene el permiso «ia»: sube sin resumir")
+    if ia:
+        servidor.ia_local(d.get("nube"))  # en el servidor, resumir o extraer pide un modelo en la nube
     b64 = str(d.get("base64") or "")
     if len(b64) > SUBIR_MAX * 4 // 3 + 4:
         raise HTTPException(413, f"Como mucho {SUBIR_MAX >> 20} MB")
@@ -3014,8 +3030,8 @@ def subir(d: dict, request: Request):
     f = pipeline.WORK / "subidas" / uuid.uuid4().hex[:8] / nombre
     f.parent.mkdir(parents=True)
     f.write_bytes(datos)
-    spec = {"video": str(f), "carpeta": c, "buscable": not d.get("resumir")}
-    spec |= {k: v for k, v in (("plantilla", d.get("perfil")), ("nube", d.get("nube"))) if v}
+    spec = {"video": str(f), "carpeta": c, "buscable": not ia, "tal_cual": tc}
+    spec |= {k: v for k, v in (("plantilla", d.get("perfil")), ("nube", d.get("nube")), ("plan", ia and d.get("plan"))) if v}
     try:
         return generar(spec)
     except HTTPException:

@@ -553,15 +553,28 @@ const b64De = f =>
     r.readAsDataURL(f);
   });
 async function subirAlServidor(c, p) {
-  const fs = AN.files.filter(f => f.file),
-    resumir = !p.buscable && !!p.nube,
+  // solo sale lo que se pide en «Qué sacar»: sin «documento» ni «resumen» el documento se guarda tal cual y solo se extrae lo pedido
+  const sal = p.plan?.salidas || [],
+    ia = !p.buscable && !!p.nube,
+    resumen = !sal.length || sal.some(s => s.que === "documento" || s.que === "resumen"),
+    fs = AN.files.filter(f => f.file),
     errs = [];
   if (!fs.length) throw new Error("Elige archivos");
   $("generar").disabled = true;
   let n = 0;
   for (const f of fs) {
     try {
-      await post("/api/subir", { c, nombre: f.name, base64: await b64De(f.file), resumir, perfil: p.plantilla, nube: p.nube });
+      const resumir = ia && (resumen || f.img);
+      await post("/api/subir", {
+        c,
+        nombre: f.name,
+        base64: await b64De(f.file),
+        resumir,
+        tal_cual: ia && !resumir,
+        perfil: p.plantilla,
+        nube: p.nube,
+        ...(ia && p.plan ? { plan: p.plan } : {}),
+      });
       n++;
     } catch (x) {
       errs.push(f.name + ": " + x.message);
@@ -575,7 +588,7 @@ async function subirAlServidor(c, p) {
   aviso(
     n +
       (n === 1 ? " documento en cola" : " documentos en cola") +
-      (resumir || p.buscable ? "" : " · sin modelo en la nube: solo se leen y se indexan") +
+      (ia || p.buscable ? "" : " · sin modelo en la nube: solo se leen y se indexan") +
       (errs.length ? " · " + errs.length + " con error: " + errs[0] : ""),
   );
 }
