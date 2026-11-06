@@ -499,6 +499,7 @@ $("form").onsubmit = async e => {
     }
     if (!(await nubeOk("f"))) return;
     const p = { ...params(), ...anParams(dest) };
+    if (AJ.servidor) return await subirAlServidor(dest, p);
     const jobs =
       !fs.length && !enl
         ? [{}]
@@ -542,6 +543,42 @@ $("form").onsubmit = async e => {
     $("generar").disabled = false;
   }
 };
+
+// servidor de equipo: cada archivo va en base64 a /api/subir (documentos; resumir pide un modelo en la nube, si no solo se indexa)
+const b64De = f =>
+  new Promise((ok, ko) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(",")[1] || "");
+    r.onerror = () => ko(r.error);
+    r.readAsDataURL(f);
+  });
+async function subirAlServidor(c, p) {
+  const fs = AN.files.filter(f => f.file),
+    resumir = !p.buscable && !!p.nube,
+    errs = [];
+  if (!fs.length) throw new Error("Elige archivos");
+  $("generar").disabled = true;
+  let n = 0;
+  for (const f of fs) {
+    try {
+      await post("/api/subir", { c, nombre: f.name, base64: await b64De(f.file), resumir, perfil: p.plantilla, nube: p.nube });
+      n++;
+    } catch (x) {
+      errs.push(f.name + ": " + x.message);
+    }
+  }
+  if (!n) throw new Error(errs.join(" · "));
+  anLimpiar();
+  $("form-err").textContent = "";
+  vista("cola");
+  sondear();
+  aviso(
+    n +
+      (n === 1 ? " documento en cola" : " documentos en cola") +
+      (resumir || p.buscable ? "" : " · sin modelo en la nube: solo se leen y se indexan") +
+      (errs.length ? " · " + errs.length + " con error: " + errs[0] : ""),
+  );
+}
 
 // ---- cola de trabajos ----
 const ACT = ["pendiente", "marcha"],

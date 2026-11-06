@@ -73,6 +73,7 @@ def test_agentes_en_el_servidor(sv, monkeypatch):
     assert t.post("/api/agente/preguntar", json={"pregunta": "¿qué?"}, headers=h).status_code == 403  # sin «ia»
     entrar(t, "Ana", "clave-de-ana-1")
     assert t.get("/api/agentes").json() == []  # cada uno ve los suyos
+    assert t.post("/api/subir", json={"c": C, "nombre": "a.md", "base64": b64}).status_code == 200  # subir a mano desde la web
     t.post("/api/usuarios/borrar", json={"nombre": "Luis"})
     t.cookies.clear()
     assert t.get("/api/carpetas", headers=h).status_code == 401  # sin su usuario, sus agentes tampoco

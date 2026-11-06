@@ -1038,6 +1038,7 @@ function anAdd(path, extra = {}) {
   anPintar();
 }
 const anRuta = () => {
+  if (AJ.servidor) return; // sin ruta del disco (y sin estimar con /api/nube/estimar)
   const p = AN.files.find(f => f.path)?.path || "";
   if (p !== ruta) setRuta(p);
 };
@@ -1047,14 +1048,18 @@ async function anSubir(files) {
   for (const f0 of files) {
     const f = f0.name === "image.png" ? new File([f0], "captura-" + stamp() + ".png", { type: f0.type }) : f0;
     const it = { path: "", name: f.name, img: IMG_RE.test(f.name) || f.type.startsWith("image/"), subiendo: true };
-    if (!TR_RE.test(f.name)) {
+    const srv = !!AJ.servidor; // servidor de equipo: no hay rutas del disco; el archivo se manda al procesar (app.js, /api/subir)
+    if (srv || !TR_RE.test(f.name)) {
       AN.files.push(it);
       anPintar();
     }
     try {
-      const p = (await api("/api/upload?name=" + enc(f.name), { method: "PUT", body: f })).path;
-      if (TR_RE.test(f.name)) setTr(p);
-      else it.path = p;
+      if (srv) [it.file, it.path] = [f, "subir:" + crypto.randomUUID()];
+      else {
+        const p = (await api("/api/upload?name=" + enc(f.name), { method: "PUT", body: f })).path;
+        if (TR_RE.test(f.name)) setTr(p);
+        else it.path = p;
+      }
     } catch (x) {
       it.err = x.message;
     }
@@ -1100,7 +1105,7 @@ function anPintar() {
   );
   $("an-desc-w").hidden = !AN.files.some(f => f.img);
   const enl = $("enlace").value.trim();
-  $("an-tc-w").hidden = !(ok.length ? ok.every(f => TXT_RE.test(f.name)) : /\.(pdf|md|txt|docx|html?)(\?|$)/i.test(enl));
+  $("an-tc-w").hidden = !!AJ.servidor || !(ok.length ? ok.every(f => TXT_RE.test(f.name)) : /\.(pdf|md|txt|docx|html?)(\?|$)/i.test(enl));
   anBoton();
 }
 function anBoton() {
@@ -1184,6 +1189,13 @@ formNuevo = function (m, a) {
   formNuevo1(m, a);
   $("an-obj").hidden = $("an-nombre").closest(".field").hidden = !!m;
   $("an-av").open = !!m;
+  if (AJ.servidor) {
+    // el servidor no lee rutas de su disco, no descarga enlaces ni graba; solo documentos, leídos e indexados o resumidos con la nube
+    $("elegir").hidden = $("an-enl-b").hidden = $("n-grabar").hidden = true;
+    $("form-sub").textContent = "Documentos: se leen y se indexan en el servidor; con un modelo en la nube, también se resumen.";
+    $("an-file").accept = ".pdf,.md,.markdown,.txt,.docx,.html,.htm,.eml,.msg,.png,.jpg,.jpeg,.webp";
+    document.querySelector("#an-elegir + small").textContent = "PDF, Word, Markdown, texto, HTML o correos (imágenes, con la nube)";
+  }
   $("form-t").textContent = m ? $("form-t").textContent : "Añadir";
   if (!m) {
     anGoals();

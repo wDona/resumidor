@@ -35,3 +35,17 @@ Word con el estilo de organización del proyecto (títulos, negritas, listas, ta
 Informe. El agente puede pedir una guía de redacción opcional (`guia_investigacion`): estructura Problema (solo si se planteó antes
 o es evidente) · Formas de resolverlo · Soluciones exploradas (riesgos solo si importan) · A tener en cuenta · Propuesta · Extras,
 y estilo compacto (cada frase aporta un dato; secciones pequeñas con títulos que dicen de qué hablan).
+
+## Pendiente de pensar: que Actas redacte la investigación
+
+Hoy la escribe el agente con su propio modelo y Actas solo da la guía, la guarda y la exporta. Idea: un botón (y una operación
+`redactar_investigacion`, permiso `ia`) que la escriba Actas a partir de los documentos y hallazgos del proyecto, siguiendo la guía.
+Por decidir antes de hacerlo:
+
+- **Qué entra de contexto**: todos los documentos no caben; ¿búsqueda por la pregunta (como Preguntar), los hallazgos del registro,
+  o ambos? ¿Quién da la pregunta o el tema?
+- **Modelo**: con el local la calidad y el tiempo (portátil lento) pueden no compensar; en el servidor solo nube.
+- **Citas**: cada afirmación con su fuente (documento y página), como en Preguntar, o no se puede revisar.
+- **Problema**: solo si el usuario lo escribió; el modelo no debe inventarlo.
+- **Edición**: el resultado como borrador editable en la pestaña Informe antes de exportar.
+- **Coste**: aviso de tokens antes de lanzarlo con nube.
