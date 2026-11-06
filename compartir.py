@@ -1,7 +1,7 @@
 """Proyecto compartido por una carpeta sincronizada (OneDrive o SharePoint; docs/plan-equipos.md, A2). Sin servidor.
 
 En la carpeta compartida:
-  proyecto.json             nombre, tipo, datos y glosario del proyecto
+  proyecto.json             nombre, tipo, datos, glosario y enlaces del proyecto
   eventos/<instalación>.jsonl  cambios del registro, uno por línea; cada instalación solo escribe en el suyo (OneDrive no ve conflictos)
   actas/*.md                los documentos de quien los procesó
   transcripciones/*.md      solo si el proyecto lo permite (por defecto no)
@@ -117,7 +117,14 @@ def _exportar(c, s, raiz):
         with open(raiz / "eventos" / f"{yo}.jsonl", "a", encoding="utf-8", newline="\n") as f:
             f.writelines(json.dumps(e, ensure_ascii=False) + "\n" for e in lineas)
     e = registro.expediente(c)
-    pj = {"actas_proyecto": 1, "nombre": c, "tipo": e.get("tipo") or "", "datos": e.get("datos") or [], "glosario": e.get("glosario") or []}
+    pj = {
+        "actas_proyecto": 1,
+        "nombre": c,
+        "tipo": e.get("tipo") or "",
+        "datos": e.get("datos") or [],
+        "glosario": e.get("glosario") or [],
+        "enlaces": e.get("enlaces") or [],
+    }
     f = raiz / "proyecto.json"
     try:
         igual = json.loads(f.read_text(encoding="utf-8")) == pj
@@ -262,6 +269,8 @@ def unirse(ruta):
     carpetas.guardar_datos(c, pj.get("tipo") or None, pj.get("datos") or [])
     if pj.get("glosario") and not registro.expediente(c).get("glosario"):
         carpetas.editar(c, lambda e: e.update(glosario=pj["glosario"]))
+    if pj.get("enlaces") and not registro.expediente(c).get("enlaces"):
+        guardar_enlaces(c, pj["enlaces"])
     return {"c": c, **compartir(c, ruta, False)}
 
 
@@ -438,6 +447,8 @@ def recibir(d):
             carpetas.guardar_datos(c, pj.get("tipo") or None, pj.get("datos") or [])
             if pj.get("glosario"):
                 carpetas.editar(c, lambda e: e.update(glosario=pj["glosario"]))
+            if pj.get("enlaces"):
+                guardar_enlaces(c, pj["enlaces"])
         if not estado(c):
             (raiz / "eventos").mkdir(parents=True, exist_ok=True)
             _guardar(c, {"ultimo": {}, "t": {}, "leido": {}, "alias": {}, "docs": {}, "ruta": str(raiz), "transcripciones": False})
@@ -571,13 +582,33 @@ def api_compartir(d: dict):
     return _vista(c)
 
 
+def guardar_enlaces(c, xs):
+    """Enlaces puestos a mano en el proyecto (canal de Teams, Figma, wiki…): [{nombre, url}], solo http(s), como mucho 30."""
+    ok = []
+    for x in xs if isinstance(xs, list) else []:
+        url = str(x.get("url") or "").strip()[:1000] if isinstance(x, dict) else ""
+        if url.startswith(("https://", "http://")) and url not in [y["url"] for y in ok]:
+            ok.append({"nombre": str(x.get("nombre") or "").strip()[:80] or urllib.parse.urlsplit(url).hostname or url, "url": url})
+    carpetas.editar(c, lambda e: e.update(enlaces=ok[:30]))
+    return ok[:30]
+
+
+@router.post("/api/enlaces")
+def api_enlaces_guardar(d: dict):
+    """{c, enlaces: [{nombre, url}]}: sustituye los enlaces puestos a mano."""
+    c = A._c(d)
+    guardar_enlaces(c, d.get("enlaces"))
+    return api_enlaces(c)
+
+
 @router.get("/api/enlaces")
 def api_enlaces(c: str):
     """Menú «Enlaces» del proyecto: dónde se comparte (servidor o carpeta) y los destinos con los que trabaja (destinos.enlaces)."""
     import destinos
 
+    c = A._c({"c": c})
     s = None if servidor.ACTIVO else estado(c)  # en el servidor el proyecto ya está aquí (y su ruta interna no se enseña)
-    out = []
+    out = [{**x, "tipo": "Enlace", "propio": True} for x in registro.expediente(c).get("enlaces") or []]
     if s and s.get("servidor"):
         out.append({"nombre": "Servidor de equipo", "tipo": "Actas", "url": f"{s['servidor']}/#/p/{urllib.parse.quote(c)}"})
     elif s:

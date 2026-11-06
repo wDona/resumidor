@@ -118,28 +118,41 @@ const fLink = (r, txt) =>
     },
   });
 
-// «Enlaces» de la cabecera: dónde vive el proyecto fuera (servidor de equipo, carpeta de OneDrive) y los destinos con los que trabaja
-// (repositorio, proyecto de Jira o Azure…). Sin enlaces no se ve: no ocupa sitio.
+// «Enlaces» de la cabecera: los puestos a mano (Teams, Figma, wiki…), dónde vive el proyecto fuera (servidor de equipo, carpeta de
+// OneDrive) y los destinos con los que trabaja (repositorio, proyecto de Jira o Azure…). Un desplegable pequeño junto a «Más».
 function fEnlaces(c) {
   const w = $("f-enl"),
     l = $("f-enl-l");
   const item = (nombre, tipo, extra) =>
     el("a", { role: "menuitem", className: "enl", ...extra }, el("span", { textContent: nombre }), el("span", { className: "muted", textContent: tipo }));
-  api("/api/enlaces?c=" + encodeURIComponent(c))
-    .catch(() => [])
-    .then(xs => {
-      if (fuC !== c) return; // el usuario ya está en otro proyecto
-      const its = xs.map(x =>
-        x.carpeta
-          ? item(x.nombre, x.tipo + " · abrir carpeta", {
-              href: "#",
-              title: x.ruta,
-              onclick: e => {
-                e.preventDefault();
-                w.open = false;
-                fallo(post)("/api/compartir/abrir", { c });
-              },
-            })
+  const pinta = xs => {
+    if (fuC !== c) return; // el usuario ya está en otro proyecto
+    const propios = xs.filter(x => x.propio).map(({ nombre, url }) => ({ nombre, url }));
+    const guarda = fallo(async ys => pinta(await post("/api/enlaces", { c, enlaces: ys })));
+    const its = xs.map(x =>
+      x.carpeta
+        ? item(x.nombre, x.tipo + " · abrir carpeta", {
+            href: "#",
+            title: x.ruta,
+            onclick: e => {
+              e.preventDefault();
+              w.open = false;
+              fallo(post)("/api/compartir/abrir", { c });
+            },
+          })
+        : x.propio
+          ? el(
+              "div",
+              { className: "enl-fila" },
+              item(x.nombre, new URL(x.url).hostname, { href: x.url, target: "_blank", rel: "noopener", title: x.url, onclick: () => (w.open = false) }),
+              el("button", {
+                className: "gh sm",
+                textContent: "×",
+                title: "Quitar «" + x.nombre + "»",
+                ariaLabel: "Quitar " + x.nombre,
+                onclick: () => confirm("¿Quitar el enlace «" + x.nombre + "» del proyecto?") && guarda(propios.filter(y => y.url !== x.url)),
+              }),
+            )
           : item(x.nombre, x.tipo + (x.ultimo ? " · último envío" : ""), {
               href: x.url,
               target: "_blank",
@@ -147,22 +160,45 @@ function fEnlaces(c) {
               title: x.url,
               onclick: () => (w.open = false),
             }),
+    );
+    if (AJ.servidor)
+      its.push(
+        item("Copiar enlace a este proyecto", "para compartirlo con el equipo", {
+          href: "#",
+          onclick: e => {
+            e.preventDefault();
+            w.open = false;
+            navigator.clipboard.writeText(location.origin + "/#/p/" + encodeURIComponent(c)).then(() => aviso("Enlace copiado"));
+          },
+        }),
       );
-      if (AJ.servidor)
-        its.push(
-          item("Copiar enlace a este proyecto", "para compartirlo con el equipo", {
-            href: "#",
-            onclick: e => {
-              e.preventDefault();
-              w.open = false;
-              navigator.clipboard.writeText(location.origin + "/#/p/" + encodeURIComponent(c)).then(() => aviso("Enlace copiado"));
-            },
-          }),
-        );
-      l.replaceChildren(...its);
-      $("f-enl-n").textContent = xs.length ? String(xs.length) : "";
-      w.hidden = !its.length;
-    });
+    its.push(
+      el("button", {
+        role: "menuitem",
+        textContent: "+ Añadir enlace…",
+        onclick: () => {
+          w.open = false;
+          let url = (prompt("Dirección del enlace (Teams, Figma, wiki, tablero…)", "https://") || "").trim();
+          if (!url || url === "https://") return;
+          if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+          let host;
+          try {
+            host = new URL(url).hostname;
+          } catch {
+            return aviso("Esa dirección no es válida");
+          }
+          const nombre = (prompt("Nombre que se verá en el menú", host) || host).trim();
+          guarda([...propios, { nombre, url }]);
+        },
+      }),
+    );
+    l.replaceChildren(...its);
+    $("f-enl-n").textContent = xs.length ? String(xs.length) : "";
+    w.hidden = false;
+  };
+  api("/api/enlaces?c=" + encodeURIComponent(c))
+    .catch(() => [])
+    .then(pinta);
 }
 function carpetaVista(c) {
   const on = typeof c === "string" && c !== "";

@@ -1961,6 +1961,18 @@ body.simple:not(.mod-todos) .mod-av {
   justify-content: center;
   padding: 6px 16px;
 }
+.menu .pop .enl-fila {
+  display: flex;
+  align-items: center;
+}
+.menu .pop .enl-fila a.enl {
+  flex: 1;
+  min-width: 0;
+}
+.menu .pop .enl-fila button {
+  width: auto;
+  flex: none;
+}
 .menu .pop a.enl .muted {
   font-size: var(--fs-xs);
 }

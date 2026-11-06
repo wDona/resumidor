@@ -122,3 +122,22 @@ def test_leer_jira_y_azure(monkeypatch):
     a = T.TIPOS["azure"]["leer"]({}, {"token": "t"}, {"url": "https://dev.azure.com/org", "proyecto": "Mi proyecto"}, "7")
     assert j == {"hecho": True, "fecha": "2026-12-01"} and a == {"hecho": True, "fecha": "2026-12-02"}
     assert pedidas[0].startswith("https://x.atlassian.net/rest/api/3/issue/ABC-1") and "Mi%20proyecto/_apis/wit/workitems/7" in pedidas[1]
+
+
+def test_enlaces_a_mano_viajan_con_el_proyecto(cl, tmp_path, monkeypatch):
+    t, app = cl
+    r = t.post(
+        "/api/enlaces",
+        json={
+            "c": C,
+            "enlaces": [{"nombre": "Canal", "url": "https://teams.microsoft.com/l/x"}, {"url": "javascript:alert(1)"}, {"url": "https://figma.com/f"}],
+        },
+    )
+    assert [(x["nombre"], x["propio"]) for x in r.json()] == [("Canal", True), ("figma.com", True)]
+    sh = tmp_path / "OneDrive"
+    sh.mkdir()
+    t.post("/api/compartir", json={"c": C, "ruta": str(sh)})
+    assert len(json.loads((sh / "proyecto.json").read_text(encoding="utf-8"))["enlaces"]) == 2
+    _instalacion(monkeypatch, app, tmp_path / "work-b")
+    t.post("/api/compartir/unirse", json={"ruta": str(sh)})
+    assert [x["nombre"] for x in t.get("/api/enlaces", params={"c": C}).json() if x.get("propio")] == ["Canal", "figma.com"]
