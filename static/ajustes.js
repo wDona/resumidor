@@ -505,6 +505,83 @@ const cardCuenta = () => {
     tok,
   );
 };
+// Agentes (agentes.py, docs/plan-agentes.md): tokens con permisos para que un agente use la app en tu nombre por UTCP
+const cardAgentes = () => {
+  const lista = el("ul"),
+    out = el("div"),
+    nombre = el("input", { ariaLabel: "Nombre del agente", placeholder: "Nombre (p. ej. Investigación)" }),
+    PER = [
+      ["leer", "Leer", true],
+      ["escribir", "Escribir", true],
+      ["ia", "Usar IA (gasta)", false],
+      ["borrar", "Borrar", false],
+    ],
+    marcas = PER.map(([k, t, v]) => [k, el("input", { type: "checkbox", checked: v, ariaLabel: t })]);
+  const fecha = s => (s ? new Date(s * 1000).toLocaleString("es-ES") : "nunca");
+  const pinta = xs =>
+    lista.replaceChildren(
+      ...xs.map(a =>
+        el(
+          "li",
+          {},
+          el("b", { textContent: a.nombre }),
+          " · " + a.permisos.join(", ") + " · último uso: " + fecha(a.usado) + " ",
+          el("button", {
+            className: "link",
+            textContent: "Revocar",
+            onclick: fallo(
+              async () =>
+                confirm("¿Revocar el token de «" + a.nombre + "»? El agente dejará de funcionar.") && pinta(await post("/api/agentes/borrar", { id: a.id })),
+            ),
+          }),
+        ),
+      ),
+    );
+  api("/api/agentes").then(pinta, () => lista.replaceChildren());
+  const cfg = m =>
+    JSON.stringify(
+      {
+        name: "actas",
+        call_template_type: "http",
+        url: m,
+        http_method: "GET",
+        auth: { auth_type: "api_key", api_key: "Bearer ${TOKEN}", var_name: "Authorization", location: "header" },
+      },
+      null,
+      2,
+    );
+  return card(
+    "Agentes",
+    el("p", {
+      className: "muted",
+      textContent:
+        "Un agente (Claude, un script…) puede usar Actas en tu nombre: subir documentos, buscar, preguntar, anotar y redactar informes. Lo que haga sale en el historial como «tú (agente: nombre)». Ve lo mismo que tú.",
+    }),
+    lista,
+    el(
+      "div",
+      { className: "row wrap" },
+      nombre,
+      ...marcas.map(([k, i]) => el("label", { className: "check" }, i, el("span", { textContent: PER.find(p => p[0] === k)[1] }))),
+    ),
+    el("button", {
+      className: "sec",
+      textContent: "Crear token",
+      onclick: fallo(async () => {
+        const r = await post("/api/agentes", { nombre: nombre.value, permisos: marcas.filter(([, i]) => i.checked).map(([k]) => k) });
+        nombre.value = "";
+        pinta(r.agentes);
+        out.replaceChildren(
+          el("p", { className: "aviso w", textContent: "Copia el token ahora: no se vuelve a enseñar." }),
+          el("pre", { textContent: "Manual UTCP: " + r.manual + "\nToken: " + r.token }),
+          el("small", { textContent: "En python-utcp: registra este manual y pon el token en la variable actas_TOKEN." }),
+          el("pre", { textContent: cfg(r.manual) }),
+        );
+      }),
+    }),
+    out,
+  );
+};
 const cardUsuarios = () => {
   const lista = el("ul"),
     n = el("input", { ariaLabel: "Usuario", placeholder: "Usuario" }),
@@ -689,7 +766,7 @@ function pintarAjustes() {
       .then(() => PL.length && vistaAct === "ajustes" && tabAj === "general" && pintarAjustes())
       .catch(() => {});
   $("aj-general").replaceChildren(
-    ...(AJ.servidor ? [cardCuenta(), ...(AJ.admin ? [cardUsuarios()] : [])] : [cardYo()]),
+    ...(AJ.servidor ? [cardCuenta(), cardAgentes(), ...(AJ.admin ? [cardUsuarios()] : [])] : [cardYo()]),
     cardEquipo(),
     tarjetaApariencia(),
     cardNombres(),
@@ -827,6 +904,7 @@ function pintarAvanzado() {
     ),
   );
   if (typeof ajMcp === "function") $("aj-av").append(ajMcp()); // shell.js
+  if (!AJ.servidor) $("aj-av").append(cardAgentes());
 }
 
 // ---- Ajustes › Perfiles de uso (CRUD sobre /api/perfiles-uso) ----

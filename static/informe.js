@@ -637,7 +637,50 @@
       );
     }
     cargar();
-    return [raiz];
+    return [raiz, investigaciones(c)];
+  }
+  // Investigaciones (investigacion.py): documentos en Markdown, sobre todo de agentes; aquí se descargan en .md o Word. Sin ninguna, no se ve.
+  function investigaciones(c) {
+    const caja = el("section", { className: "card inv", hidden: true });
+    const baja = (x, f) =>
+      el("a", { href: "/api/investigaciones/" + x.id + "?c=" + enc(c) + "&fmt=" + f, download: "", textContent: f === "md" ? ".md" : "Word" });
+    const pinta = xs => {
+      caja.hidden = !xs.length;
+      caja.replaceChildren(
+        el("h2", { textContent: "Investigaciones" }),
+        el(
+          "ul",
+          {},
+          ...xs.map(x =>
+            el(
+              "li",
+              {},
+              el("b", { textContent: x.titulo }),
+              " · " + (x.autor || "—") + " · " + new Date(x.t * 1000).toLocaleDateString("es") + " · ",
+              baja(x, "docx"),
+              " · ",
+              baja(x, "md"),
+              " · ",
+              el("button", {
+                className: "link",
+                textContent: "Borrar",
+                onclick: async () => {
+                  if (!confirm("¿Borrar la investigación «" + x.titulo + "»?")) return;
+                  try {
+                    await api("/api/investigaciones/" + x.id + "?c=" + enc(c), { method: "DELETE" });
+                    pinta(await api("/api/investigaciones?c=" + enc(c)));
+                  } catch (e) {
+                    err(e);
+                  }
+                },
+              }),
+            ),
+          ),
+        ),
+      );
+    };
+    api("/api/investigaciones?c=" + enc(c)).then(pinta, () => {});
+    return caja;
   }
   document.addEventListener("DOMContentLoaded", () => {
     FVISTAS.informe = vista;

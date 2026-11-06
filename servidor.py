@@ -29,7 +29,7 @@ DURA = 14 * 86400  # una sesión dura dos semanas
 # descargaría o usaría modelos locales, o abriría Outlook; también la documentación automática de la API
 BLOQUEADAS = re.compile(
     r"/api/(pick|encolar|upload|generar|transcripcion|importar|previa|notas|grabar|vigiladas|modelos|compartir|descargar|mcp)(/.*)?"
-    r"|/api/nube/estimar|/api/servidor/(conexion|enviar)|/api/correo/[^/]+/[^/]+/outlook/.*|/mcp|/utcp(/.*)?|/docs.*|/redoc|/openapi\.json"
+    r"|/api/nube/estimar|/api/servidor/(conexion|enviar)|/api/correo/[^/]+/[^/]+/outlook/.*|/mcp|/docs.*|/redoc|/openapi\.json"
 )
 LIBRES = {"/api/login", "/api/ping", "/login.html", "/favicon.ico", "/favicon.svg"}
 DESTINOS_NO = {"carpeta", "sftp"}  # escriben en el disco del servidor o ejecutan un comando tras subir
@@ -127,9 +127,9 @@ async def filtro(request: Request, call_next):
         return JSONResponse({"detail": "No disponible en el servidor"}, 403)
     if p in LIBRES:
         return await call_next(request)
-    n = quien(request)
+    n = request.scope.get("actas_agente") or quien(request)  # agentes.filtro ya ha comprobado el token del agente y su permiso
     if not n:
-        if p.startswith(("/api/", "/files/")):
+        if p.startswith(("/api/", "/files/", "/utcp")):
             return JSONResponse({"detail": "Inicia sesión"}, 401)
         return RedirectResponse("/login.html", 303)
     tok = registro.USUARIO.set(n)  # el autor del historial es quien ha entrado
@@ -290,10 +290,10 @@ class LlaveroFichero(KeyringBackend):
             self._escribir(d)
 
 
-def ia_local(nube=None):
+def ia_local(nube=None, sin_llm=False):
     """El servidor no usa IA local (start() y gpu_exclusiva() de app.py lo comprueban): solo trabajos con un proveedor de la nube con API,
     nunca una CLI (ejecuta programas). pipeline.sin_ia_local() lo cierra también abajo, al lanzar un modelo."""
-    if ACTIVO and not (isinstance(nube, dict) and nube.get("proveedor") and not str(nube["proveedor"]).startswith("cli:")):
+    if ACTIVO and not sin_llm and not (isinstance(nube, dict) and nube.get("proveedor") and not str(nube["proveedor"]).startswith("cli:")):
         raise HTTPException(409, "En el servidor no hay IA local: elige un modelo en la nube (Ajustes › Modelos en la nube) o procesa en el escritorio")
 
 

@@ -112,6 +112,7 @@ REVISADAS = {
     "/api/fondo",  # Path(d["id"]).name dentro de WORK (y la cola no corre IA local en el servidor)
     "/api/condensar",  # ídem
     "/api/describir",  # ídem
+    "/api/subir",  # escribe el cuerpo en WORK/subidas/<uuid>/<Path(nombre).name>; solo documentos
 }
 
 

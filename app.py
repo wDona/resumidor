@@ -1,6 +1,7 @@
 """Interfaz web local (FastAPI + página estática): vídeo -> acta HTML, vídeo condensado y preguntas. `uv run app.py`."""
 
 import atexit
+import base64
 import contextlib
 import functools
 import hashlib
@@ -39,6 +40,8 @@ import enlaces
 import export_registro
 import exportar
 import destinos
+import agentes
+import investigacion
 import mcp_servidor
 import vigiladas
 import grabar
@@ -56,6 +59,7 @@ import vision
 THREADS = int(os.environ.get("ACTAS_THREADS", pipeline.PHYS))
 STATIC, LOCK, COLA = pipeline.ROOT / "static", (pipeline.WORK if os.environ.get("ACTAS_WORK") else pipeline.ROOT) / ".actas.lock", pipeline.WORK / "cola.json"
 UPLOADS = pipeline.ROOT / "uploads"
+SUBIR_MAX = 50 << 20  # /api/subir: documentos, no vídeos
 TR_EXT = (".vtt", ".srt", ".txt", ".docx")
 AUDIO = (".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac", ".aac")
 IDLE = 60  # s sin latido de la página y el servidor se cierra
@@ -221,7 +225,8 @@ atexit.register(lambda: grabar.activa() and grabar.activa().parar())  # queda en
 
 # ---------- Cola de trabajos (uno a la vez: la GPU no admite dos) ----------
 def start(kind, spec, video, mid=""):
-    servidor.ia_local(spec.get("nube") if isinstance(spec, dict) else None)  # en el servidor, solo trabajos en la nube
+    sp = spec if isinstance(spec, dict) else {}
+    servidor.ia_local(sp.get("nube"), sin_llm=bool(sp.get("buscable") or sp.get("tal_cual")))  # en el servidor, solo nube o sin LLM
     with jlock:
         e = {"id": uuid.uuid4().hex[:8], "kind": kind, "spec": spec, "video": video, "mid": mid, "state": "pendiente", "t": time.time()}
         cola.append(e)
@@ -2985,6 +2990,39 @@ def _encolar(rutas, c="", recursivo=False, plan=None):
     return {"ids": ids, "omitidas": om}
 
 
+@app.post("/api/subir")
+def subir(d: dict, request: Request):
+    """{c, nombre, base64, resumir?, perfil?, nube?}: añade un documento (agentes y servidor de equipo, donde no hay rutas del disco).
+    Sin resumir solo se lee e indexa (sin IA); con resumir se hace también el resumen (en el servidor, con nube). -> {id del trabajo}."""
+    c = _c(d)
+    nombre = Path(str(d.get("nombre") or "")).name.strip()[:120]
+    ok = documentos.TEXTO + (documentos.IMAGEN if d.get("nube") or not servidor.ACTIVO else ())  # imágenes: describirlas pide IA
+    if Path(nombre).suffix.lower() not in ok:
+        raise HTTPException(400, "Formato no admitido: " + ", ".join(sorted({e.lstrip(".") for e in ok})))
+    ps = agentes.permisos(request)
+    if d.get("resumir") and ps is not None and "ia" not in ps:
+        raise HTTPException(403, "Este agente no tiene el permiso «ia»: sube sin resumir")
+    b64 = str(d.get("base64") or "")
+    if len(b64) > SUBIR_MAX * 4 // 3 + 4:
+        raise HTTPException(413, f"Como mucho {SUBIR_MAX >> 20} MB")
+    try:
+        datos = base64.b64decode(b64, validate=True)
+    except ValueError:
+        raise HTTPException(400, "base64 no válido")
+    if not datos:
+        raise HTTPException(400, "Fichero vacío")
+    f = pipeline.WORK / "subidas" / uuid.uuid4().hex[:8] / nombre
+    f.parent.mkdir(parents=True)
+    f.write_bytes(datos)
+    spec = {"video": str(f), "carpeta": c, "buscable": not d.get("resumir")}
+    spec |= {k: v for k, v in (("plantilla", d.get("perfil")), ("nube", d.get("nube"))) if v}
+    try:
+        return generar(spec)
+    except HTTPException:
+        shutil.rmtree(f.parent, ignore_errors=True)
+        raise
+
+
 @app.post("/api/encolar")
 def encolar(d: dict, request: Request):
     if (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "testclient"):
@@ -3004,6 +3042,10 @@ app.router.on_startup.append(vigiladas.iniciar)
 app.router.routes.extend(vigiladas.router.routes + mcp_servidor.router.routes)
 app.router.routes.extend(msgraph.router.routes)  # (include_router rompe test_urls_js_tienen_ruta: _IncludedRouter no tiene .path)
 servidor.montar(app)
+agentes.A, agentes.M = sys.modules[__name__], mcp_servidor
+investigacion.A = sys.modules[__name__]
+app.router.routes.extend(investigacion.router.routes)
+agentes.montar(app)  # después de servidor.montar: su filtro corre antes
 app.mount("/", StaticFiles(directory=STATIC, html=True))
 
 

@@ -19,7 +19,7 @@ Opcionales: `ACTAS_PORT` (8000), `ACTAS_HOST` (0.0.0.0), `ACTAS_NO_EMBED=0` para
 - Todo pide sesión (o el token personal del escritorio). La sesión dura dos semanas; reiniciar el servidor obliga a entrar de nuevo.
 - Todos ven todos los proyectos. El historial guarda quién hizo cada cambio.
 - **Sin IA local; sí en la nube:** el servidor nunca arranca modelos locales ni CLIs de IA. Preguntar, «Regenerar con IA», derivar, redactar informes, buscar a fondo y describir capturas funcionan si eliges un proveedor de la nube con clave (enlace «Modelos en la nube» en Preguntar o al añadir). La clave se guarda en el volumen (ver abajo). Las reuniones se transcriben y procesan en el escritorio.
-- **Bloqueado en el servidor:** elegir ficheros o carpetas del disco, subir vídeos, grabar, carpetas vigiladas, modelos, compartir por OneDrive, descargas, MCP, UTCP y Outlook. Los destinos «Carpeta» y «SFTP» tampoco (escriben en el disco del servidor o ejecutan comandos).
+- **Bloqueado en el servidor:** elegir ficheros o carpetas del disco, subir vídeos, grabar, carpetas vigiladas, modelos, compartir por OneDrive, descargas, MCP y Outlook. Los destinos «Carpeta» y «SFTP» tampoco (escriben en el disco del servidor o ejecutan comandos).
 - Los secretos (claves de la nube, tokens de Jira, Planner…) se guardan en `/data/secretos.json` con permisos 600, en claro dentro del volumen: protege el volumen y sus copias.
 - Cualquier usuario puede configurar webhooks y destinos HTTP; pueden llegar a la red interna del servidor. Da de alta solo a gente del equipo.
 
@@ -36,6 +36,13 @@ Desde ahí se sincroniza solo cada minuto, en los dos sentidos:
 - Lo que el equipo cambia en la web vuelve al escritorio con su autor.
 
 Un proyecto se comparte por carpeta (OneDrive) o por servidor, no por las dos vías a la vez.
+
+## Agentes
+
+Un agente (Claude, un script, un orquestador) puede usar la web en nombre de un usuario: en Ajustes › Agentes cada uno crea tokens
+con permisos (leer, escribir, usar IA, borrar). El agente lee el manual UTCP en `/utcp` con ese token y llama a la API; lo que hace
+sale en el historial como «Ana (agente: nombre)». Puede subir documentos (PDF, Word, Markdown, texto, HTML, correos; 50 MB): se
+leen e indexan sin IA, o se resumen con la nube si el token tiene «usar IA». Detalle: `docs/plan-agentes.md`.
 
 ## Copias de seguridad
 

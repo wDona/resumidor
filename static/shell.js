@@ -3094,7 +3094,6 @@ function ajMcp() {
             copia("Claude Desktop (claude_desktop_config.json)", cf.claude_desktop),
             copia("Claude Code", cf.claude_code),
             copia("HTTP (otras herramientas)", cf.http.url + (h ? "\n" + h : "")),
-            copia("UTCP (manual; el agente llama a la API directamente)", cf.utcp),
             ...(a.token_requerido
               ? [el("button", { type: "button", className: "sec sm", textContent: "Regenerar token", onclick: fallo(() => set({ regenerar_token: true })) })]
               : []),
