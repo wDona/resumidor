@@ -227,6 +227,8 @@ atexit.register(lambda: grabar.activa() and grabar.activa().parar())  # queda en
 def start(kind, spec, video, mid=""):
     sp = spec if isinstance(spec, dict) else {}
     servidor.ia_local(sp.get("nube"), sin_llm=bool(sp.get("buscable") or sp.get("tal_cual")))  # en el servidor, solo nube o sin LLM
+    if servidor.ACTIVO and kind == "condensar":
+        raise HTTPException(409, "En el servidor no se procesa vídeo: hazlo en el escritorio")
     with jlock:
         e = {"id": uuid.uuid4().hex[:8], "kind": kind, "spec": spec, "video": video, "mid": mid, "state": "pendiente", "t": time.time()}
         cola.append(e)

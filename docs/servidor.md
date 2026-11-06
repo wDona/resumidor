@@ -12,7 +12,11 @@ La misma aplicación, para todo el equipo desde el navegador. Decisiones y alcan
    - `ACTAS_ADMIN_CLAVE`: su contraseña (10 caracteres o más). Solo se usa si aún no hay usuarios; después puedes quitarla.
 5. Despliega y entra en el dominio con ese usuario. En **Ajustes › Usuarios** das de alta al resto.
 
-Opcionales: `ACTAS_PORT` (8000), `ACTAS_HOST` (0.0.0.0), `ACTAS_NO_EMBED=0` para búsquedas semánticas con el modelo de embeddings (lo descarga la primera vez; con `1` se busca por vocabulario).
+Opcionales: `ACTAS_PORT` (8000) y `ACTAS_HOST` (0.0.0.0).
+
+**CPU baja siempre.** El servidor no corre modelos ni nada pesado: ni IA local (LLM, Whisper), ni embeddings (la búsqueda va por
+vocabulario, también con `ACTAS_NO_EMBED=0`), ni OCR (las páginas escaneadas y las imágenes entran sin su texto), ni vídeo. La IA
+solo con un modelo en la nube, que corre fuera; lo pesado se procesa en el escritorio y se envía al servidor.
 
 ## Qué hay y qué no
 

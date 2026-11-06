@@ -133,3 +133,24 @@ def test_investigaciones(cl):
     x2 = t.post("/api/investigaciones", json={"c": C, "markdown": "# Otra\n\nTexto", "id": x["id"]}, headers=h).json()
     assert x2["id"] == x["id"] and x2["titulo"] == "Otra"
     assert t.post("/api/investigaciones", json={"c": C, "markdown": "  "}, headers=h).status_code == 400
+
+
+def test_servidor_cpu_baja(sv, monkeypatch):
+    """El servidor no corre nada pesado: ni embeddings, ni OCR, ni vídeo (docs/servidor.md)."""
+    import documentos
+    import pipeline
+    import rag
+    from PIL import Image
+
+    t, app = sv
+    monkeypatch.setenv("ACTAS_SERVIDOR", "1")
+    monkeypatch.setattr(rag, "embed_gguf", lambda *a: 1 / 0)
+    assert rag.embed(["hola mundo"]).shape == (1, 1024)  # vectores léxicos, sin modelo
+    assert documentos.ocr(Image.new("RGB", (40, 20))) == []
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        app.start("condensar", {"nube": {"proveedor": "openai"}}, "v")
+    with pytest.raises(RuntimeError):
+        pipeline.launch("x.gguf", 0, 1, ["--embedding"], "emb")

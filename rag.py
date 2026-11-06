@@ -268,6 +268,8 @@ def embed_lex(texts, dim=1024):
 def embed(texts, query=False, threads=2, std=False):
     """std=True: siempre el ONNX de serie (el pipeline del acta está calibrado para él); el rol «emb» solo afecta al índice de Preguntar."""
     global _enc
+    if P.en_servidor():  # el servidor no corre modelos (CPU baja): búsqueda por vocabulario
+        return embed_lex(texts)
     if not std and emb_id() != ONNX:
         return embed_gguf(texts, query, threads)
     if no_embed():

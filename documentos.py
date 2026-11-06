@@ -51,7 +51,9 @@ def _motor():
 
 
 def ocr(im):
-    """Líneas de texto de una imagen PIL (mismo OCR y limpieza que las capturas del vídeo)."""
+    """Líneas de texto de una imagen PIL (mismo OCR y limpieza que las capturas del vídeo). En el servidor, ninguna: el OCR gasta CPU."""
+    if P.en_servidor():
+        return []
     res, _ = _motor()(np.ascontiguousarray(np.asarray(im.convert("RGB"))[:, :, ::-1]))
     return [x for _, t, sc in res or [] if float(sc) > 0.6 and (x := P.clean_ocr(t))]
 

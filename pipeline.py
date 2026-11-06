@@ -202,9 +202,14 @@ def pcm16k(video, start, length):
     )
 
 
+def en_servidor():
+    """Modo servidor (ACTAS_SERVIDOR=1): solo trabajo de poca CPU. Nada de modelos locales (LLM, Whisper, embeddings), OCR ni vídeo."""
+    return os.environ.get("ACTAS_SERVIDOR") == "1"
+
+
 def sin_ia_local():
     """Modo servidor (servidor.py, ACTAS_SERVIDOR=1): ningún modelo local, pase lo que pase más arriba. Solo la nube."""
-    if os.environ.get("ACTAS_SERVIDOR") == "1":
+    if en_servidor():
         raise RuntimeError("En el servidor no hay IA local: elige un modelo en la nube")
 
 
@@ -1023,8 +1028,7 @@ def call(url, fn):
 def launch(model, ctx, threads, extra, logname, gpu=None, gpu_args=None):
     """Arranca llama-server -> (url, proc). En GPU (-ngl auto: descarga parcial según la VRAM libre) y, si no arranca
     (p. ej. sin memoria), un reintento en CPU."""
-    if "--embedding" not in extra:  # embeddings de la búsqueda (ACTAS_NO_EMBED=0, docs/servidor.md) sí; un LLM local, no
-        sin_ia_local()
+    sin_ia_local()  # en el servidor ni LLM ni embeddings locales (rag.embed usa vectores léxicos)
     g = use_gpu(gpu)
     for use in [True, False] if g else [False]:
         exe = llama_exe(use)
