@@ -130,3 +130,22 @@ def test_mcp_respeta_anonimizar_por_defecto(monkeypatch):
     monkeypatch.setattr(M.A, "_ajustes", lambda: {"anonimizar_defecto": True})
     r = M._llamar({"name": "proyectos", "arguments": {}})
     assert r["isError"] and "Anonimizar" in r["content"][0]["text"]
+
+
+def test_utcp(cl):
+    """Las herramientas MCP también por UTCP: manual en GET /utcp y POST /utcp/<nombre> con el mismo token y permisos."""
+    t, _ = cl
+    assert t.get("/utcp").status_code == 403  # desactivado
+    tok = t.post("/api/mcp/ajustes", json={"activo": True}).json()["token"]
+    m = t.get("/utcp").json()
+    assert m["utcp_version"] and [x["name"] for x in m["tools"]] == ["buscar", "preguntar", "documento", "pendientes", "proyectos"]
+    tpl = m["tools"][0]["tool_call_template"]
+    assert tpl["url"].endswith("/utcp/buscar") and tpl["auth"]["api_key"] == "Bearer ${TOKEN}" and tok not in str(m)
+    assert t.post("/utcp/proyectos").status_code == 401
+    h = {"Authorization": "Bearer " + tok}
+    assert C in t.post("/utcp/proyectos", headers=h).text
+    assert "ascensor" in t.post("/utcp/buscar", params={"q": "ascensor", "proyecto": C, "limite": "3"}, headers=h).text
+    assert "Junta de enero" in t.post("/utcp/documento", json={"id": "aaaa1111"}, headers=h).text
+    assert t.post("/utcp/documento", json={"id": "nope"}, headers=h).status_code == 400
+    assert t.post("/utcp/encolar", json={"rutas": ["/x"]}, headers=h).status_code == 404  # sin permiso no existe
+    assert "actas_TOKEN=" + tok in t.get("/api/mcp/config").json()["utcp"]

@@ -1,6 +1,8 @@
 """Servidor MCP (Streamable HTTP, POST /mcp, JSON-RPC 2.0) para que Claude Desktop/Code, Copilot, Cursor u Open WebUI consulten la biblioteca.
 Solo desde este equipo y, si está activado, con token Bearer. Herramientas: buscar, preguntar (modelo local), documento, pendientes, proyectos
-y encolar (solo con el permiso de Ajustes). Ajustes en work/mcp.json. `python app.py --mcp-stdio` es un puente stdio -> /mcp para clientes sin HTTP."""
+y encolar (solo con el permiso de Ajustes). Ajustes en work/mcp.json. `python app.py --mcp-stdio` es un puente stdio -> /mcp para clientes sin HTTP.
+Las mismas herramientas, con el mismo token y permisos, también por UTCP: GET /utcp da el manual y cada una es POST /utcp/<nombre>
+(argumentos como parámetros de la URL o en el cuerpo JSON; respuesta en texto)."""
 
 import asyncio
 import hmac
@@ -244,7 +246,7 @@ def responder(m):
     if me == "ping":
         return ok({})
     if me == "tools/list":
-        return ok({"tools": [t for t in TOOLS if t["name"] != "encolar" or cfg()["permitir_encolar"]]})
+        return ok({"tools": _visibles()})
     if me == "tools/call":
         try:
             return ok(_llamar(p))
@@ -253,8 +255,8 @@ def responder(m):
     return err(-32601, f"Método no encontrado: {me}")
 
 
-@router.post("/mcp")
-async def mcp(r: Request):
+def _acceso(r: Request):
+    """Lo común a /mcp y /utcp: solo este equipo, activado en Ajustes y, si se pide, con el token. Devuelve la respuesta 401 o None."""
     _local(r)
     c = cfg()
     if not c["activo"]:
@@ -263,6 +265,16 @@ async def mcp(r: Request):
         c["token"] and hmac.compare_digest(r.headers.get("authorization", "").encode(), ("Bearer " + c["token"]).encode())
     ):  # sin token guardado: cerrado, no abierto
         return JSONResponse({"error": "Token no válido"}, 401, {"WWW-Authenticate": "Bearer"})
+
+
+def _visibles():
+    return [t for t in TOOLS if t["name"] != "encolar" or cfg()["permitir_encolar"]]
+
+
+@router.post("/mcp")
+async def mcp(r: Request):
+    if no := _acceso(r):
+        return no
     try:
         m = json.loads(await r.body())
     except ValueError:
@@ -277,6 +289,57 @@ async def mcp(r: Request):
 @router.get("/mcp")
 def mcp_get():
     return Response(status_code=405, headers={"Allow": "POST"})
+
+
+# ---------- UTCP: el agente llama a la API directamente con el manual ----------
+@router.get("/utcp")
+def utcp_manual(r: Request):
+    """Manual UTCP 1.0. No lleva el token: el cliente lo pone en la variable TOKEN (actas_TOKEN en python-utcp)."""
+    _local(r)
+    if not cfg()["activo"]:
+        raise HTTPException(403, "El servidor MCP está desactivado (Ajustes)")
+    base = f"http://127.0.0.1:{r.url.port or 80}/utcp/"
+    auth = {"auth_type": "api_key", "api_key": "Bearer ${TOKEN}", "var_name": "Authorization", "location": "header"}
+    plantilla = lambda n: {
+        "name": "actas",
+        "call_template_type": "http",
+        "url": base + n,
+        "http_method": "POST",
+        **({"auth": auth} if cfg()["token_requerido"] else {}),
+    }
+    return {
+        "utcp_version": "1.0.1",
+        "manual_version": "1.0.0",
+        "tools": [
+            {
+                "name": t["name"],
+                "description": t["description"],
+                "inputs": t["inputSchema"],
+                "outputs": {"type": "string"},
+                "tags": ["actas"],
+                "tool_call_template": plantilla(t["name"]),
+            }
+            for t in _visibles()
+        ],
+    }
+
+
+@router.post("/utcp/{nombre}")
+async def utcp_llamar(nombre: str, r: Request):
+    """Argumentos en la URL (?q=…&rutas=a&rutas=b) o en el cuerpo JSON; texto plano de vuelta, 400 si la herramienta falla."""
+    if no := _acceso(r):
+        return no
+    if nombre not in {t["name"] for t in _visibles()}:
+        raise HTTPException(404, f"Herramienta desconocida: {nombre}")
+    try:
+        a = json.loads(await r.body() or b"{}")
+    except ValueError:
+        raise HTTPException(400, "JSON no válido")
+    q = r.query_params
+    a = {**{k: (q.getlist(k) if k == "rutas" else q[k]) for k in q}, **(a if isinstance(a, dict) else {})}
+    res = await asyncio.get_running_loop().run_in_executor(None, _llamar, {"name": nombre, "arguments": a})
+    texto = "\n".join(x["text"] for x in res["content"])
+    return Response(texto, 400 if res.get("isError") else 200, media_type="text/plain; charset=utf-8")
 
 
 # ---------- ajustes y configuración para pegar ----------
@@ -318,6 +381,8 @@ def api_config(r: Request):
         "claude_desktop": json.dumps({"mcpServers": {"actas": {"command": sys.executable, "args": [app_py, "--mcp-stdio"]}}}, indent=2),
         "claude_code": f"claude mcp add --transport http actas {url}{h}",
         "http": {"url": url, "headers": {"Authorization": "Bearer " + c["token"]} if h else {}},
+        "utcp": json.dumps({"name": "actas", "call_template_type": "http", "url": url.replace("/mcp", "/utcp"), "http_method": "GET"}, indent=2)
+        + (f"\n\nVariable: actas_TOKEN={c['token']}" if h else ""),
     }
 
 
