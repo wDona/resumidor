@@ -1157,6 +1157,38 @@ def api_enviar(d: dict):
     return _err(lambda: _envio(_pedido(d)))
 
 
+def enlaces(c):
+    """Destinos con los que trabaja el proyecto c (lo enviado y sus recetas) -> [{nombre, tipo, url}]: la página del proyecto allí
+    (repositorio, proyecto de Jira…) o, si el tipo no la sabe, lo último que se envió."""
+    cf, mids = cfg(), {m for m, _ in _docs_de(c)}
+    usos = {}  # destino -> (opciones, último enlace); el historial va en orden: lo último manda
+    for e in _historial():
+        r = e.get("req") or {}
+        doc = r.get("doc")
+        mid = doc.split("/")[0] if isinstance(doc, str) else (doc or {}).get("mid", "") if isinstance(doc, dict) else ""
+        if e.get("destino") in cf["destinos"] and (r.get("c") == c or (r.get("c") is None and mid in mids)):
+            prev = usos.get(e["destino"], ({}, ""))
+            usos[e["destino"]] = (r.get("opciones") or prev[0], next(iter(e.get("enlaces") or []), "") or prev[1])
+    for r in cf["recetas"].values():
+        if str((r.get("cuando") or {}).get("carpeta") or "").casefold() == c.casefold():
+            for z in normalizar_plan(_plan_de(r))["salidas"]:
+                p = cf["presets"].get(z.get("preset")) or {}
+                did = z.get("destino") or p.get("destino")
+                if did in cf["destinos"] and did not in usos:
+                    usos[did] = (p.get("opciones") or {}, "")
+    out = []
+    for did, (op, ult) in usos.items():
+        d = cf["destinos"][did]
+        tp = T.TIPOS.get(d["tipo"]) or {}
+        try:
+            url = tp["inicio"]({**d["config"], **{k: v for k, v in op.items() if v not in ("", None)}}) if tp.get("inicio") else None
+        except (KeyError, TypeError, AttributeError):
+            url = None
+        if (url := url or ult) and str(url).startswith(("https://", "http://")):
+            out.append({"nombre": d.get("nombre") or tp.get("nombre", d["tipo"]), "tipo": tp.get("nombre", d["tipo"]), "url": url, "ultimo": url == ult})
+    return out
+
+
 def _historial():
     return [json.loads(ln) for ln in LOG().read_text(encoding="utf-8").splitlines() if ln.strip()] if LOG().is_file() else []
 

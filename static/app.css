@@ -1955,6 +1955,15 @@ body.simple:not(.mod-todos) .mod-av {
   text-align: left;
   border-radius: var(--r-s);
 }
+.menu .pop a.enl {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6px 16px;
+}
+.menu .pop a.enl .muted {
+  font-size: var(--fs-xs);
+}
 .menu .pop button:hover {
   background: var(--acc-s);
 }

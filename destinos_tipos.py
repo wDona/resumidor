@@ -80,6 +80,8 @@ def _tit(x):
 
 
 U = lambda o, d: (o.get("url") or d).rstrip("/")
+# Página del proyecto en el destino (menú «Enlaces» del proyecto); sin «inicio», se enlaza lo último enviado allí
+_GH_WEB = lambda o: "https://github.com" if U(o, "https://api.github.com") == "https://api.github.com" else re.sub(r"/api/v3$", "", U(o, ""))
 
 
 # ---------- trackers (un ítem = una incidencia) ----------
@@ -708,6 +710,7 @@ TIPOS = {
         "http": True,
         "crear": _gh,
         "actualizar": _gh,
+        "inicio": lambda o: f"{_GH_WEB(o)}/{o['repo']}",
         "probar": lambda o, s: http("GET", U(o, "https://api.github.com") + "/user", {"Authorization": "token " + s["token"]}),
         "campos": [TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True), ET, URLF("https://api.github.com")],
     },
@@ -717,6 +720,7 @@ TIPOS = {
         "http": True,
         "crear": _gitea,
         "actualizar": _gitea,
+        "inicio": lambda o: f"{o['url'].rstrip('/')}/{o['repo']}",
         "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/api/v1/user", {"Authorization": "token " + s["token"]}),
         "campos": [URLF("", True), TOK, F("repo", "Repositorio (propietario/nombre)", req=True, preset=True)],
     },
@@ -726,6 +730,7 @@ TIPOS = {
         "http": True,
         "crear": _gl,
         "actualizar": _gl,
+        "inicio": lambda o: None if str(o["proyecto"]).isdigit() else f"{U(o, 'https://gitlab.com')}/{o['proyecto']}",
         "probar": lambda o, s: http("GET", U(o, "https://gitlab.com") + "/api/v4/user", {"PRIVATE-TOKEN": s["token"]}),
         "campos": [TOK, F("proyecto", "Proyecto (id o ruta)", req=True, preset=True), ET, URLF("https://gitlab.com")],
     },
@@ -735,6 +740,7 @@ TIPOS = {
         "http": True,
         "crear": _jira,
         "actualizar": _jira,
+        "inicio": lambda o: f"{o['url'].rstrip('/')}/browse/{o['proyecto']}",
         "leer": _jira_leer,
         "probar": lambda o, s: http("GET", f"{_jh(o, s)[2]}/rest/api/{_jh(o, s)[0]}/myself", _jh(o, s)[1]),
         "campos": [
@@ -825,6 +831,7 @@ TIPOS = {
         "crear": _azure,
         "actualizar": _azure,
         "leer": _azure_leer,
+        "inicio": lambda o: f"{o['url'].rstrip('/')}/{urllib.parse.quote(o['proyecto'])}/_workitems",
         "probar": lambda o, s: http("GET", o["url"].rstrip("/") + "/_apis/projects?api-version=7.1", _basic("", s["token"])),
         "campos": [
             F("url", "Organización (https://dev.azure.com/org)", "url", True),

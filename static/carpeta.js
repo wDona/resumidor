@@ -118,6 +118,52 @@ const fLink = (r, txt) =>
     },
   });
 
+// «Enlaces» de la cabecera: dónde vive el proyecto fuera (servidor de equipo, carpeta de OneDrive) y los destinos con los que trabaja
+// (repositorio, proyecto de Jira o Azure…). Sin enlaces no se ve: no ocupa sitio.
+function fEnlaces(c) {
+  const w = $("f-enl"),
+    l = $("f-enl-l");
+  const item = (nombre, tipo, extra) =>
+    el("a", { role: "menuitem", className: "enl", ...extra }, el("span", { textContent: nombre }), el("span", { className: "muted", textContent: tipo }));
+  api("/api/enlaces?c=" + encodeURIComponent(c))
+    .catch(() => [])
+    .then(xs => {
+      if (fuC !== c) return; // el usuario ya está en otro proyecto
+      const its = xs.map(x =>
+        x.carpeta
+          ? item(x.nombre, x.tipo + " · abrir carpeta", {
+              href: "#",
+              title: x.ruta,
+              onclick: e => {
+                e.preventDefault();
+                w.open = false;
+                fallo(post)("/api/compartir/abrir", { c });
+              },
+            })
+          : item(x.nombre, x.tipo + (x.ultimo ? " · último envío" : ""), {
+              href: x.url,
+              target: "_blank",
+              rel: "noopener",
+              title: x.url,
+              onclick: () => (w.open = false),
+            }),
+      );
+      if (AJ.servidor)
+        its.push(
+          item("Copiar enlace a este proyecto", "para compartirlo con el equipo", {
+            href: "#",
+            onclick: e => {
+              e.preventDefault();
+              w.open = false;
+              navigator.clipboard.writeText(location.origin + "/#/p/" + encodeURIComponent(c)).then(() => aviso("Enlace copiado"));
+            },
+          }),
+        );
+      l.replaceChildren(...its);
+      $("f-enl-n").textContent = xs.length ? String(xs.length) : "";
+      w.hidden = !its.length;
+    });
+}
 function carpetaVista(c) {
   const on = typeof c === "string" && c !== "";
   $("f-tabs").hidden = $("f-panel").hidden = $("f-nuevo").hidden = !on;
@@ -153,12 +199,14 @@ function carpetaVista(c) {
     fuC = null;
     $("f-sub").replaceChildren();
     $("f-auto").hidden = true;
+    $("f-enl").hidden = true;
     return;
   }
   $("f-nuevo").textContent = "+ Añadir";
   pintaTabs();
   if (fuC === c && !fsucio) return;
   if (fuC !== c) fpenFoco = null;
+  fEnlaces(c);
   fuC = c;
   fsucio = false;
   pintaTabs();

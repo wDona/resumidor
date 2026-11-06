@@ -600,3 +600,22 @@ def test_plan_conserva_formatos_y_repetir_crea_receta(E):
     rec = next(x for x in (r if isinstance(r, list) else r.get("recetas", [])) if x["id"] == i)
     assert rec["cuando"]["tipo"] == "programado" and rec["cuando"]["cada"] == "semana" and rec["proximo_iso"] and "repetir" not in rec["plan"]
     assert destinos.programar_desde_plan({"carpeta": C, "salidas": []}) is None
+
+
+def test_enlaces_del_proyecto(E, tmp_path):
+    t, _ = E
+    gh = dest(t, "github", token="tk", repo="o/r")
+    jr = dest(t, "jira", url="https://x.atlassian.net", email="a@b.c", token="tk", proyecto="ABC")
+    tr = dest(t, "trello", clave_api="k", token="tk", lista="L1")
+    otro = dest(t, "gitea", url="https://git.example", token="tk", repo="o/otro")
+    for did, c, url in ((gh, C, "https://github.com/o/r/issues/1"), (jr, C, ""), (tr, C, "https://trello.com/c/abc"), (otro, "Otro", "")):
+        destinos._log({"destino": did, "req": {"c": c, "opciones": {}}, "enlaces": [url] if url else []})
+    assert t.get("/api/enlaces", params={"c": C}).json() == [
+        {"nombre": "github", "tipo": "GitHub Issues", "url": "https://github.com/o/r", "ultimo": False},
+        {"nombre": "jira", "tipo": "Jira (Cloud, Server o Data Center)", "url": "https://x.atlassian.net/browse/ABC", "ultimo": False},
+        {"nombre": "trello", "tipo": "Trello", "url": "https://trello.com/c/abc", "ultimo": True},
+    ]
+    sh = tmp_path / "OneDrive"
+    sh.mkdir()
+    t.post("/api/compartir", json={"c": C, "ruta": str(sh)})
+    assert t.get("/api/enlaces", params={"c": C}).json()[0]["carpeta"]

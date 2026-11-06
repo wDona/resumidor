@@ -571,6 +571,37 @@ def api_compartir(d: dict):
     return _vista(c)
 
 
+@router.get("/api/enlaces")
+def api_enlaces(c: str):
+    """Menú «Enlaces» del proyecto: dónde se comparte (servidor o carpeta) y los destinos con los que trabaja (destinos.enlaces)."""
+    import destinos
+
+    s = None if servidor.ACTIVO else estado(c)  # en el servidor el proyecto ya está aquí (y su ruta interna no se enseña)
+    out = []
+    if s and s.get("servidor"):
+        out.append({"nombre": "Servidor de equipo", "tipo": "Actas", "url": f"{s['servidor']}/#/p/{urllib.parse.quote(c)}"})
+    elif s:
+        out.append({"nombre": "Carpeta compartida", "tipo": "OneDrive o SharePoint", "carpeta": True, "ruta": s["ruta"]})
+    return out + destinos.enlaces(c)
+
+
+@router.post("/api/compartir/abrir")
+def api_abrir(d: dict):
+    """Abre en el explorador la carpeta compartida del proyecto (solo esa: la ruta sale del estado, no del navegador)."""
+    import os
+    import subprocess
+    import sys
+
+    s = estado(A._c(d))
+    if not s or s.get("servidor") or not Path(s["ruta"]).is_dir():
+        raise HTTPException(404, "Este proyecto no se comparte en una carpeta")
+    if sys.platform == "win32":
+        os.startfile(s["ruta"])  # noqa: S606
+    else:
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", s["ruta"]])
+    return {}
+
+
 @router.post("/api/compartir/unirse")
 def api_unirse(d: dict):
     try:
